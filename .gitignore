@@ -1,0 +1,38 @@
+# FastF1 cache (large data files)
+data/cache/
+examples/data/cache/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+eggs/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Output files
+output/
+*.csv
+*.json
+
+# Jupyter
+.ipynb_checkpoints/
