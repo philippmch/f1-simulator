@@ -93,39 +93,48 @@ class Weather(BaseModel):
         """
         new_weather = self.model_copy(deep=True)
 
+        # Track wetness changes even without condition change
+        if new_weather.rain_intensity > 0:
+            # Rain adds wetness quickly
+            wetness_gain = 0.08 + 0.12 * new_weather.rain_intensity
+            new_weather.track_wetness = min(1.0, self.track_wetness + wetness_gain)
+        else:
+            # Track dries slowly (takes ~20 laps to fully dry)
+            new_weather.track_wetness = max(0.0, self.track_wetness - 0.03)
+
         if rng.random() > self.change_probability:
-            # No change
+            # No condition change, but wetness already updated
             return new_weather
 
-        # Weather can change
+        # Weather condition can change
         if self.condition == WeatherCondition.DRY:
-            if rng.random() < 0.3:
+            if rng.random() < 0.5:
                 new_weather.condition = WeatherCondition.CLOUDY
+                new_weather.humidity = min(1.0, self.humidity + 0.2)
         elif self.condition == WeatherCondition.CLOUDY:
             roll = rng.random()
-            if roll < 0.3:
+            if roll < 0.25:
                 new_weather.condition = WeatherCondition.DRY
-            elif roll < 0.5:
-                new_weather.condition = WeatherCondition.LIGHT_RAIN
-                new_weather.rain_intensity = rng.uniform(0.1, 0.3)
-        elif self.condition == WeatherCondition.LIGHT_RAIN:
-            roll = rng.random()
-            if roll < 0.2:
-                new_weather.condition = WeatherCondition.CLOUDY
-                new_weather.rain_intensity = 0.0
-            elif roll < 0.4:
-                new_weather.condition = WeatherCondition.HEAVY_RAIN
-                new_weather.rain_intensity = rng.uniform(0.6, 1.0)
-        else:  # HEAVY_RAIN
-            if rng.random() < 0.3:
+            elif roll < 0.6:
+                # Rain starts
                 new_weather.condition = WeatherCondition.LIGHT_RAIN
                 new_weather.rain_intensity = rng.uniform(0.2, 0.4)
-
-        # Update track wetness based on rain
-        if new_weather.rain_intensity > 0:
-            new_weather.track_wetness = min(1.0, self.track_wetness + 0.1 * new_weather.rain_intensity)
-        else:
-            # Track dries slowly
-            new_weather.track_wetness = max(0.0, self.track_wetness - 0.05)
+        elif self.condition == WeatherCondition.LIGHT_RAIN:
+            roll = rng.random()
+            if roll < 0.25:
+                # Rain stops but track still wet
+                new_weather.condition = WeatherCondition.CLOUDY
+                new_weather.rain_intensity = 0.0
+            elif roll < 0.5:
+                # Rain intensifies
+                new_weather.condition = WeatherCondition.HEAVY_RAIN
+                new_weather.rain_intensity = rng.uniform(0.7, 1.0)
+            # else: stays light rain
+        else:  # HEAVY_RAIN
+            roll = rng.random()
+            if roll < 0.35:
+                new_weather.condition = WeatherCondition.LIGHT_RAIN
+                new_weather.rain_intensity = rng.uniform(0.2, 0.4)
+            # Heavy rain tends to persist
 
         return new_weather

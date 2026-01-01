@@ -3,6 +3,7 @@
 import numpy as np
 
 from f1sim.models import Car, Driver, Tire, Track, Weather
+from f1sim.models.tire import TireCompound
 
 
 class LapSimulator:
@@ -77,6 +78,9 @@ class LapSimulator:
             wet_adjustment = 1.0 + (1.0 - driver.wet_skill_modifier) * 0.02
             weather_multiplier *= wet_adjustment
 
+        # Tire/weather mismatch penalty (catastrophic if wrong tires)
+        mismatch_penalty = self._tire_weather_mismatch(tire, weather)
+
         # Traffic/dirty air effect
         traffic_delta = 0.0
         if gap_to_car_ahead is not None and gap_to_car_ahead < 2.0:
@@ -98,6 +102,7 @@ class LapSimulator:
         lap_time = base_time + car_delta + skill_delta + random_variation
         lap_time += tire_delta + fuel_delta + traffic_delta - drs_gain
         lap_time *= weather_multiplier
+        lap_time += mismatch_penalty  # Add after multiplier (flat penalty)
 
         # Ensure minimum realistic lap time
         min_lap_time = track.base_lap_time * 0.95
@@ -179,3 +184,47 @@ class LapSimulator:
         lap_time = (base_time + car_delta + skill_delta + random_variation - tire_bonus) * weather_multiplier
 
         return max(track.base_lap_time * 0.93, lap_time)
+
+    def _tire_weather_mismatch(self, tire: Tire, weather: Weather) -> float:
+        """Calculate penalty for wrong tire compound in current conditions.
+
+        Args:
+            tire: Current tire compound
+            weather: Current weather conditions
+
+        Returns:
+            Time penalty in seconds (0 if tires are appropriate)
+        """
+        compound = tire.compound
+        is_slick = compound in (TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD)
+        is_inter = compound == TireCompound.INTERMEDIATE
+        is_wet = compound == TireCompound.WET
+
+        track_wetness = weather.track_wetness
+
+        # Slicks on wet track = disaster (aquaplaning)
+        if is_slick and track_wetness > 0.5:
+            # 10-30 seconds slower per lap, plus high crash risk
+            return 10.0 + (track_wetness - 0.5) * 40.0
+
+        # Slicks on damp track = very slow, but survivable
+        if is_slick and track_wetness > 0.2:
+            return 3.0 + (track_wetness - 0.2) * 15.0
+
+        # Inters on very wet track = too much water
+        if is_inter and track_wetness > 0.8:
+            return 5.0 + (track_wetness - 0.8) * 25.0
+
+        # Wet tires on dry track = massive overheating, graining
+        if is_wet and track_wetness < 0.3:
+            return 8.0 + (0.3 - track_wetness) * 20.0
+
+        # Inters on dry track = overheating but less severe
+        if is_inter and track_wetness < 0.15:
+            return 4.0 + (0.15 - track_wetness) * 20.0
+
+        # Inters in optimal window (0.3-0.6 wetness) = good
+        # Wets in optimal window (0.6+ wetness) = good
+        # Slicks on dry (< 0.2 wetness) = good
+
+        return 0.0

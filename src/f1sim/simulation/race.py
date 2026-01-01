@@ -6,7 +6,7 @@ from enum import Enum
 import numpy as np
 
 from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather
-from f1sim.models.tire import TIRE_COMPOUNDS
+from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
 from f1sim.simulation.events import EventManager, RaceEvent
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.overtaking import OvertakingModel
@@ -156,7 +156,8 @@ class RaceSimulator:
                 # Check for pit stop decision
                 should_pit = self._should_pit(
                     state, track, lap,
-                    self.event_manager.is_pit_window_open()
+                    self.event_manager.is_pit_window_open(),
+                    weather=current_weather,
                 )
 
                 if should_pit:
@@ -204,13 +205,7 @@ class RaceSimulator:
                 for pitting_driver in drivers_pitting:
                     self._handle_pit_position_changes(pitting_driver, states)
 
-            # Phase 3: Process overtakes (skip at extremely difficult tracks like Monaco)
-            if track.overtake_difficulty < 0.9:
-                incidents_this_lap += self._process_overtakes(
-                    states, track, current_weather
-                )
-
-            # Process events
+            # Process events first to know if SC is active
             active_drivers = [s.driver for s in states if s.status == DriverStatus.RACING]
             lap_events = self.event_manager.process_lap(
                 lap=lap,
@@ -230,6 +225,23 @@ class RaceSimulator:
                             state.dnf_reason = state.driver.dnf_reason
 
             all_events.extend(lap_events)
+
+            # Check if safety car was just deployed - bunch up the field
+            from f1sim.simulation.events import EventType
+            sc_deployed_this_lap = any(
+                e.event_type == EventType.SAFETY_CAR for e in lap_events
+            )
+            if sc_deployed_this_lap:
+                self.event_manager.bunch_field(states)
+
+            # Phase 3: Process overtakes
+            # Skip at extremely difficult tracks like Monaco (unless restart lap)
+            is_restart = self.event_manager.is_restart_lap()
+            if track.overtake_difficulty < 0.9 or is_restart:
+                # More overtaking attempts on restart laps
+                incidents_this_lap += self._process_overtakes(
+                    states, track, current_weather, restart_lap=is_restart
+                )
 
             # Update positions
             self._update_positions(states)
@@ -280,10 +292,22 @@ class RaceSimulator:
         track: Track,
         lap: int,
         pit_window_open: bool,
+        weather: Weather | None = None,
     ) -> bool:
         """Decide if driver should pit this lap."""
+        # CRITICAL: Force pit if tires are completely wrong for conditions
+        if weather is not None:
+            tire_mismatch = self._check_tire_weather_mismatch(state.current_tire, weather)
+            if tire_mismatch == "critical":
+                return True  # Must pit immediately
+            elif tire_mismatch == "suboptimal" and self.rng.random() < 0.7:
+                return True  # Should pit soon
+
         # Limit to realistic number of pit stops (1-2 for most races)
+        # Weather changes can force extra stops
         max_stops = 2 if track.total_laps > 50 else 1
+        if weather is not None and weather.track_wetness > 0.3:
+            max_stops = 4  # Allow more stops in changing conditions
         if state.pit_stops >= max_stops:
             return False
 
@@ -390,15 +414,26 @@ class RaceSimulator:
         states: list[DriverRaceState],
         track: Track,
         weather: Weather,
+        restart_lap: bool = False,
     ) -> int:
-        """Process overtaking opportunities. Returns number of incidents."""
+        """Process overtaking opportunities. Returns number of incidents.
+
+        Args:
+            states: Driver race states
+            track: Current track
+            weather: Current weather
+            restart_lap: If True, this is a restart after SC (more overtaking)
+        """
         incidents = 0
         racing_states = [s for s in states if s.status == DriverStatus.RACING]
 
         # Sort by position to check if faster cars are stuck behind slower ones
         racing_states.sort(key=lambda s: s.position)
 
-        for i in range(1, len(racing_states)):
+        # On restart laps, process more potential battles (cars are bunched)
+        max_battles = len(racing_states) if restart_lap else len(racing_states)
+
+        for i in range(1, min(max_battles, len(racing_states))):
             # Car behind (higher position number)
             attacker = racing_states[i]
             # Car ahead (lower position number)
@@ -408,24 +443,28 @@ class RaceSimulator:
             # Negative means attacker has caught up and is faster
             gap = attacker.total_time - defender.total_time
 
-            # If attacker hasn't caught up yet, no overtake attempt
-            if gap > 1.5:
+            # On restart, everyone is within ~1s, so always check
+            # Normal racing: skip if gap is too large
+            if not restart_lap and gap > 1.5:
                 continue
 
             # Gap for overtake purposes (how close they are)
             overtake_gap = max(0.0, gap)  # If negative, they're right on their tail
 
-            # Check if should attempt
-            if not self.overtaking_model.should_attempt_overtake(
+            # On restart laps, drivers are more aggressive
+            if restart_lap:
+                # Always attempt on restart (everyone is close)
+                pass
+            elif not self.overtaking_model.should_attempt_overtake(
                 attacker.driver,
                 defender.driver,
                 overtake_gap,
-                track.total_laps,  # Would need remaining laps
+                track.total_laps,
                 attacker.position,
             ):
                 continue
 
-            # Attempt overtake
+            # Attempt overtake - boosted probability on restart
             success, incident = self.overtaking_model.attempt_overtake(
                 attacker=attacker.driver,
                 attacker_car=attacker.car,
@@ -435,6 +474,7 @@ class RaceSimulator:
                 gap=overtake_gap,
                 has_drs=overtake_gap <= 1.0 and not weather.is_wet(),
                 is_wet=weather.is_wet(),
+                restart_boost=restart_lap,  # Extra chance on restart
             )
 
             if success:
@@ -512,3 +552,44 @@ class RaceSimulator:
         # DNF drivers get positions after racing drivers
         for i, state in enumerate(dnf):
             state.position = len(racing) + i + 1
+
+    def _check_tire_weather_mismatch(self, tire: Tire, weather: Weather) -> str:
+        """Check if tires match current weather conditions.
+
+        Returns:
+            "ok" - tires are appropriate
+            "suboptimal" - tires are wrong but survivable
+            "critical" - must pit immediately
+        """
+        compound = tire.compound
+        is_slick = compound in (TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD)
+        is_inter = compound == TireCompound.INTERMEDIATE
+        is_wet = compound == TireCompound.WET
+
+        track_wetness = weather.track_wetness
+
+        # Slicks on wet track = critical
+        if is_slick and track_wetness > 0.5:
+            return "critical"
+
+        # Slicks on damp track = suboptimal
+        if is_slick and track_wetness > 0.25:
+            return "suboptimal"
+
+        # Inters on very wet track = suboptimal (need full wets)
+        if is_inter and track_wetness > 0.75:
+            return "suboptimal"
+
+        # Wet tires on dry/drying track = critical (will destroy them)
+        if is_wet and track_wetness < 0.25:
+            return "critical"
+
+        # Wet tires on damp track = suboptimal
+        if is_wet and track_wetness < 0.5:
+            return "suboptimal"
+
+        # Inters on dry track = critical
+        if is_inter and track_wetness < 0.1:
+            return "critical"
+
+        return "ok"

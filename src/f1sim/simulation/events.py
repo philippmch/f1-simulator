@@ -46,6 +46,8 @@ class EventManager:
         self.safety_car_laps_remaining = 0
         self.vsc_active = False
         self.vsc_laps_remaining = 0
+        self.sc_just_ended = False  # Flag for restart lap
+        self.sc_restart_lap = False  # True on the lap after SC ends
 
     def reset(self) -> None:
         """Reset event state for new race."""
@@ -54,6 +56,8 @@ class EventManager:
         self.safety_car_laps_remaining = 0
         self.vsc_active = False
         self.vsc_laps_remaining = 0
+        self.sc_just_ended = False
+        self.sc_restart_lap = False
 
     def process_lap(
         self,
@@ -79,11 +83,16 @@ class EventManager:
         """
         lap_events: list[RaceEvent] = []
 
+        # Track restart lap (lap after SC ended)
+        self.sc_restart_lap = self.sc_just_ended
+        self.sc_just_ended = False
+
         # Update active safety car/VSC
         if self.safety_car_active:
             self.safety_car_laps_remaining -= 1
             if self.safety_car_laps_remaining <= 0:
                 self.safety_car_active = False
+                self.sc_just_ended = True  # Next lap is restart
 
         if self.vsc_active:
             self.vsc_laps_remaining -= 1
@@ -270,3 +279,31 @@ class EventManager:
     def is_pit_window_open(self) -> bool:
         """Check if it's a good time to pit (under SC/VSC)."""
         return self.safety_car_active or self.vsc_active
+
+    def is_restart_lap(self) -> bool:
+        """Check if this is a restart lap after SC."""
+        return self.sc_restart_lap
+
+    def bunch_field(self, driver_states: list) -> None:
+        """Bunch up the field behind safety car.
+
+        Sets all gaps between cars to ~1 second, simulating
+        the field catching the safety car and forming a queue.
+
+        Args:
+            driver_states: List of DriverRaceState objects
+        """
+        # Sort by position
+        racing = [s for s in driver_states if s.status.value == "racing"]
+        racing.sort(key=lambda s: s.position)
+
+        if len(racing) < 2:
+            return
+
+        # Leader's time stays the same
+        leader_time = racing[0].total_time
+
+        # Each following car is set to ~0.8-1.2 seconds behind the car ahead
+        for i, state in enumerate(racing[1:], 1):
+            gap_to_ahead = self.rng.uniform(0.8, 1.2)
+            state.total_time = racing[i - 1].total_time + gap_to_ahead

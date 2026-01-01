@@ -26,6 +26,7 @@ class OvertakingModel:
         gap: float,
         has_drs: bool = False,
         is_wet: bool = False,
+        restart_boost: bool = False,
     ) -> tuple[bool, bool]:
         """Attempt an overtake maneuver.
 
@@ -38,19 +39,22 @@ class OvertakingModel:
             gap: Time gap between cars in seconds
             has_drs: Whether attacker has DRS
             is_wet: Whether track is wet
+            restart_boost: Whether this is a SC restart lap (increased aggression)
 
         Returns:
             Tuple of (overtake_successful, incident_occurred)
         """
-        # Check if overtake is possible
-        if gap > 1.5:
+        # Check if overtake is possible (wider window on restarts)
+        max_gap = 2.0 if restart_boost else 1.5
+        if gap > max_gap:
             return False, False  # Too far behind to attempt
 
         # Calculate success probability
         prob = self._calculate_probability(
             attacker, attacker_car,
             defender, defender_car,
-            track, gap, has_drs, is_wet
+            track, gap, has_drs, is_wet,
+            restart_boost=restart_boost,
         )
 
         # Attempt the overtake
@@ -76,13 +80,16 @@ class OvertakingModel:
         gap: float,
         has_drs: bool,
         is_wet: bool,
+        restart_boost: bool = False,
     ) -> float:
         """Calculate overtake success probability.
 
         Returns probability between 0 and 1.
         """
         # Base probability from track difficulty
-        base_prob = 0.5 * (1.0 - track.overtake_difficulty)
+        # On restarts, track difficulty matters less (everyone bunched, cold tires)
+        effective_difficulty = track.overtake_difficulty * 0.6 if restart_boost else track.overtake_difficulty
+        base_prob = 0.5 * (1.0 - effective_difficulty)
 
         # Pace advantage factor
         pace_delta = attacker_car.base_pace - defender_car.base_pace
@@ -111,6 +118,10 @@ class OvertakingModel:
 
         # Combine factors
         probability = base_prob * pace_factor * gap_factor * skill_factor * speed_factor * wet_modifier + drs_bonus
+
+        # SC restart bonus - drivers are more aggressive, tires cold, field bunched
+        if restart_boost:
+            probability *= 1.5  # 50% more likely to succeed on restart
 
         return min(0.9, max(0.0, probability))
 
