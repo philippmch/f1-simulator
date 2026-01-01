@@ -686,7 +686,7 @@ class HistoricalDataLoader:
                 tire_degradation_factor=1.0,
                 wet_performance=0.85,
                 pit_stop_avg=float(pit_avg),
-                pit_stop_std=float(pit_std),
+                pit_stop_std=max(0.1, float(pit_std)),  # Min 0.1 for validation
             )
 
         return cars

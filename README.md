@@ -65,7 +65,7 @@ src/f1sim/
 ## Current Status
 
 Working simulation with:
-- 2024 season data
+- 2025 season data (default), also supports 2024
 - Historical qualifying grids as starting positions
 - Track-specific overtake difficulty (Monaco 0.95, Bahrain 0.35, etc.)
 - Realistic pit stop windows (1-2 stops per race)

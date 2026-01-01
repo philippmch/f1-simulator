@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Example: Simulate an F1 race using historical 2024 data.
+"""Example: Simulate an F1 race using historical data.
 
 This script demonstrates the full workflow:
 1. Load historical data from FastF1
@@ -45,8 +45,8 @@ def main():
     parser.add_argument(
         "--year",
         type=int,
-        default=2024,
-        help="Season year (default: 2024)",
+        default=2025,
+        help="Season year (default: 2025)",
     )
     parser.add_argument(
         "--parallel",
