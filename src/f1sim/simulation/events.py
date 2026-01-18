@@ -52,6 +52,9 @@ class EventManager:
         self.red_flag_active = False
         self.red_flag_just_ended = False  # Flag for restart lap after red flag
         self.red_flag_restart_lap = False  # True on the lap after red flag ends
+        # Manual trigger configuration
+        self.forced_red_flag_laps: set[int] = set()  # Laps to force red flags
+        self.forced_safety_car_laps: set[int] = set()  # Laps to force safety cars
 
     def reset(self) -> None:
         """Reset event state for new race."""
@@ -65,6 +68,34 @@ class EventManager:
         self.red_flag_active = False
         self.red_flag_just_ended = False
         self.red_flag_restart_lap = False
+        # Note: forced laps are NOT reset - they persist across races
+
+    def set_forced_red_flag(self, laps: list[int] | int) -> None:
+        """Configure laps where red flags will be forced.
+
+        Args:
+            laps: Single lap number or list of lap numbers to force red flags
+        """
+        if isinstance(laps, int):
+            self.forced_red_flag_laps.add(laps)
+        else:
+            self.forced_red_flag_laps.update(laps)
+
+    def set_forced_safety_car(self, laps: list[int] | int) -> None:
+        """Configure laps where safety cars will be forced.
+
+        Args:
+            laps: Single lap number or list of lap numbers to force safety cars
+        """
+        if isinstance(laps, int):
+            self.forced_safety_car_laps.add(laps)
+        else:
+            self.forced_safety_car_laps.update(laps)
+
+    def clear_forced_events(self) -> None:
+        """Clear all forced event configurations."""
+        self.forced_red_flag_laps.clear()
+        self.forced_safety_car_laps.clear()
 
     def process_lap(
         self,
@@ -137,7 +168,26 @@ class EventManager:
                 lap_events.append(random_incident)
                 incidents_this_lap += 1
 
-        # Deploy safety car or red flag if needed
+        # Check for forced red flag
+        if lap in self.forced_red_flag_laps and not self.red_flag_active:
+            red_flag_event = self.deploy_red_flag(lap, "Manual trigger")
+            lap_events.append(red_flag_event)
+            self.events.extend(lap_events)
+            return lap_events
+
+        # Check for forced safety car
+        if lap in self.forced_safety_car_laps and not self.safety_car_active and not self.red_flag_active:
+            self.safety_car_active = True
+            self.safety_car_laps_remaining = self.rng.integers(3, 7)
+            sc_event = RaceEvent(
+                event_type=EventType.SAFETY_CAR,
+                lap=lap,
+                duration_laps=self.safety_car_laps_remaining,
+                description="Safety car deployed (manual trigger)",
+            )
+            lap_events.append(sc_event)
+
+        # Deploy safety car or red flag if needed (from incidents)
         if incidents_this_lap > 0 and not self.safety_car_active and not self.red_flag_active:
             sc_event = self._deploy_safety_measure(lap, incidents_this_lap, track, weather)
             if sc_event:

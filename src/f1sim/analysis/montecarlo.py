@@ -9,6 +9,7 @@ import numpy as np
 
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.models.tire import TireCompound
+from f1sim.simulation.events import EventType
 from f1sim.simulation.qualifying import QualifyingResult, QualifyingSimulator
 from f1sim.simulation.race import RaceResult, RaceSimulator
 
@@ -48,6 +49,28 @@ class DriverStatistics:
 
 
 @dataclass
+class RaceEventStatistics:
+    """Aggregated event statistics across simulations."""
+
+    safety_car_count: int = 0
+    vsc_count: int = 0
+    red_flag_count: int = 0
+    total_incidents: int = 0
+    races_with_safety_car: int = 0
+    races_with_red_flag: int = 0
+
+    @property
+    def safety_car_rate(self) -> float:
+        """Percentage of races with at least one safety car."""
+        return 0.0  # Will be calculated after aggregation
+
+    @property
+    def red_flag_rate(self) -> float:
+        """Percentage of races with at least one red flag."""
+        return 0.0  # Will be calculated after aggregation
+
+
+@dataclass
 class SimulationResults:
     """Results from Monte Carlo simulation."""
 
@@ -56,6 +79,7 @@ class SimulationResults:
     driver_stats: dict[str, DriverStatistics]
     race_results: list[list[RaceResult]]  # All individual race results
     qualifying_results: list[list[QualifyingResult]]  # All qualifying results
+    event_stats: RaceEventStatistics = field(default_factory=RaceEventStatistics)
 
     def get_win_probabilities(self) -> dict[str, float]:
         """Get win probability for each driver."""
@@ -102,14 +126,14 @@ POINTS_SYSTEM = {
 }
 
 
-def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[QualifyingResult]]:
+def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[QualifyingResult], dict]:
     """Run a single race simulation (for multiprocessing).
 
     Args:
         args: Tuple of (drivers_data, cars_data, track_data, weather_data, seed, historical_grid)
 
     Returns:
-        Tuple of (race_results, qualifying_results)
+        Tuple of (race_results, qualifying_results, event_counts)
     """
     drivers_data, cars_data, track_data, weather_data, seed, historical_grid = args
 
@@ -154,7 +178,18 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
         starting_grid=starting_grid,
     )
 
-    return race_results, quali_results
+    # Collect event statistics
+    events = race_sim.event_manager.events
+    event_counts = {
+        "safety_car": sum(1 for e in events if e.event_type == EventType.SAFETY_CAR),
+        "vsc": sum(1 for e in events if e.event_type == EventType.VIRTUAL_SAFETY_CAR),
+        "red_flag": sum(1 for e in events if e.event_type == EventType.RED_FLAG),
+        "incidents": len([e for e in events if e.event_type in (
+            EventType.COLLISION, EventType.SPIN, EventType.PUNCTURE, EventType.MECHANICAL_FAILURE
+        )]),
+    }
+
+    return race_results, quali_results, event_counts
 
 
 class MonteCarloRunner:
@@ -218,21 +253,25 @@ class MonteCarloRunner:
 
         all_race_results: list[list[RaceResult]] = []
         all_quali_results: list[list[QualifyingResult]] = []
+        all_event_counts: list[dict] = []
 
         if parallel and num_simulations > 1:
             with ProcessPoolExecutor(max_workers=max_workers) as executor:
                 results = list(executor.map(_run_single_simulation, args_list))
-                for race_res, quali_res in results:
+                for race_res, quali_res, event_counts in results:
                     all_race_results.append(race_res)
                     all_quali_results.append(quali_res)
+                    all_event_counts.append(event_counts)
         else:
             for args in args_list:
-                race_res, quali_res = _run_single_simulation(args)
+                race_res, quali_res, event_counts = _run_single_simulation(args)
                 all_race_results.append(race_res)
                 all_quali_results.append(quali_res)
+                all_event_counts.append(event_counts)
 
         # Aggregate statistics
         driver_stats = self._aggregate_statistics(all_race_results, all_quali_results)
+        event_stats = self._aggregate_event_statistics(all_event_counts)
 
         return SimulationResults(
             num_simulations=num_simulations,
@@ -240,6 +279,7 @@ class MonteCarloRunner:
             driver_stats=driver_stats,
             race_results=all_race_results,
             qualifying_results=all_quali_results,
+            event_stats=event_stats,
         )
 
     def _aggregate_statistics(
@@ -294,6 +334,26 @@ class MonteCarloRunner:
                 driver_stat.avg_position = np.mean(driver_stat.positions)
             if driver_id in quali_positions and quali_positions[driver_id]:
                 driver_stat.avg_qualifying = np.mean(quali_positions[driver_id])
+
+        return stats
+
+    def _aggregate_event_statistics(
+        self,
+        event_counts: list[dict],
+    ) -> RaceEventStatistics:
+        """Aggregate event statistics from all simulations."""
+        stats = RaceEventStatistics()
+
+        for counts in event_counts:
+            stats.safety_car_count += counts.get("safety_car", 0)
+            stats.vsc_count += counts.get("vsc", 0)
+            stats.red_flag_count += counts.get("red_flag", 0)
+            stats.total_incidents += counts.get("incidents", 0)
+
+            if counts.get("safety_car", 0) > 0:
+                stats.races_with_safety_car += 1
+            if counts.get("red_flag", 0) > 0:
+                stats.races_with_red_flag += 1
 
         return stats
 
