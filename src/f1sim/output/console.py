@@ -149,6 +149,22 @@ class ConsoleOutput:
             bar = "#" * int(points)
             print(f"{stats.driver_name:<20} {points:5.2f} pts {bar}")
 
+        # Event statistics
+        event_stats = results.event_stats
+        print("\nRACE EVENT STATISTICS:")
+        print("-" * 50)
+        sc_rate = (event_stats.races_with_safety_car / results.num_simulations * 100) if results.num_simulations > 0 else 0
+        rf_rate = (event_stats.races_with_red_flag / results.num_simulations * 100) if results.num_simulations > 0 else 0
+        avg_sc = event_stats.safety_car_count / results.num_simulations if results.num_simulations > 0 else 0
+        avg_vsc = event_stats.vsc_count / results.num_simulations if results.num_simulations > 0 else 0
+        avg_rf = event_stats.red_flag_count / results.num_simulations if results.num_simulations > 0 else 0
+        avg_incidents = event_stats.total_incidents / results.num_simulations if results.num_simulations > 0 else 0
+
+        print(f"  Safety Cars:     {event_stats.safety_car_count:4d} total ({avg_sc:.2f}/race, {sc_rate:.1f}% of races)")
+        print(f"  Virtual SC:      {event_stats.vsc_count:4d} total ({avg_vsc:.2f}/race)")
+        print(f"  Red Flags:       {event_stats.red_flag_count:4d} total ({avg_rf:.2f}/race, {rf_rate:.1f}% of races)")
+        print(f"  Total Incidents: {event_stats.total_incidents:4d} total ({avg_incidents:.2f}/race)")
+
         print("=" * 80)
 
     @staticmethod
