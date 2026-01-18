@@ -7,7 +7,7 @@ import numpy as np
 
 from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
-from f1sim.simulation.events import EventManager, RaceEvent
+from f1sim.simulation.events import EventManager, EventType, RaceEvent
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.overtaking import OvertakingModel
 
@@ -227,12 +227,19 @@ class RaceSimulator:
             all_events.extend(lap_events)
 
             # Check if safety car was just deployed - bunch up the field
-            from f1sim.simulation.events import EventType
             sc_deployed_this_lap = any(
                 e.event_type == EventType.SAFETY_CAR for e in lap_events
             )
             if sc_deployed_this_lap:
                 self.event_manager.bunch_field(states)
+
+            # Check if red flag was just deployed
+            red_flag_deployed_this_lap = any(
+                e.event_type == EventType.RED_FLAG for e in lap_events
+            )
+            if red_flag_deployed_this_lap:
+                # Handle red flag: bunch field and allow tire changes
+                self._handle_red_flag_stop(states, current_weather)
 
             # Phase 3: Process overtakes
             # Skip at extremely difficult tracks like Monaco (unless restart lap)
@@ -552,6 +559,63 @@ class RaceSimulator:
         # DNF drivers get positions after racing drivers
         for i, state in enumerate(dnf):
             state.position = len(racing) + i + 1
+
+    def _handle_red_flag_stop(
+        self,
+        states: list[DriverRaceState],
+        weather: Weather,
+    ) -> None:
+        """Handle red flag stoppage.
+
+        During a red flag:
+        - All cars return to pit lane
+        - Teams can change tires and make limited repairs
+        - Gaps are reset for restart
+
+        Args:
+            states: Driver race states
+            weather: Current weather conditions
+        """
+        # Bunch the field - gaps are reset on red flag
+        self.event_manager.bunch_field(states)
+
+        # All drivers can change tires during red flag (free tire change)
+        for state in states:
+            if state.status != DriverStatus.RACING:
+                continue
+
+            # Choose optimal tire for current conditions
+            new_compound = self._choose_red_flag_tire(weather)
+            state.current_tire = TIRE_COMPOUNDS[new_compound].model_copy(deep=True)
+            state.tire_laps = 0  # Fresh tires
+
+        # Simulate red flag suspension (2-5 laps worth of time)
+        # The race is stopped so we just end the red flag for restart
+        self.event_manager.end_red_flag()
+
+    def _choose_red_flag_tire(self, weather: Weather) -> TireCompound:
+        """Choose optimal tire compound during red flag stop.
+
+        Args:
+            weather: Current weather conditions
+
+        Returns:
+            Optimal tire compound for conditions
+        """
+        if weather.requires_wet_tires():
+            return TireCompound.WET
+        elif weather.is_wet():
+            return TireCompound.INTERMEDIATE
+        else:
+            # Dry conditions - strategic choice
+            # Most teams will choose softs for grip at restart
+            roll = self.rng.random()
+            if roll < 0.6:
+                return TireCompound.SOFT
+            elif roll < 0.9:
+                return TireCompound.MEDIUM
+            else:
+                return TireCompound.HARD
 
     def _check_tire_weather_mismatch(self, tire: Tire, weather: Weather) -> str:
         """Check if tires match current weather conditions.
