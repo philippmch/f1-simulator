@@ -48,6 +48,10 @@ class EventManager:
         self.vsc_laps_remaining = 0
         self.sc_just_ended = False  # Flag for restart lap
         self.sc_restart_lap = False  # True on the lap after SC ends
+        # Red flag state
+        self.red_flag_active = False
+        self.red_flag_just_ended = False  # Flag for restart lap after red flag
+        self.red_flag_restart_lap = False  # True on the lap after red flag ends
 
     def reset(self) -> None:
         """Reset event state for new race."""
@@ -58,6 +62,9 @@ class EventManager:
         self.vsc_laps_remaining = 0
         self.sc_just_ended = False
         self.sc_restart_lap = False
+        self.red_flag_active = False
+        self.red_flag_just_ended = False
+        self.red_flag_restart_lap = False
 
     def process_lap(
         self,
@@ -86,6 +93,15 @@ class EventManager:
         # Track restart lap (lap after SC ended)
         self.sc_restart_lap = self.sc_just_ended
         self.sc_just_ended = False
+
+        # Track red flag restart lap
+        self.red_flag_restart_lap = self.red_flag_just_ended
+        self.red_flag_just_ended = False
+
+        # If red flag is active, race is suspended - no events processed
+        # Red flag ending is handled externally by RaceSimulator
+        if self.red_flag_active:
+            return lap_events
 
         # Update active safety car/VSC
         if self.safety_car_active:
@@ -121,9 +137,9 @@ class EventManager:
                 lap_events.append(random_incident)
                 incidents_this_lap += 1
 
-        # Deploy safety car if needed
-        if incidents_this_lap > 0 and not self.safety_car_active:
-            sc_event = self._deploy_safety_measure(lap, incidents_this_lap, track)
+        # Deploy safety car or red flag if needed
+        if incidents_this_lap > 0 and not self.safety_car_active and not self.red_flag_active:
+            sc_event = self._deploy_safety_measure(lap, incidents_this_lap, track, weather)
             if sc_event:
                 lap_events.append(sc_event)
 
@@ -234,8 +250,15 @@ class EventManager:
         lap: int,
         incidents: int,
         track: Track,
+        weather: Weather | None = None,
     ) -> RaceEvent | None:
-        """Deploy safety car or VSC based on incidents."""
+        """Deploy safety car, VSC, or red flag based on incidents and conditions."""
+        # Check for red flag conditions first
+        # Red flags are rare but occur for major incidents or dangerous weather
+        red_flag_event = self._check_red_flag_conditions(lap, incidents, weather)
+        if red_flag_event:
+            return red_flag_event
+
         # Determine if safety car is needed
         sc_threshold = 0.4 + incidents * 0.3
 
@@ -264,25 +287,103 @@ class EventManager:
 
         return None
 
+    def _check_red_flag_conditions(
+        self,
+        lap: int,
+        incidents: int,
+        weather: Weather | None = None,
+    ) -> RaceEvent | None:
+        """Check if conditions warrant a red flag.
+
+        Red flags are deployed for:
+        - Multiple serious incidents (3+ in a single lap)
+        - Extremely dangerous weather conditions
+        - Major track blockage (simulated by high incident severity)
+        """
+        red_flag_probability = 0.0
+
+        # Multiple incidents significantly increase red flag chance
+        if incidents >= 3:
+            red_flag_probability += 0.4
+        elif incidents >= 2:
+            red_flag_probability += 0.15
+
+        # Severe weather can trigger red flag
+        if weather is not None:
+            if weather.track_wetness > 0.9:
+                # Standing water on track - very dangerous
+                red_flag_probability += 0.3
+            elif weather.track_wetness > 0.8 and weather.rain_intensity > 0.8:
+                # Heavy rain with very wet track
+                red_flag_probability += 0.15
+
+        # Random major incident chance (rare)
+        if incidents > 0 and self.rng.random() < 0.05:
+            red_flag_probability += 0.3
+
+        if red_flag_probability > 0 and self.rng.random() < red_flag_probability:
+            return self.deploy_red_flag(lap, "Dangerous conditions")
+
+        return None
+
+    def deploy_red_flag(self, lap: int, reason: str = "Incident") -> RaceEvent:
+        """Deploy a red flag, stopping the race.
+
+        Args:
+            lap: Current lap number
+            reason: Description of why red flag was deployed
+
+        Returns:
+            RaceEvent for the red flag
+        """
+        self.red_flag_active = True
+        # Clear any active SC/VSC
+        self.safety_car_active = False
+        self.safety_car_laps_remaining = 0
+        self.vsc_active = False
+        self.vsc_laps_remaining = 0
+
+        return RaceEvent(
+            event_type=EventType.RED_FLAG,
+            lap=lap,
+            duration_laps=0,  # Duration determined by race director
+            description=f"Red flag: {reason}",
+        )
+
+    def end_red_flag(self) -> None:
+        """End the red flag period and prepare for restart."""
+        self.red_flag_active = False
+        self.red_flag_just_ended = True
+
+    def is_red_flag_active(self) -> bool:
+        """Check if red flag is currently active."""
+        return self.red_flag_active
+
+    def is_red_flag_restart_lap(self) -> bool:
+        """Check if this is the restart lap after a red flag."""
+        return self.red_flag_restart_lap
+
     def get_lap_time_modifier(self) -> float:
         """Get lap time modifier based on current safety status.
 
         Returns:
             Multiplier for lap times (>1 = slower)
         """
-        if self.safety_car_active:
+        if self.red_flag_active:
+            return 0.0  # Race is stopped during red flag
+        elif self.safety_car_active:
             return 1.4  # 40% slower under SC
         elif self.vsc_active:
             return 1.2  # 20% slower under VSC
         return 1.0
 
     def is_pit_window_open(self) -> bool:
-        """Check if it's a good time to pit (under SC/VSC)."""
-        return self.safety_car_active or self.vsc_active
+        """Check if it's a good time to pit (under SC/VSC/red flag)."""
+        return self.safety_car_active or self.vsc_active or self.red_flag_active
 
     def is_restart_lap(self) -> bool:
-        """Check if this is a restart lap after SC."""
-        return self.sc_restart_lap
+        """Check if this is a restart lap after SC or red flag."""
+        return self.sc_restart_lap or self.red_flag_restart_lap
 
     def bunch_field(self, driver_states: list) -> None:
         """Bunch up the field behind safety car.
