@@ -74,6 +74,17 @@ def main():
         "--driver",
         help="Show detailed analysis for specific driver (e.g., VER, HAM)",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for reproducible simulation runs (default: 42)",
+    )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        help="Maximum worker processes for parallel mode (default: CPU count)",
+    )
     args = parser.parse_args()
 
     print("F1 Monte Carlo Race Simulation")
@@ -82,6 +93,9 @@ def main():
     print(f"Race: {args.race}")
     print(f"Simulations: {args.simulations}")
     print(f"Parallel: {args.parallel}")
+    print(f"Seed: {args.seed}")
+    if args.max_workers:
+        print(f"Max workers: {args.max_workers}")
     print()
 
     # Initialize data loader
@@ -147,13 +161,14 @@ def main():
         cars=cars,
         track=track,
         weather=weather,
-        seed=42,  # For reproducibility
+        seed=args.seed,
         historical_grid=historical_grid,
     )
 
     results = runner.run(
         num_simulations=args.simulations,
         parallel=args.parallel,
+        max_workers=args.max_workers,
     )
 
     # Display results

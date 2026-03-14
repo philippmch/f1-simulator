@@ -240,6 +240,10 @@ class MonteCarloRunner:
         Returns:
             SimulationResults with aggregated statistics
         """
+        if num_simulations <= 0:
+            msg = "num_simulations must be greater than 0"
+            raise ValueError(msg)
+
         # Prepare serializable data for multiprocessing
         drivers_data = [d.model_dump() for d in self.drivers]
         cars_data = {k: v.model_dump() for k, v in self.cars.items()}
