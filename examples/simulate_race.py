@@ -94,6 +94,7 @@ def main():
     print(f"Simulations: {args.simulations}")
     print(f"Parallel: {args.parallel}")
     print(f"Seed: {args.seed}")
+    print(f"Top-N table: {args.top_n}")
     if args.max_workers:
         print(f"Max workers: {args.max_workers}")
     print()
@@ -172,7 +173,7 @@ def main():
     )
 
     # Display results
-    ConsoleOutput.print_monte_carlo_summary(results)
+    ConsoleOutput.print_monte_carlo_summary(results, top_n=args.top_n)
 
     # Show detailed driver analysis if requested
     if args.driver:

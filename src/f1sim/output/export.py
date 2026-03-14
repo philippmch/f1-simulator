@@ -128,6 +128,7 @@ class Exporter:
                 "max_workers": results.max_workers,
             },
             "win_probabilities": results.get_win_probabilities(),
+            "top_3_finish_probabilities": results.get_top_n_finish_probabilities(3),
             "top_10_finish_probabilities": results.get_top_n_finish_probabilities(10),
             "championship_projection": results.get_championship_projection(),
             "team_championship_projection": results.get_team_championship_projection(),
