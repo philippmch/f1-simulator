@@ -249,6 +249,9 @@ def build_dashboard_html() -> str:
       <label style=\"margin:0\">Filter scenarios
         <input id=\"matrixScenarioFilter\" value=\"\" placeholder=\"e.g. dry\" />
       </label>
+      <button id=\"matrixExportBtn\" type=\"button\" style=\"margin-top:0\">
+        Export matrix CSV
+      </button>
     </div>
     <div id=\"resultMatrix\">No matrix yet</div>
     <h2>Raw Result</h2>
@@ -269,6 +272,7 @@ def build_dashboard_html() -> str:
     const trendsEl = document.getElementById('resultTrends');
     const trendMetricEl = document.getElementById('trendMetric');
     const trendScaleEl = document.getElementById('trendScale');
+    const topNSelectorEl = document.getElementById('topNSelector');
     const matrixEl = document.getElementById('resultMatrix');
     const matrixSortEl = document.getElementById('matrixSort');
     const matrixHighlightEl = document.getElementById('matrixHighlight');
