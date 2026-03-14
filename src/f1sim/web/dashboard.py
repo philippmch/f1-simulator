@@ -268,12 +268,12 @@ def build_dashboard_html() -> str:
     const trendsEl = document.getElementById('resultTrends');
     const trendMetricEl = document.getElementById('trendMetric');
     const trendScaleEl = document.getElementById('trendScale');
-    const trendScaleEl = document.getElementById('trendScale');
     const matrixEl = document.getElementById('resultMatrix');
     const matrixSortEl = document.getElementById('matrixSort');
     const matrixHighlightEl = document.getElementById('matrixHighlight');
     const matrixDriverFilterEl = document.getElementById('matrixDriverFilter');
     const matrixScenarioFilterEl = document.getElementById('matrixScenarioFilter');
+    const matrixExportBtn = document.getElementById('matrixExportBtn');
     const actionsEl = document.getElementById('quickActions');
     const scenariosInput = document.getElementById('scenarios');
     const rerunBtn = document.getElementById('rerunBtn');
@@ -519,6 +519,56 @@ def build_dashboard_html() -> str:
       `;
     }
 
+    function exportMatrixCsv(data) {
+      const scenarios = data.scenarios || {};
+      const allNames = Object.keys(scenarios);
+      const scenarioFilter = (matrixScenarioFilterEl.value || '').trim().toLowerCase();
+      const names = allNames.filter(
+        (name) => !scenarioFilter || name.toLowerCase().includes(scenarioFilter)
+      );
+      if (!names.length) {
+        resultEl.textContent = JSON.stringify(
+          { status: 'error', detail: 'No scenarios to export' },
+          null,
+          2
+        );
+        return;
+      }
+
+      const drivers = new Set();
+      names.forEach((name) => {
+        const top = scenarios[name].top3_win_probabilities || [];
+        top.forEach(([driver]) => drivers.add(driver));
+      });
+
+      const filterText = (matrixDriverFilterEl.value || '').trim().toLowerCase();
+      const driverRows = Array.from(drivers)
+        .filter((driver) => !filterText || driver.toLowerCase().includes(filterText))
+        .sort((a, b) => a.localeCompare(b));
+
+      const header = ['driver', ...names].join(',');
+      const rows = driverRows.map((driver) => {
+        const values = names.map((name) => {
+          const top = scenarios[name].top3_win_probabilities || [];
+          const item = top.find(([d]) => d === driver);
+          const pct = item ? Number(item[1]).toFixed(1) : '0.0';
+          return pct;
+        });
+        return [driver, ...values].join(',');
+      });
+
+      const csv = [header, ...rows].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'scenario_matrix.csv';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+
     function renderQuickActions(runs) {
       if (!runs.length) {
         actionsEl.innerHTML = '';
@@ -689,6 +739,11 @@ def build_dashboard_html() -> str:
       saveUiPrefs();
       if (latestScenarioData) {
         renderDriverMatrix(latestScenarioData);
+      }
+    });
+    matrixExportBtn.addEventListener('click', () => {
+      if (latestScenarioData) {
+        exportMatrixCsv(latestScenarioData);
       }
     });
     trendMetricEl.addEventListener('change', () => {
