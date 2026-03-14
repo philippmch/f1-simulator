@@ -260,6 +260,31 @@ def test_mechanical_tuning_suggestions() -> None:
     assert suggestions["brakes"] == "keep as-is"
 
 
+def test_reliability_adjustment_recommendations() -> None:
+    results = SimulationResults(
+        num_simulations=5,
+        track_name="Bahrain",
+        driver_stats={},
+        race_results=[],
+        qualifying_results=[],
+    )
+    results.event_stats.mechanical_failure_breakdown = {
+        "engine": 7,
+        "gearbox": 2,
+        "brakes": 1,
+    }
+
+    rec = results.get_reliability_adjustment_recommendations(
+        {"engine": 0.34, "gearbox": 0.22, "brakes": 0.12},
+        gain=0.2,
+        clamp=0.05,
+    )
+
+    assert rec["engine"] > 0
+    assert abs(rec["gearbox"]) < 0.01
+    assert abs(rec["brakes"]) < 0.01
+
+
 def test_position_percentiles_for_driver() -> None:
     stats = {
         "VER": DriverStatistics(

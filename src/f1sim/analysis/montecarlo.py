@@ -225,6 +225,28 @@ class SimulationResults:
 
         return suggestions
 
+    def get_reliability_adjustment_recommendations(
+        self,
+        expected_component_rates: dict[str, float],
+        gain: float = 0.12,
+        clamp: float = 0.05,
+    ) -> dict[str, float]:
+        """Return suggested reliability adjustments per component.
+
+        Negative => lower reliability, positive => increase reliability.
+        """
+        observed = self.get_mechanical_failure_component_rates()
+        adjustments: dict[str, float] = {}
+
+        for component, expected in expected_component_rates.items():
+            obs = observed.get(component, 0.0)
+            delta = obs - expected
+            # If observed failures are too high (delta > 0), increase reliability.
+            adjustment = float(np.clip(delta * gain, -clamp, clamp))
+            adjustments[component] = adjustment
+
+        return adjustments
+
 
 # F1 points system
 POINTS_SYSTEM = {
