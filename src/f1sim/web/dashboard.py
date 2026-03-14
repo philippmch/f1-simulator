@@ -279,6 +279,8 @@ def build_dashboard_html() -> str:
     const scenariosInput = document.getElementById('scenarios');
     const rerunBtn = document.getElementById('rerunBtn');
     const clearBtn = document.getElementById('clearBtn');
+    const exampleConfigEl = document.getElementById('exampleConfig');
+    const applyExampleBtn = document.getElementById('applyExampleBtn');
     const runsFilterInput = document.getElementById('runsFilter');
     let latestScenarioData = null;
     const PREFS_KEY = 'f1sim:uiPrefs';
@@ -654,6 +656,30 @@ def build_dashboard_html() -> str:
       scenariosInput.value = 'light_rain,heavy_rain';
     });
 
+    const EXAMPLE_CONFIGS = {
+      bahrain_baseline: {
+        year: 2025,
+        race: 'Bahrain',
+        simulations: 300,
+        scenarios: 'dry,cloudy',
+        seed: 42,
+      },
+      silverstone_mixed: {
+        year: 2025,
+        race: 'Silverstone',
+        simulations: 400,
+        scenarios: 'dry,light_rain,heavy_rain',
+        seed: 77,
+      },
+      monaco_chaos: {
+        year: 2025,
+        race: 'Monaco',
+        simulations: 500,
+        scenarios: 'cloudy,light_rain,heavy_rain',
+        seed: 99,
+      },
+    };
+
     function readPayloadFromInputs() {
       return {
         year: Number(document.getElementById('year').value),
@@ -718,6 +744,22 @@ def build_dashboard_html() -> str:
     clearBtn.addEventListener('click', () => {
       localStorage.removeItem('f1sim:lastPayload');
       resultEl.textContent = JSON.stringify({ status: 'saved config cleared' }, null, 2);
+    });
+
+    applyExampleBtn.addEventListener('click', () => {
+      const key = exampleConfigEl.value;
+      const preset = EXAMPLE_CONFIGS[key];
+      if (!preset) {
+        resultEl.textContent = JSON.stringify(
+          { status: 'error', detail: 'Choose an example first' },
+          null,
+          2
+        );
+        return;
+      }
+      writePayloadToInputs(preset);
+      localStorage.setItem('f1sim:lastPayload', JSON.stringify(preset));
+      resultEl.textContent = JSON.stringify({ status: 'example loaded', preset: key }, null, 2);
     });
 
     runsFilterInput.addEventListener('input', () => {

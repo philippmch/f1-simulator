@@ -51,6 +51,9 @@ def test_dashboard_html_contains_controls() -> None:
     assert "matrixScenarioFilter" in html
     assert "matrixExportBtn" in html
     assert "exportMatrixCsv" in html
+    assert "exampleConfig" in html
+    assert "applyExampleBtn" in html
+    assert "EXAMPLE_CONFIGS" in html
     assert "renderQuickActions" in html
     assert "presetDry" in html
     assert "presetMixed" in html
