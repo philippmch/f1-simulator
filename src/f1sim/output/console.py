@@ -257,3 +257,34 @@ class ConsoleOutput:
         print(f"Top-10 finish probability: {top_10:.1f}%")
 
         print("=" * 60)
+
+    @staticmethod
+    def print_scenario_comparison(
+        scenario_results: dict[str, SimulationResults],
+        top_n: int = 10,
+    ) -> None:
+        """Print cross-scenario comparison table of win probabilities."""
+        if not scenario_results:
+            print("No scenario results to compare")
+            return
+
+        print("\n" + "=" * 80)
+        print("SCENARIO COMPARISON (WIN PROBABILITIES)")
+        print("=" * 80)
+
+        scenario_names = list(scenario_results.keys())
+        header = "Driver".ljust(18) + " ".join(name.rjust(14) for name in scenario_names)
+        print(header)
+        print("-" * 80)
+
+        first_results = scenario_results[scenario_names[0]]
+        top_drivers = list(first_results.get_top_n_finish_probabilities(top_n).keys())[:12]
+
+        for driver_id in top_drivers:
+            row = driver_id.ljust(18)
+            for scenario in scenario_names:
+                probs = scenario_results[scenario].get_win_probabilities()
+                row += f"{probs.get(driver_id, 0.0):13.1f}% "
+            print(row)
+
+        print("=" * 80)
