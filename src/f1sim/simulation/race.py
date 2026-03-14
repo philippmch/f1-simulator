@@ -539,6 +539,39 @@ class RaceSimulator:
 
         return False
 
+    def _choose_compound_for_next_stint(
+        self,
+        state: DriverRaceState,
+        track: Track,
+        current_lap: int,
+    ) -> TireCompound:
+        """Choose next compound using active pit plan and stint length target."""
+        current = state.current_tire.compound
+        laps_remaining = max(track.total_laps - current_lap, 0)
+
+        next_pit_lap = None
+        if state.pit_stops < len(state.planned_pit_laps):
+            next_pit_lap = state.planned_pit_laps[state.pit_stops]
+
+        target_stint = laps_remaining
+        if next_pit_lap is not None:
+            target_stint = max(next_pit_lap - current_lap, 1)
+
+        # Long stint => harder compounds.
+        if target_stint >= 20 or track.tire_stress > 0.75:
+            return TireCompound.HARD if current != TireCompound.HARD else TireCompound.MEDIUM
+
+        # Medium stint => medium baseline.
+        if target_stint >= 12:
+            if current == TireCompound.HARD:
+                return TireCompound.MEDIUM
+            return TireCompound.MEDIUM if self.rng.random() < 0.8 else TireCompound.SOFT
+
+        # Short sprint stint => soft bias.
+        if current == TireCompound.HARD:
+            return TireCompound.SOFT
+        return TireCompound.SOFT if self.rng.random() < 0.85 else TireCompound.MEDIUM
+
     def _execute_pit_stop(
         self,
         state: DriverRaceState,
@@ -566,33 +599,11 @@ class RaceSimulator:
         elif weather.is_wet():
             new_compound = TireCompound.INTERMEDIATE
         else:
-            laps_remaining = max(track.total_laps - current_lap, 0)
-            current = state.current_tire.compound
-
-            # Late-race sprint bias towards softer compounds.
-            if laps_remaining <= 12:
-                if current == TireCompound.HARD:
-                    new_compound = TireCompound.SOFT
-                else:
-                    new_compound = (
-                        TireCompound.SOFT if self.rng.random() < 0.75 else TireCompound.MEDIUM
-                    )
-            # Early/mid-race balance by track tire stress.
-            elif track.tire_stress > 0.65:
-                new_compound = TireCompound.HARD if self.rng.random() < 0.7 else TireCompound.MEDIUM
-            else:
-                if current == TireCompound.SOFT:
-                    new_compound = (
-                        TireCompound.MEDIUM if self.rng.random() < 0.65 else TireCompound.HARD
-                    )
-                elif current == TireCompound.MEDIUM:
-                    new_compound = (
-                        TireCompound.HARD if self.rng.random() < 0.45 else TireCompound.SOFT
-                    )
-                else:
-                    new_compound = (
-                        TireCompound.MEDIUM if self.rng.random() < 0.7 else TireCompound.SOFT
-                    )
+            new_compound = self._choose_compound_for_next_stint(
+                state,
+                track,
+                current_lap,
+            )
 
         state.current_tire = TIRE_COMPOUNDS[new_compound].model_copy(deep=True)
         state.tire_laps = 0
