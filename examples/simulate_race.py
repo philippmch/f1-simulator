@@ -204,12 +204,25 @@ def main():
     if len(scenario_results) == 1:
         results = next(iter(scenario_results.values()))
         ConsoleOutput.print_monte_carlo_summary(results, top_n=args.top_n)
+        ConsoleOutput.print_event_calibration(
+            results,
+            expected_sc_race_rate=track.safety_car_probability,
+        )
 
         # Show detailed driver analysis if requested
         if args.driver:
             ConsoleOutput.print_driver_deep_dive(results, args.driver.upper())
     else:
         ConsoleOutput.print_scenario_comparison(scenario_results, top_n=args.top_n)
+        print("\nSCENARIO EVENT CALIBRATION")
+        print("-" * 50)
+        for scenario_name, scenario_result in scenario_results.items():
+            delta = scenario_result.get_safety_car_calibration_delta(track.safety_car_probability)
+            observed = scenario_result.get_event_rates()["safety_car_race_rate"]
+            print(
+                f"{scenario_name:<14} expected={track.safety_car_probability * 100:5.1f}% "
+                f"observed={observed * 100:5.1f}% delta={delta * 100:5.1f}%"
+            )
 
     # Export results if requested
     if args.export:

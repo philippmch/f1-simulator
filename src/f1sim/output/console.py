@@ -259,6 +259,24 @@ class ConsoleOutput:
         print("=" * 60)
 
     @staticmethod
+    def print_event_calibration(
+        results: SimulationResults,
+        expected_sc_race_rate: float,
+    ) -> None:
+        """Print event calibration diagnostics for one run."""
+        rates = results.get_event_rates()
+        observed = rates["safety_car_race_rate"]
+        delta = results.get_safety_car_calibration_delta(expected_sc_race_rate)
+
+        print("\nEVENT CALIBRATION")
+        print("-" * 50)
+        print(f"Expected SC race rate: {expected_sc_race_rate * 100:5.1f}%")
+        print(f"Observed SC race rate: {observed * 100:5.1f}%")
+        print(f"Calibration delta:     {delta * 100:5.1f}%")
+        print(f"Observed red-flag rate:{rates['red_flag_race_rate'] * 100:5.1f}%")
+        print(f"Avg SC/VSC per race:   {rates['avg_safety_cars']:.2f} / {rates['avg_vsc']:.2f}")
+
+    @staticmethod
     def print_scenario_comparison(
         scenario_results: dict[str, SimulationResults],
         top_n: int = 10,
