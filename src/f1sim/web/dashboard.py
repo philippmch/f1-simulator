@@ -193,12 +193,17 @@ def build_dashboard_html() -> str:
     <label>Seed <input id=\"seed\" value=\"42\" /></label>
     <button id=\"runBtn\">Run Simulation</button>
     <button id=\"rerunBtn\" type=\"button\">Re-run Last Config</button>
+    <button id=\"clearBtn\" type=\"button\">Clear Saved Config</button>
     <div id=\"quickActions\" style=\"margin-top:10px;\"></div>
     <h2>Scenario Comparison</h2>
     <div id=\"resultCards\">No runs yet</div>
     <h2>Raw Result</h2>
     <pre id=\"result\">{\"status\": \"idle\"}</pre>
     <h2>Recent Runs</h2>
+    <label>
+      Filter runs by track
+      <input id=\"runsFilter\" value=\"\" placeholder=\"e.g. Bahrain\" />
+    </label>
     <div id=\"runs\">No runs yet</div>
   </div>
 
@@ -209,6 +214,8 @@ def build_dashboard_html() -> str:
     const actionsEl = document.getElementById('quickActions');
     const scenariosInput = document.getElementById('scenarios');
     const rerunBtn = document.getElementById('rerunBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const runsFilterInput = document.getElementById('runsFilter');
     function renderScenarioCards(data) {
       const scenarios = data.scenarios || {};
       const names = Object.keys(scenarios);
@@ -298,13 +305,19 @@ def build_dashboard_html() -> str:
         const res = await fetch('/api/runs');
         const data = await res.json();
         const runs = data.runs || [];
-        if (!runs.length) {
+        const filter = (runsFilterInput.value || '').trim().toLowerCase();
+        const filteredRuns = !filter
+          ? runs
+          : runs.filter((run) => String(run.track || '').toLowerCase().includes(filter));
+
+        if (!filteredRuns.length) {
           actionsEl.innerHTML = '';
-          runsEl.textContent = 'No runs yet';
+          runsEl.textContent = filter ? 'No runs match this filter' : 'No runs yet';
           return;
         }
-        renderQuickActions(runs);
-        runsEl.innerHTML = `<div class="runs-list">${runs.map(renderRunItem).join('')}</div>`;
+        renderQuickActions(filteredRuns);
+        runsEl.innerHTML =
+          `<div class="runs-list">${filteredRuns.map(renderRunItem).join('')}</div>`;
       } catch (err) {
         runsEl.textContent = JSON.stringify({ status: 'error', detail: String(err) }, null, 2);
       }
@@ -376,6 +389,15 @@ def build_dashboard_html() -> str:
       const payload = JSON.parse(raw);
       writePayloadToInputs(payload);
       await runWithPayload(payload);
+    });
+
+    clearBtn.addEventListener('click', () => {
+      localStorage.removeItem('f1sim:lastPayload');
+      resultEl.textContent = JSON.stringify({ status: 'saved config cleared' }, null, 2);
+    });
+
+    runsFilterInput.addEventListener('input', () => {
+      refreshRuns();
     });
 
     const saved = localStorage.getItem('f1sim:lastPayload');
