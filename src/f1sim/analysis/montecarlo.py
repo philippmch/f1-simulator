@@ -157,6 +157,22 @@ class SimulationResults:
 
         return dict(sorted(team_points.items(), key=lambda x: x[1], reverse=True))
 
+    def get_event_rates(self) -> dict[str, float]:
+        """Get normalized event-rate metrics per race."""
+        sims = max(self.num_simulations, 1)
+        return {
+            "safety_car_race_rate": self.event_stats.races_with_safety_car / sims,
+            "red_flag_race_rate": self.event_stats.races_with_red_flag / sims,
+            "avg_safety_cars": self.event_stats.safety_car_count / sims,
+            "avg_vsc": self.event_stats.vsc_count / sims,
+            "avg_incidents": self.event_stats.total_incidents / sims,
+        }
+
+    def get_safety_car_calibration_delta(self, expected_race_rate: float) -> float:
+        """Absolute delta between observed and expected race-level SC rate."""
+        observed = self.get_event_rates()["safety_car_race_rate"]
+        return abs(observed - expected_race_rate)
+
 
 # F1 points system
 POINTS_SYSTEM = {

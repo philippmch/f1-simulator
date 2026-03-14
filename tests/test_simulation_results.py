@@ -183,6 +183,30 @@ def test_top_n_finish_probabilities_rejects_invalid_n() -> None:
         results.get_top_n_finish_probabilities(0)
 
 
+def test_event_rates_and_calibration_delta() -> None:
+    results = SimulationResults(
+        num_simulations=10,
+        track_name="Bahrain",
+        driver_stats={},
+        race_results=[],
+        qualifying_results=[],
+    )
+    results.event_stats.races_with_safety_car = 4
+    results.event_stats.races_with_red_flag = 1
+    results.event_stats.safety_car_count = 6
+    results.event_stats.vsc_count = 3
+    results.event_stats.total_incidents = 20
+
+    rates = results.get_event_rates()
+    assert rates["safety_car_race_rate"] == 0.4
+    assert rates["red_flag_race_rate"] == 0.1
+    assert rates["avg_safety_cars"] == 0.6
+    assert rates["avg_vsc"] == 0.3
+    assert rates["avg_incidents"] == 2.0
+
+    assert results.get_safety_car_calibration_delta(0.5) == pytest.approx(0.1)
+
+
 def test_position_percentiles_for_driver() -> None:
     stats = {
         "VER": DriverStatistics(
