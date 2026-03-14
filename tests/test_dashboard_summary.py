@@ -1,4 +1,4 @@
-from f1sim.web.dashboard import _summarize_scenario_results
+from f1sim.web.dashboard import _summarize_scenario_results, build_dashboard_html
 
 
 class _FakeResults:
@@ -27,3 +27,10 @@ def test_dashboard_summary_shape() -> None:
     assert set(summary["scenarios"].keys()) == {"dry", "heavy_rain"}
     assert summary["scenarios"]["dry"]["seed"] == 42
     assert summary["scenarios"]["dry"]["top3_win_probabilities"][0][0] == "VER"
+
+
+def test_dashboard_html_contains_controls() -> None:
+    html = build_dashboard_html()
+    assert "Run Simulation" in html
+    assert "/api/run" in html
+    assert "scenarios" in html

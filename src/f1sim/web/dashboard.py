@@ -92,6 +92,100 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
     return payload
 
 
+def build_dashboard_html() -> str:
+    """Build minimal dashboard HTML UI."""
+    return """<!doctype html>
+<html lang=\"en\">
+<head>
+  <meta charset=\"utf-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+  <title>F1Sim Dashboard</title>
+  <style>
+    body {
+      font-family: Inter, system-ui, sans-serif;
+      margin: 24px;
+      background: #0f1220;
+      color: #e8ebff;
+    }
+    .card {
+      background: #181c30;
+      border: 1px solid #2a3156;
+      border-radius: 12px;
+      padding: 16px;
+      max-width: 860px;
+    }
+    label { display: block; margin-top: 10px; }
+    input {
+      width: 100%;
+      padding: 8px;
+      border-radius: 8px;
+      border: 1px solid #2a3156;
+      background: #10142a;
+      color: #e8ebff;
+    }
+    button {
+      margin-top: 14px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 0;
+      background: #7aa2ff;
+      color: #0b1024;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    pre {
+      background: #10142a;
+      border: 1px solid #2a3156;
+      padding: 12px;
+      border-radius: 10px;
+      overflow: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class=\"card\">
+    <h1>F1Sim Dashboard</h1>
+    <p>Run scenario simulations from the browser.</p>
+    <label>Year <input id=\"year\" value=\"2025\" /></label>
+    <label>Race <input id=\"race\" value=\"Bahrain\" /></label>
+    <label>Simulations <input id=\"simulations\" value=\"200\" /></label>
+    <label>Scenarios <input id=\"scenarios\" value=\"dry,light_rain,heavy_rain\" /></label>
+    <label>Seed <input id=\"seed\" value=\"42\" /></label>
+    <button id=\"runBtn\">Run Simulation</button>
+    <h2>Result</h2>
+    <pre id=\"result\">{\"status\": \"idle\"}</pre>
+  </div>
+
+  <script>
+    const resultEl = document.getElementById('result');
+    document.getElementById('runBtn').addEventListener('click', async () => {
+      const payload = {
+        year: Number(document.getElementById('year').value),
+        race: document.getElementById('race').value,
+        simulations: Number(document.getElementById('simulations').value),
+        scenarios: document.getElementById('scenarios').value,
+        seed: Number(document.getElementById('seed').value),
+      };
+
+      resultEl.textContent = JSON.stringify({ status: 'running', payload }, null, 2);
+      try {
+        const res = await fetch('/api/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        resultEl.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        resultEl.textContent = JSON.stringify({ status: 'error', detail: String(err) }, null, 2);
+      }
+    });
+  </script>
+</body>
+</html>
+"""
+
+
 def build_fastapi_app() -> Any:
     """Build FastAPI dashboard app.
 
@@ -99,26 +193,20 @@ def build_fastapi_app() -> Any:
     """
     try:
         from fastapi import FastAPI, HTTPException
+        from fastapi.responses import HTMLResponse
     except Exception as exc:  # pragma: no cover
         msg = "FastAPI is not installed. Install with: pip install -e '.[web]'"
         raise RuntimeError(msg) from exc
 
     app = FastAPI(title="F1Sim Dashboard", version="0.1")
 
-    @app.get("/")
-    def home() -> dict[str, Any]:
-        return {
-            "name": "f1sim-dashboard",
-            "status": "ok",
-            "run_endpoint": "/api/run",
-            "example": {
-                "year": 2025,
-                "race": "Bahrain",
-                "simulations": 200,
-                "scenarios": "dry,light_rain,heavy_rain",
-                "seed": 42,
-            },
-        }
+    @app.get("/", response_class=HTMLResponse)
+    def home() -> str:
+        return build_dashboard_html()
+
+    @app.get("/api/health")
+    def health() -> dict[str, str]:
+        return {"status": "ok"}
 
     @app.post("/api/run")
     def run(payload: DashboardRunRequest) -> dict[str, Any]:
