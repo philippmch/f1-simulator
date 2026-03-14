@@ -184,6 +184,10 @@ def build_dashboard_html() -> str:
     .chart-label { font-size: 12px; color: #b6c0ff; margin-bottom: 4px; }
     .bar-track { background: #242c4f; border-radius: 8px; height: 12px; overflow: hidden; }
     .bar-fill { background: #7aa2ff; height: 100%; }
+    .matrix-wrap { border: 1px solid #2a3156; border-radius: 10px; overflow: auto; }
+    .matrix-table { width: 100%; border-collapse: collapse; background: #10142a; }
+    .matrix-table th, .matrix-table td { border: 1px solid #2a3156; padding: 8px; font-size: 12px; }
+    .matrix-table th { background: #181c30; }
     a { color: #7aa2ff; text-decoration: none; }
   </style>
 </head>
@@ -222,6 +226,7 @@ def build_dashboard_html() -> str:
     const resultEl = document.getElementById('result');
     const cardsEl = document.getElementById('resultCards');
     const chartEl = document.getElementById('resultChart');
+    const matrixEl = document.getElementById('resultMatrix');
     const actionsEl = document.getElementById('quickActions');
     const scenariosInput = document.getElementById('scenarios');
     const rerunBtn = document.getElementById('rerunBtn');
@@ -299,6 +304,43 @@ def build_dashboard_html() -> str:
       });
 
       chartEl.innerHTML = `<div class="chart-wrap">${rows.join('')}</div>`;
+    }
+
+    function renderDriverMatrix(data) {
+      const scenarios = data.scenarios || {};
+      const names = Object.keys(scenarios);
+      if (!names.length) {
+        matrixEl.textContent = 'No matrix data yet';
+        return;
+      }
+
+      const drivers = new Set();
+      names.forEach((name) => {
+        const top = scenarios[name].top3_win_probabilities || [];
+        top.forEach(([driver]) => drivers.add(driver));
+      });
+
+      const header = `<tr><th>Driver</th>${names.map((n) => `<th>${n}</th>`).join('')}</tr>`;
+      const rows = Array.from(drivers)
+        .map((driver) => {
+          const cols = names.map((name) => {
+            const top = scenarios[name].top3_win_probabilities || [];
+            const item = top.find(([d]) => d === driver);
+            const pct = item ? Number(item[1]).toFixed(1) : '0.0';
+            return `<td>${pct}%</td>`;
+          });
+          return `<tr><td><strong>${driver}</strong></td>${cols.join('')}</tr>`;
+        })
+        .join('');
+
+      matrixEl.innerHTML = `
+        <div class="matrix-wrap">
+          <table class="matrix-table">
+            <thead>${header}</thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      `;
     }
 
     function renderQuickActions(runs) {
@@ -412,6 +454,7 @@ def build_dashboard_html() -> str:
         resultEl.textContent = JSON.stringify(data, null, 2);
         renderScenarioCards(data);
         renderWinChart(data);
+        renderDriverMatrix(data);
         localStorage.setItem('f1sim:lastPayload', JSON.stringify(payload));
         await refreshRuns();
       } catch (err) {

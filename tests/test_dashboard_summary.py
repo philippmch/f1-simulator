@@ -37,7 +37,9 @@ def test_dashboard_html_contains_controls() -> None:
     assert "/output/" in html
     assert "renderScenarioCards" in html
     assert "renderWinChart" in html
+    assert "renderDriverMatrix" in html
     assert "resultChart" in html
+    assert "resultMatrix" in html
     assert "renderQuickActions" in html
     assert "presetDry" in html
     assert "presetMixed" in html
