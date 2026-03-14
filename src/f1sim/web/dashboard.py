@@ -212,6 +212,26 @@ def build_dashboard_html() -> str:
     <div id=\"quickActions\" style=\"margin-top:10px;\"></div>
     <h2>Scenario Comparison</h2>
     <div id=\"resultCards\">No runs yet</div>
+    <h2>Win Probability Chart</h2>
+    <div id=\"resultChart\">No chart yet</div>
+    <h2>Driver Matrix (by scenario)</h2>
+    <div style=\"margin:6px 0; display:flex; gap:8px; flex-wrap:wrap;\">
+      <label style=\"margin:0\">Sort
+        <select id=\"matrixSort\">
+          <option value=\"driver\">Driver</option>
+          <option value=\"best\">Best win%</option>
+          <option value=\"avg\">Average win%</option>
+        </select>
+      </label>
+      <label style=\"margin:0\">
+        <input type=\"checkbox\" id=\"matrixHighlight\" checked />
+        Highlight best scenario per driver
+      </label>
+      <label style=\"margin:0\">Filter driver
+        <input id=\"matrixDriverFilter\" value=\"\" placeholder=\"e.g. VER\" />
+      </label>
+    </div>
+    <div id=\"resultMatrix\">No matrix yet</div>
     <h2>Raw Result</h2>
     <pre id=\"result\">{\"status\": \"idle\"}</pre>
     <h2>Recent Runs</h2>
@@ -230,6 +250,7 @@ def build_dashboard_html() -> str:
     const matrixEl = document.getElementById('resultMatrix');
     const matrixSortEl = document.getElementById('matrixSort');
     const matrixHighlightEl = document.getElementById('matrixHighlight');
+    const matrixDriverFilterEl = document.getElementById('matrixDriverFilter');
     const actionsEl = document.getElementById('quickActions');
     const scenariosInput = document.getElementById('scenarios');
     const rerunBtn = document.getElementById('rerunBtn');
@@ -326,19 +347,27 @@ def build_dashboard_html() -> str:
         top.forEach(([driver]) => drivers.add(driver));
       });
 
-      const driverRows = Array.from(drivers).map((driver) => {
-        const values = names.map((name) => {
-          const top = scenarios[name].top3_win_probabilities || [];
-          const item = top.find(([d]) => d === driver);
-          return item ? Number(item[1]) : 0;
+      const filterText = (matrixDriverFilterEl.value || '').trim().toLowerCase();
+      const driverRows = Array.from(drivers)
+        .filter((driver) => !filterText || driver.toLowerCase().includes(filterText))
+        .map((driver) => {
+          const values = names.map((name) => {
+            const top = scenarios[name].top3_win_probabilities || [];
+            const item = top.find(([d]) => d === driver);
+            return item ? Number(item[1]) : 0;
+          });
+          return {
+            driver,
+            values,
+            best: Math.max(...values),
+            avg: values.reduce((a, b) => a + b, 0) / Math.max(values.length, 1),
+          };
         });
-        return {
-          driver,
-          values,
-          best: Math.max(...values),
-          avg: values.reduce((a, b) => a + b, 0) / Math.max(values.length, 1),
-        };
-      });
+
+      if (!driverRows.length) {
+        matrixEl.textContent = 'No drivers match this filter';
+        return;
+      }
 
       const sortMode = matrixSortEl.value;
       if (sortMode === 'best') {
@@ -525,6 +554,11 @@ def build_dashboard_html() -> str:
       }
     });
     matrixHighlightEl.addEventListener('change', () => {
+      if (latestScenarioData) {
+        renderDriverMatrix(latestScenarioData);
+      }
+    });
+    matrixDriverFilterEl.addEventListener('input', () => {
       if (latestScenarioData) {
         renderDriverMatrix(latestScenarioData);
       }
