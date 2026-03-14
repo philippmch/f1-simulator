@@ -188,6 +188,7 @@ def build_dashboard_html() -> str:
     .matrix-table { width: 100%; border-collapse: collapse; background: #10142a; }
     .matrix-table th, .matrix-table td { border: 1px solid #2a3156; padding: 8px; font-size: 12px; }
     .matrix-table th { background: #181c30; }
+    .matrix-best { background: rgba(122, 162, 255, 0.2); font-weight: 700; }
     a { color: #7aa2ff; text-decoration: none; }
   </style>
 </head>
@@ -227,11 +228,15 @@ def build_dashboard_html() -> str:
     const cardsEl = document.getElementById('resultCards');
     const chartEl = document.getElementById('resultChart');
     const matrixEl = document.getElementById('resultMatrix');
+    const matrixSortEl = document.getElementById('matrixSort');
+    const matrixHighlightEl = document.getElementById('matrixHighlight');
     const actionsEl = document.getElementById('quickActions');
     const scenariosInput = document.getElementById('scenarios');
     const rerunBtn = document.getElementById('rerunBtn');
     const clearBtn = document.getElementById('clearBtn');
     const runsFilterInput = document.getElementById('runsFilter');
+    let latestScenarioData = null;
+
     function renderScenarioCards(data) {
       const scenarios = data.scenarios || {};
       const names = Object.keys(scenarios);
@@ -307,6 +312,7 @@ def build_dashboard_html() -> str:
     }
 
     function renderDriverMatrix(data) {
+      latestScenarioData = data;
       const scenarios = data.scenarios || {};
       const names = Object.keys(scenarios);
       if (!names.length) {
@@ -320,16 +326,39 @@ def build_dashboard_html() -> str:
         top.forEach(([driver]) => drivers.add(driver));
       });
 
+      const driverRows = Array.from(drivers).map((driver) => {
+        const values = names.map((name) => {
+          const top = scenarios[name].top3_win_probabilities || [];
+          const item = top.find(([d]) => d === driver);
+          return item ? Number(item[1]) : 0;
+        });
+        return {
+          driver,
+          values,
+          best: Math.max(...values),
+          avg: values.reduce((a, b) => a + b, 0) / Math.max(values.length, 1),
+        };
+      });
+
+      const sortMode = matrixSortEl.value;
+      if (sortMode === 'best') {
+        driverRows.sort((a, b) => b.best - a.best);
+      } else if (sortMode === 'avg') {
+        driverRows.sort((a, b) => b.avg - a.avg);
+      } else {
+        driverRows.sort((a, b) => a.driver.localeCompare(b.driver));
+      }
+
+      const highlight = matrixHighlightEl.checked;
       const header = `<tr><th>Driver</th>${names.map((n) => `<th>${n}</th>`).join('')}</tr>`;
-      const rows = Array.from(drivers)
-        .map((driver) => {
-          const cols = names.map((name) => {
-            const top = scenarios[name].top3_win_probabilities || [];
-            const item = top.find(([d]) => d === driver);
-            const pct = item ? Number(item[1]).toFixed(1) : '0.0';
-            return `<td>${pct}%</td>`;
+      const rows = driverRows
+        .map((row) => {
+          const cols = row.values.map((value) => {
+            const isBest = highlight && value === row.best && value > 0;
+            const cls = isBest ? ' class="matrix-best"' : '';
+            return `<td${cls}>${value.toFixed(1)}%</td>`;
           });
-          return `<tr><td><strong>${driver}</strong></td>${cols.join('')}</tr>`;
+          return `<tr><td><strong>${row.driver}</strong></td>${cols.join('')}</tr>`;
         })
         .join('');
 
@@ -488,6 +517,17 @@ def build_dashboard_html() -> str:
 
     runsFilterInput.addEventListener('input', () => {
       refreshRuns();
+    });
+
+    matrixSortEl.addEventListener('change', () => {
+      if (latestScenarioData) {
+        renderDriverMatrix(latestScenarioData);
+      }
+    });
+    matrixHighlightEl.addEventListener('change', () => {
+      if (latestScenarioData) {
+        renderDriverMatrix(latestScenarioData);
+      }
     });
 
     const saved = localStorage.getItem('f1sim:lastPayload');
