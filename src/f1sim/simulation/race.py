@@ -45,6 +45,8 @@ class DriverRaceState:
     dnf_reason: str | None = None
     strategy_archetype: TeamStrategyArchetype = TeamStrategyArchetype.BALANCED
     planned_pit_laps: list[int] = field(default_factory=list)
+    pit_plan_options: list[list[int]] = field(default_factory=list)
+    active_pit_plan_index: int = 0
 
 
 @dataclass
@@ -137,6 +139,7 @@ class RaceSimulator:
                 tire_compound = TireCompound.MEDIUM if pos <= 10 else TireCompound.SOFT
 
             strategy = self._infer_team_strategy(car, track)
+            pit_plans = self._plan_pit_lap_options(strategy, track)
             states.append(
                 DriverRaceState(
                     driver=driver,
@@ -144,7 +147,9 @@ class RaceSimulator:
                     position=pos,
                     current_tire=TIRE_COMPOUNDS[tire_compound].model_copy(deep=True),
                     strategy_archetype=strategy,
-                    planned_pit_laps=self._plan_pit_laps(strategy, track),
+                    planned_pit_laps=pit_plans[0],
+                    pit_plan_options=pit_plans,
+                    active_pit_plan_index=0,
                 )
             )
 
@@ -336,18 +341,56 @@ class RaceSimulator:
 
         return TeamStrategyArchetype.BALANCED
 
-    def _plan_pit_laps(
+    def _plan_pit_lap_options(
         self,
         strategy: TeamStrategyArchetype,
         track: Track,
-    ) -> list[int]:
-        """Generate planned pit laps by strategy archetype."""
+    ) -> list[list[int]]:
+        """Generate multiple pit-plan options by strategy archetype."""
         laps = track.total_laps
         if strategy == TeamStrategyArchetype.AGGRESSIVE:
-            return [int(laps * 0.28), int(laps * 0.55), int(laps * 0.78)]
+            return [
+                [int(laps * 0.28), int(laps * 0.55), int(laps * 0.78)],
+                [int(laps * 0.32), int(laps * 0.62)],
+            ]
         if strategy == TeamStrategyArchetype.CONSERVATIVE:
-            return [int(laps * 0.45), int(laps * 0.78)]
-        return [int(laps * 0.35), int(laps * 0.7)]
+            return [
+                [int(laps * 0.45), int(laps * 0.78)],
+                [int(laps * 0.52)],
+            ]
+        return [
+            [int(laps * 0.35), int(laps * 0.7)],
+            [int(laps * 0.42), int(laps * 0.78)],
+        ]
+
+    def _select_active_pit_plan(
+        self,
+        state: DriverRaceState,
+        weather: Weather | None,
+        lap: int,
+        gap_ahead: float | None,
+    ) -> list[int]:
+        """Select active pit plan based on race context."""
+        if not state.pit_plan_options:
+            return []
+
+        # In wet/changing conditions, prefer conservative fallback plan.
+        if weather is not None and weather.track_wetness > 0.3:
+            state.active_pit_plan_index = min(1, len(state.pit_plan_options) - 1)
+        # If stuck in traffic in race second half, prefer aggressive plan.
+        elif (
+            gap_ahead is not None
+            and gap_ahead > 2.0
+            and lap > 20
+            and state.strategy_archetype != TeamStrategyArchetype.CONSERVATIVE
+        ):
+            state.active_pit_plan_index = 0
+
+        state.active_pit_plan_index = min(
+            state.active_pit_plan_index,
+            len(state.pit_plan_options) - 1,
+        )
+        return state.pit_plan_options[state.active_pit_plan_index]
 
     def _should_pit(
         self,
@@ -417,9 +460,11 @@ class RaceSimulator:
                 return True
 
         # Prefer explicit planned pit laps when available for current stint.
+        active_plan = self._select_active_pit_plan(state, weather, lap, gap_ahead)
+        state.planned_pit_laps = active_plan
         planned_lap = None
-        if state.pit_stops < len(state.planned_pit_laps):
-            planned_lap = state.planned_pit_laps[state.pit_stops]
+        if state.pit_stops < len(active_plan):
+            planned_lap = active_plan[state.pit_stops]
 
         # Calculate optimal pit windows for 1-stop or 2-stop strategy
         if planned_lap is not None:
