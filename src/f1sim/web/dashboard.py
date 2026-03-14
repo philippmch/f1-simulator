@@ -185,6 +185,11 @@ def build_dashboard_html() -> str:
     <label>Race <input id=\"race\" value=\"Bahrain\" /></label>
     <label>Simulations <input id=\"simulations\" value=\"200\" /></label>
     <label>Scenarios <input id=\"scenarios\" value=\"dry,light_rain,heavy_rain\" /></label>
+    <div style=\"margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;\">
+      <button type=\"button\" id=\"presetDry\" style=\"margin-top:0\">Preset: Dry vs Cloudy</button>
+      <button type=\"button\" id=\"presetMixed\" style=\"margin-top:0\">Preset: Mixed Race</button>
+      <button type=\"button\" id=\"presetWet\" style=\"margin-top:0\">Preset: Wet Heavy</button>
+    </div>
     <label>Seed <input id=\"seed\" value=\"42\" /></label>
     <button id=\"runBtn\">Run Simulation</button>
     <div id=\"quickActions\" style=\"margin-top:10px;\"></div>
@@ -201,6 +206,7 @@ def build_dashboard_html() -> str:
     const resultEl = document.getElementById('result');
     const cardsEl = document.getElementById('resultCards');
     const actionsEl = document.getElementById('quickActions');
+    const scenariosInput = document.getElementById('scenarios');
     function renderScenarioCards(data) {
       const scenarios = data.scenarios || {};
       const names = Object.keys(scenarios);
@@ -301,6 +307,16 @@ def build_dashboard_html() -> str:
         runsEl.textContent = JSON.stringify({ status: 'error', detail: String(err) }, null, 2);
       }
     }
+
+    document.getElementById('presetDry').addEventListener('click', () => {
+      scenariosInput.value = 'dry,cloudy';
+    });
+    document.getElementById('presetMixed').addEventListener('click', () => {
+      scenariosInput.value = 'dry,light_rain,heavy_rain';
+    });
+    document.getElementById('presetWet').addEventListener('click', () => {
+      scenariosInput.value = 'light_rain,heavy_rain';
+    });
 
     document.getElementById('runBtn').addEventListener('click', async () => {
       const payload = {
