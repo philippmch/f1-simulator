@@ -33,4 +33,5 @@ def test_dashboard_html_contains_controls() -> None:
     html = build_dashboard_html()
     assert "Run Simulation" in html
     assert "/api/run" in html
+    assert "/api/runs" in html
     assert "scenarios" in html
