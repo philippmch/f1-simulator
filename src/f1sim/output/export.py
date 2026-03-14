@@ -135,6 +135,9 @@ class Exporter:
             "driver_statistics": {},
         }
 
+        top_5 = results.get_top_n_finish_probabilities(5)
+        top_10 = results.get_top_n_finish_probabilities(10)
+
         for driver_id, stats in results.driver_stats.items():
             stats_dict["driver_statistics"][driver_id] = {
                 "driver_name": stats.driver_name,
@@ -152,6 +155,9 @@ class Exporter:
                 "best_position": stats.best_position,
                 "worst_position": stats.worst_position,
                 "position_distribution": results.get_position_distribution(driver_id),
+                "position_percentiles": results.get_position_percentiles(driver_id),
+                "top_5_finish_probability": top_5.get(driver_id, 0.0),
+                "top_10_finish_probability": top_10.get(driver_id, 0.0),
             }
 
         with open(filepath, "w") as f:

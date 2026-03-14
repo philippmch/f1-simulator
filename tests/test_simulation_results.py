@@ -181,3 +181,37 @@ def test_top_n_finish_probabilities_rejects_invalid_n() -> None:
 
     with pytest.raises(ValueError, match="n must be greater than 0"):
         results.get_top_n_finish_probabilities(0)
+
+
+def test_position_percentiles_for_driver() -> None:
+    stats = {
+        "VER": DriverStatistics(
+            driver_id="VER",
+            driver_name="VER",
+            team="Red Bull",
+            positions=[1, 2, 3, 10],
+        )
+    }
+    results = SimulationResults(
+        num_simulations=4,
+        track_name="Bahrain",
+        driver_stats=stats,
+        race_results=[],
+        qualifying_results=[],
+    )
+
+    pct = results.get_position_percentiles("VER")
+    assert pct[10] <= pct[50] <= pct[90]
+    assert pct[50] == 2.5
+
+
+def test_position_percentiles_unknown_driver() -> None:
+    results = SimulationResults(
+        num_simulations=1,
+        track_name="Bahrain",
+        driver_stats={},
+        race_results=[],
+        qualifying_results=[],
+    )
+
+    assert results.get_position_percentiles("VER") == {}

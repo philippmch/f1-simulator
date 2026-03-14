@@ -242,4 +242,18 @@ class ConsoleOutput:
                 bar = "#" * int(dist[pos] / 2)
                 print(f"  P{pos:2d}: {dist[pos]:5.1f}% {bar}")
 
+        pct = results.get_position_percentiles(driver_id)
+        if pct:
+            print("\nPosition Percentiles:")
+            print(
+                f"  P10: {pct.get(10, 0):.2f}  "
+                f"P50: {pct.get(50, 0):.2f}  "
+                f"P90: {pct.get(90, 0):.2f}"
+            )
+
+        top_5 = results.get_top_n_finish_probabilities(5).get(driver_id, 0.0)
+        top_10 = results.get_top_n_finish_probabilities(10).get(driver_id, 0.0)
+        print(f"\nTop-5 finish probability:  {top_5:.1f}%")
+        print(f"Top-10 finish probability: {top_10:.1f}%")
+
         print("=" * 60)

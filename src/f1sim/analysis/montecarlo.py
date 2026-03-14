@@ -132,6 +132,22 @@ class SimulationResults:
 
         return dict(sorted(probs.items(), key=lambda x: x[1], reverse=True))
 
+    def get_position_percentiles(
+        self,
+        driver_id: str,
+        percentiles: tuple[int, ...] = (10, 50, 90),
+    ) -> dict[int, float]:
+        """Get finishing-position percentiles for one driver."""
+        if driver_id not in self.driver_stats:
+            return {}
+
+        positions = self.driver_stats[driver_id].positions
+        if not positions:
+            return {}
+
+        values = np.array(positions)
+        return {p: float(np.percentile(values, p)) for p in percentiles}
+
     def get_team_championship_projection(self) -> dict[str, float]:
         """Get projected points per team (constructors view)."""
         team_points: dict[str, float] = defaultdict(float)
