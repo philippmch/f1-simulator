@@ -702,28 +702,28 @@ class RaceSimulator:
 
         track_wetness = weather.track_wetness
 
-        # Slicks on wet track = critical
-        if is_slick and track_wetness > 0.5:
+        rain = weather.rain_intensity
+
+        # Slick crossover window tightens in heavy active rain.
+        if is_slick and (track_wetness > 0.45 or (track_wetness > 0.35 and rain > 0.6)):
             return "critical"
 
-        # Slicks on damp track = suboptimal
-        if is_slick and track_wetness > 0.25:
+        if is_slick and (track_wetness > 0.2 or rain > 0.4):
             return "suboptimal"
 
-        # Inters on very wet track = suboptimal (need full wets)
-        if is_inter and track_wetness > 0.75:
+        # Inters struggle once standing water builds.
+        if is_inter and track_wetness > 0.72:
             return "suboptimal"
 
-        # Wet tires on dry/drying track = critical (will destroy them)
-        if is_wet and track_wetness < 0.25:
+        # Full wets overheat quickly on drying track.
+        if is_wet and track_wetness < 0.2 and rain < 0.3:
             return "critical"
 
-        # Wet tires on damp track = suboptimal
-        if is_wet and track_wetness < 0.5:
+        if is_wet and track_wetness < 0.42:
             return "suboptimal"
 
-        # Inters on dry track = critical
-        if is_inter and track_wetness < 0.1:
+        # Inters are poor once the track is mostly dry and rain has eased.
+        if is_inter and track_wetness < 0.08 and rain < 0.15:
             return "critical"
 
         return "ok"

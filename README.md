@@ -79,6 +79,8 @@ Working simulation with:
 - Realistic pit stop windows (1-2 stops per race)
 - Driver skill affecting lap times (~0.1s/lap difference between teammates)
 - Realism-aware event model: lap-progression reliability, heat stress, and weather/consistency incident scaling
+- Calibrated safety controls: SC/VSC probabilities scale with track risk, incidents, weather, and race phase
+- Tire crossover realism: dynamic slick/inter/wet mismatch thresholds for changing conditions
 - Strategy-aware pit logic: free-stop detection under SC/VSC, undercut/overcut bias, and late-race soft-tire sprinting
 
 ## Requirements

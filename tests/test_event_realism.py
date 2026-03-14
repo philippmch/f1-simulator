@@ -62,3 +62,26 @@ def test_incident_probability_increases_in_wet_conditions() -> None:
     p_wet = manager._incident_probability(drivers, track, wet)
 
     assert p_wet > p_dry
+
+
+def test_safety_probs_scale_with_track_risk() -> None:
+    manager = EventManager(rng=np.random.default_rng(5))
+    low_risk = _track().model_copy(update={"safety_car_probability": 0.1})
+    high_risk = _track().model_copy(update={"safety_car_probability": 0.8})
+    weather = Weather(condition=WeatherCondition.DRY, track_wetness=0.0, rain_intensity=0.0)
+
+    low_sc, low_vsc = manager._calibrated_safety_probs(
+        low_risk,
+        weather,
+        incidents=1,
+        lap=20,
+    )
+    high_sc, high_vsc = manager._calibrated_safety_probs(
+        high_risk,
+        weather,
+        incidents=1,
+        lap=20,
+    )
+
+    assert high_sc > low_sc
+    assert high_vsc > low_vsc
