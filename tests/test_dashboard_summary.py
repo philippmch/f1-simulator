@@ -36,4 +36,6 @@ def test_dashboard_html_contains_controls() -> None:
     assert "/api/runs" in html
     assert "/output/" in html
     assert "renderScenarioCards" in html
+    assert "renderQuickActions" in html
+    assert "Open latest report" in html
     assert "scenarios" in html
