@@ -3,12 +3,10 @@
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any
 
 import numpy as np
 
 from f1sim.models import Car, Driver, Track, Weather
-from f1sim.models.tire import TireCompound
 from f1sim.simulation.qualifying import QualifyingResult, QualifyingSimulator
 from f1sim.simulation.race import RaceResult, RaceSimulator
 
@@ -89,16 +87,21 @@ class SimulationResults:
         for pos in positions:
             counts[pos] += 1
 
-        return {
-            pos: count / len(positions) * 100
-            for pos, count in sorted(counts.items())
-        }
+        return {pos: count / len(positions) * 100 for pos, count in sorted(counts.items())}
 
 
 # F1 points system
 POINTS_SYSTEM = {
-    1: 25, 2: 18, 3: 15, 4: 12, 5: 10,
-    6: 8, 7: 6, 8: 4, 9: 2, 10: 1,
+    1: 25,
+    2: 18,
+    3: 15,
+    4: 12,
+    5: 10,
+    6: 8,
+    7: 6,
+    8: 4,
+    9: 2,
+    10: 1,
 }
 
 

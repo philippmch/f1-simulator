@@ -6,9 +6,9 @@ from typing import Any
 import fastf1
 import numpy as np
 import pandas as pd
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from f1sim.models import Car, Driver, Sector, Track, TireCompound
+from f1sim.models import Car, Driver, Sector, Track
 
 
 class DriverStats(BaseModel):
@@ -191,10 +191,12 @@ class HistoricalDataLoader:
                     if lap["PitInTime"] is not pd.NaT and lap["PitOutTime"] is not pd.NaT:
                         pit_duration = (lap["PitOutTime"] - lap["PitInTime"]).total_seconds()
                         stationary_time = max(1.5, pit_duration - 18)
-                        pit_data.append({
-                            "Driver": lap["Driver"],
-                            "PitTime": stationary_time,
-                        })
+                        pit_data.append(
+                            {
+                                "Driver": lap["Driver"],
+                                "PitTime": stationary_time,
+                            }
+                        )
 
                 # Track DNFs
                 results = session.results
@@ -303,10 +305,12 @@ class HistoricalDataLoader:
             event_name = str(row["EventName"]).lower()
             round_num = row["RoundNumber"]
             # Match by round number, exact name, or partial name match
-            if (round_num == target_race or
-                event_name == target_race_lower or
-                target_race_lower in event_name or
-                event_name.startswith(target_race_lower)):
+            if (
+                round_num == target_race
+                or event_name == target_race_lower
+                or target_race_lower in event_name
+                or event_name.startswith(target_race_lower)
+            ):
                 target_idx = idx
                 break
 
@@ -327,7 +331,9 @@ class HistoricalDataLoader:
 
         print(f"  Form races: {form_race_ids}")
         print(f"  Target race: {target_race_id}")
-        print(f"  Weights: track={track_weight:.0%}, form={form_weight:.0%}, quali={quali_weight:.0%}")
+        print(
+            f"  Weights: track={track_weight:.0%}, form={form_weight:.0%}, quali={quali_weight:.0%}"
+        )
 
         # Load data for all relevant races
         all_races = form_race_ids + [target_race_id]
@@ -555,7 +561,9 @@ class HistoricalDataLoader:
             drs_zones = 2  # Default assumption
 
         stats = TrackStats(
-            track_id=event["EventName"].lower().replace(" ", "_") if "EventName" in event else str(race),
+            track_id=event["EventName"].lower().replace(" ", "_")
+            if "EventName" in event
+            else str(race),
             track_name=event.get("EventName", str(race)),
             country=event.get("Country", "Unknown"),
             total_laps=int(session.total_laps) if hasattr(session, "total_laps") else 60,
@@ -615,16 +623,18 @@ class HistoricalDataLoader:
             std_delta = driver_stats.lap_time_std - min_std
             consistency = 1.0 - (std_delta / std_range) * 0.15 if std_range > 0 else 0.9
 
-            drivers.append(Driver(
-                id=driver_stats.driver_id,
-                name=driver_stats.driver_name,
-                team_id=driver_stats.team_id,
-                skill_rating=max(0.75, min(1.0, skill)),
-                consistency=max(0.85, min(1.0, consistency)),
-                wet_skill_modifier=np.random.uniform(0.95, 1.05),
-                overtaking_skill=max(0.75, min(1.0, skill)),
-                tire_management=consistency,
-            ))
+            drivers.append(
+                Driver(
+                    id=driver_stats.driver_id,
+                    name=driver_stats.driver_name,
+                    team_id=driver_stats.team_id,
+                    skill_rating=max(0.75, min(1.0, skill)),
+                    consistency=max(0.85, min(1.0, consistency)),
+                    wet_skill_modifier=np.random.uniform(0.95, 1.05),
+                    overtaking_skill=max(0.75, min(1.0, skill)),
+                    tire_management=consistency,
+                )
+            )
 
         return drivers
 
@@ -693,31 +703,31 @@ class HistoricalDataLoader:
 
     # Track-specific characteristics (overtake difficulty: 0=easy, 1=impossible)
     TRACK_OVERTAKE_DIFFICULTY = {
-        "monaco": 0.95,           # Street circuit, nearly impossible to pass
-        "singapore": 0.85,        # Street circuit, very hard
-        "hungary": 0.80,          # Tight and twisty
-        "barcelona": 0.75,        # Dirty air issues
-        "melbourne": 0.70,        # Street circuit but with DRS
-        "imola": 0.65,            # Traditional, limited opportunities
-        "zandvoort": 0.70,        # Narrow, hard to pass
-        "miami": 0.50,            # Modern circuit with DRS zones
-        "jeddah": 0.45,           # Fast street circuit, some opportunities
-        "bahrain": 0.35,          # Multiple overtaking zones
-        "spa": 0.30,              # Kemmel straight great for passing
-        "monza": 0.25,            # Low downforce, long straights
-        "baku": 0.35,             # Long straight despite street circuit
-        "china": 0.40,            # Good passing opportunities
-        "canada": 0.40,           # Long straights
-        "austria": 0.40,          # Short lap but good DRS zones
-        "silverstone": 0.50,      # High speed, some opportunities
-        "cota": 0.45,             # Long straight to turn 1
-        "mexico": 0.40,           # Long straight, thin air helps
-        "brazil": 0.40,           # Good overtaking track
-        "qatar": 0.55,            # Limited opportunities
-        "las_vegas": 0.40,        # Long straights
-        "abu_dhabi": 0.45,        # Modern, decent DRS
-        "japan": 0.60,            # Figure 8, tricky
-        "saudi_arabia": 0.45,     # Same as jeddah
+        "monaco": 0.95,  # Street circuit, nearly impossible to pass
+        "singapore": 0.85,  # Street circuit, very hard
+        "hungary": 0.80,  # Tight and twisty
+        "barcelona": 0.75,  # Dirty air issues
+        "melbourne": 0.70,  # Street circuit but with DRS
+        "imola": 0.65,  # Traditional, limited opportunities
+        "zandvoort": 0.70,  # Narrow, hard to pass
+        "miami": 0.50,  # Modern circuit with DRS zones
+        "jeddah": 0.45,  # Fast street circuit, some opportunities
+        "bahrain": 0.35,  # Multiple overtaking zones
+        "spa": 0.30,  # Kemmel straight great for passing
+        "monza": 0.25,  # Low downforce, long straights
+        "baku": 0.35,  # Long straight despite street circuit
+        "china": 0.40,  # Good passing opportunities
+        "canada": 0.40,  # Long straights
+        "austria": 0.40,  # Short lap but good DRS zones
+        "silverstone": 0.50,  # High speed, some opportunities
+        "cota": 0.45,  # Long straight to turn 1
+        "mexico": 0.40,  # Long straight, thin air helps
+        "brazil": 0.40,  # Good overtaking track
+        "qatar": 0.55,  # Limited opportunities
+        "las_vegas": 0.40,  # Long straights
+        "abu_dhabi": 0.45,  # Modern, decent DRS
+        "japan": 0.60,  # Figure 8, tricky
+        "saudi_arabia": 0.45,  # Same as jeddah
     }
 
     def create_track_from_stats(

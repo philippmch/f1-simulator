@@ -76,7 +76,7 @@ def main():
     )
     args = parser.parse_args()
 
-    print(f"F1 Monte Carlo Race Simulation")
+    print("F1 Monte Carlo Race Simulation")
     print(f"{'=' * 40}")
     print(f"Year: {args.year}")
     print(f"Race: {args.race}")
