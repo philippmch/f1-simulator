@@ -227,6 +227,11 @@ class ConsoleOutput:
             delta = results.get_mechanical_calibration_delta(expected_component_rates)
             print(f"    Calibration delta: {delta * 100:.1f}%")
 
+            suggestions = results.get_mechanical_tuning_suggestions(expected_component_rates)
+            print("    Suggested tuning:")
+            for component, action in suggestions.items():
+                print(f"      - {component:<10} {action}")
+
         print("=" * 80)
 
     @staticmethod
