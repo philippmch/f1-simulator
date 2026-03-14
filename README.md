@@ -46,6 +46,10 @@ python examples/simulate_race.py --race Bahrain --simulations 1000 --seed 7 --ma
 # Compare weather scenarios in one run
 python examples/simulate_race.py --race Silverstone --simulations 300 --scenarios dry,light_rain,heavy_rain --export
 # CLI now also prints event calibration diagnostics (expected vs observed SC race rate)
+
+# Run minimal dashboard API (after `pip install -e '.[web]'`)
+python -m f1sim.web.dashboard
+# then POST to http://127.0.0.1:8080/api/run with scenarios payload
 ```
 
 When exporting, `statistics.json` includes run metadata (`seed`, `parallel`, `max_workers`), team championship projection, top-3/top-10 finish probabilities, and per-driver position percentiles (P10/P50/P90) for richer race analysis.
