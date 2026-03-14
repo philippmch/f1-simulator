@@ -33,3 +33,4 @@ def test_statistics_export_includes_run_metadata(tmp_path) -> None:
     assert metadata["seed"] == 123
     assert metadata["parallel"] is False
     assert metadata["max_workers"] == 2
+    assert "team_championship_projection" in data

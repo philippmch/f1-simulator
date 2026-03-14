@@ -116,6 +116,15 @@ class SimulationResults:
 
         return {pos: count / len(positions) * 100 for pos, count in sorted(counts.items())}
 
+    def get_team_championship_projection(self) -> dict[str, float]:
+        """Get projected points per team (constructors view)."""
+        team_points: dict[str, float] = defaultdict(float)
+
+        for stats in self.driver_stats.values():
+            team_points[stats.team] += stats.total_points / self.num_simulations
+
+        return dict(sorted(team_points.items(), key=lambda x: x[1], reverse=True))
+
 
 # F1 points system
 POINTS_SYSTEM = {
