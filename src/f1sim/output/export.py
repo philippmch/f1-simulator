@@ -6,8 +6,6 @@ from pathlib import Path
 from typing import Any
 
 from f1sim.analysis.montecarlo import SimulationResults
-from f1sim.simulation.qualifying import QualifyingResult
-from f1sim.simulation.race import RaceResult
 
 
 class Exporter:
@@ -125,6 +123,9 @@ class Exporter:
             "metadata": {
                 "num_simulations": results.num_simulations,
                 "track_name": results.track_name,
+                "seed": results.seed,
+                "parallel": results.parallel,
+                "max_workers": results.max_workers,
             },
             "win_probabilities": results.get_win_probabilities(),
             "championship_projection": results.get_championship_projection(),

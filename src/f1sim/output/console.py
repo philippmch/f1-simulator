@@ -97,6 +97,12 @@ class ConsoleOutput:
         print("\n" + "=" * 80)
         print(f"MONTE CARLO SIMULATION RESULTS - {results.track_name}")
         print(f"({results.num_simulations} simulations)")
+        if results.seed is not None:
+            print(
+                f"seed={results.seed} "
+                f"parallel={results.parallel} "
+                f"max_workers={results.max_workers if results.max_workers is not None else 'auto'}"
+            )
         print("=" * 80)
 
         # Win probabilities
@@ -153,17 +159,30 @@ class ConsoleOutput:
         event_stats = results.event_stats
         print("\nRACE EVENT STATISTICS:")
         print("-" * 50)
-        sc_rate = (event_stats.races_with_safety_car / results.num_simulations * 100) if results.num_simulations > 0 else 0
-        rf_rate = (event_stats.races_with_red_flag / results.num_simulations * 100) if results.num_simulations > 0 else 0
-        avg_sc = event_stats.safety_car_count / results.num_simulations if results.num_simulations > 0 else 0
-        avg_vsc = event_stats.vsc_count / results.num_simulations if results.num_simulations > 0 else 0
-        avg_rf = event_stats.red_flag_count / results.num_simulations if results.num_simulations > 0 else 0
-        avg_incidents = event_stats.total_incidents / results.num_simulations if results.num_simulations > 0 else 0
+        sims = results.num_simulations
+        if sims > 0:
+            sc_rate = event_stats.races_with_safety_car / sims * 100
+            rf_rate = event_stats.races_with_red_flag / sims * 100
+            avg_sc = event_stats.safety_car_count / sims
+            avg_vsc = event_stats.vsc_count / sims
+            avg_rf = event_stats.red_flag_count / sims
+            avg_incidents = event_stats.total_incidents / sims
+        else:
+            sc_rate = rf_rate = avg_sc = avg_vsc = avg_rf = avg_incidents = 0
 
-        print(f"  Safety Cars:     {event_stats.safety_car_count:4d} total ({avg_sc:.2f}/race, {sc_rate:.1f}% of races)")
+        print(
+            f"  Safety Cars:     {event_stats.safety_car_count:4d} total "
+            f"({avg_sc:.2f}/race, {sc_rate:.1f}% of races)"
+        )
         print(f"  Virtual SC:      {event_stats.vsc_count:4d} total ({avg_vsc:.2f}/race)")
-        print(f"  Red Flags:       {event_stats.red_flag_count:4d} total ({avg_rf:.2f}/race, {rf_rate:.1f}% of races)")
-        print(f"  Total Incidents: {event_stats.total_incidents:4d} total ({avg_incidents:.2f}/race)")
+        print(
+            f"  Red Flags:       {event_stats.red_flag_count:4d} total "
+            f"({avg_rf:.2f}/race, {rf_rate:.1f}% of races)"
+        )
+        print(
+            f"  Total Incidents: {event_stats.total_incidents:4d} total "
+            f"({avg_incidents:.2f}/race)"
+        )
 
         print("=" * 80)
 
@@ -192,13 +211,13 @@ class ConsoleOutput:
         print(f"  DNFs:           {stats.dnfs:4d} ({stats.dnf_rate:.1f}%)")
         print(f"  Total points:   {stats.total_points:.0f}")
 
-        print(f"\nPosition Statistics:")
+        print("\nPosition Statistics:")
         print(f"  Average:  {stats.avg_position:.2f}")
         print(f"  Best:     {stats.best_position}")
         print(f"  Worst:    {stats.worst_position}")
         print(f"  Avg Quali:{stats.avg_qualifying:.2f}")
 
-        print(f"\nPosition Distribution:")
+        print("\nPosition Distribution:")
         dist = results.get_position_distribution(driver_id)
         for pos in range(1, 21):
             if pos in dist:
