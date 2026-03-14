@@ -61,3 +61,24 @@ def test_position_distribution_unknown_driver() -> None:
     )
 
     assert results.get_position_distribution("HAM") == {}
+
+
+def test_championship_projection_sorted_desc() -> None:
+    stats = {
+        "VER": _stats("VER", [1], total_points=250.0),
+        "NOR": _stats("NOR", [2], total_points=180.0),
+        "HAM": _stats("HAM", [3], total_points=100.0),
+    }
+    results = SimulationResults(
+        num_simulations=10,
+        track_name="Bahrain",
+        driver_stats=stats,
+        race_results=[],
+        qualifying_results=[],
+    )
+
+    projection = results.get_championship_projection()
+    assert list(projection.keys()) == ["VER", "NOR", "HAM"]
+    assert projection["VER"] == 25.0
+    assert projection["NOR"] == 18.0
+    assert projection["HAM"] == 10.0
