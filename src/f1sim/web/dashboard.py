@@ -192,6 +192,7 @@ def build_dashboard_html() -> str:
     </div>
     <label>Seed <input id=\"seed\" value=\"42\" /></label>
     <button id=\"runBtn\">Run Simulation</button>
+    <button id=\"rerunBtn\" type=\"button\">Re-run Last Config</button>
     <div id=\"quickActions\" style=\"margin-top:10px;\"></div>
     <h2>Scenario Comparison</h2>
     <div id=\"resultCards\">No runs yet</div>
@@ -207,6 +208,7 @@ def build_dashboard_html() -> str:
     const cardsEl = document.getElementById('resultCards');
     const actionsEl = document.getElementById('quickActions');
     const scenariosInput = document.getElementById('scenarios');
+    const rerunBtn = document.getElementById('rerunBtn');
     function renderScenarioCards(data) {
       const scenarios = data.scenarios || {};
       const names = Object.keys(scenarios);
@@ -318,15 +320,28 @@ def build_dashboard_html() -> str:
       scenariosInput.value = 'light_rain,heavy_rain';
     });
 
-    document.getElementById('runBtn').addEventListener('click', async () => {
-      const payload = {
+    function readPayloadFromInputs() {
+      return {
         year: Number(document.getElementById('year').value),
         race: document.getElementById('race').value,
         simulations: Number(document.getElementById('simulations').value),
         scenarios: document.getElementById('scenarios').value,
         seed: Number(document.getElementById('seed').value),
       };
+    }
 
+    function writePayloadToInputs(payload) {
+      if (!payload) return;
+      if (payload.year != null) document.getElementById('year').value = payload.year;
+      if (payload.race != null) document.getElementById('race').value = payload.race;
+      if (payload.simulations != null) {
+        document.getElementById('simulations').value = payload.simulations;
+      }
+      if (payload.scenarios != null) document.getElementById('scenarios').value = payload.scenarios;
+      if (payload.seed != null) document.getElementById('seed').value = payload.seed;
+    }
+
+    async function runWithPayload(payload) {
       resultEl.textContent = JSON.stringify({ status: 'running', payload }, null, 2);
       try {
         const res = await fetch('/api/run', {
@@ -337,11 +352,36 @@ def build_dashboard_html() -> str:
         const data = await res.json();
         resultEl.textContent = JSON.stringify(data, null, 2);
         renderScenarioCards(data);
+        localStorage.setItem('f1sim:lastPayload', JSON.stringify(payload));
         await refreshRuns();
       } catch (err) {
         resultEl.textContent = JSON.stringify({ status: 'error', detail: String(err) }, null, 2);
       }
+    }
+
+    document.getElementById('runBtn').addEventListener('click', async () => {
+      await runWithPayload(readPayloadFromInputs());
     });
+
+    rerunBtn.addEventListener('click', async () => {
+      const raw = localStorage.getItem('f1sim:lastPayload');
+      if (!raw) {
+        resultEl.textContent = JSON.stringify(
+          { status: 'error', detail: 'No previous config saved yet' },
+          null,
+          2
+        );
+        return;
+      }
+      const payload = JSON.parse(raw);
+      writePayloadToInputs(payload);
+      await runWithPayload(payload);
+    });
+
+    const saved = localStorage.getItem('f1sim:lastPayload');
+    if (saved) {
+      writePayloadToInputs(JSON.parse(saved));
+    }
 
     refreshRuns();
   </script>

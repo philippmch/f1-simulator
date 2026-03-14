@@ -40,5 +40,7 @@ def test_dashboard_html_contains_controls() -> None:
     assert "presetDry" in html
     assert "presetMixed" in html
     assert "presetWet" in html
+    assert "rerunBtn" in html
+    assert "f1sim:lastPayload" in html
     assert "Open latest report" in html
     assert "scenarios" in html
