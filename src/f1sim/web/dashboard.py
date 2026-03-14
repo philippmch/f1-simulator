@@ -207,6 +207,16 @@ def build_dashboard_html() -> str:
       <button type=\"button\" id=\"presetWet\" style=\"margin-top:0\">Preset: Wet Heavy</button>
     </div>
     <label>Seed <input id=\"seed\" value=\"42\" /></label>
+    <label style=\"margin-top:8px\">Quick example
+      <select id=\"exampleConfig\">
+        <option value=\"\">Select preset…</option>
+        <option value=\"bahrain_baseline\">Bahrain baseline</option>
+        <option value=\"silverstone_mixed\">Silverstone mixed</option>
+        <option value=\"monaco_chaos\">Monaco chaos</option>
+      </select>
+    </label>
+    <button id=\"applyExampleBtn\" type=\"button\">Load Example</button>
+    <button id=\"runExampleBtn\" type=\"button\">Run Example Now</button>
     <button id=\"runBtn\">Run Simulation</button>
     <button id=\"rerunBtn\" type=\"button\">Re-run Last Config</button>
     <button id=\"clearBtn\" type=\"button\">Clear Saved Config</button>
@@ -285,6 +295,7 @@ def build_dashboard_html() -> str:
     const clearBtn = document.getElementById('clearBtn');
     const exampleConfigEl = document.getElementById('exampleConfig');
     const applyExampleBtn = document.getElementById('applyExampleBtn');
+    const runExampleBtn = document.getElementById('runExampleBtn');
     const runsFilterInput = document.getElementById('runsFilter');
     let latestScenarioData = null;
     const PREFS_KEY = 'f1sim:uiPrefs';
@@ -750,7 +761,7 @@ def build_dashboard_html() -> str:
       resultEl.textContent = JSON.stringify({ status: 'saved config cleared' }, null, 2);
     });
 
-    applyExampleBtn.addEventListener('click', () => {
+    function loadSelectedExample() {
       const key = exampleConfigEl.value;
       const preset = EXAMPLE_CONFIGS[key];
       if (!preset) {
@@ -759,11 +770,27 @@ def build_dashboard_html() -> str:
           null,
           2
         );
-        return;
+        return null;
       }
       writePayloadToInputs(preset);
       localStorage.setItem('f1sim:lastPayload', JSON.stringify(preset));
-      resultEl.textContent = JSON.stringify({ status: 'example loaded', preset: key }, null, 2);
+      return { key, preset };
+    }
+
+    applyExampleBtn.addEventListener('click', () => {
+      const loaded = loadSelectedExample();
+      if (!loaded) return;
+      resultEl.textContent = JSON.stringify(
+        { status: 'example loaded', preset: loaded.key },
+        null,
+        2
+      );
+    });
+
+    runExampleBtn.addEventListener('click', async () => {
+      const loaded = loadSelectedExample();
+      if (!loaded) return;
+      await runWithPayload(loaded.preset);
     });
 
     runsFilterInput.addEventListener('input', () => {
