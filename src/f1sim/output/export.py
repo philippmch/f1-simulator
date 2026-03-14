@@ -2,6 +2,7 @@
 
 import csv
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,8 @@ class Exporter:
     """Exports simulation results to various formats."""
 
     _PLOTLY_CDN = "https://cdn.plot.ly/plotly-2.35.2.min.js"
+    _HISTORY_FILE = ".run_history.json"
+    _INDEX_FILE = "index.html"
 
     def __init__(self, output_dir: str | Path = "output"):
         """Initialize exporter.
@@ -21,6 +24,103 @@ class Exporter:
         """
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def _history_path(self) -> Path:
+        return self.output_dir / self._HISTORY_FILE
+
+    def _read_history(self) -> list[dict[str, Any]]:
+        path = self._history_path()
+        if not path.exists():
+            return []
+
+        data = json.loads(path.read_text())
+        if not isinstance(data, list):
+            return []
+
+        return [row for row in data if isinstance(row, dict)]
+
+    def _write_history(self, history: list[dict[str, Any]]) -> None:
+        self._history_path().write_text(json.dumps(history, indent=2))
+
+    def _record_export_run(
+        self,
+        results: SimulationResults,
+        files: dict[str, Path],
+        prefix: str,
+    ) -> None:
+        history = self._read_history()
+        entry = {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "track": results.track_name,
+            "num_simulations": results.num_simulations,
+            "seed": results.seed,
+            "prefix": prefix,
+            "files": {k: p.name for k, p in files.items()},
+        }
+        history.insert(0, entry)
+
+        # Keep only latest 100 runs to avoid unbounded growth.
+        self._write_history(history[:100])
+
+    def export_run_index_html(self, filename: str = _INDEX_FILE) -> Path:
+        """Export a simple HTML index page for browsing run history."""
+        filepath = self.output_dir / filename
+        history = self._read_history()
+
+        rows = []
+        for row in history:
+            ts = row.get("timestamp", "-")
+            track = row.get("track", "-")
+            sims = row.get("num_simulations", "-")
+            seed = row.get("seed", "-")
+            files = row.get("files", {})
+            report = files.get("report_html") if isinstance(files, dict) else None
+            stats = files.get("statistics_json") if isinstance(files, dict) else None
+            links = []
+            if report:
+                links.append(f"<a href=\"{report}\">report</a>")
+            if stats:
+                links.append(f"<a href=\"{stats}\">stats</a>")
+            row_links = " | ".join(links) if links else "-"
+            rows.append(
+                f"<tr><td>{ts}</td><td>{track}</td><td>{sims}</td><td>{seed}</td><td>{row_links}</td></tr>"
+            )
+
+        table_rows = "\n".join(rows) if rows else "<tr><td colspan='5'>No runs yet</td></tr>"
+
+        html = f"""<!doctype html>
+<html lang=\"en\">
+<head>
+  <meta charset=\"utf-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+  <title>F1 Sim Run History</title>
+  <style>
+    body {{
+      font-family: Inter, system-ui, sans-serif;
+      margin: 24px;
+      background: #0f1220;
+      color: #e8ebff;
+    }}
+    table {{ width: 100%; border-collapse: collapse; background: #181c30; }}
+    th, td {{ border: 1px solid #2a3156; padding: 10px; text-align: left; }}
+    a {{ color: #7aa2ff; }}
+  </style>
+</head>
+<body>
+  <h1>F1 Simulation Run History</h1>
+  <table>
+    <thead>
+      <tr>
+        <th>Timestamp (UTC)</th><th>Track</th><th>Simulations</th><th>Seed</th><th>Artifacts</th>
+      </tr>
+    </thead>
+    <tbody>{table_rows}</tbody>
+  </table>
+</body>
+</html>
+"""
+        filepath.write_text(html)
+        return filepath
 
     def export_race_results_csv(
         self,
@@ -276,17 +376,22 @@ class Exporter:
         Returns:
             Dictionary of format -> filepath
         """
-        prefix = f"{prefix}_" if prefix else ""
+        filename_prefix = f"{prefix}_" if prefix else ""
 
-        return {
+        files = {
             "race_csv": self.export_race_results_csv(
-                results, f"{prefix}race_results.csv"
+                results, f"{filename_prefix}race_results.csv"
             ),
             "qualifying_csv": self.export_qualifying_results_csv(
-                results, f"{prefix}qualifying_results.csv"
+                results, f"{filename_prefix}qualifying_results.csv"
             ),
             "statistics_json": self.export_statistics_json(
-                results, f"{prefix}statistics.json"
+                results, f"{filename_prefix}statistics.json"
             ),
-            "report_html": self.export_report_html(results, f"{prefix}report.html"),
+            "report_html": self.export_report_html(results, f"{filename_prefix}report.html"),
         }
+
+        self._record_export_run(results, files, prefix)
+        files["runs_index_html"] = self.export_run_index_html()
+
+        return files

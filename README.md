@@ -38,6 +38,7 @@ python examples/simulate_race.py --race Silverstone
 
 # Export results (CSV + JSON + interactive HTML report)
 python examples/simulate_race.py --race Monza --export --output-dir results/
+# includes run history + browser index at results/index.html
 
 # Reproducible run with explicit seed + worker cap
 python examples/simulate_race.py --race Bahrain --simulations 1000 --seed 7 --max-workers 4
