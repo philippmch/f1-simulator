@@ -239,6 +239,9 @@ def build_dashboard_html() -> str:
       <label style=\"margin:0\">Filter driver
         <input id=\"matrixDriverFilter\" value=\"\" placeholder=\"e.g. VER\" />
       </label>
+      <label style=\"margin:0\">Filter scenarios
+        <input id=\"matrixScenarioFilter\" value=\"\" placeholder=\"e.g. dry\" />
+      </label>
     </div>
     <div id=\"resultMatrix\">No matrix yet</div>
     <h2>Raw Result</h2>
@@ -262,6 +265,7 @@ def build_dashboard_html() -> str:
     const matrixSortEl = document.getElementById('matrixSort');
     const matrixHighlightEl = document.getElementById('matrixHighlight');
     const matrixDriverFilterEl = document.getElementById('matrixDriverFilter');
+    const matrixScenarioFilterEl = document.getElementById('matrixScenarioFilter');
     const actionsEl = document.getElementById('quickActions');
     const scenariosInput = document.getElementById('scenarios');
     const rerunBtn = document.getElementById('rerunBtn');
@@ -388,9 +392,13 @@ def build_dashboard_html() -> str:
     function renderDriverMatrix(data) {
       latestScenarioData = data;
       const scenarios = data.scenarios || {};
-      const names = Object.keys(scenarios);
+      const allNames = Object.keys(scenarios);
+      const scenarioFilter = (matrixScenarioFilterEl.value || '').trim().toLowerCase();
+      const names = allNames.filter(
+        (name) => !scenarioFilter || name.toLowerCase().includes(scenarioFilter)
+      );
       if (!names.length) {
-        matrixEl.textContent = 'No matrix data yet';
+        matrixEl.textContent = 'No scenarios match this filter';
         return;
       }
 
@@ -613,6 +621,11 @@ def build_dashboard_html() -> str:
       }
     });
     matrixDriverFilterEl.addEventListener('input', () => {
+      if (latestScenarioData) {
+        renderDriverMatrix(latestScenarioData);
+      }
+    });
+    matrixScenarioFilterEl.addEventListener('input', () => {
       if (latestScenarioData) {
         renderDriverMatrix(latestScenarioData);
       }
