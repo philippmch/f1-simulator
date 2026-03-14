@@ -43,6 +43,7 @@ def test_dashboard_html_contains_controls() -> None:
     assert "resultTrends" in html
     assert "trendMetric" in html
     assert "trendScale" in html
+    assert "topNSelector" in html
     assert "resultMatrix" in html
     assert "matrixSort" in html
     assert "matrixHighlight" in html
