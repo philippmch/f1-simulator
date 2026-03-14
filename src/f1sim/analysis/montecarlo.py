@@ -78,6 +78,9 @@ class SimulationResults:
     race_results: list[list[RaceResult]]  # All individual race results
     qualifying_results: list[list[QualifyingResult]]  # All qualifying results
     event_stats: RaceEventStatistics = field(default_factory=RaceEventStatistics)
+    seed: int | None = None
+    parallel: bool = True
+    max_workers: int | None = None
 
     def get_win_probabilities(self) -> dict[str, float]:
         """Get win probability for each driver."""
@@ -287,6 +290,9 @@ class MonteCarloRunner:
             race_results=all_race_results,
             qualifying_results=all_quali_results,
             event_stats=event_stats,
+            seed=int(self.base_seed),
+            parallel=parallel,
+            max_workers=max_workers,
         )
 
     def _aggregate_statistics(

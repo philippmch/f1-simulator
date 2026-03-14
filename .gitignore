@@ -29,8 +29,8 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Output files
-output/
+# Generated output files
+/output/
 *.csv
 *.json
 
