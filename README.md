@@ -86,7 +86,7 @@ Working simulation with:
 - Track-specific overtake difficulty (Monaco 0.95, Bahrain 0.35, etc.)
 - Realistic pit stop windows (1-2 stops per race)
 - Driver skill affecting lap times (~0.1s/lap difference between teammates)
-- Realism-aware event model: lap-progression reliability, heat stress, and weather/consistency incident scaling
+- Realism-aware event model: lap-progression reliability, component-level failure risk, heat stress, and weather/consistency incident scaling
 - Calibrated safety controls: SC/VSC probabilities scale with track risk, incidents, weather, and race phase
 - Tire crossover realism: dynamic slick/inter/wet mismatch thresholds for changing conditions
 - Team strategy archetypes (aggressive/balanced/conservative) with dynamic mid-race pit reactions
