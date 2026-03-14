@@ -222,6 +222,12 @@ def build_dashboard_html() -> str:
         <option value=\"inc\">Average incidents</option>
       </select>
     </label>
+    <label style=\"margin:0\">Scale
+      <select id=\"trendScale\">
+        <option value=\"absolute\">Absolute</option>
+        <option value=\"normalized\">Normalized by max scenario</option>
+      </select>
+    </label>
     <div id=\"resultTrends\">No trend data yet</div>
     <h2>Driver Matrix (by scenario)</h2>
     <div style=\"margin:6px 0; display:flex; gap:8px; flex-wrap:wrap;\">
@@ -261,6 +267,8 @@ def build_dashboard_html() -> str:
     const chartEl = document.getElementById('resultChart');
     const trendsEl = document.getElementById('resultTrends');
     const trendMetricEl = document.getElementById('trendMetric');
+    const trendScaleEl = document.getElementById('trendScale');
+    const trendScaleEl = document.getElementById('trendScale');
     const matrixEl = document.getElementById('resultMatrix');
     const matrixSortEl = document.getElementById('matrixSort');
     const matrixHighlightEl = document.getElementById('matrixHighlight');
@@ -389,6 +397,20 @@ def build_dashboard_html() -> str:
       }
 
       const metric = trendMetricEl.value;
+      const scaleMode = trendScaleEl.value;
+
+      const values = names.map((name) => {
+        const rates = scenarios[name].event_rates || {};
+        const sc = Number((rates.safety_car_race_rate || 0) * 100);
+        const rf = Number((rates.red_flag_race_rate || 0) * 100);
+        const incidents = Number(rates.avg_incidents || 0);
+
+        if (metric === 'rf') return rf;
+        if (metric === 'inc') return incidents;
+        return sc;
+      });
+
+      const dynamicMax = Math.max(...values, 0.0001);
 
       const rows = names.map((name) => {
         const rates = scenarios[name].event_rates || {};
@@ -398,20 +420,22 @@ def build_dashboard_html() -> str:
 
         let value = sc;
         let label = `${name} · SC ${sc.toFixed(1)}%`;
-        let maxValue = 100;
+        let absoluteMax = 100;
         if (metric === 'rf') {
           value = rf;
           label = `${name} · RF ${rf.toFixed(1)}%`;
         } else if (metric === 'inc') {
           value = incidents;
-          maxValue = 5;
+          absoluteMax = 5;
           label = `${name} · Inc ${incidents.toFixed(2)}`;
         }
 
-        const safePct = Math.max(0, Math.min(100, (value / maxValue) * 100));
+        const maxValue = scaleMode === 'normalized' ? dynamicMax : absoluteMax;
+        const safePct = Math.max(0, Math.min(100, (value / Math.max(maxValue, 0.0001)) * 100));
+        const suffix = scaleMode === 'normalized' ? ' (normalized)' : '';
         return `
           <div class="chart-row">
-            <div class="chart-label">${label}</div>
+            <div class="chart-label">${label}${suffix}</div>
             <div class="bar-track">
               <div class="bar-fill" style="width:${safePct}%"></div>
             </div>
@@ -668,6 +692,12 @@ def build_dashboard_html() -> str:
       }
     });
     trendMetricEl.addEventListener('change', () => {
+      saveUiPrefs();
+      if (latestScenarioData) {
+        renderScenarioTrends(latestScenarioData);
+      }
+    });
+    trendScaleEl.addEventListener('change', () => {
       saveUiPrefs();
       if (latestScenarioData) {
         renderScenarioTrends(latestScenarioData);
