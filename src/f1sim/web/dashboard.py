@@ -162,6 +162,18 @@ def build_dashboard_html() -> str:
     .run-item { padding: 10px 12px; border-bottom: 1px solid #2a3156; }
     .run-item:last-child { border-bottom: 0; }
     .run-meta { color: #b6c0ff; font-size: 12px; }
+    .scenario-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 10px;
+    }
+    .scenario-card {
+      border: 1px solid #2a3156;
+      border-radius: 10px;
+      padding: 10px;
+      background: #10142a;
+    }
+    .scenario-title { font-weight: 700; margin-bottom: 6px; }
     a { color: #7aa2ff; text-decoration: none; }
   </style>
 </head>
@@ -175,7 +187,9 @@ def build_dashboard_html() -> str:
     <label>Scenarios <input id=\"scenarios\" value=\"dry,light_rain,heavy_rain\" /></label>
     <label>Seed <input id=\"seed\" value=\"42\" /></label>
     <button id=\"runBtn\">Run Simulation</button>
-    <h2>Result</h2>
+    <h2>Scenario Comparison</h2>
+    <div id=\"resultCards\">No runs yet</div>
+    <h2>Raw Result</h2>
     <pre id=\"result\">{\"status\": \"idle\"}</pre>
     <h2>Recent Runs</h2>
     <div id=\"runs\">No runs yet</div>
@@ -184,6 +198,39 @@ def build_dashboard_html() -> str:
   <script>
     const runsEl = document.getElementById('runs');
     const resultEl = document.getElementById('result');
+    const cardsEl = document.getElementById('resultCards');
+    function renderScenarioCards(data) {
+      const scenarios = data.scenarios || {};
+      const names = Object.keys(scenarios);
+      if (!names.length) {
+        cardsEl.textContent = 'No scenario results yet';
+        return;
+      }
+
+      const cards = names.map((name) => {
+        const s = scenarios[name] || {};
+        const top = (s.top3_win_probabilities || [])
+          .map(([driver, prob]) => `${driver}: ${prob.toFixed(1)}%`)
+          .join('<br/>');
+        const rates = s.event_rates || {};
+        const sc = ((rates.safety_car_race_rate || 0) * 100).toFixed(1);
+        const rf = ((rates.red_flag_race_rate || 0) * 100).toFixed(1);
+        return `
+          <div class="scenario-card">
+            <div class="scenario-title">${name}</div>
+            <div><strong>Top 3 win%</strong><br/>${top || '-'}</div>
+            <div style="margin-top:6px">
+              <strong>Event rates</strong><br/>
+              SC race rate: ${sc}%<br/>
+              Red flag rate: ${rf}%
+            </div>
+          </div>
+        `;
+      });
+
+      cardsEl.innerHTML = `<div class="scenario-grid">${cards.join('')}</div>`;
+    }
+
     function renderRunItem(run) {
       const files = run.files || {};
       const links = [];
@@ -243,6 +290,7 @@ def build_dashboard_html() -> str:
         });
         const data = await res.json();
         resultEl.textContent = JSON.stringify(data, null, 2);
+        renderScenarioCards(data);
         await refreshRuns();
       } catch (err) {
         resultEl.textContent = JSON.stringify({ status: 'error', detail: String(err) }, null, 2);
