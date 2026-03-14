@@ -174,7 +174,11 @@ class EventManager:
             return lap_events
 
         # Check for forced safety car
-        if lap in self.forced_safety_car_laps and not self.safety_car_active and not self.red_flag_active:
+        if (
+            lap in self.forced_safety_car_laps
+            and not self.safety_car_active
+            and not self.red_flag_active
+        ):
             self.safety_car_active = True
             self.safety_car_laps_remaining = self.rng.integers(3, 7)
             sc_event = RaceEvent(
