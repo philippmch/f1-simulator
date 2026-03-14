@@ -65,9 +65,27 @@ def test_position_distribution_unknown_driver() -> None:
 
 def test_championship_projection_sorted_desc() -> None:
     stats = {
-        "VER": _stats("VER", [1], total_points=250.0),
-        "NOR": _stats("NOR", [2], total_points=180.0),
-        "HAM": _stats("HAM", [3], total_points=100.0),
+        "VER": DriverStatistics(
+            driver_id="VER",
+            driver_name="VER",
+            team="Red Bull",
+            positions=[1],
+            total_points=250.0,
+        ),
+        "NOR": DriverStatistics(
+            driver_id="NOR",
+            driver_name="NOR",
+            team="McLaren",
+            positions=[2],
+            total_points=180.0,
+        ),
+        "HAM": DriverStatistics(
+            driver_id="HAM",
+            driver_name="HAM",
+            team="Ferrari",
+            positions=[3],
+            total_points=100.0,
+        ),
     }
     results = SimulationResults(
         num_simulations=10,
@@ -82,3 +100,41 @@ def test_championship_projection_sorted_desc() -> None:
     assert projection["VER"] == 25.0
     assert projection["NOR"] == 18.0
     assert projection["HAM"] == 10.0
+
+
+def test_team_championship_projection_aggregates_teammates() -> None:
+    stats = {
+        "VER": DriverStatistics(
+            driver_id="VER",
+            driver_name="VER",
+            team="Red Bull",
+            positions=[1],
+            total_points=250.0,
+        ),
+        "PER": DriverStatistics(
+            driver_id="PER",
+            driver_name="PER",
+            team="Red Bull",
+            positions=[2],
+            total_points=180.0,
+        ),
+        "NOR": DriverStatistics(
+            driver_id="NOR",
+            driver_name="NOR",
+            team="McLaren",
+            positions=[3],
+            total_points=220.0,
+        ),
+    }
+    results = SimulationResults(
+        num_simulations=10,
+        track_name="Bahrain",
+        driver_stats=stats,
+        race_results=[],
+        qualifying_results=[],
+    )
+
+    projection = results.get_team_championship_projection()
+    assert list(projection.keys()) == ["Red Bull", "McLaren"]
+    assert projection["Red Bull"] == 43.0
+    assert projection["McLaren"] == 22.0

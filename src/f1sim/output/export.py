@@ -129,6 +129,7 @@ class Exporter:
             },
             "win_probabilities": results.get_win_probabilities(),
             "championship_projection": results.get_championship_projection(),
+            "team_championship_projection": results.get_team_championship_projection(),
             "driver_statistics": {},
         }
 

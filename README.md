@@ -43,7 +43,7 @@ python examples/simulate_race.py --race Monza --export --output-dir results/
 python examples/simulate_race.py --race Bahrain --simulations 1000 --seed 7 --max-workers 4
 ```
 
-When exporting, `statistics.json` now includes run metadata (`seed`, `parallel`, `max_workers`) for reproducibility.
+When exporting, `statistics.json` includes run metadata (`seed`, `parallel`, `max_workers`) and team championship projection for reproducibility and constructors analysis.
 
 ## Example Output
 

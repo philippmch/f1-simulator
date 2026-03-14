@@ -146,14 +146,22 @@ class ConsoleOutput:
                     f"DNF: {stats.dnf_rate:4.1f}%"
                 )
 
-        # Points projection
-        print("\nPOINTS PROJECTION (per race):")
+        # Driver points projection
+        print("\nDRIVER POINTS PROJECTION (per race):")
         print("-" * 50)
         points_proj = results.get_championship_projection()
         for driver_id, points in list(points_proj.items())[:10]:
             stats = results.driver_stats[driver_id]
             bar = "#" * int(points)
             print(f"{stats.driver_name:<20} {points:5.2f} pts {bar}")
+
+        # Team points projection
+        print("\nTEAM POINTS PROJECTION (per race):")
+        print("-" * 50)
+        team_proj = results.get_team_championship_projection()
+        for team, points in list(team_proj.items())[:10]:
+            bar = "#" * int(points)
+            print(f"{team:<20} {points:6.2f} pts {bar}")
 
         # Event statistics
         event_stats = results.event_stats
