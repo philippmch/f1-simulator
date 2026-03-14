@@ -56,6 +56,11 @@ class EventManager:
         self.forced_red_flag_laps: set[int] = set()  # Laps to force red flags
         self.forced_safety_car_laps: set[int] = set()  # Laps to force safety cars
 
+        # Event counters for calibration during a race
+        self.safety_car_deployments = 0
+        self.vsc_deployments = 0
+        self.red_flag_deployments = 0
+
     def reset(self) -> None:
         """Reset event state for new race."""
         self.events = []
@@ -68,6 +73,10 @@ class EventManager:
         self.red_flag_active = False
         self.red_flag_just_ended = False
         self.red_flag_restart_lap = False
+
+        self.safety_car_deployments = 0
+        self.vsc_deployments = 0
+        self.red_flag_deployments = 0
         # Note: forced laps are NOT reset - they persist across races
 
     def set_forced_red_flag(self, laps: list[int] | int) -> None:
@@ -181,6 +190,7 @@ class EventManager:
         ):
             self.safety_car_active = True
             self.safety_car_laps_remaining = self.rng.integers(3, 7)
+            self.safety_car_deployments += 1
             sc_event = RaceEvent(
                 event_type=EventType.SAFETY_CAR,
                 lap=lap,
@@ -348,6 +358,42 @@ class EventManager:
 
         return None
 
+    def _calibrated_safety_probs(
+        self,
+        track: Track,
+        weather: Weather | None,
+        incidents: int,
+        lap: int,
+    ) -> tuple[float, float]:
+        """Calibrate SC/VSC probabilities from track+weather+incident context."""
+        # Convert track-level race risk into lap-level pressure.
+        base_pressure = track.safety_car_probability / max(track.total_laps * 0.6, 1)
+
+        race_progress = lap / max(track.total_laps, 1)
+        progress_modifier = 0.9 + 0.35 * race_progress
+
+        weather_modifier = 1.0
+        if weather is not None:
+            if weather.is_wet():
+                weather_modifier *= 1.4
+            if weather.requires_wet_tires():
+                weather_modifier *= 1.35
+
+        incident_modifier = 1.0 + incidents * 0.5
+
+        pressure = base_pressure * progress_modifier * weather_modifier * incident_modifier
+
+        sc_prob = float(np.clip(pressure * 3.0, 0.03, 0.9))
+        vsc_prob = float(np.clip(pressure * 2.0, 0.02, 0.75))
+
+        # Avoid unrealistic repeated full SC deployments in one race.
+        expected_sc = int(round(0.4 + track.safety_car_probability * 1.8))
+        if self.safety_car_deployments >= max(expected_sc, 1):
+            sc_prob *= 0.55
+            vsc_prob *= 0.85
+
+        return sc_prob, vsc_prob
+
     def _deploy_safety_measure(
         self,
         lap: int,
@@ -362,13 +408,14 @@ class EventManager:
         if red_flag_event:
             return red_flag_event
 
-        # Determine if safety car is needed
-        sc_threshold = 0.4 + incidents * 0.3
+        sc_prob, vsc_prob = self._calibrated_safety_probs(track, weather, incidents, lap)
+        roll = self.rng.random()
 
-        if self.rng.random() < sc_threshold:
+        if roll < sc_prob:
             # Full safety car
             self.safety_car_active = True
             self.safety_car_laps_remaining = self.rng.integers(3, 7)
+            self.safety_car_deployments += 1
 
             return RaceEvent(
                 event_type=EventType.SAFETY_CAR,
@@ -376,10 +423,12 @@ class EventManager:
                 duration_laps=self.safety_car_laps_remaining,
                 description="Safety car deployed",
             )
-        elif self.rng.random() < 0.5:
+
+        if roll < sc_prob + vsc_prob * (1.0 - sc_prob):
             # Virtual safety car
             self.vsc_active = True
             self.vsc_laps_remaining = self.rng.integers(2, 4)
+            self.vsc_deployments += 1
 
             return RaceEvent(
                 event_type=EventType.VIRTUAL_SAFETY_CAR,
@@ -440,6 +489,7 @@ class EventManager:
             RaceEvent for the red flag
         """
         self.red_flag_active = True
+        self.red_flag_deployments += 1
         # Clear any active SC/VSC
         self.safety_car_active = False
         self.safety_car_laps_remaining = 0
