@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from f1sim.analysis import MonteCarloRunner, parse_scenario_labels, scenario_weather_from_label
 from f1sim.data import HistoricalDataLoader
 from f1sim.models import Weather, WeatherCondition
+from f1sim.output import Exporter
 
 
 @dataclass
@@ -40,6 +43,18 @@ def _summarize_scenario_results(results_by_name: dict[str, Any]) -> dict[str, An
     return summary
 
 
+def _read_run_history(output_dir: str | Path = "output") -> list[dict[str, Any]]:
+    """Read exporter run history file if present."""
+    history_path = Path(output_dir) / ".run_history.json"
+    if not history_path.exists():
+        return []
+
+    data = json.loads(history_path.read_text())
+    if not isinstance(data, list):
+        return []
+    return [row for row in data if isinstance(row, dict)]
+
+
 def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
     """Execute one dashboard simulation bundle and return summary."""
     loader = HistoricalDataLoader(cache_dir="data/cache")
@@ -68,6 +83,8 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
 
     labels = parse_scenario_labels(request.scenarios)
     scenario_results = {}
+    exporter = Exporter(output_dir="output")
+
     for idx, label in enumerate(labels):
         scenario = scenario_weather_from_label(base_weather, label)
         runner = MonteCarloRunner(
@@ -84,6 +101,7 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
             max_workers=request.max_workers,
         )
         scenario_results[scenario.name] = result
+        exporter.export_all(result, prefix=f"{request.year}_{track.id}_{scenario.name}")
 
     payload = _summarize_scenario_results(scenario_results)
     payload["track"] = track.name
@@ -154,10 +172,23 @@ def build_dashboard_html() -> str:
     <button id=\"runBtn\">Run Simulation</button>
     <h2>Result</h2>
     <pre id=\"result\">{\"status\": \"idle\"}</pre>
+    <h2>Recent Runs</h2>
+    <pre id=\"runs\">[]</pre>
   </div>
 
   <script>
+    const runsEl = document.getElementById('runs');
     const resultEl = document.getElementById('result');
+    async function refreshRuns() {
+      try {
+        const res = await fetch('/api/runs');
+        const data = await res.json();
+        runsEl.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        runsEl.textContent = JSON.stringify({ status: 'error', detail: String(err) }, null, 2);
+      }
+    }
+
     document.getElementById('runBtn').addEventListener('click', async () => {
       const payload = {
         year: Number(document.getElementById('year').value),
@@ -176,10 +207,13 @@ def build_dashboard_html() -> str:
         });
         const data = await res.json();
         resultEl.textContent = JSON.stringify(data, null, 2);
+        await refreshRuns();
       } catch (err) {
         resultEl.textContent = JSON.stringify({ status: 'error', detail: String(err) }, null, 2);
       }
     });
+
+    refreshRuns();
   </script>
 </body>
 </html>
@@ -207,6 +241,10 @@ def build_fastapi_app() -> Any:
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/api/runs")
+    def runs() -> dict[str, Any]:
+        return {"runs": _read_run_history()[:20]}
 
     @app.post("/api/run")
     def run(payload: DashboardRunRequest) -> dict[str, Any]:
