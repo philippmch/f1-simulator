@@ -87,6 +87,7 @@ class RaceSimulator:
         self,
         rng: np.random.Generator | None = None,
         strategy_tuning: dict[str, float] | None = None,
+        strategy_profiles: dict[str, dict[str, float]] | None = None,
     ):
         """Initialize race simulator.
 
@@ -109,6 +110,31 @@ class RaceSimulator:
         }
         if strategy_tuning:
             self.strategy_tuning.update(strategy_tuning)
+
+        self.strategy_profiles: dict[TeamStrategyArchetype, dict[str, float]] = {
+            TeamStrategyArchetype.AGGRESSIVE: {
+                "medium_prob": 0.65,
+                "sprint_soft_prob": 0.95,
+                "long_stint_threshold": 18,
+            },
+            TeamStrategyArchetype.BALANCED: {
+                "medium_prob": 0.8,
+                "sprint_soft_prob": 0.85,
+                "long_stint_threshold": 20,
+            },
+            TeamStrategyArchetype.CONSERVATIVE: {
+                "medium_prob": 0.9,
+                "sprint_soft_prob": 0.7,
+                "long_stint_threshold": 22,
+            },
+        }
+        if strategy_profiles:
+            for key, profile in strategy_profiles.items():
+                try:
+                    archetype = TeamStrategyArchetype(key)
+                except ValueError:
+                    continue
+                self.strategy_profiles[archetype].update(profile)
 
     def simulate_race(
         self,
@@ -591,20 +617,25 @@ class RaceSimulator:
         if next_pit_lap is not None:
             target_stint = max(next_pit_lap - current_lap, 1)
 
+        profile = self.strategy_profiles[state.strategy_archetype]
+        long_stint_threshold = int(profile["long_stint_threshold"])
+        medium_prob = float(profile["medium_prob"])
+        sprint_soft_prob = float(profile["sprint_soft_prob"])
+
         # Long stint => harder compounds.
-        if target_stint >= 20 or track.tire_stress > 0.75:
+        if target_stint >= long_stint_threshold or track.tire_stress > 0.75:
             return TireCompound.HARD if current != TireCompound.HARD else TireCompound.MEDIUM
 
         # Medium stint => medium baseline.
         if target_stint >= 12:
             if current == TireCompound.HARD:
                 return TireCompound.MEDIUM
-            return TireCompound.MEDIUM if self.rng.random() < 0.8 else TireCompound.SOFT
+            return TireCompound.MEDIUM if self.rng.random() < medium_prob else TireCompound.SOFT
 
         # Short sprint stint => soft bias.
         if current == TireCompound.HARD:
             return TireCompound.SOFT
-        return TireCompound.SOFT if self.rng.random() < 0.85 else TireCompound.MEDIUM
+        return TireCompound.SOFT if self.rng.random() < sprint_soft_prob else TireCompound.MEDIUM
 
     def _execute_pit_stop(
         self,

@@ -169,3 +169,56 @@ def test_choose_compound_prefers_soft_for_short_stint() -> None:
 
     compound = sim._choose_compound_for_next_stint(state, track, current_lap=50)
     assert compound == TireCompound.SOFT
+
+
+def test_strategy_profiles_change_compound_decision() -> None:
+    sim = RaceSimulator(
+        rng=np.random.default_rng(15),
+        strategy_profiles={
+            "balanced": {
+                "long_stint_threshold": 25,
+                "medium_prob": 1.0,
+                "sprint_soft_prob": 0.5,
+            },
+            "aggressive": {
+                "long_stint_threshold": 16,
+                "medium_prob": 0.2,
+                "sprint_soft_prob": 0.95,
+            },
+        },
+    )
+    track = _track()
+
+    aggressive_state = DriverRaceState(
+        driver=Driver(id="A", name="A", team_id="a"),
+        car=Car(team_id="a", team_name="A", reliability=0.95),
+        position=3,
+        current_tire=TIRE_COMPOUNDS[TireCompound.SOFT].model_copy(deep=True),
+        planned_pit_laps=[39],
+        pit_stops=0,
+        strategy_archetype=TeamStrategyArchetype.AGGRESSIVE,
+    )
+    balanced_state = DriverRaceState(
+        driver=Driver(id="B", name="B", team_id="b"),
+        car=Car(team_id="b", team_name="B", reliability=0.95),
+        position=3,
+        current_tire=TIRE_COMPOUNDS[TireCompound.SOFT].model_copy(deep=True),
+        planned_pit_laps=[39],
+        pit_stops=0,
+        strategy_archetype=TeamStrategyArchetype.BALANCED,
+    )
+
+    # Same target stint length (~19 laps): aggressive profile goes hard earlier.
+    aggressive_compound = sim._choose_compound_for_next_stint(
+        aggressive_state,
+        track,
+        current_lap=20,
+    )
+    balanced_compound = sim._choose_compound_for_next_stint(
+        balanced_state,
+        track,
+        current_lap=20,
+    )
+
+    assert aggressive_compound == TireCompound.HARD
+    assert balanced_compound == TireCompound.MEDIUM
