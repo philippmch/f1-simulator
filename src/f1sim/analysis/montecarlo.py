@@ -174,6 +174,37 @@ class SimulationResults:
         observed = self.get_event_rates()["safety_car_race_rate"]
         return abs(observed - expected_race_rate)
 
+    def get_mechanical_failure_component_rates(self) -> dict[str, float]:
+        """Get normalized component breakdown rates for mechanical failures."""
+        breakdown = self.event_stats.mechanical_failure_breakdown
+        total = sum(breakdown.values())
+        if total <= 0:
+            return {}
+
+        return {
+            component: count / total
+            for component, count in sorted(breakdown.items(), key=lambda x: x[1], reverse=True)
+        }
+
+    def get_mechanical_calibration_delta(
+        self,
+        expected_component_rates: dict[str, float],
+    ) -> float:
+        """Mean absolute delta between observed and expected component failure rates."""
+        observed = self.get_mechanical_failure_component_rates()
+        if not expected_component_rates:
+            return 0.0
+
+        keys = set(expected_component_rates) | set(observed)
+        if not keys:
+            return 0.0
+
+        deltas = [
+            abs(observed.get(key, 0.0) - expected_component_rates.get(key, 0.0))
+            for key in keys
+        ]
+        return float(np.mean(deltas))
+
 
 # F1 points system
 POINTS_SYSTEM = {

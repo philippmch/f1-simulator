@@ -204,12 +204,28 @@ class ConsoleOutput:
 
         if event_stats.mechanical_failure_breakdown:
             print("\n  Mechanical Failure Breakdown:")
+            component_rates = results.get_mechanical_failure_component_rates()
+            expected_component_rates = {
+                "engine": 0.34,
+                "gearbox": 0.22,
+                "electrical": 0.18,
+                "cooling": 0.14,
+                "brakes": 0.12,
+            }
             for component, count in sorted(
                 event_stats.mechanical_failure_breakdown.items(),
                 key=lambda x: x[1],
                 reverse=True,
             ):
-                print(f"    - {component:<10} {count:4d}")
+                observed_pct = component_rates.get(component, 0.0) * 100
+                expected_pct = expected_component_rates.get(component, 0.0) * 100
+                print(
+                    f"    - {component:<10} {count:4d} "
+                    f"({observed_pct:5.1f}% vs target {expected_pct:5.1f}%)"
+                )
+
+            delta = results.get_mechanical_calibration_delta(expected_component_rates)
+            print(f"    Calibration delta: {delta * 100:.1f}%")
 
         print("=" * 80)
 

@@ -235,6 +235,7 @@ class Exporter:
             "championship_projection": results.get_championship_projection(),
             "team_championship_projection": results.get_team_championship_projection(),
             "mechanical_failure_breakdown": results.event_stats.mechanical_failure_breakdown,
+            "mechanical_failure_component_rates": results.get_mechanical_failure_component_rates(),
             "driver_statistics": {},
         }
 
