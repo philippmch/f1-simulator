@@ -20,6 +20,14 @@ class DriverStatus(str, Enum):
     DNF = "dnf"
 
 
+class TeamStrategyArchetype(str, Enum):
+    """High-level team race strategy behavior."""
+
+    AGGRESSIVE = "aggressive"
+    BALANCED = "balanced"
+    CONSERVATIVE = "conservative"
+
+
 @dataclass
 class DriverRaceState:
     """Tracks a driver's state during the race."""
@@ -35,6 +43,7 @@ class DriverRaceState:
     last_lap_time: float = 0.0
     status: DriverStatus = DriverStatus.RACING
     dnf_reason: str | None = None
+    strategy_archetype: TeamStrategyArchetype = TeamStrategyArchetype.BALANCED
 
 
 @dataclass
@@ -132,6 +141,7 @@ class RaceSimulator:
                     car=car,
                     position=pos,
                     current_tire=TIRE_COMPOUNDS[tire_compound].model_copy(deep=True),
+                    strategy_archetype=self._infer_team_strategy(car, track),
                 )
             )
 
@@ -307,6 +317,22 @@ class RaceSimulator:
 
         return results
 
+    def _infer_team_strategy(
+        self,
+        car: Car,
+        track: Track,
+    ) -> TeamStrategyArchetype:
+        """Infer default team strategy archetype from car/track profile."""
+        # Fragile or high-deg packages trend conservative.
+        if car.reliability < 0.9 or car.tire_degradation_factor > 1.08:
+            return TeamStrategyArchetype.CONSERVATIVE
+
+        # Fast cars at difficult overtaking tracks tend to undercut aggressively.
+        if car.base_pace > 0.82 and track.overtake_difficulty > 0.55:
+            return TeamStrategyArchetype.AGGRESSIVE
+
+        return TeamStrategyArchetype.BALANCED
+
     def _should_pit(
         self,
         state: DriverRaceState,
@@ -325,11 +351,20 @@ class RaceSimulator:
             elif tire_mismatch == "suboptimal" and self.rng.random() < 0.7:
                 return True  # Should pit soon
 
+        strategy = state.strategy_archetype
+        strategy_bias = {
+            TeamStrategyArchetype.AGGRESSIVE: 0.12,
+            TeamStrategyArchetype.BALANCED: 0.0,
+            TeamStrategyArchetype.CONSERVATIVE: -0.1,
+        }[strategy]
+
         # Limit to realistic number of pit stops (1-2 for most races)
         # Weather changes can force extra stops
         max_stops = 2 if track.total_laps > 50 else 1
+        if strategy == TeamStrategyArchetype.AGGRESSIVE:
+            max_stops += 1
         if weather is not None and weather.track_wetness > 0.3:
-            max_stops = 4  # Allow more stops in changing conditions
+            max_stops = max(max_stops, 4)  # Allow more stops in changing conditions
         if state.pit_stops >= max_stops:
             return False
 
@@ -349,7 +384,8 @@ class RaceSimulator:
             # If we have a free stop window (big gap behind), almost always take it.
             if gap_behind is not None and gap_behind > track.pit_lane_delta * 0.85:
                 return True
-            if self.rng.random() < 0.85:
+            window_prob = np.clip(0.85 + strategy_bias, 0.55, 0.98)
+            if self.rng.random() < window_prob:
                 return True
 
         # Calculate optimal pit windows for 1-stop or 2-stop strategy
@@ -375,7 +411,7 @@ class RaceSimulator:
         if window_start <= lap <= window_end:
             laps_into_window = lap - window_start
             base_prob = 0.15 + laps_into_window * 0.1  # 15% to 65% over window
-            adjusted_prob = max(0.05, base_prob - position_reluctance)
+            adjusted_prob = max(0.05, base_prob - position_reluctance + strategy_bias)
 
             # Undercut trigger: close to car ahead and hard to overtake.
             if (
@@ -393,6 +429,22 @@ class RaceSimulator:
                 and state.current_tire.grip_at_lap(state.tire_laps) > 0.68
             ):
                 adjusted_prob -= 0.12
+
+            # Dynamic mid-race strategy reaction to changing weather.
+            if weather is not None and weather.track_wetness > 0.2:
+                if strategy == TeamStrategyArchetype.CONSERVATIVE:
+                    adjusted_prob += 0.12
+                elif strategy == TeamStrategyArchetype.AGGRESSIVE:
+                    adjusted_prob += 0.04
+
+            # Push aggressive teams to attack earlier when stuck in traffic.
+            if (
+                strategy == TeamStrategyArchetype.AGGRESSIVE
+                and gap_ahead is not None
+                and gap_ahead < 1.2
+                and state.position > 1
+            ):
+                adjusted_prob += 0.08
 
             if self.rng.random() < np.clip(adjusted_prob, 0.03, 0.92):
                 return True
