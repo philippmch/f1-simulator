@@ -49,3 +49,15 @@ def test_win_probabilities_sorted_desc() -> None:
     assert probs["VER"] == 50.0
     assert probs["PER"] == 50.0
     assert probs["HAM"] == 0.0
+
+
+def test_position_distribution_unknown_driver() -> None:
+    results = SimulationResults(
+        num_simulations=1,
+        track_name="Bahrain",
+        driver_stats={"VER": _stats("VER", [1])},
+        race_results=[],
+        qualifying_results=[],
+    )
+
+    assert results.get_position_distribution("HAM") == {}
