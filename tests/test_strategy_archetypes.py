@@ -116,3 +116,35 @@ def test_conservative_strategy_uses_higher_max_stops_in_wet() -> None:
         weather=weather,
     )
     assert isinstance(result, bool)
+
+
+def test_choose_compound_prefers_hard_for_long_stint() -> None:
+    sim = RaceSimulator(rng=np.random.default_rng(13))
+    track = _track()
+    state = DriverRaceState(
+        driver=Driver(id="DRV", name="DRV", team_id="x"),
+        car=Car(team_id="x", team_name="X", reliability=0.95),
+        position=4,
+        current_tire=TIRE_COMPOUNDS[TireCompound.SOFT].model_copy(deep=True),
+        planned_pit_laps=[45],
+        pit_stops=0,
+    )
+
+    compound = sim._choose_compound_for_next_stint(state, track, current_lap=20)
+    assert compound == TireCompound.HARD
+
+
+def test_choose_compound_prefers_soft_for_short_stint() -> None:
+    sim = RaceSimulator(rng=np.random.default_rng(14))
+    track = _track()
+    state = DriverRaceState(
+        driver=Driver(id="DRV", name="DRV", team_id="x"),
+        car=Car(team_id="x", team_name="X", reliability=0.95),
+        position=4,
+        current_tire=TIRE_COMPOUNDS[TireCompound.HARD].model_copy(deep=True),
+        planned_pit_laps=[55],
+        pit_stops=0,
+    )
+
+    compound = sim._choose_compound_for_next_stint(state, track, current_lap=50)
+    assert compound == TireCompound.SOFT
