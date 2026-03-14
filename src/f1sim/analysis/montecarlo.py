@@ -205,6 +205,26 @@ class SimulationResults:
         ]
         return float(np.mean(deltas))
 
+    def get_mechanical_tuning_suggestions(
+        self,
+        expected_component_rates: dict[str, float],
+    ) -> dict[str, str]:
+        """Suggest direction of reliability tuning per component."""
+        observed = self.get_mechanical_failure_component_rates()
+        suggestions: dict[str, str] = {}
+
+        for component, expected in expected_component_rates.items():
+            obs = observed.get(component, 0.0)
+            delta = obs - expected
+            if delta > 0.03:
+                suggestions[component] = "increase reliability"
+            elif delta < -0.03:
+                suggestions[component] = "decrease reliability"
+            else:
+                suggestions[component] = "keep as-is"
+
+        return suggestions
+
 
 # F1 points system
 POINTS_SYSTEM = {

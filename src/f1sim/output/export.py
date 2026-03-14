@@ -236,6 +236,15 @@ class Exporter:
             "team_championship_projection": results.get_team_championship_projection(),
             "mechanical_failure_breakdown": results.event_stats.mechanical_failure_breakdown,
             "mechanical_failure_component_rates": results.get_mechanical_failure_component_rates(),
+            "mechanical_tuning_suggestions": results.get_mechanical_tuning_suggestions(
+                {
+                    "engine": 0.34,
+                    "gearbox": 0.22,
+                    "electrical": 0.18,
+                    "cooling": 0.14,
+                    "brakes": 0.12,
+                }
+            ),
             "driver_statistics": {},
         }
 

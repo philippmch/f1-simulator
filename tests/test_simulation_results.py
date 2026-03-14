@@ -238,6 +238,28 @@ def test_mechanical_component_rates_and_calibration_delta() -> None:
     assert delta == pytest.approx(0.25)
 
 
+def test_mechanical_tuning_suggestions() -> None:
+    results = SimulationResults(
+        num_simulations=5,
+        track_name="Bahrain",
+        driver_stats={},
+        race_results=[],
+        qualifying_results=[],
+    )
+    results.event_stats.mechanical_failure_breakdown = {
+        "engine": 7,
+        "gearbox": 2,
+        "brakes": 1,
+    }
+
+    suggestions = results.get_mechanical_tuning_suggestions(
+        {"engine": 0.34, "gearbox": 0.22, "brakes": 0.12}
+    )
+    assert suggestions["engine"] == "increase reliability"
+    assert suggestions["gearbox"] == "keep as-is"
+    assert suggestions["brakes"] == "keep as-is"
+
+
 def test_position_percentiles_for_driver() -> None:
     stats = {
         "VER": DriverStatistics(
