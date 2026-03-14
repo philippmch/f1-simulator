@@ -272,6 +272,39 @@ def build_dashboard_html() -> str:
     const clearBtn = document.getElementById('clearBtn');
     const runsFilterInput = document.getElementById('runsFilter');
     let latestScenarioData = null;
+    const PREFS_KEY = 'f1sim:uiPrefs';
+
+    function saveUiPrefs() {
+      const prefs = {
+        trendMetric: trendMetricEl.value,
+        matrixSort: matrixSortEl.value,
+        matrixHighlight: matrixHighlightEl.checked,
+        matrixDriverFilter: matrixDriverFilterEl.value,
+        matrixScenarioFilter: matrixScenarioFilterEl.value,
+      };
+      localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+    }
+
+    function loadUiPrefs() {
+      const raw = localStorage.getItem(PREFS_KEY);
+      if (!raw) return;
+      try {
+        const prefs = JSON.parse(raw);
+        if (prefs.trendMetric) trendMetricEl.value = prefs.trendMetric;
+        if (prefs.matrixSort) matrixSortEl.value = prefs.matrixSort;
+        if (typeof prefs.matrixHighlight === 'boolean') {
+          matrixHighlightEl.checked = prefs.matrixHighlight;
+        }
+        if (typeof prefs.matrixDriverFilter === 'string') {
+          matrixDriverFilterEl.value = prefs.matrixDriverFilter;
+        }
+        if (typeof prefs.matrixScenarioFilter === 'string') {
+          matrixScenarioFilterEl.value = prefs.matrixScenarioFilter;
+        }
+      } catch {
+        // ignore malformed prefs
+      }
+    }
 
     function renderScenarioCards(data) {
       const scenarios = data.scenarios || {};
@@ -611,30 +644,37 @@ def build_dashboard_html() -> str:
     });
 
     matrixSortEl.addEventListener('change', () => {
+      saveUiPrefs();
       if (latestScenarioData) {
         renderDriverMatrix(latestScenarioData);
       }
     });
     matrixHighlightEl.addEventListener('change', () => {
+      saveUiPrefs();
       if (latestScenarioData) {
         renderDriverMatrix(latestScenarioData);
       }
     });
     matrixDriverFilterEl.addEventListener('input', () => {
+      saveUiPrefs();
       if (latestScenarioData) {
         renderDriverMatrix(latestScenarioData);
       }
     });
     matrixScenarioFilterEl.addEventListener('input', () => {
+      saveUiPrefs();
       if (latestScenarioData) {
         renderDriverMatrix(latestScenarioData);
       }
     });
     trendMetricEl.addEventListener('change', () => {
+      saveUiPrefs();
       if (latestScenarioData) {
         renderScenarioTrends(latestScenarioData);
       }
     });
+
+    loadUiPrefs();
 
     const saved = localStorage.getItem('f1sim:lastPayload');
     if (saved) {

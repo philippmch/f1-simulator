@@ -55,5 +55,6 @@ def test_dashboard_html_contains_controls() -> None:
     assert "clearBtn" in html
     assert "runsFilter" in html
     assert "f1sim:lastPayload" in html
+    assert "f1sim:uiPrefs" in html
     assert "Open latest report" in html
     assert "scenarios" in html
