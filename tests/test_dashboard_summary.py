@@ -42,6 +42,7 @@ def test_dashboard_html_contains_controls() -> None:
     assert "resultMatrix" in html
     assert "matrixSort" in html
     assert "matrixHighlight" in html
+    assert "matrixDriverFilter" in html
     assert "renderQuickActions" in html
     assert "presetDry" in html
     assert "presetMixed" in html
