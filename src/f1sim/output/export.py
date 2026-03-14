@@ -245,6 +245,17 @@ class Exporter:
                     "brakes": 0.12,
                 }
             ),
+            "reliability_adjustment_recommendations": (
+                results.get_reliability_adjustment_recommendations(
+                    {
+                        "engine": 0.34,
+                        "gearbox": 0.22,
+                        "electrical": 0.18,
+                        "cooling": 0.14,
+                        "brakes": 0.12,
+                    }
+                )
+            ),
             "driver_statistics": {},
         }
 
