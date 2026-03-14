@@ -22,3 +22,15 @@ def test_driver_statistics_rates() -> None:
     assert stats.win_rate == 50.0
     assert stats.podium_rate == 75.0
     assert stats.dnf_rate == 25.0
+
+
+def test_driver_statistics_rates_empty_positions() -> None:
+    stats = DriverStatistics(
+        driver_id="VER",
+        driver_name="Max Verstappen",
+        team="Red Bull",
+    )
+
+    assert stats.win_rate == 0
+    assert stats.podium_rate == 0
+    assert stats.dnf_rate == 0
