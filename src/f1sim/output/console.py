@@ -88,11 +88,12 @@ class ConsoleOutput:
         print("=" * 70)
 
     @staticmethod
-    def print_monte_carlo_summary(results: SimulationResults) -> None:
+    def print_monte_carlo_summary(results: SimulationResults, top_n: int = 10) -> None:
         """Print Monte Carlo simulation summary.
 
         Args:
             results: Aggregated simulation results
+            top_n: Top-N threshold for finish probability table
         """
         print("\n" + "=" * 80)
         print(f"MONTE CARLO SIMULATION RESULTS - {results.track_name}")
@@ -163,11 +164,11 @@ class ConsoleOutput:
             bar = "#" * int(points)
             print(f"{team:<20} {points:6.2f} pts {bar}")
 
-        # Top-10 finish probabilities
-        print("\nTOP-10 FINISH PROBABILITIES:")
+        # Top-N finish probabilities
+        print(f"\nTOP-{top_n} FINISH PROBABILITIES:")
         print("-" * 50)
-        top_10 = results.get_top_n_finish_probabilities(10)
-        for driver_id, prob in list(top_10.items())[:10]:
+        top_finish = results.get_top_n_finish_probabilities(top_n)
+        for driver_id, prob in list(top_finish.items())[:10]:
             stats = results.driver_stats[driver_id]
             bar = "#" * int(prob / 2)
             print(f"{stats.driver_name:<20} {prob:5.1f}% {bar}")
