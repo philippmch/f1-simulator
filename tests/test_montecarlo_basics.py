@@ -1,4 +1,8 @@
-from f1sim.analysis.montecarlo import POINTS_SYSTEM, DriverStatistics
+from typing import cast
+
+import pytest
+
+from f1sim.analysis.montecarlo import POINTS_SYSTEM, DriverStatistics, MonteCarloRunner
 
 
 def test_points_system_top10_values() -> None:
@@ -34,3 +38,8 @@ def test_driver_statistics_rates_empty_positions() -> None:
     assert stats.win_rate == 0
     assert stats.podium_rate == 0
     assert stats.dnf_rate == 0
+
+
+def test_montecarlo_rejects_non_positive_simulation_count() -> None:
+    with pytest.raises(ValueError, match="num_simulations must be greater than 0"):
+        MonteCarloRunner.run(cast(MonteCarloRunner, object()), num_simulations=0)
