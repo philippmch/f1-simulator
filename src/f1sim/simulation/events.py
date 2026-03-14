@@ -155,7 +155,7 @@ class EventManager:
             if car is None:
                 continue
 
-            failure = self._check_mechanical_failure(driver, car, track, lap)
+            failure = self._check_mechanical_failure(driver, car, track, lap, weather)
             if failure:
                 lap_events.append(failure)
 
@@ -198,24 +198,53 @@ class EventManager:
         self.events.extend(lap_events)
         return lap_events
 
+    def _mechanical_failure_probability(
+        self,
+        car: Car,
+        track: Track,
+        weather: Weather | None,
+        lap: int,
+    ) -> float:
+        """Estimate per-lap mechanical failure probability.
+
+        Scales with:
+        - car reliability baseline
+        - race progression (late-race attrition)
+        - tire/track stress proxy
+        - high track temperatures
+        """
+        # Distribute reliability risk across race distance.
+        base = (1.0 - car.reliability) / max(track.total_laps, 1)
+
+        # Cars are more likely to fail late in races.
+        race_progress = max(lap, 1) / max(track.total_laps, 1)
+        progression_modifier = 0.85 + 0.35 * race_progress
+
+        # Tire-stress tracks tend to be harder on components.
+        stress_modifier = 0.9 + 0.25 * track.tire_stress
+
+        # Heat stress from very hot tracks.
+        temp_modifier = 1.0
+        if weather is not None and weather.track_temperature >= 45.0:
+            temp_modifier += min((weather.track_temperature - 45.0) * 0.01, 0.25)
+
+        return base * progression_modifier * stress_modifier * temp_modifier
+
     def _check_mechanical_failure(
         self,
         driver: Driver,
         car: Car,
         track: Track,
         lap: int,
+        weather: Weather | None = None,
     ) -> RaceEvent | None:
         """Check if a car has mechanical failure.
 
         Returns event if failure occurred.
         """
-        # Base failure probability per lap
-        base_prob = (1.0 - car.reliability) / 50  # Spread over ~50 laps
+        failure_prob = self._mechanical_failure_probability(car, track, weather, lap)
 
-        # Higher failure rate at hot tracks
-        temp_modifier = 1.0  # Would use actual track data
-
-        if self.rng.random() < base_prob * temp_modifier:
+        if self.rng.random() < failure_prob:
             failure_types = [
                 "engine failure",
                 "gearbox failure",
@@ -237,6 +266,38 @@ class EventManager:
 
         return None
 
+    def _incident_probability(
+        self,
+        drivers: list[Driver],
+        track: Track,
+        weather: Weather,
+    ) -> float:
+        """Estimate per-lap probability of a notable incident."""
+        active_drivers = [d for d in drivers if not d.dnf]
+        if len(active_drivers) < 2:
+            return 0.0
+
+        # Derive lap-level risk from track-level safety-car likelihood.
+        # Typical race has ~50 laps and several incident opportunities.
+        base_prob = track.safety_car_probability / max(track.total_laps * 0.6, 1)
+
+        # Hard-to-pass tracks create compression and mistakes.
+        base_prob *= 0.85 + track.overtake_difficulty * 0.7
+
+        # Inconsistency in the field increases incidents.
+        avg_consistency = float(np.mean([d.consistency for d in active_drivers]))
+        consistency_modifier = 1.0 + (1.0 - avg_consistency) * 0.8
+        base_prob *= consistency_modifier
+
+        # Weather significantly increases risk.
+        if weather.is_wet():
+            base_prob *= 1.8
+        if weather.requires_wet_tires():
+            base_prob *= 1.6
+
+        # Clamp to avoid unrealistic extreme rates.
+        return float(np.clip(base_prob, 0.0005, 0.08))
+
     def _check_random_incident(
         self,
         drivers: list[Driver],
@@ -249,19 +310,9 @@ class EventManager:
         if len(active_drivers) < 2:
             return None
 
-        # Base incident probability
-        base_prob = 0.005  # 0.5% per lap
+        incident_prob = self._incident_probability(active_drivers, track, weather)
 
-        # Weather increases incident risk
-        if weather.is_wet():
-            base_prob *= 2.0
-        if weather.requires_wet_tires():
-            base_prob *= 3.0
-
-        # Track difficulty affects incident rate
-        base_prob *= 1.0 + track.overtake_difficulty * 0.5
-
-        if self.rng.random() < base_prob:
+        if self.rng.random() < incident_prob:
             # Select random driver for incident
             driver = self.rng.choice(active_drivers)
 
