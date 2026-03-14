@@ -165,6 +165,28 @@ class Exporter:
 
         return filepath
 
+    def export_scenario_comparison_json(
+        self,
+        scenario_results: dict[str, SimulationResults],
+        filename: str = "scenario_comparison.json",
+    ) -> Path:
+        """Export scenario-level win probability comparison to JSON."""
+        filepath = self.output_dir / filename
+
+        payload: dict[str, Any] = {"scenarios": {}}
+        for name, results in scenario_results.items():
+            payload["scenarios"][name] = {
+                "num_simulations": results.num_simulations,
+                "seed": results.seed,
+                "win_probabilities": results.get_win_probabilities(),
+                "team_championship_projection": results.get_team_championship_projection(),
+            }
+
+        with open(filepath, "w") as f:
+            json.dump(payload, f, indent=2)
+
+        return filepath
+
     def export_all(
         self,
         results: SimulationResults,

@@ -41,6 +41,9 @@ python examples/simulate_race.py --race Monza --export --output-dir results/
 
 # Reproducible run with explicit seed + worker cap
 python examples/simulate_race.py --race Bahrain --simulations 1000 --seed 7 --max-workers 4
+
+# Compare weather scenarios in one run
+python examples/simulate_race.py --race Silverstone --simulations 300 --scenarios dry,light_rain,heavy_rain --export
 ```
 
 When exporting, `statistics.json` includes run metadata (`seed`, `parallel`, `max_workers`), team championship projection, top-3/top-10 finish probabilities, and per-driver position percentiles (P10/P50/P90) for richer race analysis.

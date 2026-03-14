@@ -22,7 +22,11 @@ from pathlib import Path
 # Add src to path for development
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from f1sim.analysis import MonteCarloRunner
+from f1sim.analysis import (
+    MonteCarloRunner,
+    parse_scenario_labels,
+    scenario_weather_from_label,
+)
 from f1sim.data import HistoricalDataLoader
 from f1sim.models import Weather, WeatherCondition
 from f1sim.output import ConsoleOutput, Exporter
@@ -75,6 +79,12 @@ def main():
         help="Show detailed analysis for specific driver (e.g., VER, HAM)",
     )
     parser.add_argument(
+        "--top-n",
+        type=int,
+        default=10,
+        help="Top-N finish probability table size (default: 10)",
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=42,
@@ -84,6 +94,14 @@ def main():
         "--max-workers",
         type=int,
         help="Maximum worker processes for parallel mode (default: CPU count)",
+    )
+    parser.add_argument(
+        "--scenarios",
+        default="",
+        help=(
+            "Optional comma-separated weather scenarios to compare "
+            "(dry,cloudy,light_rain,heavy_rain)"
+        ),
     )
     args = parser.parse_args()
 
@@ -157,37 +175,62 @@ def main():
     print(f"\nRunning {args.simulations} simulations...")
     print("(This may take a while for large numbers of simulations)")
 
-    runner = MonteCarloRunner(
-        drivers=drivers,
-        cars=cars,
-        track=track,
-        weather=weather,
-        seed=args.seed,
-        historical_grid=historical_grid,
-    )
+    scenario_results = {}
 
-    results = runner.run(
-        num_simulations=args.simulations,
-        parallel=args.parallel,
-        max_workers=args.max_workers,
-    )
+    scenario_labels = parse_scenario_labels(args.scenarios) if args.scenarios else ["dry"]
+
+    for idx, label in enumerate(scenario_labels):
+        scenario = scenario_weather_from_label(weather, label)
+        scenario_seed = args.seed + idx * 1000
+
+        print(f"\n--- Scenario: {scenario.name} (seed={scenario_seed}) ---")
+        runner = MonteCarloRunner(
+            drivers=drivers,
+            cars=cars,
+            track=track,
+            weather=scenario.weather,
+            seed=scenario_seed,
+            historical_grid=historical_grid,
+        )
+
+        scenario_result = runner.run(
+            num_simulations=args.simulations,
+            parallel=args.parallel,
+            max_workers=args.max_workers,
+        )
+        scenario_results[scenario.name] = scenario_result
 
     # Display results
-    ConsoleOutput.print_monte_carlo_summary(results, top_n=args.top_n)
+    if len(scenario_results) == 1:
+        results = next(iter(scenario_results.values()))
+        ConsoleOutput.print_monte_carlo_summary(results, top_n=args.top_n)
 
-    # Show detailed driver analysis if requested
-    if args.driver:
-        ConsoleOutput.print_driver_deep_dive(results, args.driver.upper())
+        # Show detailed driver analysis if requested
+        if args.driver:
+            ConsoleOutput.print_driver_deep_dive(results, args.driver.upper())
+    else:
+        ConsoleOutput.print_scenario_comparison(scenario_results, top_n=args.top_n)
 
     # Export results if requested
     if args.export:
         print(f"\nExporting results to {args.output_dir}/...")
         exporter = Exporter(output_dir=args.output_dir)
-        files = exporter.export_all(results, prefix=f"{args.year}_{track.id}")
 
         print("Exported files:")
-        for fmt, path in files.items():
-            print(f"  {fmt}: {path}")
+        for scenario_name, scenario_result in scenario_results.items():
+            files = exporter.export_all(
+                scenario_result,
+                prefix=f"{args.year}_{track.id}_{scenario_name}",
+            )
+            for fmt, path in files.items():
+                print(f"  {scenario_name}:{fmt}: {path}")
+
+        if len(scenario_results) > 1:
+            comparison = exporter.export_scenario_comparison_json(
+                scenario_results,
+                filename=f"{args.year}_{track.id}_scenario_comparison.json",
+            )
+            print(f"  comparison_json: {comparison}")
 
     return 0
 
