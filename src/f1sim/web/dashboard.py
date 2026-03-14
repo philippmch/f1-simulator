@@ -187,6 +187,7 @@ def build_dashboard_html() -> str:
     <label>Scenarios <input id=\"scenarios\" value=\"dry,light_rain,heavy_rain\" /></label>
     <label>Seed <input id=\"seed\" value=\"42\" /></label>
     <button id=\"runBtn\">Run Simulation</button>
+    <div id=\"quickActions\" style=\"margin-top:10px;\"></div>
     <h2>Scenario Comparison</h2>
     <div id=\"resultCards\">No runs yet</div>
     <h2>Raw Result</h2>
@@ -199,6 +200,7 @@ def build_dashboard_html() -> str:
     const runsEl = document.getElementById('runs');
     const resultEl = document.getElementById('result');
     const cardsEl = document.getElementById('resultCards');
+    const actionsEl = document.getElementById('quickActions');
     function renderScenarioCards(data) {
       const scenarios = data.scenarios || {};
       const names = Object.keys(scenarios);
@@ -215,6 +217,9 @@ def build_dashboard_html() -> str:
         const rates = s.event_rates || {};
         const sc = ((rates.safety_car_race_rate || 0) * 100).toFixed(1);
         const rf = ((rates.red_flag_race_rate || 0) * 100).toFixed(1);
+        const teams = s.team_projection || {};
+        const topTeam = Object.keys(teams)[0];
+        const topTeamPts = topTeam ? Number(teams[topTeam]).toFixed(2) : '-';
         return `
           <div class="scenario-card">
             <div class="scenario-title">${name}</div>
@@ -224,11 +229,34 @@ def build_dashboard_html() -> str:
               SC race rate: ${sc}%<br/>
               Red flag rate: ${rf}%
             </div>
+            <div style="margin-top:6px">
+              <strong>Top team</strong><br/>
+              ${topTeam || '-'} (${topTeamPts} pts/race)
+            </div>
           </div>
         `;
       });
 
       cardsEl.innerHTML = `<div class="scenario-grid">${cards.join('')}</div>`;
+    }
+
+    function renderQuickActions(runs) {
+      if (!runs.length) {
+        actionsEl.innerHTML = '';
+        return;
+      }
+      const latest = runs[0];
+      const files = latest.files || {};
+      const links = [];
+      if (files.report_html) {
+        links.push(`<a href="/output/${files.report_html}" target="_blank">Open latest report</a>`);
+      }
+      if (files.statistics_json) {
+        links.push(
+          `<a href="/output/${files.statistics_json}" target="_blank">Open latest stats</a>`
+        );
+      }
+      actionsEl.innerHTML = links.join(' · ');
     }
 
     function renderRunItem(run) {
@@ -263,9 +291,11 @@ def build_dashboard_html() -> str:
         const data = await res.json();
         const runs = data.runs || [];
         if (!runs.length) {
+          actionsEl.innerHTML = '';
           runsEl.textContent = 'No runs yet';
           return;
         }
+        renderQuickActions(runs);
         runsEl.innerHTML = `<div class="runs-list">${runs.map(renderRunItem).join('')}</div>`;
       } catch (err) {
         runsEl.textContent = JSON.stringify({ status: 'error', detail: String(err) }, null, 2);
