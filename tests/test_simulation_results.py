@@ -207,6 +207,19 @@ def test_event_rates_and_calibration_delta() -> None:
     assert results.get_safety_car_calibration_delta(0.5) == pytest.approx(0.1)
 
 
+def test_mechanical_failure_breakdown_field_available() -> None:
+    results = SimulationResults(
+        num_simulations=5,
+        track_name="Bahrain",
+        driver_stats={},
+        race_results=[],
+        qualifying_results=[],
+    )
+    results.event_stats.mechanical_failure_breakdown = {"engine": 3, "gearbox": 1}
+
+    assert results.event_stats.mechanical_failure_breakdown["engine"] == 3
+
+
 def test_position_percentiles_for_driver() -> None:
     stats = {
         "VER": DriverStatistics(

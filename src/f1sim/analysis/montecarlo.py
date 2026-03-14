@@ -56,6 +56,7 @@ class RaceEventStatistics:
     total_incidents: int = 0
     races_with_safety_car: int = 0
     races_with_red_flag: int = 0
+    mechanical_failure_breakdown: dict[str, int] = field(default_factory=dict)
 
     @property
     def safety_car_rate(self) -> float:
@@ -243,6 +244,25 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
 
     # Collect event statistics
     events = race_sim.event_manager.events
+    mech_failures = [
+        e for e in events if e.event_type == EventType.MECHANICAL_FAILURE
+    ]
+    mech_breakdown: dict[str, int] = defaultdict(int)
+    for event in mech_failures:
+        desc = event.description.lower()
+        if "engine" in desc:
+            mech_breakdown["engine"] += 1
+        elif "gearbox" in desc:
+            mech_breakdown["gearbox"] += 1
+        elif "brake" in desc:
+            mech_breakdown["brakes"] += 1
+        elif "electrical" in desc:
+            mech_breakdown["electrical"] += 1
+        elif "cooling" in desc:
+            mech_breakdown["cooling"] += 1
+        else:
+            mech_breakdown["other"] += 1
+
     event_counts = {
         "safety_car": sum(1 for e in events if e.event_type == EventType.SAFETY_CAR),
         "vsc": sum(1 for e in events if e.event_type == EventType.VIRTUAL_SAFETY_CAR),
@@ -250,6 +270,7 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
         "incidents": len([e for e in events if e.event_type in (
             EventType.COLLISION, EventType.SPIN, EventType.PUNCTURE, EventType.MECHANICAL_FAILURE
         )]),
+        "mechanical_failure_breakdown": dict(mech_breakdown),
     }
 
     return race_results, quali_results, event_counts
@@ -414,16 +435,23 @@ class MonteCarloRunner:
         """Aggregate event statistics from all simulations."""
         stats = RaceEventStatistics()
 
+        breakdown: dict[str, int] = defaultdict(int)
+
         for counts in event_counts:
             stats.safety_car_count += counts.get("safety_car", 0)
             stats.vsc_count += counts.get("vsc", 0)
             stats.red_flag_count += counts.get("red_flag", 0)
             stats.total_incidents += counts.get("incidents", 0)
 
+            for key, value in counts.get("mechanical_failure_breakdown", {}).items():
+                breakdown[key] += int(value)
+
             if counts.get("safety_car", 0) > 0:
                 stats.races_with_safety_car += 1
             if counts.get("red_flag", 0) > 0:
                 stats.races_with_red_flag += 1
+
+        stats.mechanical_failure_breakdown = dict(breakdown)
 
         return stats
 

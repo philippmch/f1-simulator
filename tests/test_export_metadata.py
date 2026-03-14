@@ -36,6 +36,7 @@ def test_statistics_export_includes_run_metadata(tmp_path) -> None:
     assert "team_championship_projection" in data
     assert "top_3_finish_probabilities" in data
     assert "top_10_finish_probabilities" in data
+    assert "mechanical_failure_breakdown" in data
 
     ver = data["driver_statistics"]["VER"]
     assert "position_percentiles" in ver
