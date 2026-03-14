@@ -56,6 +56,27 @@ def test_plan_options_include_fallback_plan() -> None:
     assert options[0] != options[1]
 
 
+def test_conservative_switch_trigger_respects_tuning() -> None:
+    sim = RaceSimulator(
+        rng=np.random.default_rng(7),
+        strategy_tuning={"conservative_switch_gap": 1.0, "conservative_switch_race_progress": 0.2},
+    )
+    track = _track()
+    state = DriverRaceState(
+        driver=Driver(id="DRV", name="DRV", team_id="x"),
+        car=Car(team_id="x", team_name="X"),
+        position=8,
+        strategy_archetype=TeamStrategyArchetype.CONSERVATIVE,
+    )
+
+    assert sim._should_switch_conservative_to_balanced(
+        state,
+        lap=20,
+        track=track,
+        gap_ahead=1.5,
+    )
+
+
 def test_select_active_plan_prefers_fallback_in_wet() -> None:
     sim = RaceSimulator(rng=np.random.default_rng(8))
     track = _track()

@@ -83,16 +83,32 @@ class RaceState:
 class RaceSimulator:
     """Simulates a full F1 race."""
 
-    def __init__(self, rng: np.random.Generator | None = None):
+    def __init__(
+        self,
+        rng: np.random.Generator | None = None,
+        strategy_tuning: dict[str, float] | None = None,
+    ):
         """Initialize race simulator.
 
         Args:
             rng: Random number generator
+            strategy_tuning: Optional strategy threshold overrides
         """
         self.rng = rng if rng is not None else np.random.default_rng()
         self.lap_simulator = LapSimulator(rng=self.rng)
         self.overtaking_model = OvertakingModel(rng=self.rng)
         self.event_manager = EventManager(rng=self.rng)
+        self.strategy_tuning = {
+            "conservative_switch_gap": 2.0,
+            "conservative_switch_race_progress": 0.4,
+            "undercut_min_gap": 0.4,
+            "undercut_max_gap": 2.2,
+            "aggressive_traffic_gap": 1.2,
+            "pit_prob_min": 0.03,
+            "pit_prob_max": 0.92,
+        }
+        if strategy_tuning:
+            self.strategy_tuning.update(strategy_tuning)
 
     def simulate_race(
         self,
@@ -341,6 +357,24 @@ class RaceSimulator:
 
         return TeamStrategyArchetype.BALANCED
 
+    def _should_switch_conservative_to_balanced(
+        self,
+        state: DriverRaceState,
+        lap: int,
+        track: Track,
+        gap_ahead: float | None,
+    ) -> bool:
+        """Decide whether conservative strategy should switch to balanced."""
+        if state.strategy_archetype != TeamStrategyArchetype.CONSERVATIVE:
+            return False
+        if state.position <= 6 or gap_ahead is None:
+            return False
+        if gap_ahead <= self.strategy_tuning["conservative_switch_gap"]:
+            return False
+
+        threshold = self.strategy_tuning["conservative_switch_race_progress"]
+        return lap > int(track.total_laps * threshold)
+
     def _plan_pit_lap_options(
         self,
         strategy: TeamStrategyArchetype,
@@ -417,13 +451,7 @@ class RaceSimulator:
 
         # Mid-race strategy switching trigger (conservative => balanced)
         # when stuck in traffic far from the lead and outside top positions.
-        if (
-            strategy == TeamStrategyArchetype.CONSERVATIVE
-            and state.position > 6
-            and gap_ahead is not None
-            and gap_ahead > 2.0
-            and lap > int(track.total_laps * 0.4)
-        ):
+        if self._should_switch_conservative_to_balanced(state, lap, track, gap_ahead):
             strategy = TeamStrategyArchetype.BALANCED
 
         strategy_bias = {
@@ -504,7 +532,9 @@ class RaceSimulator:
             # Undercut trigger: close to car ahead and hard to overtake.
             if (
                 gap_ahead is not None
-                and 0.4 <= gap_ahead <= 2.2
+                and self.strategy_tuning["undercut_min_gap"]
+                <= gap_ahead
+                <= self.strategy_tuning["undercut_max_gap"]
                 and track.overtake_difficulty > 0.45
                 and state.tire_laps >= 12
             ):
@@ -529,12 +559,16 @@ class RaceSimulator:
             if (
                 strategy == TeamStrategyArchetype.AGGRESSIVE
                 and gap_ahead is not None
-                and gap_ahead < 1.2
+                and gap_ahead < self.strategy_tuning["aggressive_traffic_gap"]
                 and state.position > 1
             ):
                 adjusted_prob += 0.08
 
-            if self.rng.random() < np.clip(adjusted_prob, 0.03, 0.92):
+            if self.rng.random() < np.clip(
+                adjusted_prob,
+                self.strategy_tuning["pit_prob_min"],
+                self.strategy_tuning["pit_prob_max"],
+            ):
                 return True
 
         return False
