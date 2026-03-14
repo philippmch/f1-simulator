@@ -158,6 +158,7 @@ class RaceSimulator:
                 # Check for pit stop decision
                 should_pit = self._should_pit(
                     state,
+                    states,
                     track,
                     lap,
                     self.event_manager.is_pit_window_open(),
@@ -165,7 +166,12 @@ class RaceSimulator:
                 )
 
                 if should_pit:
-                    pit_time = self._execute_pit_stop(state, track, current_weather)
+                    pit_time = self._execute_pit_stop(
+                        state,
+                        track,
+                        current_weather,
+                        current_lap=lap,
+                    )
                     state.total_time += pit_time
                     state.pit_stops += 1
                     state.pit_laps.append(lap)
@@ -304,6 +310,7 @@ class RaceSimulator:
     def _should_pit(
         self,
         state: DriverRaceState,
+        all_states: list[DriverRaceState],
         track: Track,
         lap: int,
         pit_window_open: bool,
@@ -334,9 +341,15 @@ class RaceSimulator:
         if lap <= 5 or lap >= track.total_laps - 5:
             return False
 
-        # Pit window opportunity (under SC/VSC) - good strategy
-        if pit_window_open and state.tire_laps > 15 and state.pit_stops < max_stops:
-            if self.rng.random() < 0.8:
+        gap_ahead = self._get_gap_to_car_ahead(state, all_states)
+        gap_behind = self._get_gap_to_car_behind(state, all_states)
+
+        # Pit window opportunity (under SC/VSC) - usually strong strategic value.
+        if pit_window_open and state.tire_laps > 10 and state.pit_stops < max_stops:
+            # If we have a free stop window (big gap behind), almost always take it.
+            if gap_behind is not None and gap_behind > track.pit_lane_delta * 0.85:
+                return True
+            if self.rng.random() < 0.85:
                 return True
 
         # Calculate optimal pit windows for 1-stop or 2-stop strategy
@@ -364,7 +377,24 @@ class RaceSimulator:
             base_prob = 0.15 + laps_into_window * 0.1  # 15% to 65% over window
             adjusted_prob = max(0.05, base_prob - position_reluctance)
 
-            if self.rng.random() < adjusted_prob:
+            # Undercut trigger: close to car ahead and hard to overtake.
+            if (
+                gap_ahead is not None
+                and 0.4 <= gap_ahead <= 2.2
+                and track.overtake_difficulty > 0.45
+                and state.tire_laps >= 12
+            ):
+                adjusted_prob += 0.2
+
+            # Overcut trigger: enough clean air behind to extend stint.
+            if (
+                gap_behind is not None
+                and gap_behind > track.pit_lane_delta * 0.7
+                and state.current_tire.grip_at_lap(state.tire_laps) > 0.68
+            ):
+                adjusted_prob -= 0.12
+
+            if self.rng.random() < np.clip(adjusted_prob, 0.03, 0.92):
                 return True
 
         return False
@@ -374,6 +404,7 @@ class RaceSimulator:
         state: DriverRaceState,
         track: Track,
         weather: Weather,
+        current_lap: int,
     ) -> float:
         """Execute pit stop and return total time lost.
 
@@ -395,14 +426,33 @@ class RaceSimulator:
         elif weather.is_wet():
             new_compound = TireCompound.INTERMEDIATE
         else:
-            # Strategic choice: if on softs, go harder; if on hards, maybe mediums
+            laps_remaining = max(track.total_laps - current_lap, 0)
             current = state.current_tire.compound
-            if current == TireCompound.SOFT:
-                new_compound = TireCompound.HARD if self.rng.random() < 0.6 else TireCompound.MEDIUM
-            elif current == TireCompound.MEDIUM:
-                new_compound = TireCompound.HARD if self.rng.random() < 0.5 else TireCompound.SOFT
+
+            # Late-race sprint bias towards softer compounds.
+            if laps_remaining <= 12:
+                if current == TireCompound.HARD:
+                    new_compound = TireCompound.SOFT
+                else:
+                    new_compound = (
+                        TireCompound.SOFT if self.rng.random() < 0.75 else TireCompound.MEDIUM
+                    )
+            # Early/mid-race balance by track tire stress.
+            elif track.tire_stress > 0.65:
+                new_compound = TireCompound.HARD if self.rng.random() < 0.7 else TireCompound.MEDIUM
             else:
-                new_compound = TireCompound.MEDIUM if self.rng.random() < 0.6 else TireCompound.SOFT
+                if current == TireCompound.SOFT:
+                    new_compound = (
+                        TireCompound.MEDIUM if self.rng.random() < 0.65 else TireCompound.HARD
+                    )
+                elif current == TireCompound.MEDIUM:
+                    new_compound = (
+                        TireCompound.HARD if self.rng.random() < 0.45 else TireCompound.SOFT
+                    )
+                else:
+                    new_compound = (
+                        TireCompound.MEDIUM if self.rng.random() < 0.7 else TireCompound.SOFT
+                    )
 
         state.current_tire = TIRE_COMPOUNDS[new_compound].model_copy(deep=True)
         state.tire_laps = 0
@@ -421,6 +471,18 @@ class RaceSimulator:
         for other in all_states:
             if other.position == state.position - 1 and other.status == DriverStatus.RACING:
                 return abs(state.total_time - other.total_time)
+
+        return None
+
+    def _get_gap_to_car_behind(
+        self,
+        state: DriverRaceState,
+        all_states: list[DriverRaceState],
+    ) -> float | None:
+        """Get time gap to car behind."""
+        for other in all_states:
+            if other.position == state.position + 1 and other.status == DriverStatus.RACING:
+                return abs(other.total_time - state.total_time)
 
         return None
 
