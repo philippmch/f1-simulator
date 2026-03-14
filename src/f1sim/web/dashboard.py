@@ -214,6 +214,8 @@ def build_dashboard_html() -> str:
     <div id=\"resultCards\">No runs yet</div>
     <h2>Win Probability Chart</h2>
     <div id=\"resultChart\">No chart yet</div>
+    <h2>Scenario Trend Strip</h2>
+    <div id=\"resultTrends\">No trend data yet</div>
     <h2>Driver Matrix (by scenario)</h2>
     <div style=\"margin:6px 0; display:flex; gap:8px; flex-wrap:wrap;\">
       <label style=\"margin:0\">Sort
@@ -247,6 +249,7 @@ def build_dashboard_html() -> str:
     const resultEl = document.getElementById('result');
     const cardsEl = document.getElementById('resultCards');
     const chartEl = document.getElementById('resultChart');
+    const trendsEl = document.getElementById('resultTrends');
     const matrixEl = document.getElementById('resultMatrix');
     const matrixSortEl = document.getElementById('matrixSort');
     const matrixHighlightEl = document.getElementById('matrixHighlight');
@@ -330,6 +333,37 @@ def build_dashboard_html() -> str:
       });
 
       chartEl.innerHTML = `<div class="chart-wrap">${rows.join('')}</div>`;
+    }
+
+    function renderScenarioTrends(data) {
+      const scenarios = data.scenarios || {};
+      const names = Object.keys(scenarios);
+      if (!names.length) {
+        trendsEl.textContent = 'No trend data yet';
+        return;
+      }
+
+      const rows = names.map((name) => {
+        const rates = scenarios[name].event_rates || {};
+        const sc = Number((rates.safety_car_race_rate || 0) * 100);
+        const rf = Number((rates.red_flag_race_rate || 0) * 100);
+        const incidents = Number(rates.avg_incidents || 0);
+
+        const safeSc = Math.max(0, Math.min(100, sc));
+        const label =
+          `${name} · SC ${sc.toFixed(1)}% · ` +
+          `RF ${rf.toFixed(1)}% · Inc ${incidents.toFixed(2)}`;
+        return `
+          <div class="chart-row">
+            <div class="chart-label">${label}</div>
+            <div class="bar-track">
+              <div class="bar-fill" style="width:${safeSc}%"></div>
+            </div>
+          </div>
+        `;
+      });
+
+      trendsEl.innerHTML = `<div class="chart-wrap">${rows.join('')}</div>`;
     }
 
     function renderDriverMatrix(data) {
@@ -512,6 +546,7 @@ def build_dashboard_html() -> str:
         resultEl.textContent = JSON.stringify(data, null, 2);
         renderScenarioCards(data);
         renderWinChart(data);
+        renderScenarioTrends(data);
         renderDriverMatrix(data);
         localStorage.setItem('f1sim:lastPayload', JSON.stringify(payload));
         await refreshRuns();
