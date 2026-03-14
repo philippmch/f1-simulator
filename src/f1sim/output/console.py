@@ -163,6 +163,15 @@ class ConsoleOutput:
             bar = "#" * int(points)
             print(f"{team:<20} {points:6.2f} pts {bar}")
 
+        # Top-10 finish probabilities
+        print("\nTOP-10 FINISH PROBABILITIES:")
+        print("-" * 50)
+        top_10 = results.get_top_n_finish_probabilities(10)
+        for driver_id, prob in list(top_10.items())[:10]:
+            stats = results.driver_stats[driver_id]
+            bar = "#" * int(prob / 2)
+            print(f"{stats.driver_name:<20} {prob:5.1f}% {bar}")
+
         # Event statistics
         event_stats = results.event_stats
         print("\nRACE EVENT STATISTICS:")

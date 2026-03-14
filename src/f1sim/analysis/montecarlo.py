@@ -116,6 +116,22 @@ class SimulationResults:
 
         return {pos: count / len(positions) * 100 for pos, count in sorted(counts.items())}
 
+    def get_top_n_finish_probabilities(self, n: int = 10) -> dict[str, float]:
+        """Get probability of finishing in top N for each driver."""
+        if n <= 0:
+            msg = "n must be greater than 0"
+            raise ValueError(msg)
+
+        probs: dict[str, float] = {}
+        for driver_id, stats in self.driver_stats.items():
+            if not stats.positions:
+                probs[driver_id] = 0.0
+                continue
+            top_n_count = sum(1 for pos in stats.positions if pos <= n)
+            probs[driver_id] = top_n_count / len(stats.positions) * 100
+
+        return dict(sorted(probs.items(), key=lambda x: x[1], reverse=True))
+
     def get_team_championship_projection(self) -> dict[str, float]:
         """Get projected points per team (constructors view)."""
         team_points: dict[str, float] = defaultdict(float)
