@@ -35,6 +35,18 @@ def test_infer_strategy_aggressive_for_fast_car_on_hard_track() -> None:
     assert strategy == TeamStrategyArchetype.AGGRESSIVE
 
 
+def test_plan_pit_laps_by_strategy_archetype() -> None:
+    sim = RaceSimulator(rng=np.random.default_rng(9))
+    track = _track()
+
+    aggr = sim._plan_pit_laps(TeamStrategyArchetype.AGGRESSIVE, track)
+    bal = sim._plan_pit_laps(TeamStrategyArchetype.BALANCED, track)
+    cons = sim._plan_pit_laps(TeamStrategyArchetype.CONSERVATIVE, track)
+
+    assert len(aggr) >= len(bal) >= len(cons)
+    assert aggr[0] < bal[0] < cons[0]
+
+
 def test_conservative_strategy_uses_higher_max_stops_in_wet() -> None:
     sim = RaceSimulator(rng=np.random.default_rng(3))
     track = _track()

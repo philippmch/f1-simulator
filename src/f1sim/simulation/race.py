@@ -44,6 +44,7 @@ class DriverRaceState:
     status: DriverStatus = DriverStatus.RACING
     dnf_reason: str | None = None
     strategy_archetype: TeamStrategyArchetype = TeamStrategyArchetype.BALANCED
+    planned_pit_laps: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -135,13 +136,15 @@ class RaceSimulator:
             else:
                 tire_compound = TireCompound.MEDIUM if pos <= 10 else TireCompound.SOFT
 
+            strategy = self._infer_team_strategy(car, track)
             states.append(
                 DriverRaceState(
                     driver=driver,
                     car=car,
                     position=pos,
                     current_tire=TIRE_COMPOUNDS[tire_compound].model_copy(deep=True),
-                    strategy_archetype=self._infer_team_strategy(car, track),
+                    strategy_archetype=strategy,
+                    planned_pit_laps=self._plan_pit_laps(strategy, track),
                 )
             )
 
@@ -333,6 +336,19 @@ class RaceSimulator:
 
         return TeamStrategyArchetype.BALANCED
 
+    def _plan_pit_laps(
+        self,
+        strategy: TeamStrategyArchetype,
+        track: Track,
+    ) -> list[int]:
+        """Generate planned pit laps by strategy archetype."""
+        laps = track.total_laps
+        if strategy == TeamStrategyArchetype.AGGRESSIVE:
+            return [int(laps * 0.28), int(laps * 0.55), int(laps * 0.78)]
+        if strategy == TeamStrategyArchetype.CONSERVATIVE:
+            return [int(laps * 0.45), int(laps * 0.78)]
+        return [int(laps * 0.35), int(laps * 0.7)]
+
     def _should_pit(
         self,
         state: DriverRaceState,
@@ -352,6 +368,21 @@ class RaceSimulator:
                 return True  # Should pit soon
 
         strategy = state.strategy_archetype
+
+        gap_ahead = self._get_gap_to_car_ahead(state, all_states)
+        gap_behind = self._get_gap_to_car_behind(state, all_states)
+
+        # Mid-race strategy switching trigger (conservative => balanced)
+        # when stuck in traffic far from the lead and outside top positions.
+        if (
+            strategy == TeamStrategyArchetype.CONSERVATIVE
+            and state.position > 6
+            and gap_ahead is not None
+            and gap_ahead > 2.0
+            and lap > int(track.total_laps * 0.4)
+        ):
+            strategy = TeamStrategyArchetype.BALANCED
+
         strategy_bias = {
             TeamStrategyArchetype.AGGRESSIVE: 0.12,
             TeamStrategyArchetype.BALANCED: 0.0,
@@ -376,9 +407,6 @@ class RaceSimulator:
         if lap <= 5 or lap >= track.total_laps - 5:
             return False
 
-        gap_ahead = self._get_gap_to_car_ahead(state, all_states)
-        gap_behind = self._get_gap_to_car_behind(state, all_states)
-
         # Pit window opportunity (under SC/VSC) - usually strong strategic value.
         if pit_window_open and state.tire_laps > 10 and state.pit_stops < max_stops:
             # If we have a free stop window (big gap behind), almost always take it.
@@ -388,8 +416,16 @@ class RaceSimulator:
             if self.rng.random() < window_prob:
                 return True
 
+        # Prefer explicit planned pit laps when available for current stint.
+        planned_lap = None
+        if state.pit_stops < len(state.planned_pit_laps):
+            planned_lap = state.planned_pit_laps[state.pit_stops]
+
         # Calculate optimal pit windows for 1-stop or 2-stop strategy
-        if max_stops == 1:
+        if planned_lap is not None:
+            window_start = planned_lap - 3
+            window_end = planned_lap + 4
+        elif max_stops == 1:
             # Single stop around lap 40-60% of race
             optimal_lap = int(track.total_laps * 0.5)
             window_start = optimal_lap - 5
@@ -412,6 +448,13 @@ class RaceSimulator:
             laps_into_window = lap - window_start
             base_prob = 0.15 + laps_into_window * 0.1  # 15% to 65% over window
             adjusted_prob = max(0.05, base_prob - position_reluctance + strategy_bias)
+
+            if planned_lap is not None:
+                distance_to_plan = abs(lap - planned_lap)
+                if distance_to_plan == 0:
+                    adjusted_prob += 0.2
+                elif distance_to_plan <= 1:
+                    adjusted_prob += 0.1
 
             # Undercut trigger: close to car ahead and hard to overtake.
             if (
