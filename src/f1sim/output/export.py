@@ -11,6 +11,8 @@ from f1sim.analysis.montecarlo import SimulationResults
 class Exporter:
     """Exports simulation results to various formats."""
 
+    _PLOTLY_CDN = "https://cdn.plot.ly/plotly-2.35.2.min.js"
+
     def __init__(self, output_dir: str | Path = "output"):
         """Initialize exporter.
 
@@ -187,6 +189,79 @@ class Exporter:
 
         return filepath
 
+    def export_report_html(
+        self,
+        results: SimulationResults,
+        filename: str = "report.html",
+    ) -> Path:
+        """Export interactive HTML report with basic charts."""
+        filepath = self.output_dir / filename
+
+        win_probs = results.get_win_probabilities()
+        top_items = list(win_probs.items())[:10]
+        top_labels = [results.driver_stats[d].driver_name for d, _ in top_items]
+        top_values = [v for _, v in top_items]
+
+        team_proj = results.get_team_championship_projection()
+        team_labels = list(team_proj.keys())[:10]
+        team_values = [team_proj[t] for t in team_labels]
+
+        html = f"""<!doctype html>
+<html lang=\"en\">
+<head>
+  <meta charset=\"utf-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+  <title>F1 Simulation Report - {results.track_name}</title>
+  <script src=\"{self._PLOTLY_CDN}\"></script>
+  <style>
+    body {{
+      font-family: Inter, system-ui, sans-serif;
+      margin: 24px;
+      background: #0f1220;
+      color: #e8ebff;
+    }}
+    .grid {{ display: grid; grid-template-columns: 1fr; gap: 20px; }}
+    .card {{ background: #181c30; border: 1px solid #2a3156; border-radius: 12px; padding: 16px; }}
+    h1, h2 {{ margin: 0 0 12px; }}
+    .meta {{ color: #b6c0ff; margin-bottom: 16px; }}
+  </style>
+</head>
+<body>
+  <h1>F1 Simulation Report</h1>
+  <div class=\"meta\">
+    Track: {results.track_name} · Simulations: {results.num_simulations} · Seed: {results.seed}
+  </div>
+  <div class=\"grid\">
+    <div class=\"card\"><h2>Top 10 Win Probabilities</h2><div id=\"wins\"></div></div>
+    <div class=\"card\"><h2>Team Points Projection (per race)</h2><div id=\"teams\"></div></div>
+  </div>
+  <script>
+    Plotly.newPlot('wins', [{{
+      type: 'bar',
+      x: {json.dumps(top_labels)},
+      y: {json.dumps(top_values)},
+      marker: {{ color: '#7aa2ff' }}
+    }}], {{
+      paper_bgcolor: '#181c30', plot_bgcolor: '#181c30',
+      font: {{ color: '#e8ebff' }}, yaxis: {{ title: 'Win %' }}
+    }});
+
+    Plotly.newPlot('teams', [{{
+      type: 'bar',
+      x: {json.dumps(team_labels)},
+      y: {json.dumps(team_values)},
+      marker: {{ color: '#53d8b8' }}
+    }}], {{
+      paper_bgcolor: '#181c30', plot_bgcolor: '#181c30',
+      font: {{ color: '#e8ebff' }}, yaxis: {{ title: 'Points / race' }}
+    }});
+  </script>
+</body>
+</html>
+"""
+        filepath.write_text(html)
+        return filepath
+
     def export_all(
         self,
         results: SimulationResults,
@@ -213,4 +288,5 @@ class Exporter:
             "statistics_json": self.export_statistics_json(
                 results, f"{prefix}statistics.json"
             ),
+            "report_html": self.export_report_html(results, f"{prefix}report.html"),
         }
