@@ -202,6 +202,15 @@ class ConsoleOutput:
             f"({avg_incidents:.2f}/race)"
         )
 
+        if event_stats.mechanical_failure_breakdown:
+            print("\n  Mechanical Failure Breakdown:")
+            for component, count in sorted(
+                event_stats.mechanical_failure_breakdown.items(),
+                key=lambda x: x[1],
+                reverse=True,
+            ):
+                print(f"    - {component:<10} {count:4d}")
+
         print("=" * 80)
 
     @staticmethod
