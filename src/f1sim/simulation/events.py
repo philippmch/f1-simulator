@@ -223,8 +223,18 @@ class EventManager:
         - tire/track stress proxy
         - high track temperatures
         """
+        # Combine team-level reliability with weakest component pressure.
+        components = car.component_reliability_map()
+        avg_component_rel = float(np.mean(list(components.values())))
+        weakest_component_rel = min(components.values())
+        effective_reliability = (
+            car.reliability * 0.55
+            + avg_component_rel * 0.3
+            + weakest_component_rel * 0.15
+        )
+
         # Distribute reliability risk across race distance.
-        base = (1.0 - car.reliability) / max(track.total_laps, 1)
+        base = (1.0 - effective_reliability) / max(track.total_laps, 1)
 
         # Cars are more likely to fail late in races.
         race_progress = max(lap, 1) / max(track.total_laps, 1)
@@ -233,10 +243,11 @@ class EventManager:
         # Tire-stress tracks tend to be harder on components.
         stress_modifier = 0.9 + 0.25 * track.tire_stress
 
-        # Heat stress from very hot tracks.
+        # Heat stress from very hot tracks (worse with weak cooling reliability).
         temp_modifier = 1.0
         if weather is not None and weather.track_temperature >= 45.0:
-            temp_modifier += min((weather.track_temperature - 45.0) * 0.01, 0.25)
+            cooling_penalty = 1.0 + (1.0 - car.cooling_reliability) * 0.8
+            temp_modifier += min((weather.track_temperature - 45.0) * 0.01, 0.25) * cooling_penalty
 
         return base * progression_modifier * stress_modifier * temp_modifier
 
@@ -255,14 +266,21 @@ class EventManager:
         failure_prob = self._mechanical_failure_probability(car, track, weather, lap)
 
         if self.rng.random() < failure_prob:
-            failure_types = [
-                "engine failure",
-                "gearbox failure",
-                "hydraulics failure",
-                "electrical failure",
-                "brake failure",
-            ]
-            failure = self.rng.choice(failure_types)
+            components = car.component_reliability_map()
+            component_keys = list(components.keys())
+            # Lower reliability component => higher failure chance.
+            raw_weights = np.array([max(1e-6, 1.0 - components[k]) for k in component_keys])
+            probs = raw_weights / raw_weights.sum()
+            failing_component = str(self.rng.choice(component_keys, p=probs))
+
+            failure_labels = {
+                "engine": "engine failure",
+                "gearbox": "gearbox failure",
+                "brakes": "brake failure",
+                "electrical": "electrical failure",
+                "cooling": "cooling failure",
+            }
+            failure = failure_labels[failing_component]
 
             driver.dnf = True
             driver.dnf_reason = failure

@@ -43,6 +43,38 @@ def test_mechanical_failure_probability_increases_with_temperature() -> None:
     assert p_hot > p_cool
 
 
+def test_mechanical_failure_probability_reflects_component_reliability() -> None:
+    manager = EventManager(rng=np.random.default_rng(21))
+    track = _track()
+    weather = Weather(condition=WeatherCondition.DRY, track_temperature=35.0)
+
+    robust = Car(
+        team_id="rb",
+        team_name="Robust",
+        reliability=0.95,
+        engine_reliability=0.97,
+        gearbox_reliability=0.97,
+        brakes_reliability=0.97,
+        electrical_reliability=0.97,
+        cooling_reliability=0.97,
+    )
+    fragile_engine = Car(
+        team_id="rb",
+        team_name="Fragile",
+        reliability=0.95,
+        engine_reliability=0.75,
+        gearbox_reliability=0.97,
+        brakes_reliability=0.97,
+        electrical_reliability=0.97,
+        cooling_reliability=0.97,
+    )
+
+    p_robust = manager._mechanical_failure_probability(robust, track, weather, lap=30)
+    p_fragile = manager._mechanical_failure_probability(fragile_engine, track, weather, lap=30)
+
+    assert p_fragile > p_robust
+
+
 def test_incident_probability_increases_in_wet_conditions() -> None:
     manager = EventManager(rng=np.random.default_rng(3))
     drivers = [

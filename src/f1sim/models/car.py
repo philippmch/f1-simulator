@@ -34,6 +34,36 @@ class Car(BaseModel):
         le=1.0,
         description="Probability of finishing without mechanical failure",
     )
+    engine_reliability: float = Field(
+        default=0.95,
+        ge=0.0,
+        le=1.0,
+        description="Power unit reliability",
+    )
+    gearbox_reliability: float = Field(
+        default=0.95,
+        ge=0.0,
+        le=1.0,
+        description="Gearbox reliability",
+    )
+    brakes_reliability: float = Field(
+        default=0.96,
+        ge=0.0,
+        le=1.0,
+        description="Brake system reliability",
+    )
+    electrical_reliability: float = Field(
+        default=0.95,
+        ge=0.0,
+        le=1.0,
+        description="Electrical system reliability",
+    )
+    cooling_reliability: float = Field(
+        default=0.95,
+        ge=0.0,
+        le=1.0,
+        description="Cooling system reliability",
+    )
     tire_degradation_factor: float = Field(
         default=1.0,
         ge=0.5,
@@ -58,6 +88,16 @@ class Car(BaseModel):
         le=1.0,
         description="Pit stop time standard deviation",
     )
+
+    def component_reliability_map(self) -> dict[str, float]:
+        """Return reliability by major component."""
+        return {
+            "engine": self.engine_reliability,
+            "gearbox": self.gearbox_reliability,
+            "brakes": self.brakes_reliability,
+            "electrical": self.electrical_reliability,
+            "cooling": self.cooling_reliability,
+        }
 
     def pace_delta_seconds(self, reference_lap_time: float) -> float:
         """Calculate pace advantage/disadvantage in seconds.
