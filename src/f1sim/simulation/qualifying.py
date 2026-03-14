@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather
+from f1sim.models import Car, Driver, TireCompound, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.lap import LapSimulator
 

@@ -130,9 +130,7 @@ class EventManager:
 
         # Check for random incidents (spins, etc.)
         if not self.safety_car_active:
-            random_incident = self._check_random_incident(
-                drivers, track, weather, lap
-            )
+            random_incident = self._check_random_incident(drivers, track, weather, lap)
             if random_incident:
                 lap_events.append(random_incident)
                 incidents_this_lap += 1
@@ -207,7 +205,7 @@ class EventManager:
             base_prob *= 3.0
 
         # Track difficulty affects incident rate
-        base_prob *= (1.0 + track.overtake_difficulty * 0.5)
+        base_prob *= 1.0 + track.overtake_difficulty * 0.5
 
         if self.rng.random() < base_prob:
             # Select random driver for incident
@@ -401,10 +399,7 @@ class EventManager:
         if len(racing) < 2:
             return
 
-        # Leader's time stays the same
-        leader_time = racing[0].total_time
-
-        # Each following car is set to ~0.8-1.2 seconds behind the car ahead
+        # Leader stays unchanged; each following car is set to ~0.8-1.2s behind.
         for i, state in enumerate(racing[1:], 1):
             gap_to_ahead = self.rng.uniform(0.8, 1.2)
             state.total_time = racing[i - 1].total_time + gap_to_ahead

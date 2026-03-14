@@ -181,7 +181,9 @@ class LapSimulator:
         # Weather effect
         weather_multiplier = weather.lap_time_multiplier()
 
-        lap_time = (base_time + car_delta + skill_delta + random_variation - tire_bonus) * weather_multiplier
+        lap_time = (
+            base_time + car_delta + skill_delta + random_variation - tire_bonus
+        ) * weather_multiplier
 
         return max(track.base_lap_time * 0.93, lap_time)
 

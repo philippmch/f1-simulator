@@ -6,7 +6,7 @@ from enum import Enum
 import numpy as np
 
 from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather
-from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
+from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.events import EventManager, EventType, RaceEvent
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.overtaking import OvertakingModel
@@ -126,12 +126,14 @@ class RaceSimulator:
             else:
                 tire_compound = TireCompound.MEDIUM if pos <= 10 else TireCompound.SOFT
 
-            states.append(DriverRaceState(
-                driver=driver,
-                car=car,
-                position=pos,
-                current_tire=TIRE_COMPOUNDS[tire_compound].model_copy(deep=True),
-            ))
+            states.append(
+                DriverRaceState(
+                    driver=driver,
+                    car=car,
+                    position=pos,
+                    current_tire=TIRE_COMPOUNDS[tire_compound].model_copy(deep=True),
+                )
+            )
 
         # Track fastest laps
         fastest_laps: dict[str, float] = {}
@@ -155,7 +157,9 @@ class RaceSimulator:
 
                 # Check for pit stop decision
                 should_pit = self._should_pit(
-                    state, track, lap,
+                    state,
+                    track,
+                    lap,
                     self.event_manager.is_pit_window_open(),
                     weather=current_weather,
                 )
@@ -198,9 +202,11 @@ class RaceSimulator:
                 else:
                     fastest_laps[state.driver.id] = min(fastest_laps[state.driver.id], lap_time)
 
-            # Phase 2: Handle position changes from pit stops (after all lap times calculated)
-            # At high overtake difficulty tracks (Monaco, Singapore), pit stops have minimal
-            # position impact because everyone pits in a narrow window and can't recover via overtaking
+            # Phase 2: Handle position changes from pit stops
+            # (after all lap times calculated).
+            # At high overtake-difficulty tracks (Monaco, Singapore),
+            # pit stops have minimal position impact because everyone pits
+            # in a narrow window and can't recover via overtaking.
             if track.overtake_difficulty < 0.8:  # Only apply at easier-to-pass tracks
                 for pitting_driver in drivers_pitting:
                     self._handle_pit_position_changes(pitting_driver, states)
@@ -227,16 +233,12 @@ class RaceSimulator:
             all_events.extend(lap_events)
 
             # Check if safety car was just deployed - bunch up the field
-            sc_deployed_this_lap = any(
-                e.event_type == EventType.SAFETY_CAR for e in lap_events
-            )
+            sc_deployed_this_lap = any(e.event_type == EventType.SAFETY_CAR for e in lap_events)
             if sc_deployed_this_lap:
                 self.event_manager.bunch_field(states)
 
             # Check if red flag was just deployed
-            red_flag_deployed_this_lap = any(
-                e.event_type == EventType.RED_FLAG for e in lap_events
-            )
+            red_flag_deployed_this_lap = any(e.event_type == EventType.RED_FLAG for e in lap_events)
             if red_flag_deployed_this_lap:
                 # Handle red flag: bunch field and allow tire changes
                 self._handle_red_flag_stop(states, current_weather)
@@ -258,16 +260,16 @@ class RaceSimulator:
             if state.status == DriverStatus.RACING:
                 state.status = DriverStatus.FINISHED
 
-        # Calculate overall fastest lap
-        overall_fastest = min(fastest_laps.values()) if fastest_laps else float("inf")
-        fastest_lap_driver = min(fastest_laps, key=fastest_laps.get) if fastest_laps else None
-
         # Build results - use track position (state.position), not total time
         # DNF drivers go after finishers
         sorted_states = sorted(states, key=lambda s: (s.status == DriverStatus.DNF, s.position))
 
         # Find leader time for gap calculation
-        leader_time = sorted_states[0].total_time if sorted_states and sorted_states[0].status == DriverStatus.FINISHED else 0
+        leader_time = (
+            sorted_states[0].total_time
+            if sorted_states and sorted_states[0].status == DriverStatus.FINISHED
+            else 0
+        )
 
         results = []
         for state in sorted_states:
@@ -275,21 +277,27 @@ class RaceSimulator:
             strategy = [state.current_tire.compound.value]
             if state.pit_stops > 0:
                 # Simplified strategy tracking
-                strategy = ["medium", "hard"] if state.pit_stops == 1 else ["soft", "hard", "medium"]
+                strategy = (
+                    ["medium", "hard"] if state.pit_stops == 1 else ["soft", "hard", "medium"]
+                )
 
-            results.append(RaceResult(
-                driver_id=state.driver.id,
-                driver_name=state.driver.name,
-                team=state.car.team_name,
-                position=state.position,
-                total_time=state.total_time,
-                gap_to_leader=state.total_time - leader_time if state.status == DriverStatus.FINISHED else 0,
-                pit_stops=state.pit_stops,
-                fastest_lap=fastest_laps.get(state.driver.id, 0),
-                status=state.status,
-                dnf_reason=state.dnf_reason,
-                strategy=strategy,
-            ))
+            results.append(
+                RaceResult(
+                    driver_id=state.driver.id,
+                    driver_name=state.driver.name,
+                    team=state.car.team_name,
+                    position=state.position,
+                    total_time=state.total_time,
+                    gap_to_leader=state.total_time - leader_time
+                    if state.status == DriverStatus.FINISHED
+                    else 0,
+                    pit_stops=state.pit_stops,
+                    fastest_lap=fastest_laps.get(state.driver.id, 0),
+                    status=state.status,
+                    dnf_reason=state.dnf_reason,
+                    strategy=strategy,
+                )
+            )
 
         return results
 

@@ -51,9 +51,14 @@ class OvertakingModel:
 
         # Calculate success probability
         prob = self._calculate_probability(
-            attacker, attacker_car,
-            defender, defender_car,
-            track, gap, has_drs, is_wet,
+            attacker,
+            attacker_car,
+            defender,
+            defender_car,
+            track,
+            gap,
+            has_drs,
+            is_wet,
             restart_boost=restart_boost,
         )
 
@@ -88,7 +93,9 @@ class OvertakingModel:
         """
         # Base probability from track difficulty
         # On restarts, track difficulty matters less (everyone bunched, cold tires)
-        effective_difficulty = track.overtake_difficulty * 0.6 if restart_boost else track.overtake_difficulty
+        effective_difficulty = (
+            track.overtake_difficulty * 0.6 if restart_boost else track.overtake_difficulty
+        )
         base_prob = 0.5 * (1.0 - effective_difficulty)
 
         # Pace advantage factor
@@ -114,10 +121,15 @@ class OvertakingModel:
         wet_modifier = 0.7 if is_wet else 1.0
 
         # Straight line speed advantage helps overtaking
-        speed_factor = 1.0 + (attacker_car.straight_line_speed - defender_car.straight_line_speed) * 0.2
+        speed_factor = (
+            1.0 + (attacker_car.straight_line_speed - defender_car.straight_line_speed) * 0.2
+        )
 
         # Combine factors
-        probability = base_prob * pace_factor * gap_factor * skill_factor * speed_factor * wet_modifier + drs_bonus
+        probability = (
+            base_prob * pace_factor * gap_factor * skill_factor * speed_factor * wet_modifier
+            + drs_bonus
+        )
 
         # SC restart bonus - drivers are more aggressive, tires cold, field bunched
         if restart_boost:

@@ -74,7 +74,9 @@ class Tire(BaseModel):
 
         return max(0.5, grip)  # Minimum 50% grip
 
-    def time_penalty_per_lap(self, lap: int, base_lap_time: float, tire_management: float = 1.0) -> float:
+    def time_penalty_per_lap(
+        self, lap: int, base_lap_time: float, tire_management: float = 1.0
+    ) -> float:
         """Calculate time penalty from tire degradation.
 
         Args:

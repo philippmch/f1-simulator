@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from f1sim.analysis import MonteCarloRunner
-from f1sim.models import Car, DRSZone, Driver, Sector, Track, Weather, WeatherCondition
+from f1sim.models import Car, Driver, DRSZone, Sector, Track, Weather, WeatherCondition
 from f1sim.output import ConsoleOutput, Exporter
 from f1sim.simulation import QualifyingSimulator, RaceSimulator
 
@@ -75,16 +75,18 @@ def create_2024_grid() -> tuple[list[Driver], dict[str, Car]]:
 
     drivers = []
     for driver_id, name, team, skill, consistency, wet_skill in drivers_data:
-        drivers.append(Driver(
-            id=driver_id,
-            name=name,
-            team_id=team,
-            skill_rating=skill,
-            consistency=consistency,
-            wet_skill_modifier=wet_skill,
-            overtaking_skill=skill * 0.95,
-            tire_management=consistency,
-        ))
+        drivers.append(
+            Driver(
+                id=driver_id,
+                name=name,
+                team_id=team,
+                skill_rating=skill,
+                consistency=consistency,
+                wet_skill_modifier=wet_skill,
+                overtaking_skill=skill * 0.95,
+                tire_management=consistency,
+            )
+        )
 
     return drivers, cars
 
@@ -133,6 +135,7 @@ def main():
     print("-" * 50)
 
     import numpy as np
+
     rng = np.random.default_rng(42)
 
     # Qualifying
