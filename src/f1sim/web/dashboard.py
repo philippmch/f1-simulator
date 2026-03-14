@@ -215,6 +215,13 @@ def build_dashboard_html() -> str:
     <h2>Win Probability Chart</h2>
     <div id=\"resultChart\">No chart yet</div>
     <h2>Scenario Trend Strip</h2>
+    <label style=\"margin:0\">Trend metric
+      <select id=\"trendMetric\">
+        <option value=\"sc\">Safety Car race rate</option>
+        <option value=\"rf\">Red flag race rate</option>
+        <option value=\"inc\">Average incidents</option>
+      </select>
+    </label>
     <div id=\"resultTrends\">No trend data yet</div>
     <h2>Driver Matrix (by scenario)</h2>
     <div style=\"margin:6px 0; display:flex; gap:8px; flex-wrap:wrap;\">
@@ -250,6 +257,7 @@ def build_dashboard_html() -> str:
     const cardsEl = document.getElementById('resultCards');
     const chartEl = document.getElementById('resultChart');
     const trendsEl = document.getElementById('resultTrends');
+    const trendMetricEl = document.getElementById('trendMetric');
     const matrixEl = document.getElementById('resultMatrix');
     const matrixSortEl = document.getElementById('matrixSort');
     const matrixHighlightEl = document.getElementById('matrixHighlight');
@@ -343,21 +351,32 @@ def build_dashboard_html() -> str:
         return;
       }
 
+      const metric = trendMetricEl.value;
+
       const rows = names.map((name) => {
         const rates = scenarios[name].event_rates || {};
         const sc = Number((rates.safety_car_race_rate || 0) * 100);
         const rf = Number((rates.red_flag_race_rate || 0) * 100);
         const incidents = Number(rates.avg_incidents || 0);
 
-        const safeSc = Math.max(0, Math.min(100, sc));
-        const label =
-          `${name} · SC ${sc.toFixed(1)}% · ` +
-          `RF ${rf.toFixed(1)}% · Inc ${incidents.toFixed(2)}`;
+        let value = sc;
+        let label = `${name} · SC ${sc.toFixed(1)}%`;
+        let maxValue = 100;
+        if (metric === 'rf') {
+          value = rf;
+          label = `${name} · RF ${rf.toFixed(1)}%`;
+        } else if (metric === 'inc') {
+          value = incidents;
+          maxValue = 5;
+          label = `${name} · Inc ${incidents.toFixed(2)}`;
+        }
+
+        const safePct = Math.max(0, Math.min(100, (value / maxValue) * 100));
         return `
           <div class="chart-row">
             <div class="chart-label">${label}</div>
             <div class="bar-track">
-              <div class="bar-fill" style="width:${safeSc}%"></div>
+              <div class="bar-fill" style="width:${safePct}%"></div>
             </div>
           </div>
         `;
@@ -596,6 +615,11 @@ def build_dashboard_html() -> str:
     matrixDriverFilterEl.addEventListener('input', () => {
       if (latestScenarioData) {
         renderDriverMatrix(latestScenarioData);
+      }
+    });
+    trendMetricEl.addEventListener('change', () => {
+      if (latestScenarioData) {
+        renderScenarioTrends(latestScenarioData);
       }
     });
 
