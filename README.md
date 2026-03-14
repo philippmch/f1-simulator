@@ -51,6 +51,7 @@ python examples/simulate_race.py --race Silverstone --simulations 300 --scenario
 python -m f1sim.web.dashboard
 # open http://127.0.0.1:8080 in browser and run scenarios
 # API also exposes /api/runs for recent exported run history
+# dashboard shows clickable links to /output artifacts (report/stats/csv)
 ```
 
 When exporting, `statistics.json` includes run metadata (`seed`, `parallel`, `max_workers`), team championship projection, top-3/top-10 finish probabilities, and per-driver position percentiles (P10/P50/P90) for richer race analysis.

@@ -158,6 +158,11 @@ def build_dashboard_html() -> str:
       border-radius: 10px;
       overflow: auto;
     }
+    .runs-list { border: 1px solid #2a3156; border-radius: 10px; overflow: hidden; }
+    .run-item { padding: 10px 12px; border-bottom: 1px solid #2a3156; }
+    .run-item:last-child { border-bottom: 0; }
+    .run-meta { color: #b6c0ff; font-size: 12px; }
+    a { color: #7aa2ff; text-decoration: none; }
   </style>
 </head>
 <body>
@@ -173,17 +178,48 @@ def build_dashboard_html() -> str:
     <h2>Result</h2>
     <pre id=\"result\">{\"status\": \"idle\"}</pre>
     <h2>Recent Runs</h2>
-    <pre id=\"runs\">[]</pre>
+    <div id=\"runs\">No runs yet</div>
   </div>
 
   <script>
     const runsEl = document.getElementById('runs');
     const resultEl = document.getElementById('result');
+    function renderRunItem(run) {
+      const files = run.files || {};
+      const links = [];
+      if (files.report_html) {
+        links.push(`<a href="/output/${files.report_html}" target="_blank">report</a>`);
+      }
+      if (files.statistics_json) {
+        links.push(`<a href="/output/${files.statistics_json}" target="_blank">stats</a>`);
+      }
+      if (files.race_csv) {
+        links.push(`<a href="/output/${files.race_csv}" target="_blank">race csv</a>`);
+      }
+      const linkHtml = links.length ? links.join(' · ') : '-';
+      const summary =
+        `<strong>${run.track || '-'} </strong> · ` +
+        `sims=${run.num_simulations ?? '-'} · seed=${run.seed ?? '-'}`;
+
+      return `
+        <div class="run-item">
+          <div>${summary}</div>
+          <div class="run-meta">${run.timestamp || '-'} · ${run.prefix || ''}</div>
+          <div>${linkHtml}</div>
+        </div>
+      `;
+    }
+
     async function refreshRuns() {
       try {
         const res = await fetch('/api/runs');
         const data = await res.json();
-        runsEl.textContent = JSON.stringify(data, null, 2);
+        const runs = data.runs || [];
+        if (!runs.length) {
+          runsEl.textContent = 'No runs yet';
+          return;
+        }
+        runsEl.innerHTML = `<div class="runs-list">${runs.map(renderRunItem).join('')}</div>`;
       } catch (err) {
         runsEl.textContent = JSON.stringify({ status: 'error', detail: String(err) }, null, 2);
       }
@@ -228,11 +264,14 @@ def build_fastapi_app() -> Any:
     try:
         from fastapi import FastAPI, HTTPException
         from fastapi.responses import HTMLResponse
+        from fastapi.staticfiles import StaticFiles
     except Exception as exc:  # pragma: no cover
         msg = "FastAPI is not installed. Install with: pip install -e '.[web]'"
         raise RuntimeError(msg) from exc
 
     app = FastAPI(title="F1Sim Dashboard", version="0.1")
+    Path("output").mkdir(parents=True, exist_ok=True)
+    app.mount("/output", StaticFiles(directory="output"), name="output")
 
     @app.get("/", response_class=HTMLResponse)
     def home() -> str:
