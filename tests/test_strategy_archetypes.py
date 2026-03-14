@@ -39,12 +39,39 @@ def test_plan_pit_laps_by_strategy_archetype() -> None:
     sim = RaceSimulator(rng=np.random.default_rng(9))
     track = _track()
 
-    aggr = sim._plan_pit_laps(TeamStrategyArchetype.AGGRESSIVE, track)
-    bal = sim._plan_pit_laps(TeamStrategyArchetype.BALANCED, track)
-    cons = sim._plan_pit_laps(TeamStrategyArchetype.CONSERVATIVE, track)
+    aggr = sim._plan_pit_lap_options(TeamStrategyArchetype.AGGRESSIVE, track)[0]
+    bal = sim._plan_pit_lap_options(TeamStrategyArchetype.BALANCED, track)[0]
+    cons = sim._plan_pit_lap_options(TeamStrategyArchetype.CONSERVATIVE, track)[0]
 
     assert len(aggr) >= len(bal) >= len(cons)
     assert aggr[0] < bal[0] < cons[0]
+
+
+def test_plan_options_include_fallback_plan() -> None:
+    sim = RaceSimulator(rng=np.random.default_rng(10))
+    track = _track()
+
+    options = sim._plan_pit_lap_options(TeamStrategyArchetype.BALANCED, track)
+    assert len(options) >= 2
+    assert options[0] != options[1]
+
+
+def test_select_active_plan_prefers_fallback_in_wet() -> None:
+    sim = RaceSimulator(rng=np.random.default_rng(8))
+    track = _track()
+    weather = Weather(condition=WeatherCondition.LIGHT_RAIN, track_wetness=0.4, rain_intensity=0.5)
+
+    state = DriverRaceState(
+        driver=Driver(id="DRV", name="DRV", team_id="x"),
+        car=Car(team_id="x", team_name="X", reliability=0.95),
+        position=4,
+        strategy_archetype=TeamStrategyArchetype.BALANCED,
+        pit_plan_options=sim._plan_pit_lap_options(TeamStrategyArchetype.BALANCED, track),
+    )
+
+    plan = sim._select_active_pit_plan(state, weather, lap=20, gap_ahead=1.0)
+    assert state.active_pit_plan_index == 1
+    assert plan == state.pit_plan_options[1]
 
 
 def test_conservative_strategy_uses_higher_max_stops_in_wet() -> None:
