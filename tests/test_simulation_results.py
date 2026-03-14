@@ -1,3 +1,5 @@
+import pytest
+
 from f1sim.analysis.montecarlo import DriverStatistics, SimulationResults
 
 
@@ -138,3 +140,44 @@ def test_team_championship_projection_aggregates_teammates() -> None:
     assert list(projection.keys()) == ["Red Bull", "McLaren"]
     assert projection["Red Bull"] == 43.0
     assert projection["McLaren"] == 22.0
+
+
+def test_top_n_finish_probabilities() -> None:
+    stats = {
+        "VER": DriverStatistics(
+            driver_id="VER",
+            driver_name="VER",
+            team="Red Bull",
+            positions=[1, 2, 11, 12],
+        ),
+        "NOR": DriverStatistics(
+            driver_id="NOR",
+            driver_name="NOR",
+            team="McLaren",
+            positions=[3, 4, 5, 6],
+        ),
+    }
+    results = SimulationResults(
+        num_simulations=4,
+        track_name="Bahrain",
+        driver_stats=stats,
+        race_results=[],
+        qualifying_results=[],
+    )
+
+    top_10 = results.get_top_n_finish_probabilities(10)
+    assert top_10["NOR"] == 100.0
+    assert top_10["VER"] == 50.0
+
+
+def test_top_n_finish_probabilities_rejects_invalid_n() -> None:
+    results = SimulationResults(
+        num_simulations=1,
+        track_name="Bahrain",
+        driver_stats={},
+        race_results=[],
+        qualifying_results=[],
+    )
+
+    with pytest.raises(ValueError, match="n must be greater than 0"):
+        results.get_top_n_finish_probabilities(0)
