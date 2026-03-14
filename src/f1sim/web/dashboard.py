@@ -36,6 +36,7 @@ def _summarize_scenario_results(results_by_name: dict[str, Any]) -> dict[str, An
             "num_simulations": results.num_simulations,
             "seed": results.seed,
             "top3_win_probabilities": top_3,
+            "win_probabilities": list(win_probs.items()),
             "event_rates": results.get_event_rates(),
             "team_projection": results.get_team_championship_projection(),
         }
@@ -309,6 +310,7 @@ def build_dashboard_html() -> str:
         if (typeof prefs.matrixScenarioFilter === 'string') {
           matrixScenarioFilterEl.value = prefs.matrixScenarioFilter;
         }
+        if (prefs.topN) topNSelectorEl.value = prefs.topN;
       } catch {
         // ignore malformed prefs
       }
@@ -361,14 +363,17 @@ def build_dashboard_html() -> str:
         return;
       }
 
-      // Use first scenario's top-3 drivers as chart focus for quick visual compare.
+      // Use first scenario's top-N drivers as chart focus for quick visual compare.
+      const topN = Number(topNSelectorEl.value || '3');
       const seedScenario = scenarios[names[0]] || {};
-      const focusDrivers = (seedScenario.top3_win_probabilities || []).map(([d]) => d);
+      const focusDrivers = (seedScenario.win_probabilities || [])
+        .slice(0, topN)
+        .map(([d]) => d);
 
       const rows = focusDrivers.map((driver) => {
         const bars = names
           .map((name) => {
-            const top = scenarios[name].top3_win_probabilities || [];
+            const top = scenarios[name].win_probabilities || [];
             const item = top.find(([d]) => d === driver);
             const pct = item ? Number(item[1]) : 0;
             const safePct = Math.max(0, Math.min(100, pct));
@@ -459,9 +464,10 @@ def build_dashboard_html() -> str:
         return;
       }
 
+      const topN = Number(topNSelectorEl.value || '3');
       const drivers = new Set();
       names.forEach((name) => {
-        const top = scenarios[name].top3_win_probabilities || [];
+        const top = (scenarios[name].win_probabilities || []).slice(0, topN);
         top.forEach(([driver]) => drivers.add(driver));
       });
 
@@ -470,7 +476,7 @@ def build_dashboard_html() -> str:
         .filter((driver) => !filterText || driver.toLowerCase().includes(filterText))
         .map((driver) => {
           const values = names.map((name) => {
-            const top = scenarios[name].top3_win_probabilities || [];
+            const top = scenarios[name].win_probabilities || [];
             const item = top.find(([d]) => d === driver);
             return item ? Number(item[1]) : 0;
           });
@@ -535,9 +541,10 @@ def build_dashboard_html() -> str:
         return;
       }
 
+      const topN = Number(topNSelectorEl.value || '3');
       const drivers = new Set();
       names.forEach((name) => {
-        const top = scenarios[name].top3_win_probabilities || [];
+        const top = (scenarios[name].win_probabilities || []).slice(0, topN);
         top.forEach(([driver]) => drivers.add(driver));
       });
 
@@ -549,7 +556,7 @@ def build_dashboard_html() -> str:
       const header = ['driver', ...names].join(',');
       const rows = driverRows.map((driver) => {
         const values = names.map((name) => {
-          const top = scenarios[name].top3_win_probabilities || [];
+          const top = scenarios[name].win_probabilities || [];
           const item = top.find(([d]) => d === driver);
           const pct = item ? Number(item[1]).toFixed(1) : '0.0';
           return pct;
@@ -756,6 +763,13 @@ def build_dashboard_html() -> str:
       saveUiPrefs();
       if (latestScenarioData) {
         renderScenarioTrends(latestScenarioData);
+      }
+    });
+    topNSelectorEl.addEventListener('change', () => {
+      saveUiPrefs();
+      if (latestScenarioData) {
+        renderWinChart(latestScenarioData);
+        renderDriverMatrix(latestScenarioData);
       }
     });
 
