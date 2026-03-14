@@ -89,7 +89,7 @@ Working simulation with:
 - Realism-aware event model: lap-progression reliability, component-level failure risk, heat stress, weather/consistency incident scaling, plus mechanical-failure calibration metrics and tuning suggestions
 - Calibrated safety controls: SC/VSC probabilities scale with track risk, incidents, weather, and race phase
 - Tire crossover realism: dynamic slick/inter/wet mismatch thresholds for changing conditions
-- Team strategy archetypes with multi-plan pit strategies, stint-compound optimization, dynamic switching, and tunable strategy thresholds
+- Team strategy archetypes with multi-plan pit strategies, stint-compound optimization, dynamic switching, tunable strategy thresholds, and configurable strategy profiles
 - Strategy-aware pit logic: free-stop detection under SC/VSC, undercut/overcut bias, and late-race soft-tire sprinting
 
 ## Requirements
