@@ -230,6 +230,7 @@ def build_dashboard_html() -> str:
         <option value=\"monaco_chaos\">Monaco chaos</option>
       </select>
     </label>
+    <div id=\"exampleSummary\" class=\"run-meta\">Pick a preset to preview what it configures.</div>
     <button id=\"applyExampleBtn\" type=\"button\">Load Example</button>
     <button id=\"runExampleBtn\" type=\"button\">Run Example Now</button>
     <button id=\"runBtn\">Run Simulation</button>
@@ -310,6 +311,7 @@ def build_dashboard_html() -> str:
     const rerunBtn = document.getElementById('rerunBtn');
     const clearBtn = document.getElementById('clearBtn');
     const exampleConfigEl = document.getElementById('exampleConfig');
+    const exampleSummaryEl = document.getElementById('exampleSummary');
     const applyExampleBtn = document.getElementById('applyExampleBtn');
     const runExampleBtn = document.getElementById('runExampleBtn');
     const downloadResultBtn = document.getElementById('downloadResultBtn');
@@ -729,6 +731,18 @@ def build_dashboard_html() -> str:
         seed: 99,
       },
     };
+    const EXAMPLE_DESCRIPTIONS = {
+      bahrain_baseline: 'Stable dry-vs-cloudy baseline for quick performance comparison.',
+      silverstone_mixed: 'Faster track with mixed weather scenarios to compare volatility.',
+      monaco_chaos: 'Tight street circuit with chaotic wet scenarios and higher disruption risk.',
+    };
+
+    function updateExampleSummary() {
+      const key = exampleConfigEl.value;
+      exampleSummaryEl.textContent = key
+        ? EXAMPLE_DESCRIPTIONS[key] || 'Preset ready.'
+        : 'Pick a preset to preview what it configures.';
+    }
 
     function readPayloadFromInputs() {
       return {
@@ -812,6 +826,17 @@ def build_dashboard_html() -> str:
       return { key, preset };
     }
 
+    exampleConfigEl.addEventListener('change', () => {
+      updateExampleSummary();
+      const loaded = loadSelectedExample();
+      if (!loaded) return;
+      resultEl.textContent = JSON.stringify(
+        { status: 'example loaded', preset: loaded.key },
+        null,
+        2
+      );
+    });
+
     applyExampleBtn.addEventListener('click', () => {
       const loaded = loadSelectedExample();
       if (!loaded) return;
@@ -893,6 +918,7 @@ def build_dashboard_html() -> str:
       writePayloadToInputs(JSON.parse(saved));
     }
 
+    updateExampleSummary();
     refreshRuns();
   </script>
 </body>
