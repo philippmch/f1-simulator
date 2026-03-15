@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -26,12 +27,17 @@ class DashboardRunRequest:
     max_workers: int | None = None
 
 
-def _summarize_scenario_results(results_by_name: dict[str, Any]) -> dict[str, Any]:
+def _summarize_scenario_results(
+    results_by_name: dict[str, Any],
+    scenario_meta: dict[str, dict[str, float]] | None = None,
+) -> dict[str, Any]:
     """Build compact summary payload for UI responses."""
     summary: dict[str, Any] = {"scenarios": {}}
+    scenario_meta = scenario_meta or {}
     for scenario_name, results in results_by_name.items():
         win_probs = results.get_win_probabilities()
         top_3 = list(win_probs.items())[:3]
+        meta = scenario_meta.get(scenario_name, {})
         summary["scenarios"][scenario_name] = {
             "num_simulations": results.num_simulations,
             "seed": results.seed,
@@ -39,6 +45,8 @@ def _summarize_scenario_results(results_by_name: dict[str, Any]) -> dict[str, An
             "win_probabilities": list(win_probs.items()),
             "event_rates": results.get_event_rates(),
             "team_projection": results.get_team_championship_projection(),
+            "runtime_seconds": meta.get("runtime_seconds"),
+            "simulations_per_second": meta.get("simulations_per_second"),
         }
 
     return summary
@@ -84,6 +92,7 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
 
     labels = parse_scenario_labels(request.scenarios)
     scenario_results = {}
+    scenario_meta: dict[str, dict[str, float]] = {}
     exporter = Exporter(output_dir="output")
 
     for idx, label in enumerate(labels):
@@ -96,15 +105,21 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
             seed=request.seed + idx * 1000,
             historical_grid=historical_grid,
         )
+        t0 = time.perf_counter()
         result = runner.run(
             num_simulations=request.simulations,
             parallel=request.parallel,
             max_workers=request.max_workers,
         )
+        runtime = max(time.perf_counter() - t0, 1e-9)
         scenario_results[scenario.name] = result
+        scenario_meta[scenario.name] = {
+            "runtime_seconds": float(runtime),
+            "simulations_per_second": float(request.simulations / runtime),
+        }
         exporter.export_all(result, prefix=f"{request.year}_{track.id}_{scenario.name}")
 
-    payload = _summarize_scenario_results(scenario_results)
+    payload = _summarize_scenario_results(scenario_results, scenario_meta=scenario_meta)
     payload["track"] = track.name
     payload["year"] = request.year
     payload["race"] = request.race
@@ -352,6 +367,8 @@ def build_dashboard_html() -> str:
         const teams = s.team_projection || {};
         const topTeam = Object.keys(teams)[0];
         const topTeamPts = topTeam ? Number(teams[topTeam]).toFixed(2) : '-';
+        const runtime = Number(s.runtime_seconds || 0).toFixed(2);
+        const simsPerSec = Number(s.simulations_per_second || 0).toFixed(1);
         return `
           <div class="scenario-card">
             <div class="scenario-title">${name}</div>
@@ -364,6 +381,10 @@ def build_dashboard_html() -> str:
             <div style="margin-top:6px">
               <strong>Top team</strong><br/>
               ${topTeam || '-'} (${topTeamPts} pts/race)
+            </div>
+            <div style="margin-top:6px">
+              <strong>Runtime</strong><br/>
+              ${runtime}s (${simsPerSec} sims/s)
             </div>
           </div>
         `;
