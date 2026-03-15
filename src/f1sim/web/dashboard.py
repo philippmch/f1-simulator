@@ -233,6 +233,7 @@ def build_dashboard_html() -> str:
     <button id=\"applyExampleBtn\" type=\"button\">Load Example</button>
     <button id=\"runExampleBtn\" type=\"button\">Run Example Now</button>
     <button id=\"runBtn\">Run Simulation</button>
+    <button id=\"downloadResultBtn\" type=\"button\">Download Result JSON</button>
     <button id=\"rerunBtn\" type=\"button\">Re-run Last Config</button>
     <button id=\"clearBtn\" type=\"button\">Clear Saved Config</button>
     <div id=\"quickActions\" style=\"margin-top:10px;\"></div>
@@ -311,6 +312,7 @@ def build_dashboard_html() -> str:
     const exampleConfigEl = document.getElementById('exampleConfig');
     const applyExampleBtn = document.getElementById('applyExampleBtn');
     const runExampleBtn = document.getElementById('runExampleBtn');
+    const downloadResultBtn = document.getElementById('downloadResultBtn');
     const runsFilterInput = document.getElementById('runsFilter');
     let latestScenarioData = null;
     const PREFS_KEY = 'f1sim:uiPrefs';
@@ -561,6 +563,18 @@ def build_dashboard_html() -> str:
           </table>
         </div>
       `;
+    }
+
+    function downloadResultJson(data) {
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'dashboard_result.json';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
     }
 
     function exportMatrixCsv(data) {
@@ -845,6 +859,11 @@ def build_dashboard_html() -> str:
     matrixExportBtn.addEventListener('click', () => {
       if (latestScenarioData) {
         exportMatrixCsv(latestScenarioData);
+      }
+    });
+    downloadResultBtn.addEventListener('click', () => {
+      if (latestScenarioData) {
+        downloadResultJson(latestScenarioData);
       }
     });
     trendMetricEl.addEventListener('change', () => {

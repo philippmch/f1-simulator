@@ -57,6 +57,8 @@ def test_dashboard_html_contains_controls() -> None:
     assert "exampleConfig" in html
     assert "applyExampleBtn" in html
     assert "runExampleBtn" in html
+    assert "downloadResultBtn" in html
+    assert "downloadResultJson" in html
     assert "loadSelectedExample" in html
     assert "EXAMPLE_CONFIGS" in html
     assert "renderQuickActions" in html
