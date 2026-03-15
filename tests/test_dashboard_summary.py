@@ -27,6 +27,9 @@ def test_dashboard_summary_shape() -> None:
     assert set(summary["scenarios"].keys()) == {"dry", "heavy_rain"}
     assert summary["scenarios"]["dry"]["seed"] == 42
     assert summary["scenarios"]["dry"]["top3_win_probabilities"][0][0] == "VER"
+    assert "win_probabilities" in summary["scenarios"]["dry"]
+    assert "runtime_seconds" in summary["scenarios"]["dry"]
+    assert "simulations_per_second" in summary["scenarios"]["dry"]
 
 
 def test_dashboard_html_contains_controls() -> None:
