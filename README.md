@@ -67,6 +67,21 @@ SAI                    8.0% ####
 ...
 ```
 
+## Web Frontend
+
+A standalone browser-based UI is included in `frontend/index.html`. Open it directly or serve it locally:
+
+```bash
+python3 -m http.server 8080 -d frontend
+# open http://localhost:8080
+```
+
+Features:
+- Circuit and weather selection with configurable simulation count
+- Race results timing tower (positions, gaps, tire strategy, pit stops, DNFs)
+- Qualifying results with Q1/Q2/Q3 elimination rounds
+- Monte Carlo statistics: win probabilities, podium rates, average points, DNF rates, and position distribution heatmap
+
 ## Project Structure
 
 ```
@@ -76,6 +91,8 @@ src/f1sim/
 ├── analysis/        # Monte Carlo runner
 ├── data/            # FastF1 data loader with weighted stats
 └── output/          # Console and file exporters
+frontend/
+└── index.html       # Browser-based simulation UI
 ```
 
 ## Current Status
