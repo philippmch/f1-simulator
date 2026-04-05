@@ -24,9 +24,9 @@ def create_2024_grid() -> tuple[list[Driver], dict[str, Car]]:
 
     # Define teams with car performance
     teams_data = [
-        ("red_bull", "Red Bull Racing", 1.00, 0.97),
-        ("ferrari", "Scuderia Ferrari", 0.96, 0.95),
-        ("mclaren", "McLaren F1 Team", 0.95, 0.94),
+        ("mclaren", "McLaren F1 Team", 1.00, 0.95),
+        ("ferrari", "Scuderia Ferrari", 0.97, 0.95),
+        ("red_bull", "Red Bull Racing", 0.96, 0.96),
         ("mercedes", "Mercedes-AMG F1", 0.94, 0.96),
         ("aston_martin", "Aston Martin", 0.88, 0.94),
         ("alpine", "Alpine F1 Team", 0.84, 0.93),
@@ -38,13 +38,13 @@ def create_2024_grid() -> tuple[list[Driver], dict[str, Car]]:
 
     # Define drivers with skills
     drivers_data = [
-        ("VER", "Max Verstappen", "red_bull", 0.98, 0.96, 1.05),
+        ("NOR", "Lando Norris", "mclaren", 0.97, 0.93, 1.02),
+        ("PIA", "Oscar Piastri", "mclaren", 0.93, 0.91, 0.97),
+        ("VER", "Max Verstappen", "red_bull", 0.95, 0.95, 1.05),
         ("PER", "Sergio Perez", "red_bull", 0.88, 0.85, 0.95),
-        ("LEC", "Charles Leclerc", "ferrari", 0.94, 0.88, 1.00),
+        ("LEC", "Charles Leclerc", "ferrari", 0.94, 0.91, 1.00),
         ("SAI", "Carlos Sainz", "ferrari", 0.91, 0.92, 0.98),
-        ("NOR", "Lando Norris", "mclaren", 0.93, 0.90, 1.02),
-        ("PIA", "Oscar Piastri", "mclaren", 0.89, 0.91, 0.97),
-        ("HAM", "Lewis Hamilton", "mercedes", 0.95, 0.94, 1.08),
+        ("HAM", "Lewis Hamilton", "mercedes", 0.92, 0.93, 1.08),
         ("RUS", "George Russell", "mercedes", 0.91, 0.89, 1.00),
         ("ALO", "Fernando Alonso", "aston_martin", 0.92, 0.95, 1.05),
         ("STR", "Lance Stroll", "aston_martin", 0.82, 0.80, 0.92),

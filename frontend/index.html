@@ -212,6 +212,48 @@ select option { background: var(--bg-card); color: var(--text-primary); }
   100% { transform: translateX(100%); }
 }
 
+/* ── Data source badge ── */
+.data-source-badge {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.data-source-badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #666;
+  flex-shrink: 0;
+}
+
+.data-source-badge.live::before {
+  background: #22c55e;
+  box-shadow: 0 0 6px #22c55e88;
+}
+
+.data-source-badge.loading::before {
+  background: #f59e0b;
+  box-shadow: 0 0 6px #f59e0b88;
+  animation: pulse-dot 1s infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
 /* ── Tabs ── */
 .tabs-container {
   padding: 0 2.5rem;
@@ -779,6 +821,14 @@ select option { background: var(--bg-card); color: var(--text-primary); }
     </div>
     <div class="controls">
       <div class="control-group">
+        <label class="control-label">Season</label>
+        <select id="yearSelect">
+          <option value="2023">2023</option>
+          <option value="2024">2024</option>
+          <option value="2025" selected>2025</option>
+        </select>
+      </div>
+      <div class="control-group">
         <label class="control-label">Circuit</label>
         <select id="trackSelect"></select>
       </div>
@@ -796,6 +846,7 @@ select option { background: var(--bg-card); color: var(--text-primary); }
         <input type="number" id="simCount" value="100" min="10" max="1000" step="10">
       </div>
       <button class="btn-simulate" id="btnRun" onclick="runSimulation()">Run Simulation</button>
+      <span class="data-source-badge" id="dataSourceBadge" title="Where driver/car ratings come from">Hardcoded ratings</span>
     </div>
   </header>
 
@@ -863,12 +914,12 @@ const TEAMS = {
 };
 
 const DRIVERS = [
-  { id: 'VER', name: 'Max Verstappen',    team: 'red_bull',     skill: 0.97, consistency: 0.96 },
+  { id: 'VER', name: 'Max Verstappen',    team: 'red_bull',     skill: 0.95, consistency: 0.95 },
   { id: 'LAW', name: 'Liam Lawson',       team: 'red_bull',     skill: 0.82, consistency: 0.85 },
   { id: 'LEC', name: 'Charles Leclerc',   team: 'ferrari',      skill: 0.94, consistency: 0.91 },
-  { id: 'HAM', name: 'Lewis Hamilton',    team: 'ferrari',      skill: 0.93, consistency: 0.93 },
-  { id: 'NOR', name: 'Lando Norris',      team: 'mclaren',      skill: 0.93, consistency: 0.90 },
-  { id: 'PIA', name: 'Oscar Piastri',     team: 'mclaren',      skill: 0.90, consistency: 0.89 },
+  { id: 'HAM', name: 'Lewis Hamilton',    team: 'ferrari',      skill: 0.92, consistency: 0.93 },
+  { id: 'NOR', name: 'Lando Norris',      team: 'mclaren',      skill: 0.97, consistency: 0.93 },
+  { id: 'PIA', name: 'Oscar Piastri',     team: 'mclaren',      skill: 0.93, consistency: 0.91 },
   { id: 'RUS', name: 'George Russell',    team: 'mercedes',     skill: 0.91, consistency: 0.90 },
   { id: 'ANT', name: 'Kimi Antonelli',    team: 'mercedes',     skill: 0.84, consistency: 0.82 },
   { id: 'ALO', name: 'Fernando Alonso',   team: 'aston_martin', skill: 0.89, consistency: 0.93 },
@@ -886,7 +937,7 @@ const DRIVERS = [
 ];
 
 const CAR_PACE = {
-  red_bull: 0.96, ferrari: 0.95, mclaren: 0.95, mercedes: 0.92,
+  mclaren: 0.97, ferrari: 0.95, red_bull: 0.94, mercedes: 0.92,
   aston_martin: 0.87, alpine: 0.83, williams: 0.84, rb: 0.84,
   sauber: 0.80, haas: 0.82,
 };
@@ -913,6 +964,109 @@ const TRACKS = [
 
 const TIRE_COMPOUNDS = ['soft', 'medium', 'hard', 'inter', 'wet'];
 const TIRE_LABELS = { soft: 'S', medium: 'M', hard: 'H', inter: 'I', wet: 'W' };
+
+// ═══════════════════════════════════════════
+//  BACKEND INTEGRATION (FastF1 real ratings)
+// ═══════════════════════════════════════════
+
+const BACKEND_URL = 'http://127.0.0.1:8080';
+
+// Map frontend track IDs to FastF1 race names
+const TRACK_TO_RACE = {
+  bahrain:     'Bahrain',
+  jeddah:      'Saudi Arabia',
+  melbourne:   'Australia',
+  suzuka:      'Japan',
+  shanghai:    'China',
+  miami:       'Miami',
+  imola:       'Emilia Romagna',
+  monaco:      'Monaco',
+  barcelona:   'Spain',
+  montreal:    'Canada',
+  silverstone: 'Great Britain',
+  spa:         'Belgium',
+  monza:       'Monza',
+  singapore:   'Singapore',
+  cota:        'United States',
+  interlagos:  'Brazil',
+  yas_marina:  'Abu Dhabi',
+};
+
+// Store original hardcoded values so we can restore on fallback
+const DEFAULT_DRIVERS = DRIVERS.map(d => ({ ...d }));
+const DEFAULT_CAR_PACE = { ...CAR_PACE };
+
+let ratingsSource = 'hardcoded';
+
+function updateBadge(state, text) {
+  const badge = document.getElementById('dataSourceBadge');
+  if (!badge) return;
+  badge.className = 'data-source-badge' + (state ? ` ${state}` : '');
+  badge.textContent = text || badge.textContent;
+}
+
+function applyFetchedRatings(data) {
+  // Update driver stats in place
+  data.drivers.forEach(fd => {
+    const local = DRIVERS.find(d => d.id === fd.id);
+    if (local) {
+      local.skill = fd.skill;
+      local.consistency = fd.consistency;
+      local.wet_skill = fd.wet_skill;
+    }
+  });
+  // Update car pace in place
+  Object.entries(data.car_pace).forEach(([team, pace]) => {
+    if (team in CAR_PACE) {
+      CAR_PACE[team] = pace;
+    }
+  });
+  ratingsSource = 'fastf1';
+  updateBadge('live', `FastF1 ${data.year} ${data.race}`);
+}
+
+function restoreDefaults() {
+  DEFAULT_DRIVERS.forEach(dd => {
+    const d = DRIVERS.find(dr => dr.id === dd.id);
+    if (d) { d.skill = dd.skill; d.consistency = dd.consistency; delete d.wet_skill; }
+  });
+  Object.assign(CAR_PACE, DEFAULT_CAR_PACE);
+  ratingsSource = 'hardcoded';
+  updateBadge('', 'Hardcoded ratings');
+}
+
+async function fetchRatings(trackId, year) {
+  const raceName = TRACK_TO_RACE[trackId];
+  if (!raceName) {
+    console.warn(`No race mapping for track: ${trackId}`);
+    restoreDefaults();
+    return false;
+  }
+
+  updateBadge('loading', `Loading ${year} ${raceName}...`);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const url = `${BACKEND_URL}/api/ratings?year=${year}&race=${encodeURIComponent(raceName)}`;
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (!res.ok) {
+      const detail = await res.text().catch(() => res.statusText);
+      throw new Error(`HTTP ${res.status}: ${detail}`);
+    }
+    const data = await res.json();
+    applyFetchedRatings(data);
+    console.log(`Loaded FastF1 ratings: ${data.drivers.length} drivers, ${Object.keys(data.car_pace).length} teams`);
+    return true;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    console.warn('Backend ratings unavailable, using hardcoded values:', err.message);
+    restoreDefaults();
+    return false;
+  }
+}
 
 // ═══════════════════════════════════════════
 //  STATE
@@ -1102,15 +1256,25 @@ async function runSimulation() {
   const trackId = document.getElementById('trackSelect').value;
   const weather = document.getElementById('weatherSelect').value;
   const n = parseInt(document.getElementById('simCount').value) || 100;
+  const year = parseInt(document.getElementById('yearSelect').value) || 2025;
   const track = TRACKS.find(t => t.id === trackId);
 
   const btn = document.getElementById('btnRun');
   const overlay = document.getElementById('simOverlay');
   btn.classList.add('running');
-  btn.textContent = 'Running...';
   overlay.classList.add('active');
 
+  // Fetch real ratings from backend (falls back to hardcoded silently)
+  const simText = document.querySelector('.sim-text');
+  simText.textContent = 'Fetching FastF1 ratings...';
+  document.getElementById('simProgress').textContent = '';
+  btn.textContent = 'Loading data...';
+
+  await fetchRatings(trackId, year);
+
   // Animate progress
+  simText.textContent = 'Running simulations';
+  btn.textContent = 'Running...';
   const progress = document.getElementById('simProgress');
   let shown = 0;
 
