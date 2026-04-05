@@ -1220,6 +1220,13 @@ select option { background: var(--bg-card); color: var(--text-primary); }
         <input type="number" id="seedInput" value="42" min="0" step="1">
       </div>
       <div class="control-group">
+        <label class="control-label">Qualifying</label>
+        <select id="qualifyingModeSelect">
+          <option value="historical" selected>Historical Grid</option>
+          <option value="simulated">Simulate Again</option>
+        </select>
+      </div>
+      <div class="control-group">
         <label class="control-label">Execution</label>
         <select id="parallelSelect">
           <option value="true" selected>Parallel</option>
@@ -1354,45 +1361,25 @@ const TEAM_KEY_NORMALIZE = {
   moneygram_haas_f1_team: 'haas',
 };
 
-const TRACKS = [
-  { id: 'bahrain', name: 'Bahrain Grand Prix' },
-  { id: 'jeddah', name: 'Saudi Arabian Grand Prix' },
-  { id: 'melbourne', name: 'Australian Grand Prix' },
-  { id: 'suzuka', name: 'Japanese Grand Prix' },
-  { id: 'shanghai', name: 'Chinese Grand Prix' },
-  { id: 'miami', name: 'Miami Grand Prix' },
-  { id: 'imola', name: 'Emilia Romagna Grand Prix' },
-  { id: 'monaco', name: 'Monaco Grand Prix' },
-  { id: 'barcelona', name: 'Spanish Grand Prix' },
-  { id: 'montreal', name: 'Canadian Grand Prix' },
-  { id: 'silverstone', name: 'British Grand Prix' },
-  { id: 'spa', name: 'Belgian Grand Prix' },
-  { id: 'monza', name: 'Italian Grand Prix' },
-  { id: 'singapore', name: 'Singapore Grand Prix' },
-  { id: 'cota', name: 'US Grand Prix' },
-  { id: 'interlagos', name: 'Brazilian Grand Prix' },
-  { id: 'yas_marina', name: 'Abu Dhabi Grand Prix' },
+const FALLBACK_EVENTS = [
+  { race: 'Bahrain Grand Prix', label: 'Bahrain Grand Prix' },
+  { race: 'Saudi Arabian Grand Prix', label: 'Saudi Arabian Grand Prix' },
+  { race: 'Australian Grand Prix', label: 'Australian Grand Prix' },
+  { race: 'Japanese Grand Prix', label: 'Japanese Grand Prix' },
+  { race: 'Chinese Grand Prix', label: 'Chinese Grand Prix' },
+  { race: 'Miami Grand Prix', label: 'Miami Grand Prix' },
+  { race: 'Emilia Romagna Grand Prix', label: 'Emilia Romagna Grand Prix' },
+  { race: 'Monaco Grand Prix', label: 'Monaco Grand Prix' },
+  { race: 'Spanish Grand Prix', label: 'Spanish Grand Prix' },
+  { race: 'Canadian Grand Prix', label: 'Canadian Grand Prix' },
+  { race: 'British Grand Prix', label: 'British Grand Prix' },
+  { race: 'Belgian Grand Prix', label: 'Belgian Grand Prix' },
+  { race: 'Italian Grand Prix', label: 'Italian Grand Prix' },
+  { race: 'Singapore Grand Prix', label: 'Singapore Grand Prix' },
+  { race: 'United States Grand Prix', label: 'United States Grand Prix' },
+  { race: 'Brazilian Grand Prix', label: 'Brazilian Grand Prix' },
+  { race: 'Abu Dhabi Grand Prix', label: 'Abu Dhabi Grand Prix' },
 ];
-
-const TRACK_TO_RACE = {
-  bahrain: 'Bahrain',
-  jeddah: 'Saudi Arabia',
-  melbourne: 'Australia',
-  suzuka: 'Japan',
-  shanghai: 'China',
-  miami: 'Miami',
-  imola: 'Emilia Romagna',
-  monaco: 'Monaco',
-  barcelona: 'Spain',
-  montreal: 'Canada',
-  silverstone: 'Great Britain',
-  spa: 'Belgium',
-  monza: 'Monza',
-  singapore: 'Singapore',
-  cota: 'United States',
-  interlagos: 'Brazil',
-  yas_marina: 'Abu Dhabi',
-};
 
 const WEATHER_TO_SCENARIO = {
   DRY: 'dry',
@@ -1516,6 +1503,102 @@ function formatGap(result) {
 
 function artifactUrl(filename) {
   return apiUrl(`/output/${encodeURIComponent(filename)}`);
+}
+
+function normalizeCalendarText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function findMatchingEvent(events, preferredRace) {
+  const normalizedPreferred = normalizeCalendarText(preferredRace);
+  if (!normalizedPreferred) return null;
+
+  return events.find(event => {
+    const normalizedRace = normalizeCalendarText(event.race);
+    const normalizedLabel = normalizeCalendarText(event.label || event.race);
+    return (
+      normalizedPreferred === normalizedRace
+      || normalizedPreferred === normalizedLabel
+      || normalizedPreferred.includes(normalizedRace)
+      || normalizedRace.includes(normalizedPreferred)
+      || normalizedPreferred.includes(normalizedLabel)
+      || normalizedLabel.includes(normalizedPreferred)
+    );
+  }) || null;
+}
+
+function populateTrackSelect(events, preferredRace = '') {
+  const selector = document.getElementById('trackSelect');
+  const options = events.length ? events : FALLBACK_EVENTS;
+  const currentValue = preferredRace || selector.value;
+  const matched = findMatchingEvent(options, currentValue);
+
+  selector.innerHTML = '';
+  options.forEach(event => {
+    const option = document.createElement('option');
+    option.value = event.race;
+    option.textContent = event.label || event.race;
+    selector.appendChild(option);
+  });
+
+  if (matched) {
+    selector.value = matched.race;
+  } else if (options[0]) {
+    selector.value = options[0].race;
+  }
+
+  return { matched: Boolean(matched), selectedRace: selector.value };
+}
+
+async function fetchCalendar(year, preferredRace = '') {
+  try {
+    const response = await fetch(apiUrl(`/api/calendar?year=${year}`));
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+
+    const events = (data.events || []).map(event => ({
+      race: event.race,
+      label: `R${event.round} · ${event.race}`,
+    }));
+    return {
+      ok: true,
+      ...populateTrackSelect(events, preferredRace),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      ...populateTrackSelect(FALLBACK_EVENTS, preferredRace),
+      error,
+    };
+  }
+}
+
+function populateYearSelect() {
+  const selector = document.getElementById('yearSelect');
+  const preferredYear = selector.value;
+  const currentYear = Math.min(new Date().getFullYear(), 2030);
+  const endYear = Math.max(2025, currentYear);
+  const years = [];
+
+  for (let year = 2020; year <= endYear; year += 1) {
+    years.push(String(year));
+  }
+
+  selector.innerHTML = '';
+  years.forEach(year => {
+    const option = document.createElement('option');
+    option.value = year;
+    option.textContent = year;
+    selector.appendChild(option);
+  });
+
+  selector.value = years.includes(preferredYear)
+    ? preferredYear
+    : (years.includes('2025') ? '2025' : years[years.length - 1]);
 }
 
 function normalizeScenarioNames(value) {
@@ -1903,6 +1986,7 @@ function saveUiPrefs() {
   const payload = {
     focusScenario: weatherSelectEl.value,
     scenarioSet: getScenarioSetValue(),
+    qualifyingMode: document.getElementById('qualifyingModeSelect').value,
   };
   localStorage.setItem(PREFS_KEY, JSON.stringify(payload));
 }
@@ -1917,6 +2001,9 @@ function loadUiPrefs() {
     }
     if (typeof prefs.scenarioSet === 'string') {
       scenarioSetInput.value = serializeScenarioNames(prefs.scenarioSet);
+    }
+    if (typeof prefs.qualifyingMode === 'string') {
+      document.getElementById('qualifyingModeSelect').value = prefs.qualifyingMode;
     }
   } catch {
     // ignore malformed UI prefs
@@ -1972,15 +2059,16 @@ async function fetchRecentRuns() {
 }
 
 function buildRunPayload() {
-  const trackId = document.getElementById('trackSelect').value;
+  const selectedRace = document.getElementById('trackSelect').value;
   const workersValue = document.getElementById('workersInput').value;
 
   return {
     year: parseInt(document.getElementById('yearSelect').value, 10) || 2025,
-    race: TRACK_TO_RACE[trackId] || 'Bahrain',
+    race: selectedRace || 'Bahrain Grand Prix',
     simulations: parseInt(document.getElementById('simCount').value, 10) || 100,
     scenarios: getScenarioSetValue(),
     seed: parseInt(document.getElementById('seedInput').value, 10) || 42,
+    qualifying_mode: document.getElementById('qualifyingModeSelect').value || 'historical',
     parallel: document.getElementById('parallelSelect').value === 'true',
     max_workers: workersValue ? parseInt(workersValue, 10) : null,
   };
@@ -2080,7 +2168,7 @@ function renderRace() {
 
   const pills = [
     'FastF1 data',
-    simResults.historical_grid_used ? 'Historical grid' : 'Simulated qualifying',
+    scenario.qualifying_mode === 'historical_grid' ? 'Historical grid' : 'Simulated qualifying',
     simResults.request?.parallel ? 'Parallel execution' : 'Single-core execution',
     simResults.request?.max_workers ? `${simResults.request.max_workers} worker cap` : 'Auto workers',
     scenario.simulations_per_second ? `${toNumber(scenario.simulations_per_second).toFixed(1)} sims/s` : '',
@@ -2715,29 +2803,23 @@ function renderScenarioLab() {
   updateScenarioViews();
 }
 
-(function init() {
-  const selector = document.getElementById('trackSelect');
-  TRACKS.forEach(track => {
-    const option = document.createElement('option');
-    option.value = track.id;
-    option.textContent = track.name;
-    selector.appendChild(option);
-  });
-
+(async function init() {
+  populateYearSelect();
   loadUiPrefs();
   renderScenarioControlMounts();
 
+  let restoredRace = '';
   const savedPayload = localStorage.getItem(LAST_PAYLOAD_KEY);
   if (savedPayload) {
     try {
       const payload = JSON.parse(savedPayload);
       if (payload.year) document.getElementById('yearSelect').value = String(payload.year);
-      if (payload.race) {
-        const trackId = Object.entries(TRACK_TO_RACE).find(([, race]) => race === payload.race)?.[0];
-        if (trackId) document.getElementById('trackSelect').value = trackId;
-      }
+      if (payload.race) restoredRace = payload.race;
       if (payload.simulations) document.getElementById('simCount').value = String(payload.simulations);
       if (payload.seed != null) document.getElementById('seedInput').value = String(payload.seed);
+      if (typeof payload.qualifying_mode === 'string') {
+        document.getElementById('qualifyingModeSelect').value = payload.qualifying_mode;
+      }
       if (typeof payload.parallel === 'boolean') {
         document.getElementById('parallelSelect').value = payload.parallel ? 'true' : 'false';
       }
@@ -2756,10 +2838,34 @@ function renderScenarioLab() {
     }
   }
 
+  const yearSelectEl = document.getElementById('yearSelect');
+  const initialCalendar = await fetchCalendar(
+    parseInt(yearSelectEl.value, 10) || 2025,
+    restoredRace,
+  );
+  if (!initialCalendar.ok && initialCalendar.error) {
+    setStatusMessage(
+      `Calendar lookup failed for ${yearSelectEl.value}. Using a fallback list until the backend is reachable.`,
+      'error'
+    );
+  }
+
   if (!scenarioSetInput.value.trim()) {
     setScenarioSelection([WEATHER_TO_SCENARIO[weatherSelectEl.value] || 'dry'], { persist: false });
   } else {
     syncScenarioControls();
+  }
+
+  await checkBackend();
+  const connectedCalendar = await fetchCalendar(
+    parseInt(yearSelectEl.value, 10) || 2025,
+    restoredRace || document.getElementById('trackSelect').value,
+  );
+  if (connectedCalendar.ok && restoredRace && !connectedCalendar.matched) {
+    setStatusMessage(
+      `${restoredRace} is not on the ${yearSelectEl.value} calendar. Switched to ${connectedCalendar.selectedRace}.`,
+      'success'
+    );
   }
 
   weatherSelectEl.addEventListener('change', () => {
@@ -2784,6 +2890,20 @@ function renderScenarioLab() {
     }
   });
 
+  yearSelectEl.addEventListener('change', async () => {
+    const previousRace = document.getElementById('trackSelect').value;
+    const selectedYear = parseInt(yearSelectEl.value, 10) || 2025;
+    const calendar = await fetchCalendar(selectedYear, previousRace);
+    if (previousRace && !calendar.matched && calendar.selectedRace) {
+      setStatusMessage(
+        `${previousRace} is not available in ${selectedYear}. Switched to ${calendar.selectedRace}.`,
+        calendar.ok ? 'success' : 'error'
+      );
+    }
+  });
+
+  document.getElementById('qualifyingModeSelect').addEventListener('change', saveUiPrefs);
+
   document.addEventListener('click', event => {
     const chip = event.target.closest('[data-scenario-chip]');
     if (chip) {
@@ -2799,7 +2919,6 @@ function renderScenarioLab() {
     }
   });
 
-  checkBackend();
   fetchRecentRuns();
 })();
 </script>
