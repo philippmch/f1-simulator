@@ -1,5 +1,6 @@
 """Historical data fetching and processing using FastF1."""
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -62,6 +63,103 @@ class HistoricalDataLoader:
         self._sessions: dict[str, Any] = {}
         self._driver_stats: dict[str, DriverStats] = {}
         self._track_stats: dict[str, TrackStats] = {}
+        self._event_schedules: dict[int, pd.DataFrame] = {}
+
+    @staticmethod
+    def _normalize_event_text(value: Any) -> str:
+        """Normalize event labels for resilient matching."""
+        cleaned = re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+        return re.sub(r"\s+", " ", cleaned)
+
+    def get_event_schedule(self, year: int, include_testing: bool = False) -> pd.DataFrame:
+        """Get and cache the FastF1 event schedule for a season."""
+        if year not in self._event_schedules:
+            self._event_schedules[year] = fastf1.get_event_schedule(year)
+
+        schedule = self._event_schedules[year]
+        if include_testing or "EventFormat" not in schedule.columns:
+            return schedule.copy()
+        return schedule[schedule["EventFormat"] != "testing"].copy()
+
+    def _build_event_aliases(self, row: pd.Series) -> set[str]:
+        """Build a set of labels that may refer to an event."""
+        aliases: set[str] = set()
+
+        for field in ("EventName", "OfficialEventName", "Country", "Location"):
+            if field in row and pd.notna(row[field]):
+                normalized = self._normalize_event_text(row[field])
+                if normalized:
+                    aliases.add(normalized)
+
+        event_name = self._normalize_event_text(row.get("EventName", ""))
+        if event_name.endswith(" grand prix"):
+            aliases.add(event_name.removesuffix(" grand prix").strip())
+        elif " grand prix " in f" {event_name} ":
+            aliases.add(event_name.replace(" grand prix", "").strip())
+
+        return {alias for alias in aliases if alias}
+
+    def resolve_race_identifier(self, year: int, race: str | int) -> int:
+        """Resolve a race label or round to the season round number."""
+        schedule = self.get_event_schedule(year)
+        available_rounds = {
+            int(row["RoundNumber"]) for _, row in schedule.iterrows() if pd.notna(row["RoundNumber"])
+        }
+
+        if isinstance(race, int) or (isinstance(race, str) and race.isdigit()):
+            round_number = int(race)
+            if round_number in available_rounds:
+                return round_number
+            raise ValueError(f"Round '{race}' not found in {year} calendar")
+
+        target = self._normalize_event_text(race)
+        if not target:
+            raise ValueError(f"Race '{race}' not found in {year} calendar")
+
+        for _, row in schedule.iterrows():
+            aliases = self._build_event_aliases(row)
+            if any(
+                target == alias
+                or target in alias
+                or alias in target
+                or set(target.split()).issubset(set(alias.split()))
+                for alias in aliases
+            ):
+                return int(row["RoundNumber"])
+
+        available = ", ".join(
+            str(row.get("EventName", row.get("Country", row.get("RoundNumber", "?"))))
+            for _, row in schedule.iterrows()
+        )
+        raise ValueError(f"Race '{race}' not found in {year} calendar. Available events: {available}")
+
+    def list_available_events(self, year: int) -> list[dict[str, Any]]:
+        """Return frontend-friendly event metadata for a season."""
+        schedule = self.get_event_schedule(year)
+        events: list[dict[str, Any]] = []
+
+        for _, row in schedule.iterrows():
+            round_number = int(row["RoundNumber"])
+            race_name = str(row.get("EventName", f"Round {round_number}"))
+            country = str(row.get("Country", "")) if pd.notna(row.get("Country")) else ""
+            location = str(row.get("Location", "")) if pd.notna(row.get("Location")) else ""
+            official_name = (
+                str(row.get("OfficialEventName", "")) if pd.notna(row.get("OfficialEventName")) else ""
+            )
+            slug = self._normalize_event_text(race_name).replace(" ", "-")
+
+            events.append(
+                {
+                    "round": round_number,
+                    "race": race_name,
+                    "country": country,
+                    "location": location,
+                    "official_name": official_name,
+                    "slug": slug,
+                }
+            )
+
+        return events
 
     def load_race(self, year: int, race: str | int) -> Any:
         """Load a race session.
@@ -73,9 +171,10 @@ class HistoricalDataLoader:
         Returns:
             FastF1 Session object
         """
-        cache_key = f"{year}_{race}_R"
+        race_id = self.resolve_race_identifier(year, race)
+        cache_key = f"{year}_{race_id}_R"
         if cache_key not in self._sessions:
-            session = fastf1.get_session(year, race, "R")
+            session = fastf1.get_session(year, race_id, "R")
             session.load()
             self._sessions[cache_key] = session
         return self._sessions[cache_key]
@@ -90,9 +189,10 @@ class HistoricalDataLoader:
         Returns:
             FastF1 Session object
         """
-        cache_key = f"{year}_{race}_Q"
+        race_id = self.resolve_race_identifier(year, race)
+        cache_key = f"{year}_{race_id}_Q"
         if cache_key not in self._sessions:
-            session = fastf1.get_session(year, race, "Q")
+            session = fastf1.get_session(year, race_id, "Q")
             session.load()
             self._sessions[cache_key] = session
         return self._sessions[cache_key]
@@ -133,8 +233,8 @@ class HistoricalDataLoader:
             Dictionary of driver_id -> DriverStats
         """
         if races is None:
-            schedule = fastf1.get_event_schedule(year)
-            races = list(range(1, len(schedule) + 1))
+            schedule = self.get_event_schedule(year)
+            races = schedule["RoundNumber"].astype(int).tolist()
 
         # Store per-race normalized deltas (percentage slower than fastest)
         driver_race_deltas: dict[str, dict[str | int, float]] = {}  # driver -> {race: delta}
@@ -295,24 +395,10 @@ class HistoricalDataLoader:
             Dictionary of driver_id -> DriverStats
         """
         # Get the race calendar to find previous races
-        schedule = fastf1.get_event_schedule(year)
-        schedule = schedule[schedule["EventFormat"] != "testing"]
-
-        # Find target race index (flexible matching)
-        target_idx = None
-        target_race_lower = str(target_race).lower()
-        for idx, row in schedule.iterrows():
-            event_name = str(row["EventName"]).lower()
-            round_num = row["RoundNumber"]
-            # Match by round number, exact name, or partial name match
-            if (
-                round_num == target_race
-                or event_name == target_race_lower
-                or target_race_lower in event_name
-                or event_name.startswith(target_race_lower)
-            ):
-                target_idx = idx
-                break
+        schedule = self.get_event_schedule(year)
+        target_round = self.resolve_race_identifier(year, target_race)
+        target_rows = schedule[schedule["RoundNumber"] == target_round]
+        target_idx = target_rows.index[0] if not target_rows.empty else None
 
         if target_idx is None:
             raise ValueError(f"Race '{target_race}' not found in {year} calendar")
