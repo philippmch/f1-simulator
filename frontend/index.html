@@ -131,6 +131,11 @@ body::before {
   gap: 0.25rem;
 }
 
+.control-group-scenarios {
+  min-width: 320px;
+  max-width: 420px;
+}
+
 .control-label {
   font-family: var(--font-mono);
   font-size: 0.6rem;
@@ -140,7 +145,7 @@ body::before {
   color: var(--text-muted);
 }
 
-select, input[type="number"] {
+select, input[type="number"], input[type="text"] {
   background: var(--bg-card);
   border: 1px solid var(--border-medium);
   color: var(--text-primary);
@@ -155,11 +160,11 @@ select, input[type="number"] {
   min-width: 150px;
 }
 
-select:hover, input[type="number"]:hover {
+select:hover, input[type="number"]:hover, input[type="text"]:hover {
   border-color: rgba(255,255,255,0.2);
 }
 
-select:focus, input[type="number"]:focus {
+select:focus, input[type="number"]:focus, input[type="text"]:focus {
   border-color: var(--f1-red);
   box-shadow: 0 0 0 2px var(--f1-red-glow);
 }
@@ -167,6 +172,125 @@ select:focus, input[type="number"]:focus {
 input[type="number"] { min-width: 80px; width: 80px; }
 
 select option { background: var(--bg-card); color: var(--text-primary); }
+
+.scenario-selector {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.scenario-chip {
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(145deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02)),
+    rgba(17,17,17,0.95);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0.65rem 0.8rem;
+  text-align: left;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease;
+}
+
+.scenario-chip::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 3px;
+  background: var(--scenario-accent, var(--f1-red));
+  opacity: 0.35;
+}
+
+.scenario-chip strong {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.scenario-chip small {
+  display: block;
+  margin-top: 0.18rem;
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.scenario-chip:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255,255,255,0.16);
+  color: var(--text-primary);
+}
+
+.scenario-chip.active {
+  border-color: color-mix(in srgb, var(--scenario-accent, var(--f1-red)) 70%, white 8%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--scenario-accent, var(--f1-red)) 50%, transparent);
+  color: var(--text-primary);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--scenario-accent, var(--f1-red)) 18%, rgba(255,255,255,0.04)), rgba(255,255,255,0.02)),
+    rgba(17,17,17,0.98);
+}
+
+.scenario-chip.active small {
+  color: rgba(255,255,255,0.78);
+}
+
+.scenario-preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.45rem;
+}
+
+.scenario-preset {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 999px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  padding: 0.38rem 0.72rem;
+  text-transform: uppercase;
+  transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
+}
+
+.scenario-preset:hover {
+  border-color: rgba(255,255,255,0.16);
+  color: var(--text-primary);
+}
+
+.scenario-preset.active {
+  background: rgba(225,6,0,0.12);
+  border-color: rgba(225,6,0,0.32);
+  color: #ffd2d0;
+}
+
+.scenario-summary {
+  min-height: 1.1rem;
+  margin-top: 0.45rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.67rem;
+  letter-spacing: 0.05em;
+}
+
+.scenario-set-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+  pointer-events: none;
+}
 
 .btn-simulate {
   background: var(--f1-red);
@@ -247,6 +371,28 @@ select option { background: var(--bg-card); color: var(--text-primary); }
   background: #f59e0b;
   box-shadow: 0 0 6px #f59e0b88;
   animation: pulse-dot 1s infinite;
+}
+
+.status-banner {
+  margin: 1rem 2.5rem 0;
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-medium);
+  background: rgba(255,255,255,0.03);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.status-banner.success {
+  border-color: rgba(0,210,106,0.25);
+  background: rgba(0,210,106,0.08);
+  color: #9df0c3;
+}
+
+.status-banner.error {
+  border-color: rgba(225,6,0,0.3);
+  background: rgba(225,6,0,0.08);
+  color: #ffb0ad;
 }
 
 @keyframes pulse-dot {
@@ -677,6 +823,220 @@ select option { background: var(--bg-card); color: var(--text-primary); }
   margin-top: 0.3rem;
 }
 
+.meta-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 1rem;
+}
+
+.meta-pill {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  padding: 0.45rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: rgba(255,255,255,0.04);
+}
+
+.detail-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.detail-row span:first-child {
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.detail-row span:last-child {
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.stats-table-wrap {
+  overflow-x: auto;
+}
+
+.metrics-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+
+.metrics-table th,
+.metrics-table td {
+  padding: 0.65rem 0.45rem;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+}
+
+.metrics-table th {
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.58rem;
+}
+
+.metrics-table td:last-child,
+.metrics-table th:last-child {
+  text-align: right;
+}
+
+.backend-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
+.comparison-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin-bottom: 1.5rem;
+}
+
+.comparison-toolbar .control-group {
+  min-width: 180px;
+}
+
+.comparison-toolbar .control-group.wide {
+  min-width: min(420px, 100%);
+  flex: 1 1 280px;
+}
+
+.comparison-toolbar .control-group.control-group-scenarios {
+  max-width: none;
+  flex: 2.2 1 360px;
+}
+
+.compare-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  margin-bottom: 1.2rem;
+}
+
+.compare-actions .btn-simulate {
+  padding: 0.6rem 1.1rem;
+  font-size: 0.78rem;
+}
+
+.scenario-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.scenario-card {
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  padding: 1.1rem 1.2rem;
+  border: 1px solid var(--border-subtle);
+}
+
+.scenario-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 0.8rem;
+}
+
+.chart-wrap {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  background: var(--bg-card);
+}
+
+.chart-row {
+  margin-bottom: 0.7rem;
+}
+
+.chart-row:last-child {
+  margin-bottom: 0;
+}
+
+.chart-label {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.3rem;
+}
+
+.matrix-wrap {
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-card);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+
+.matrix-table th,
+.matrix-table td {
+  border: 1px solid var(--border-subtle);
+  padding: 0.6rem 0.55rem;
+  text-align: left;
+}
+
+.matrix-table th {
+  color: var(--text-muted);
+  font-size: 0.58rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.matrix-best {
+  background: rgba(225, 6, 0, 0.12);
+  color: var(--text-primary);
+}
+
+.backend-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.55rem 0.8rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-medium);
+  background: rgba(255,255,255,0.04);
+  color: var(--text-primary);
+  text-decoration: none;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+}
+
+.backend-link:hover {
+  border-color: rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.06);
+}
+
+.inline-note {
+  margin-top: 0.8rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
 /* ── Empty State ── */
 .empty-state {
   display: flex;
@@ -798,7 +1158,10 @@ select option { background: var(--bg-card); color: var(--text-primary); }
 
 @media (max-width: 860px) {
   .header { flex-direction: column; gap: 1rem; padding: 1rem 1.2rem; }
+  .status-banner { margin: 0.8rem 1rem 0; }
   .controls { flex-wrap: wrap; justify-content: center; }
+  .control-group-scenarios { min-width: min(100%, 420px); width: 100%; }
+  .scenario-selector { grid-template-columns: 1fr 1fr; }
   .main { padding: 1.5rem 1rem; }
   .driver-row { grid-template-columns: 32px 6px 44px 1fr 80px 80px; font-size: 0.8rem; }
   .driver-row .fastest-lap,
@@ -833,7 +1196,7 @@ select option { background: var(--bg-card); color: var(--text-primary); }
         <select id="trackSelect"></select>
       </div>
       <div class="control-group">
-        <label class="control-label">Weather</label>
+        <label class="control-label">Focus</label>
         <select id="weatherSelect">
           <option value="DRY">Dry</option>
           <option value="CLOUDY">Cloudy</option>
@@ -841,12 +1204,34 @@ select option { background: var(--bg-card); color: var(--text-primary); }
           <option value="HEAVY_RAIN">Heavy Rain</option>
         </select>
       </div>
+      <div class="control-group control-group-scenarios">
+        <label class="control-label">Scenario Set</label>
+        <div class="scenario-selector" id="headerScenarioSelector"></div>
+        <div class="scenario-preset-row" id="headerScenarioPresets"></div>
+        <div class="scenario-summary" id="scenarioSetSummary">Build a weather sweep for the backend run.</div>
+        <input type="text" id="scenarioSetInput" value="" class="scenario-set-hidden" aria-hidden="true" tabindex="-1">
+      </div>
       <div class="control-group">
         <label class="control-label">Simulations</label>
         <input type="number" id="simCount" value="100" min="10" max="1000" step="10">
       </div>
+      <div class="control-group">
+        <label class="control-label">Seed</label>
+        <input type="number" id="seedInput" value="42" min="0" step="1">
+      </div>
+      <div class="control-group">
+        <label class="control-label">Execution</label>
+        <select id="parallelSelect">
+          <option value="true" selected>Parallel</option>
+          <option value="false">Single Core</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label class="control-label">Workers</label>
+        <input type="number" id="workersInput" value="" min="1" step="1" placeholder="Auto">
+      </div>
       <button class="btn-simulate" id="btnRun" onclick="runSimulation()">Run Simulation</button>
-      <span class="data-source-badge" id="dataSourceBadge" title="Where driver/car ratings come from">Hardcoded ratings</span>
+      <span class="data-source-badge loading" id="dataSourceBadge" title="Where driver/car ratings come from">Checking backend...</span>
     </div>
   </header>
 
@@ -856,8 +1241,11 @@ select option { background: var(--bg-card); color: var(--text-primary); }
       <button class="tab active" data-tab="race" onclick="switchTab('race')">Race Results</button>
       <button class="tab" data-tab="qualifying" onclick="switchTab('qualifying')">Qualifying</button>
       <button class="tab" data-tab="stats" onclick="switchTab('stats')">Statistics</button>
+      <button class="tab" data-tab="scenarios" onclick="switchTab('scenarios')">Scenario Lab</button>
     </div>
   </nav>
+
+  <div class="status-banner" id="appStatus">Backend-backed mode only. Start <code>python -m f1sim.web.server</code> to run simulations.</div>
 
   <!-- Content -->
   <main class="main">
@@ -865,7 +1253,7 @@ select option { background: var(--bg-card); color: var(--text-primary); }
       <div class="empty-state" id="emptyRace">
         <div class="empty-icon">&#9201;</div>
         <div class="empty-title">No simulation yet</div>
-        <div class="empty-desc">Select a circuit and run a simulation to see race results</div>
+        <div class="empty-desc">Run the Python backend and start a simulation to see backend-generated race results</div>
       </div>
       <div id="raceContent" style="display:none"></div>
     </div>
@@ -873,7 +1261,7 @@ select option { background: var(--bg-card); color: var(--text-primary); }
       <div class="empty-state" id="emptyQuali">
         <div class="empty-icon">&#9201;</div>
         <div class="empty-title">No simulation yet</div>
-        <div class="empty-desc">Run a simulation to see qualifying results</div>
+        <div class="empty-desc">Run a backend simulation to inspect the starting grid or qualifying sample</div>
       </div>
       <div id="qualiContent" style="display:none"></div>
     </div>
@@ -881,9 +1269,17 @@ select option { background: var(--bg-card); color: var(--text-primary); }
       <div class="empty-state" id="emptyStats">
         <div class="empty-icon">&#9201;</div>
         <div class="empty-title">No simulation yet</div>
-        <div class="empty-desc">Run a Monte Carlo simulation to see statistical analysis</div>
+        <div class="empty-desc">Run a backend Monte Carlo simulation to see full statistics, ratings, and export artifacts</div>
       </div>
       <div id="statsContent" style="display:none"></div>
+    </div>
+    <div id="panel-scenarios" class="tab-panel">
+      <div class="empty-state" id="emptyScenarios">
+        <div class="empty-icon">&#9201;</div>
+        <div class="empty-title">No scenario comparison yet</div>
+        <div class="empty-desc">Build a weather mix with the scenario chips and run the backend to compare outcomes</div>
+      </div>
+      <div id="scenarioContent" style="display:none"></div>
     </div>
   </main>
 
@@ -896,107 +1292,163 @@ select option { background: var(--bg-card); color: var(--text-primary); }
 </div>
 
 <script>
-// ═══════════════════════════════════════════
-//  DATA
-// ═══════════════════════════════════════════
-
-const TEAMS = {
-  red_bull:     { name: 'Red Bull Racing',   color: '#3671C6' },
-  ferrari:      { name: 'Scuderia Ferrari',  color: '#E8002D' },
-  mclaren:      { name: 'McLaren',           color: '#FF8000' },
-  mercedes:     { name: 'Mercedes-AMG',      color: '#27F4D2' },
-  aston_martin: { name: 'Aston Martin',      color: '#229971' },
-  alpine:       { name: 'Alpine',            color: '#0093CC' },
-  williams:     { name: 'Williams',          color: '#64C4FF' },
-  rb:           { name: 'RB',                color: '#6692FF' },
-  sauber:       { name: 'Kick Sauber',       color: '#52E252' },
-  haas:         { name: 'Haas',              color: '#B6BABD' },
+const TEAM_STYLES = {
+  red_bull:     { name: 'Red Bull Racing', color: '#3671C6' },
+  ferrari:      { name: 'Scuderia Ferrari', color: '#E8002D' },
+  mclaren:      { name: 'McLaren', color: '#FF8000' },
+  mercedes:     { name: 'Mercedes-AMG', color: '#27F4D2' },
+  aston_martin: { name: 'Aston Martin', color: '#229971' },
+  alpine:       { name: 'Alpine', color: '#0093CC' },
+  williams:     { name: 'Williams', color: '#64C4FF' },
+  rb:           { name: 'Racing Bulls', color: '#6692FF' },
+  sauber:       { name: 'Kick Sauber', color: '#52E252' },
+  haas:         { name: 'Haas', color: '#B6BABD' },
+  unknown:      { name: 'Unknown', color: '#8a8a8e' },
 };
 
-const DRIVERS = [
-  { id: 'VER', name: 'Max Verstappen',    team: 'red_bull',     skill: 0.95, consistency: 0.95 },
-  { id: 'LAW', name: 'Liam Lawson',       team: 'red_bull',     skill: 0.82, consistency: 0.85 },
-  { id: 'LEC', name: 'Charles Leclerc',   team: 'ferrari',      skill: 0.94, consistency: 0.91 },
-  { id: 'HAM', name: 'Lewis Hamilton',    team: 'ferrari',      skill: 0.92, consistency: 0.93 },
-  { id: 'NOR', name: 'Lando Norris',      team: 'mclaren',      skill: 0.97, consistency: 0.93 },
-  { id: 'PIA', name: 'Oscar Piastri',     team: 'mclaren',      skill: 0.93, consistency: 0.91 },
-  { id: 'RUS', name: 'George Russell',    team: 'mercedes',     skill: 0.91, consistency: 0.90 },
-  { id: 'ANT', name: 'Kimi Antonelli',    team: 'mercedes',     skill: 0.84, consistency: 0.82 },
-  { id: 'ALO', name: 'Fernando Alonso',   team: 'aston_martin', skill: 0.89, consistency: 0.93 },
-  { id: 'STR', name: 'Lance Stroll',      team: 'aston_martin', skill: 0.78, consistency: 0.80 },
-  { id: 'GAS', name: 'Pierre Gasly',      team: 'alpine',       skill: 0.84, consistency: 0.86 },
-  { id: 'DOO', name: 'Jack Doohan',       team: 'alpine',       skill: 0.76, consistency: 0.78 },
-  { id: 'ALB', name: 'Alex Albon',        team: 'williams',     skill: 0.85, consistency: 0.87 },
-  { id: 'SAI', name: 'Carlos Sainz',      team: 'williams',     skill: 0.91, consistency: 0.91 },
-  { id: 'TSU', name: 'Yuki Tsunoda',      team: 'rb',           skill: 0.83, consistency: 0.84 },
-  { id: 'HAD', name: 'Isack Hadjar',      team: 'rb',           skill: 0.78, consistency: 0.80 },
-  { id: 'HUL', name: 'Nico Hulkenberg',   team: 'sauber',       skill: 0.82, consistency: 0.86 },
-  { id: 'BOR', name: 'Gabriel Bortoleto', team: 'sauber',       skill: 0.77, consistency: 0.78 },
-  { id: 'OCO', name: 'Esteban Ocon',      team: 'haas',         skill: 0.83, consistency: 0.85 },
-  { id: 'BEA', name: 'Oliver Bearman',    team: 'haas',         skill: 0.78, consistency: 0.80 },
-];
+const TEAM_SHORT_LABELS = {
+  red_bull: 'RBR',
+  ferrari: 'FER',
+  mclaren: 'MCL',
+  mercedes: 'MER',
+  aston_martin: 'AMR',
+  alpine: 'ALP',
+  williams: 'WIL',
+  rb: 'RB',
+  sauber: 'SAU',
+  haas: 'HAA',
+  unknown: 'UNK',
+};
 
-const CAR_PACE = {
-  mclaren: 0.97, ferrari: 0.95, red_bull: 0.94, mercedes: 0.92,
-  aston_martin: 0.87, alpine: 0.83, williams: 0.84, rb: 0.84,
-  sauber: 0.80, haas: 0.82,
+const TEAM_KEY_NORMALIZE = {
+  red_bull: 'red_bull',
+  red_bull_racing: 'red_bull',
+  'red bull racing': 'red_bull',
+  ferrari: 'ferrari',
+  scuderia_ferrari: 'ferrari',
+  'scuderia ferrari': 'ferrari',
+  mclaren: 'mclaren',
+  mercedes: 'mercedes',
+  mercedes_amg: 'mercedes',
+  'mercedes-amg': 'mercedes',
+  mercedes_amg_petronas: 'mercedes',
+  aston_martin: 'aston_martin',
+  'aston martin': 'aston_martin',
+  aston_martin_aramco: 'aston_martin',
+  alpine: 'alpine',
+  bwt_alpine_f1_team: 'alpine',
+  williams: 'williams',
+  williams_racing: 'williams',
+  'williams racing': 'williams',
+  rb: 'rb',
+  racing_bulls: 'rb',
+  'racing bulls': 'rb',
+  visa_cash_app_rb: 'rb',
+  sauber: 'sauber',
+  kick_sauber: 'sauber',
+  'kick sauber': 'sauber',
+  stake_f1_team_kick_sauber: 'sauber',
+  haas: 'haas',
+  haas_f1_team: 'haas',
+  'haas f1 team': 'haas',
+  moneygram_haas_f1_team: 'haas',
 };
 
 const TRACKS = [
-  { id: 'bahrain',    name: 'Bahrain Grand Prix',       country: 'Bahrain',       laps: 57, baseTime: 92,  overtake: 0.35, tireStress: 0.7 },
-  { id: 'jeddah',     name: 'Saudi Arabian Grand Prix',  country: 'Saudi Arabia',  laps: 50, baseTime: 89,  overtake: 0.40, tireStress: 0.5 },
-  { id: 'melbourne',  name: 'Australian Grand Prix',     country: 'Australia',     laps: 58, baseTime: 80,  overtake: 0.50, tireStress: 0.6 },
-  { id: 'suzuka',     name: 'Japanese Grand Prix',       country: 'Japan',         laps: 53, baseTime: 91,  overtake: 0.55, tireStress: 0.7 },
-  { id: 'shanghai',   name: 'Chinese Grand Prix',        country: 'China',         laps: 56, baseTime: 95,  overtake: 0.45, tireStress: 0.6 },
-  { id: 'miami',      name: 'Miami Grand Prix',          country: 'USA',           laps: 57, baseTime: 91,  overtake: 0.45, tireStress: 0.6 },
-  { id: 'imola',      name: 'Emilia Romagna Grand Prix', country: 'Italy',         laps: 63, baseTime: 77,  overtake: 0.60, tireStress: 0.5 },
-  { id: 'monaco',     name: 'Monaco Grand Prix',         country: 'Monaco',        laps: 78, baseTime: 73,  overtake: 0.95, tireStress: 0.3 },
-  { id: 'barcelona',  name: 'Spanish Grand Prix',        country: 'Spain',         laps: 66, baseTime: 78,  overtake: 0.55, tireStress: 0.7 },
-  { id: 'montreal',   name: 'Canadian Grand Prix',       country: 'Canada',        laps: 70, baseTime: 75,  overtake: 0.45, tireStress: 0.5 },
-  { id: 'silverstone',name: 'British Grand Prix',        country: 'UK',            laps: 52, baseTime: 88,  overtake: 0.45, tireStress: 0.8 },
-  { id: 'spa',        name: 'Belgian Grand Prix',        country: 'Belgium',       laps: 44, baseTime: 106, overtake: 0.35, tireStress: 0.6 },
-  { id: 'monza',      name: 'Italian Grand Prix',        country: 'Italy',         laps: 53, baseTime: 82,  overtake: 0.30, tireStress: 0.4 },
-  { id: 'singapore',  name: 'Singapore Grand Prix',      country: 'Singapore',     laps: 62, baseTime: 99,  overtake: 0.70, tireStress: 0.6 },
-  { id: 'cota',       name: 'US Grand Prix',             country: 'USA',           laps: 56, baseTime: 97,  overtake: 0.40, tireStress: 0.7 },
-  { id: 'interlagos', name: 'Brazilian Grand Prix',      country: 'Brazil',        laps: 71, baseTime: 73,  overtake: 0.35, tireStress: 0.6 },
-  { id: 'yas_marina', name: 'Abu Dhabi Grand Prix',      country: 'Abu Dhabi',     laps: 58, baseTime: 87,  overtake: 0.45, tireStress: 0.5 },
+  { id: 'bahrain', name: 'Bahrain Grand Prix' },
+  { id: 'jeddah', name: 'Saudi Arabian Grand Prix' },
+  { id: 'melbourne', name: 'Australian Grand Prix' },
+  { id: 'suzuka', name: 'Japanese Grand Prix' },
+  { id: 'shanghai', name: 'Chinese Grand Prix' },
+  { id: 'miami', name: 'Miami Grand Prix' },
+  { id: 'imola', name: 'Emilia Romagna Grand Prix' },
+  { id: 'monaco', name: 'Monaco Grand Prix' },
+  { id: 'barcelona', name: 'Spanish Grand Prix' },
+  { id: 'montreal', name: 'Canadian Grand Prix' },
+  { id: 'silverstone', name: 'British Grand Prix' },
+  { id: 'spa', name: 'Belgian Grand Prix' },
+  { id: 'monza', name: 'Italian Grand Prix' },
+  { id: 'singapore', name: 'Singapore Grand Prix' },
+  { id: 'cota', name: 'US Grand Prix' },
+  { id: 'interlagos', name: 'Brazilian Grand Prix' },
+  { id: 'yas_marina', name: 'Abu Dhabi Grand Prix' },
 ];
 
-const TIRE_COMPOUNDS = ['soft', 'medium', 'hard', 'inter', 'wet'];
-const TIRE_LABELS = { soft: 'S', medium: 'M', hard: 'H', inter: 'I', wet: 'W' };
-
-// ═══════════════════════════════════════════
-//  BACKEND INTEGRATION (FastF1 real ratings)
-// ═══════════════════════════════════════════
-
-const BACKEND_URL = 'http://127.0.0.1:8080';
-
-// Map frontend track IDs to FastF1 race names
 const TRACK_TO_RACE = {
-  bahrain:     'Bahrain',
-  jeddah:      'Saudi Arabia',
-  melbourne:   'Australia',
-  suzuka:      'Japan',
-  shanghai:    'China',
-  miami:       'Miami',
-  imola:       'Emilia Romagna',
-  monaco:      'Monaco',
-  barcelona:   'Spain',
-  montreal:    'Canada',
+  bahrain: 'Bahrain',
+  jeddah: 'Saudi Arabia',
+  melbourne: 'Australia',
+  suzuka: 'Japan',
+  shanghai: 'China',
+  miami: 'Miami',
+  imola: 'Emilia Romagna',
+  monaco: 'Monaco',
+  barcelona: 'Spain',
+  montreal: 'Canada',
   silverstone: 'Great Britain',
-  spa:         'Belgium',
-  monza:       'Monza',
-  singapore:   'Singapore',
-  cota:        'United States',
-  interlagos:  'Brazil',
-  yas_marina:  'Abu Dhabi',
+  spa: 'Belgium',
+  monza: 'Monza',
+  singapore: 'Singapore',
+  cota: 'United States',
+  interlagos: 'Brazil',
+  yas_marina: 'Abu Dhabi',
 };
 
-// Store original hardcoded values so we can restore on fallback
-const DEFAULT_DRIVERS = DRIVERS.map(d => ({ ...d }));
-const DEFAULT_CAR_PACE = { ...CAR_PACE };
+const WEATHER_TO_SCENARIO = {
+  DRY: 'dry',
+  CLOUDY: 'cloudy',
+  LIGHT_RAIN: 'light_rain',
+  HEAVY_RAIN: 'heavy_rain',
+};
 
-let ratingsSource = 'hardcoded';
+const SCENARIO_TO_WEATHER = {
+  dry: 'DRY',
+  cloudy: 'CLOUDY',
+  light_rain: 'LIGHT_RAIN',
+  heavy_rain: 'HEAVY_RAIN',
+};
+
+const WEATHER_LABELS = {
+  dry: 'Dry',
+  cloudy: 'Cloudy',
+  light_rain: 'Light Rain',
+  heavy_rain: 'Heavy Rain',
+};
+
+const SCENARIO_OPTIONS = [
+  { key: 'dry', label: 'Dry', note: 'Baseline grip window', accent: '#f6c85f' },
+  { key: 'cloudy', label: 'Cloudy', note: 'Cooler, steadier race', accent: '#91a7c7' },
+  { key: 'light_rain', label: 'Light Rain', note: 'Inter crossover pressure', accent: '#54c5eb' },
+  { key: 'heavy_rain', label: 'Heavy Rain', note: 'Safety car volatility', accent: '#2c7be5' },
+];
+
+const SCENARIO_PRESETS = [
+  { id: 'presetDryBtn', label: 'Dry vs Cloudy', values: ['dry', 'cloudy'] },
+  { id: 'presetMixedBtn', label: 'Mixed Weekend', values: ['dry', 'light_rain', 'heavy_rain'] },
+  { id: 'presetChaosBtn', label: 'Monaco Chaos', values: ['cloudy', 'light_rain', 'heavy_rain'] },
+];
+
+const TIRE_LABELS = { soft: 'S', medium: 'M', hard: 'H', inter: 'I', wet: 'W' };
+const RELIABILITY_COMPONENTS = ['engine', 'gearbox', 'electrical', 'cooling', 'brakes'];
+const BACKEND_URL = (
+  window.location.protocol.startsWith('http') && window.location.port === '8080'
+    ? window.location.origin
+    : 'http://127.0.0.1:8080'
+);
+
+let simResults = null;
+let recentRuns = [];
+let backendConnected = false;
+const PREFS_KEY = 'f1sim:uiPrefs';
+const LAST_PAYLOAD_KEY = 'f1sim:lastPayload';
+const scenarioSetInput = document.getElementById('scenarioSetInput');
+const weatherSelectEl = document.getElementById('weatherSelect');
+const scenarioContentEl = document.getElementById('scenarioContent');
+const emptyScenariosEl = document.getElementById('emptyScenarios');
+
+function apiUrl(path) {
+  return `${BACKEND_URL}${path}`;
+}
 
 function updateBadge(state, text) {
   const badge = document.getElementById('dataSourceBadge');
@@ -1005,358 +1457,646 @@ function updateBadge(state, text) {
   badge.textContent = text || badge.textContent;
 }
 
-function applyFetchedRatings(data) {
-  // Update driver stats in place
-  data.drivers.forEach(fd => {
-    const local = DRIVERS.find(d => d.id === fd.id);
-    if (local) {
-      local.skill = fd.skill;
-      local.consistency = fd.consistency;
-      local.wet_skill = fd.wet_skill;
-    }
-  });
-  // Update car pace in place
-  Object.entries(data.car_pace).forEach(([team, pace]) => {
-    if (team in CAR_PACE) {
-      CAR_PACE[team] = pace;
-    }
-  });
-  ratingsSource = 'fastf1';
-  updateBadge('live', `FastF1 ${data.year} ${data.race}`);
+function setStatusMessage(message, tone = '') {
+  const status = document.getElementById('appStatus');
+  if (!status) return;
+  status.className = 'status-banner' + (tone ? ` ${tone}` : '');
+  status.textContent = message;
 }
 
-function restoreDefaults() {
-  DEFAULT_DRIVERS.forEach(dd => {
-    const d = DRIVERS.find(dr => dr.id === dd.id);
-    if (d) { d.skill = dd.skill; d.consistency = dd.consistency; delete d.wet_skill; }
-  });
-  Object.assign(CAR_PACE, DEFAULT_CAR_PACE);
-  ratingsSource = 'hardcoded';
-  updateBadge('', 'Hardcoded ratings');
+function toNumber(value, fallback = 0) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
 }
 
-async function fetchRatings(trackId, year) {
-  const raceName = TRACK_TO_RACE[trackId];
-  if (!raceName) {
-    console.warn(`No race mapping for track: ${trackId}`);
-    restoreDefaults();
-    return false;
-  }
-
-  updateBadge('loading', `Loading ${year} ${raceName}...`);
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-  try {
-    const url = `${BACKEND_URL}/api/ratings?year=${year}&race=${encodeURIComponent(raceName)}`;
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeoutId);
-    if (!res.ok) {
-      const detail = await res.text().catch(() => res.statusText);
-      throw new Error(`HTTP ${res.status}: ${detail}`);
-    }
-    const data = await res.json();
-    applyFetchedRatings(data);
-    console.log(`Loaded FastF1 ratings: ${data.drivers.length} drivers, ${Object.keys(data.car_pace).length} teams`);
-    return true;
-  } catch (err) {
-    clearTimeout(timeoutId);
-    console.warn('Backend ratings unavailable, using hardcoded values:', err.message);
-    restoreDefaults();
-    return false;
-  }
+function titleFromKey(value) {
+  return String(value || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, match => match.toUpperCase());
 }
 
-// ═══════════════════════════════════════════
-//  STATE
-// ═══════════════════════════════════════════
-
-let simResults = null;
-
-// ═══════════════════════════════════════════
-//  INIT
-// ═══════════════════════════════════════════
-
-(function init() {
-  const sel = document.getElementById('trackSelect');
-  TRACKS.forEach(t => {
-    const opt = document.createElement('option');
-    opt.value = t.id;
-    opt.textContent = `${t.name}`;
-    sel.appendChild(opt);
-  });
-})();
-
-// ═══════════════════════════════════════════
-//  TABS
-// ═══════════════════════════════════════════
-
-function switchTab(tab) {
-  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
-  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `panel-${tab}`));
+function normalizeTeamKey(raw) {
+  const cleaned = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[ -]+/g, '_');
+  if (TEAM_KEY_NORMALIZE[cleaned]) return TEAM_KEY_NORMALIZE[cleaned];
+  const match = Object.entries(TEAM_KEY_NORMALIZE).find(([key]) => (
+    cleaned.includes(key) || key.includes(cleaned)
+  ));
+  return match ? match[1] : 'unknown';
 }
 
-// ═══════════════════════════════════════════
-//  SIMULATION ENGINE (simplified Monte Carlo)
-// ═══════════════════════════════════════════
-
-function gaussRandom(mean = 0, std = 1) {
-  const u1 = Math.random(), u2 = Math.random();
-  return mean + std * Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+function getTeamStyle(rawTeam) {
+  return TEAM_STYLES[normalizeTeamKey(rawTeam)] || TEAM_STYLES.unknown;
 }
-
-function pickTireStrategy(weather, laps) {
-  if (weather === 'HEAVY_RAIN') return ['wet', 'wet'];
-  if (weather === 'LIGHT_RAIN') return Math.random() < 0.6 ? ['inter', 'inter'] : ['inter', 'medium'];
-  const strategies = [
-    ['soft', 'hard'],
-    ['soft', 'medium', 'hard'],
-    ['medium', 'hard'],
-    ['soft', 'medium'],
-    ['medium', 'hard', 'soft'],
-    ['hard', 'medium'],
-  ];
-  return strategies[Math.floor(Math.random() * strategies.length)];
-}
-
-function simulateSingleRace(track, weather) {
-  const results = DRIVERS.map(d => {
-    const carPace = CAR_PACE[d.team];
-    const performance = (d.skill * 0.45 + carPace * 0.55);
-    const wetPenalty = weather.includes('RAIN') ? (1 - d.consistency) * 0.03 : 0;
-    const baseLap = track.baseTime + (1 - performance) * 8 + wetPenalty * track.baseTime;
-    let totalTime = 0;
-    const strategy = pickTireStrategy(weather, track.laps);
-    const pitStops = strategy.length - 1;
-
-    // DNF check (~5% chance, lower for reliable cars)
-    const dnfChance = 0.02 + (1 - carPace) * 0.04;
-    const isDNF = Math.random() < dnfChance;
-    const dnfLap = isDNF ? Math.floor(Math.random() * track.laps * 0.8 + track.laps * 0.1) : -1;
-    const dnfReasons = ['Mechanical', 'Engine', 'Gearbox', 'Hydraulics', 'Collision', 'Spin'];
-
-    let fastestLap = Infinity;
-    for (let lap = 0; lap < track.laps; lap++) {
-      if (isDNF && lap >= dnfLap) break;
-      const variation = gaussRandom(0, (1 - d.consistency) * 1.2);
-      const tireDeg = Math.min(lap * 0.02, 1.5);
-      const lapTime = baseLap + variation + tireDeg * 0.3;
-      totalTime += lapTime;
-      if (lapTime < fastestLap) fastestLap = lapTime;
-    }
-
-    totalTime += pitStops * 23;
-
-    return {
-      driver: d,
-      totalTime,
-      strategy,
-      pitStops,
-      fastestLap: isDNF ? null : fastestLap,
-      dnf: isDNF,
-      dnfReason: isDNF ? dnfReasons[Math.floor(Math.random() * dnfReasons.length)] : null,
-      dnfLap,
-    };
-  });
-
-  // Sort: DNF last, then by time
-  results.sort((a, b) => {
-    if (a.dnf && !b.dnf) return 1;
-    if (!a.dnf && b.dnf) return -1;
-    if (a.dnf && b.dnf) return a.dnfLap - b.dnfLap;
-    return a.totalTime - b.totalTime;
-  });
-
-  const leaderTime = results[0].totalTime;
-  return results.map((r, i) => ({
-    ...r,
-    position: i + 1,
-    gap: i === 0 ? 0 : r.dnf ? null : r.totalTime - leaderTime,
-  }));
-}
-
-function simulateQualifying(track, weather) {
-  const base = track.baseTime - 1.5;
-  const entries = DRIVERS.map(d => {
-    const carPace = CAR_PACE[d.team];
-    const performance = d.skill * 0.5 + carPace * 0.5;
-    const q1 = base + (1 - performance) * 5 + gaussRandom(0, 0.15);
-    return { driver: d, performance, q1, q2: null, q3: null, eliminatedQ1: false, eliminatedQ2: false };
-  });
-
-  // Q1: eliminate P16-P20
-  entries.sort((a, b) => a.q1 - b.q1);
-  for (let i = 15; i < entries.length; i++) entries[i].eliminatedQ1 = true;
-
-  // Q2: top 15 compete, eliminate P11-P15
-  const q2Drivers = entries.filter(e => !e.eliminatedQ1);
-  q2Drivers.forEach(e => {
-    e.q2 = base + (1 - e.performance) * 5 + gaussRandom(0, 0.12);
-  });
-  q2Drivers.sort((a, b) => a.q2 - b.q2);
-  for (let i = 10; i < q2Drivers.length; i++) q2Drivers[i].eliminatedQ2 = true;
-
-  // Q3: top 10 compete
-  const q3Drivers = q2Drivers.filter(e => !e.eliminatedQ2);
-  q3Drivers.forEach(e => {
-    e.q3 = base + (1 - e.performance) * 5 + gaussRandom(0, 0.10);
-  });
-
-  // Final order: Q3 drivers sorted by Q3, then Q2 eliminated sorted by Q2, then Q1 eliminated sorted by Q1
-  const sorted = [
-    ...q3Drivers.sort((a, b) => a.q3 - b.q3),
-    ...q2Drivers.filter(e => e.eliminatedQ2).sort((a, b) => a.q2 - b.q2),
-    ...entries.filter(e => e.eliminatedQ1).sort((a, b) => a.q1 - b.q1),
-  ];
-
-  return sorted.map((r, i) => ({ ...r, position: i + 1 }));
-}
-
-function runMonteCarlo(track, weather, n) {
-  const allRaces = [];
-  const allQuali = [];
-  const stats = {};
-
-  DRIVERS.forEach(d => {
-    stats[d.id] = {
-      wins: 0, podiums: 0, dnfs: 0, totalPoints: 0,
-      positions: {}, totalPosition: 0, count: 0,
-    };
-  });
-
-  const pointsSystem = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
-
-  for (let i = 0; i < n; i++) {
-    const race = simulateSingleRace(track, weather);
-    const quali = simulateQualifying(track, weather);
-    allRaces.push(race);
-    allQuali.push(quali);
-
-    race.forEach(r => {
-      const s = stats[r.driver.id];
-      if (r.position === 1) s.wins++;
-      if (r.position <= 3 && !r.dnf) s.podiums++;
-      if (r.dnf) s.dnfs++;
-      if (r.position <= 10 && !r.dnf) s.totalPoints += pointsSystem[r.position - 1];
-      s.positions[r.position] = (s.positions[r.position] || 0) + 1;
-      s.totalPosition += r.position;
-      s.count++;
-    });
-  }
-
-  return { allRaces, allQuali, stats, n };
-}
-
-// ═══════════════════════════════════════════
-//  RUN
-// ═══════════════════════════════════════════
-
-async function runSimulation() {
-  const trackId = document.getElementById('trackSelect').value;
-  const weather = document.getElementById('weatherSelect').value;
-  const n = parseInt(document.getElementById('simCount').value) || 100;
-  const year = parseInt(document.getElementById('yearSelect').value) || 2025;
-  const track = TRACKS.find(t => t.id === trackId);
-
-  const btn = document.getElementById('btnRun');
-  const overlay = document.getElementById('simOverlay');
-  btn.classList.add('running');
-  overlay.classList.add('active');
-
-  // Fetch real ratings from backend (falls back to hardcoded silently)
-  const simText = document.querySelector('.sim-text');
-  simText.textContent = 'Fetching FastF1 ratings...';
-  document.getElementById('simProgress').textContent = '';
-  btn.textContent = 'Loading data...';
-
-  await fetchRatings(trackId, year);
-
-  // Animate progress
-  simText.textContent = 'Running simulations';
-  btn.textContent = 'Running...';
-  const progress = document.getElementById('simProgress');
-  let shown = 0;
-
-  await new Promise(resolve => {
-    const interval = setInterval(() => {
-      shown = Math.min(shown + Math.ceil(n / 30), n);
-      progress.textContent = `${shown} / ${n}`;
-      if (shown >= n) { clearInterval(interval); resolve(); }
-    }, 50);
-  });
-
-  // Run simulation
-  simResults = runMonteCarlo(track, weather, n);
-  simResults.track = track;
-  simResults.weather = weather;
-
-  await new Promise(r => setTimeout(r, 300));
-
-  overlay.classList.remove('active');
-  btn.classList.remove('running');
-  btn.textContent = 'Run Simulation';
-
-  renderAll();
-}
-
-// ═══════════════════════════════════════════
-//  RENDER
-// ═══════════════════════════════════════════
 
 function formatTime(seconds) {
-  if (seconds == null) return '--';
-  const m = Math.floor(seconds / 60);
-  const s = (seconds % 60).toFixed(3);
-  return `${m}:${s.padStart(6, '0')}`;
+  const safe = toNumber(seconds, NaN);
+  if (!Number.isFinite(safe) || safe <= 0) return '--';
+  const minutes = Math.floor(safe / 60);
+  const secs = (safe % 60).toFixed(3);
+  return `${minutes}:${secs.padStart(6, '0')}`;
 }
 
-function formatGap(gap) {
-  if (gap == null) return 'DNF';
-  if (gap === 0) return 'LEADER';
-  return `+${gap.toFixed(3)}`;
+function formatPercent(value, digits = 1) {
+  return `${toNumber(value).toFixed(digits)}%`;
+}
+
+function formatSigned(value, digits = 3) {
+  const safe = toNumber(value);
+  return `${safe >= 0 ? '+' : ''}${safe.toFixed(digits)}`;
+}
+
+function formatGap(result) {
+  if (!result || result.status === 'dnf') return 'DNF';
+  if (toNumber(result.gap_to_leader) === 0 || result.position === 1) return 'LEADER';
+  return `+${toNumber(result.gap_to_leader).toFixed(3)}`;
+}
+
+function artifactUrl(filename) {
+  return apiUrl(`/output/${encodeURIComponent(filename)}`);
+}
+
+function normalizeScenarioNames(value) {
+  const rawValues = Array.isArray(value) ? value : String(value || '').split(',');
+  const normalized = rawValues
+    .map(item => String(item || '').trim().toLowerCase())
+    .filter(Boolean);
+  const allowed = new Set(SCENARIO_OPTIONS.map(option => option.key));
+  const selected = new Set(normalized.filter(item => allowed.has(item)));
+  return SCENARIO_OPTIONS
+    .map(option => option.key)
+    .filter(key => selected.has(key));
+}
+
+function serializeScenarioNames(value) {
+  return normalizeScenarioNames(value).join(',');
+}
+
+function buildScenarioChipMarkup() {
+  return SCENARIO_OPTIONS.map(option => `
+    <button
+      class="scenario-chip"
+      type="button"
+      data-scenario-chip="${option.key}"
+      style="--scenario-accent:${option.accent}"
+    >
+      <strong>${option.label}</strong>
+      <small>${option.note}</small>
+    </button>
+  `).join('');
+}
+
+function buildScenarioPresetMarkup(includeIds = false) {
+  return SCENARIO_PRESETS.map(preset => `
+    <button
+      class="scenario-preset"
+      type="button"
+      ${includeIds ? `id="${preset.id}"` : ''}
+      data-scenario-preset="${preset.values.join(',')}"
+    >${preset.label}</button>
+  `).join('');
+}
+
+function describeScenarioSelection(names) {
+  const labels = names.map(name => WEATHER_LABELS[name] || titleFromKey(name));
+  if (!labels.length) return 'Focus weather will seed the next backend run.';
+  if (labels.length === 1) return `Single-condition run: ${labels[0]}.`;
+  if (labels.length === 2) return `${labels[0]} vs ${labels[1]} comparison loaded.`;
+  return `${labels.length}-scenario sweep: ${labels.join(' • ')}.`;
+}
+
+function getSelectedScenarioNames() {
+  const explicit = normalizeScenarioNames(scenarioSetInput.value);
+  if (explicit.length) return explicit;
+  return [WEATHER_TO_SCENARIO[weatherSelectEl.value] || 'dry'];
+}
+
+function syncScenarioControls() {
+  const selected = getSelectedScenarioNames();
+  const serialized = serializeScenarioNames(selected);
+
+  document.querySelectorAll('[data-scenario-chip]').forEach(button => {
+    button.classList.toggle('active', selected.includes(button.dataset.scenarioChip));
+  });
+  document.querySelectorAll('[data-scenario-preset]').forEach(button => {
+    button.classList.toggle('active', button.dataset.scenarioPreset === serialized);
+  });
+
+  ['scenarioSetSummary', 'compareScenarioSummary'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.textContent = describeScenarioSelection(selected);
+    }
+  });
+}
+
+function setScenarioSelection(value, options = {}) {
+  const { persist = true, syncFocus = false } = options;
+  const selected = normalizeScenarioNames(value);
+  const fallback = WEATHER_TO_SCENARIO[weatherSelectEl.value] || 'dry';
+  const finalSelection = selected.length ? selected : [fallback];
+  scenarioSetInput.value = serializeScenarioNames(finalSelection);
+  let nextFocus = null;
+
+  if (syncFocus && !finalSelection.includes(WEATHER_TO_SCENARIO[weatherSelectEl.value])) {
+    nextFocus = finalSelection[0];
+    weatherSelectEl.value = SCENARIO_TO_WEATHER[nextFocus] || weatherSelectEl.value;
+  }
+
+  syncScenarioControls();
+
+  if (persist) {
+    saveUiPrefs();
+  }
+
+  if (nextFocus && simResults) {
+    if (simResults.scenarios?.[nextFocus]) {
+      renderRace();
+      renderQualifying();
+      renderStats();
+    } else {
+      setStatusMessage(
+        `Focus updated to ${WEATHER_LABELS[nextFocus] || titleFromKey(nextFocus)} for the next run. Current results still reflect the last backend payload.`,
+        'success'
+      );
+    }
+  }
+}
+
+function toggleScenarioSelection(name) {
+  const current = getSelectedScenarioNames();
+  if (current.includes(name)) {
+    if (current.length === 1) return;
+    setScenarioSelection(current.filter(item => item !== name));
+    return;
+  }
+  setScenarioSelection([...current, name]);
+}
+
+function renderScenarioControlMounts() {
+  const headerSelector = document.getElementById('headerScenarioSelector');
+  const headerPresets = document.getElementById('headerScenarioPresets');
+
+  if (headerSelector && !headerSelector.innerHTML.trim()) {
+    headerSelector.innerHTML = buildScenarioChipMarkup();
+  }
+  if (headerPresets && !headerPresets.innerHTML.trim()) {
+    headerPresets.innerHTML = buildScenarioPresetMarkup();
+  }
+
+  syncScenarioControls();
+}
+
+function getScenarioSetValue() {
+  return serializeScenarioNames(getSelectedScenarioNames());
+}
+
+function getScenarioEntry() {
+  if (!simResults || !simResults.scenarios) return null;
+  const focused = WEATHER_TO_SCENARIO[weatherSelectEl.value];
+  const names = Object.keys(simResults.scenarios);
+  const name = focused && simResults.scenarios[focused] ? focused : names[0];
+  return name ? { name, data: simResults.scenarios[name] } : null;
+}
+
+function getTrackDetails() {
+  return simResults?.track_details || {};
+}
+
+function renderBarRows(items, getLabel, getValue, getColor, formatValue, explicitMax) {
+  const values = items.map(item => toNumber(getValue(item)));
+  const maxValue = explicitMax != null ? explicitMax : Math.max(...values, 100);
+
+  return items.map(item => {
+    const value = toNumber(getValue(item));
+    const width = Math.max(0, Math.min(100, (value / Math.max(maxValue, 0.0001)) * 100));
+    return `
+      <div class="stat-bar-row">
+        <div class="stat-bar-label" style="color:${getColor(item)}">${getLabel(item)}</div>
+        <div class="stat-bar-track">
+          <div class="stat-bar-fill" data-width="${width}" style="background:${getColor(item)};opacity:0.85"></div>
+        </div>
+        <div class="stat-bar-value">${formatValue(value)}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderArtifacts(artifacts) {
+  const entries = [
+    ['Interactive report', artifacts.report_html],
+    ['Statistics JSON', artifacts.statistics_json],
+    ['Race CSV', artifacts.race_csv],
+    ['Qualifying CSV', artifacts.qualifying_csv],
+    ['Runs index', artifacts.runs_index_html],
+  ].filter(([, file]) => Boolean(file));
+
+  if (!entries.length) {
+    return '<div class="inline-note">No export artifacts were reported for this run.</div>';
+  }
+
+  return `
+    <div class="backend-links">
+      ${entries.map(([label, file]) => (
+        `<a class="backend-link" href="${artifactUrl(file)}" target="_blank" rel="noreferrer">${label}</a>`
+      )).join('')}
+    </div>
+  `;
+}
+
+function renderRecentRuns(runs) {
+  if (!runs.length) {
+    return '<div class="inline-note">No recent backend runs available yet.</div>';
+  }
+
+  return `
+    <div class="stats-table-wrap">
+      <table class="metrics-table">
+        <thead>
+          <tr>
+            <th>Track</th>
+            <th>Simulations</th>
+            <th>Seed</th>
+            <th>Files</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${runs.slice(0, 5).map(run => {
+            const files = run.files || {};
+            const links = [
+              files.report_html ? `<a href="${artifactUrl(files.report_html)}" target="_blank" rel="noreferrer">report</a>` : '',
+              files.statistics_json ? `<a href="${artifactUrl(files.statistics_json)}" target="_blank" rel="noreferrer">stats</a>` : '',
+              files.race_csv ? `<a href="${artifactUrl(files.race_csv)}" target="_blank" rel="noreferrer">race</a>` : '',
+            ].filter(Boolean).join(' · ');
+
+            return `
+              <tr>
+                <td>${run.track || '-'}</td>
+                <td>${run.num_simulations ?? '-'}</td>
+                <td>${run.seed ?? '-'}</td>
+                <td>${links || '-'}</td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderRatingsTable(ratings) {
+  const drivers = (ratings?.drivers || []).slice(0, 10);
+  if (!drivers.length) {
+    return '<div class="inline-note">No ratings snapshot returned from the backend.</div>';
+  }
+
+  return `
+    <div class="stats-table-wrap">
+      <table class="metrics-table">
+        <thead>
+          <tr>
+            <th>Driver</th>
+            <th>Skill</th>
+            <th>Cons</th>
+            <th>Wet</th>
+            <th>OTK</th>
+            <th>Tire</th>
+            <th>Sample</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${drivers.map(driver => `
+            <tr>
+              <td style="color:${getTeamStyle(driver.team_key).color}">${driver.id}</td>
+              <td>${toNumber(driver.skill).toFixed(3)}</td>
+              <td>${toNumber(driver.consistency).toFixed(3)}</td>
+              <td>${toNumber(driver.wet_skill).toFixed(3)}</td>
+              <td>${toNumber(driver.overtaking).toFixed(3)}</td>
+              <td>${toNumber(driver.tire_management).toFixed(3)}</td>
+              <td>${driver.sample_size ?? '-'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderCarTable(ratings) {
+  const cars = ratings?.cars || [];
+  if (!cars.length) {
+    return '<div class="inline-note">No backend car snapshot returned for this run.</div>';
+  }
+
+  return `
+    <div class="stats-table-wrap">
+      <table class="metrics-table">
+        <thead>
+          <tr>
+            <th>Team</th>
+            <th>Pace</th>
+            <th>Rel</th>
+            <th>Wet</th>
+            <th>Tire Deg</th>
+            <th>Pit Avg</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${cars.map(car => `
+            <tr>
+              <td style="color:${getTeamStyle(car.team_key).color}">${titleFromKey(car.team_key)}</td>
+              <td>${toNumber(car.base_pace).toFixed(3)}</td>
+              <td>${toNumber(car.reliability).toFixed(3)}</td>
+              <td>${toNumber(car.wet_performance).toFixed(3)}</td>
+              <td>${toNumber(car.tire_degradation_factor).toFixed(3)}</td>
+              <td>${toNumber(car.pit_stop_avg).toFixed(2)}s</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderReliabilityTable(scenario) {
+  const rates = scenario.mechanical_failure_component_rates || {};
+  const suggestions = scenario.mechanical_tuning_suggestions || {};
+  const adjustments = scenario.reliability_adjustment_recommendations || {};
+  const components = RELIABILITY_COMPONENTS.filter(component => (
+    component in rates || component in suggestions || component in adjustments
+  ));
+
+  if (!components.length) {
+    return '<div class="inline-note">No mechanical failure calibration data was returned for this run.</div>';
+  }
+
+  return `
+    <div class="stats-table-wrap">
+      <table class="metrics-table">
+        <thead>
+          <tr>
+            <th>Component</th>
+            <th>Observed Share</th>
+            <th>Suggestion</th>
+            <th>Adjustment</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${components.map(component => `
+            <tr>
+              <td>${titleFromKey(component)}</td>
+              <td>${formatPercent(toNumber(rates[component]) * 100, 1)}</td>
+              <td>${titleFromKey(suggestions[component] || 'n/a')}</td>
+              <td>${formatSigned(adjustments[component] || 0, 3)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderHeatmap(drivers) {
+  const positions = Array.from({ length: 20 }, (_, index) => index + 1);
+  let html = '<div class="heatmap" style="grid-template-columns: 56px repeat(20, 1fr);">';
+
+  html += '<div></div>';
+  positions.forEach(position => {
+    html += `<div class="heatmap-pos-header">P${position}</div>`;
+  });
+
+  drivers.forEach(driver => {
+    const team = getTeamStyle(driver.team_key);
+    html += `<div class="heatmap-label" style="color:${team.color}">${driver.id}</div>`;
+
+    positions.forEach(position => {
+      const distribution = driver.position_distribution || {};
+      const pct = toNumber(distribution[position] ?? distribution[String(position)]);
+      const intensity = Math.min(pct / 40, 1);
+      const bg = intensity > 0
+        ? `rgba(${hexToRgb(team.color)}, ${intensity * 0.8 + 0.05})`
+        : 'rgba(255,255,255,0.02)';
+      html += `
+        <div
+          class="heatmap-cell"
+          style="background:${bg}"
+          title="${driver.id} P${position}: ${pct.toFixed(1)}%"
+        >${pct >= 1 ? pct.toFixed(0) : ''}</div>
+      `;
+    });
+  });
+
+  html += '</div>';
+  return html;
+}
+
+function hexToRgb(hex) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `${r},${g},${b}`;
+}
+
+function saveUiPrefs() {
+  const payload = {
+    focusScenario: weatherSelectEl.value,
+    scenarioSet: getScenarioSetValue(),
+  };
+  localStorage.setItem(PREFS_KEY, JSON.stringify(payload));
+}
+
+function loadUiPrefs() {
+  const raw = localStorage.getItem(PREFS_KEY);
+  if (!raw) return;
+  try {
+    const prefs = JSON.parse(raw);
+    if (typeof prefs.focusScenario === 'string') {
+      weatherSelectEl.value = prefs.focusScenario;
+    }
+    if (typeof prefs.scenarioSet === 'string') {
+      scenarioSetInput.value = serializeScenarioNames(prefs.scenarioSet);
+    }
+  } catch {
+    // ignore malformed UI prefs
+  }
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach(button => {
+    button.classList.toggle('active', button.dataset.tab === tab);
+  });
+  document.querySelectorAll('.tab-panel').forEach(panel => {
+    panel.classList.toggle('active', panel.id === `panel-${tab}`);
+  });
+}
+
+async function checkBackend() {
+  updateBadge('loading', 'Checking backend...');
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const response = await fetch(apiUrl('/api/health'), { signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    backendConnected = true;
+    updateBadge('live', 'Backend connected');
+    setStatusMessage(
+      'Backend-backed mode active. This frontend now renders Python simulation output instead of running its own model.',
+      'success'
+    );
+    return true;
+  } catch (error) {
+    backendConnected = false;
+    updateBadge('', 'Backend required');
+    setStatusMessage(
+      'Backend unavailable. Start python -m f1sim.web.server and rerun. Local browser simulation is disabled.',
+      'error'
+    );
+    return false;
+  }
+}
+
+async function fetchRecentRuns() {
+  try {
+    const response = await fetch(apiUrl('/api/runs'));
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    recentRuns = data.runs || [];
+  } catch (error) {
+    recentRuns = [];
+  }
+  return recentRuns;
+}
+
+function buildRunPayload() {
+  const trackId = document.getElementById('trackSelect').value;
+  const workersValue = document.getElementById('workersInput').value;
+
+  return {
+    year: parseInt(document.getElementById('yearSelect').value, 10) || 2025,
+    race: TRACK_TO_RACE[trackId] || 'Bahrain',
+    simulations: parseInt(document.getElementById('simCount').value, 10) || 100,
+    scenarios: getScenarioSetValue(),
+    seed: parseInt(document.getElementById('seedInput').value, 10) || 42,
+    parallel: document.getElementById('parallelSelect').value === 'true',
+    max_workers: workersValue ? parseInt(workersValue, 10) : null,
+  };
+}
+
+async function runSimulation() {
+  const payload = buildRunPayload();
+  const button = document.getElementById('btnRun');
+  const overlay = document.getElementById('simOverlay');
+  const simText = document.querySelector('.sim-text');
+  const simProgress = document.getElementById('simProgress');
+  const scenarioLabel = normalizeScenarioNames(payload.scenarios)
+    .map(name => WEATHER_LABELS[name] || titleFromKey(name))
+    .join(' / ') || titleFromKey(payload.scenarios);
+
+  button.classList.add('running');
+  overlay.classList.add('active');
+  button.textContent = 'Running...';
+  simText.textContent = 'Running backend simulation';
+  simProgress.textContent = `${payload.year} ${payload.race} · ${scenarioLabel}`;
+  updateBadge('loading', `Running ${payload.year} ${payload.race}...`);
+
+  try {
+    const response = await fetch(apiUrl('/api/run'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const raw = await response.text();
+    let data = {};
+    try {
+      data = raw ? JSON.parse(raw) : {};
+    } catch {
+      data = { detail: raw };
+    }
+
+    if (!response.ok) {
+      throw new Error(data.detail || `HTTP ${response.status}`);
+    }
+
+    simResults = data;
+    localStorage.setItem(LAST_PAYLOAD_KEY, JSON.stringify(payload));
+    const returnedScenarios = Object.keys(data.scenarios || {});
+    if (returnedScenarios.length && !returnedScenarios.includes(WEATHER_TO_SCENARIO[weatherSelectEl.value])) {
+      weatherSelectEl.value = SCENARIO_TO_WEATHER[returnedScenarios[0]] || weatherSelectEl.value;
+    }
+    saveUiPrefs();
+    backendConnected = true;
+    updateBadge('live', `FastF1 ${data.year} ${data.race}`);
+    setStatusMessage(
+      `Backend run complete for ${data.year} ${data.race}. Rendering ${returnedScenarios.length} backend scenario${returnedScenarios.length === 1 ? '' : 's'} from Python output.`,
+      'success'
+    );
+    await fetchRecentRuns();
+    renderAll();
+  } catch (error) {
+    backendConnected = false;
+    updateBadge('', 'Backend error');
+    setStatusMessage(`Run failed: ${error.message}`, 'error');
+  } finally {
+    overlay.classList.remove('active');
+    button.classList.remove('running');
+    button.textContent = 'Run Simulation';
+  }
 }
 
 function renderAll() {
   renderRace();
   renderQualifying();
   renderStats();
+  renderScenarioLab();
 }
 
 function renderRace() {
   const container = document.getElementById('raceContent');
   const empty = document.getElementById('emptyRace');
-  if (!simResults) return;
+  const scenarioEntry = getScenarioEntry();
+  if (!scenarioEntry) return;
+
+  const { name, data: scenario } = scenarioEntry;
+  const race = scenario.sample_race || [];
+  const track = getTrackDetails();
+  const weather = scenario.weather || {};
+  const topTeam = Object.entries(scenario.team_projection || {})[0];
+  const fastestResult = race
+    .filter(row => row.status !== 'dnf' && toNumber(row.fastest_lap, 0) > 0)
+    .sort((a, b) => toNumber(a.fastest_lap) - toNumber(b.fastest_lap))[0];
 
   empty.style.display = 'none';
   container.style.display = 'block';
 
-  // Show the first simulation's race result as the "sample" race
-  const race = simResults.allRaces[0];
-  const track = simResults.track;
+  if (!race.length) {
+    container.innerHTML = '<div class="inline-note">The backend did not return a sample race for this run.</div>';
+    return;
+  }
 
-  const weatherLabels = { DRY: 'Dry', CLOUDY: 'Cloudy', LIGHT_RAIN: 'Light Rain', HEAVY_RAIN: 'Heavy Rain' };
-  const weatherClass = simResults.weather.toLowerCase().replace('_', '-');
-
-  // Find fastest lap
-  let fastestLapTime = Infinity;
-  let fastestLapDriver = '';
-  race.forEach(r => {
-    if (r.fastestLap && r.fastestLap < fastestLapTime) {
-      fastestLapTime = r.fastestLap;
-      fastestLapDriver = r.driver.id;
-    }
-  });
+  const pills = [
+    'FastF1 data',
+    simResults.historical_grid_used ? 'Historical grid' : 'Simulated qualifying',
+    simResults.request?.parallel ? 'Parallel execution' : 'Single-core execution',
+    simResults.request?.max_workers ? `${simResults.request.max_workers} worker cap` : 'Auto workers',
+    scenario.simulations_per_second ? `${toNumber(scenario.simulations_per_second).toFixed(1)} sims/s` : '',
+  ].filter(Boolean);
 
   let html = `
     <div class="race-header">
       <div>
-        <div class="race-title">${track.name}</div>
-        <div class="race-meta">${track.laps} laps &middot; Sample race from ${simResults.n} simulations</div>
+        <div class="race-title">${simResults.track}</div>
+        <div class="race-meta">${track.total_laps || '--'} laps &middot; ${scenario.num_simulations} simulations &middot; seed ${scenario.seed}</div>
+        <div class="race-meta">${track.country || 'Unknown country'} &middot; Scenario ${titleFromKey(name)}${topTeam ? ` &middot; Top constructor ${topTeam[0]}` : ''}</div>
+        <div class="meta-pills">${pills.map(pill => `<div class="meta-pill">${pill}</div>`).join('')}</div>
       </div>
       <div class="weather-indicator">
-        <div class="weather-dot ${weatherClass}"></div>
-        ${weatherLabels[simResults.weather]}
+        <div class="weather-dot ${String(weather.condition || 'dry').replace('_', '-')}"></div>
+        ${WEATHER_LABELS[weather.condition] || titleFromKey(weather.condition || 'dry')}
       </div>
     </div>
     <div class="timing-header">
@@ -1366,24 +2106,25 @@ function renderRace() {
     <div class="timing-tower">
   `;
 
-  race.forEach((r, i) => {
-    const team = TEAMS[r.driver.team];
-    const isPodium = r.position <= 3 && !r.dnf;
-    const isFastest = r.driver.id === fastestLapDriver;
+  race.forEach((result, index) => {
+    const team = getTeamStyle(result.team_key || result.team);
+    const finished = result.status !== 'dnf';
+    const isPodium = finished && result.position <= 3;
+    const isFastest = fastestResult && fastestResult.driver_id === result.driver_id;
 
     html += `
-      <div class="driver-row ${r.dnf ? 'dnf' : ''} ${isPodium ? 'podium' : ''}" style="animation-delay:${i * 0.04}s">
-        <div class="pos">${r.position}</div>
+      <div class="driver-row ${finished ? '' : 'dnf'} ${isPodium ? 'podium' : ''}" style="animation-delay:${index * 0.04}s">
+        <div class="pos">${result.position}</div>
         <div class="team-stripe" style="background:${team.color}"></div>
-        <div class="driver-code">${r.driver.id}</div>
-        <div class="driver-name">${r.driver.name}</div>
-        <div class="gap">${formatGap(r.gap)}</div>
-        <div class="fastest-lap ${isFastest ? 'is-fastest' : ''}">${r.fastestLap ? formatTime(r.fastestLap) : '--'}</div>
-        <div class="pits">${r.pitStops}</div>
+        <div class="driver-code">${result.driver_id}</div>
+        <div class="driver-name">${result.driver_name}</div>
+        <div class="gap">${formatGap(result)}</div>
+        <div class="fastest-lap ${isFastest ? 'is-fastest' : ''}">${formatTime(result.fastest_lap)}</div>
+        <div class="pits">${result.pit_stops}</div>
         <div class="tire-strategy">
-          ${r.strategy.map(t => `<div class="tire-dot ${t}">${TIRE_LABELS[t]}</div>`).join('')}
+          ${(result.strategy || []).map(compound => `<div class="tire-dot ${compound}">${TIRE_LABELS[compound] || compound.slice(0, 1).toUpperCase()}</div>`).join('')}
         </div>
-        <div class="status ${r.dnf ? 'dnf-status' : 'finished'}">${r.dnf ? r.dnfReason : 'Finished'}</div>
+        <div class="status ${finished ? 'finished' : 'dnf-status'}">${finished ? 'Finished' : (result.dnf_reason || 'DNF')}</div>
       </div>
     `;
   });
@@ -1395,19 +2136,31 @@ function renderRace() {
 function renderQualifying() {
   const container = document.getElementById('qualiContent');
   const empty = document.getElementById('emptyQuali');
-  if (!simResults) return;
+  const scenarioEntry = getScenarioEntry();
+  if (!scenarioEntry) return;
+
+  const { data: scenario } = scenarioEntry;
+  const qualifying = scenario.sample_qualifying || [];
+  const usesHistoricalGrid = Boolean(simResults.historical_grid_used || scenario.qualifying_mode === 'historical_grid');
+  const bestQ3 = Math.min(
+    ...qualifying
+      .map(row => toNumber(row.q3_time, NaN))
+      .filter(value => Number.isFinite(value) && value > 0)
+  );
 
   empty.style.display = 'none';
   container.style.display = 'block';
 
-  const quali = simResults.allQuali[0];
-  const track = simResults.track;
+  if (!qualifying.length) {
+    container.innerHTML = '<div class="inline-note">The backend did not return qualifying or grid data for this run.</div>';
+    return;
+  }
 
   let html = `
     <div class="race-header">
       <div>
-        <div class="race-title">${track.name} &mdash; Qualifying</div>
-        <div class="race-meta">Sample qualifying session</div>
+        <div class="race-title">${simResults.track} &mdash; ${usesHistoricalGrid ? 'Starting Grid' : 'Qualifying'}</div>
+        <div class="race-meta">${usesHistoricalGrid ? 'FastF1 historical qualifying order used as backend starting grid' : 'Sample backend qualifying session'}</div>
       </div>
     </div>
     <div class="quali-header">
@@ -1416,27 +2169,29 @@ function renderQualifying() {
     </div>
   `;
 
-  // Find best Q3 time
-  const bestQ3 = Math.min(...quali.filter(q => !q.eliminatedQ1 && !q.eliminatedQ2).map(q => q.q3));
-
-  quali.forEach((q, i) => {
-    const team = TEAMS[q.driver.team];
-    const elim = q.eliminatedQ1 || q.eliminatedQ2;
+  qualifying.forEach((result, index) => {
+    const team = getTeamStyle(result.team_key || result.team);
+    const eliminated = Boolean(result.eliminated_in);
+    const isBest = Number.isFinite(bestQ3) && toNumber(result.q3_time, NaN) === bestQ3;
 
     html += `
-      <div class="quali-row ${elim ? 'eliminated' : ''}" style="animation-delay:${i * 0.04}s">
-        <div class="pos">${q.position}</div>
+      <div class="quali-row ${eliminated ? 'eliminated' : ''}" style="animation-delay:${index * 0.04}s">
+        <div class="pos">${result.position}</div>
         <div class="team-stripe" style="background:${team.color}"></div>
-        <div class="driver-code">${q.driver.id}</div>
-        <div class="driver-name">${q.driver.name}</div>
-        <div class="quali-time">${formatTime(q.q1)}</div>
-        <div class="quali-time ${q.eliminatedQ1 ? 'no-time' : ''}">${q.eliminatedQ1 ? '--' : formatTime(q.q2)}</div>
-        <div class="quali-time ${(q.eliminatedQ1 || q.eliminatedQ2) ? 'no-time' : ''} ${(!q.eliminatedQ1 && !q.eliminatedQ2 && q.q3 === bestQ3) ? 'best' : ''}">
-          ${(q.eliminatedQ1 || q.eliminatedQ2) ? '--' : formatTime(q.q3)}
+        <div class="driver-code">${result.driver_id}</div>
+        <div class="driver-name">${result.driver_name}</div>
+        <div class="quali-time">${formatTime(result.q1_time)}</div>
+        <div class="quali-time ${result.eliminated_in === 'Q1' ? 'no-time' : ''}">${formatTime(result.q2_time)}</div>
+        <div class="quali-time ${usesHistoricalGrid || result.eliminated_in ? 'no-time' : ''} ${isBest ? 'best' : ''}">
+          ${formatTime(result.q3_time)}
         </div>
       </div>
     `;
   });
+
+  if (usesHistoricalGrid) {
+    html += '<div class="inline-note">This run used the historical FastF1 grid, so the row order is authoritative while the timing columns are intentionally blank.</div>';
+  }
 
   container.innerHTML = html;
 }
@@ -1444,166 +2199,609 @@ function renderQualifying() {
 function renderStats() {
   const container = document.getElementById('statsContent');
   const empty = document.getElementById('emptyStats');
-  if (!simResults) return;
+  const scenarioEntry = getScenarioEntry();
+  if (!scenarioEntry) return;
+
+  const { name, data: scenario } = scenarioEntry;
+  const track = getTrackDetails();
+  const ratings = simResults.ratings || {};
+  const drivers = Object.entries(scenario.driver_statistics || {})
+    .map(([id, stats]) => ({ id, ...stats }))
+    .sort((a, b) => toNumber(b.win_rate) - toNumber(a.win_rate));
+  const topTeam = Object.entries(scenario.team_projection || {})
+    .map(([team, points]) => ({ team, team_key: normalizeTeamKey(team), points: toNumber(points) }))
+    .sort((a, b) => b.points - a.points)[0];
+  const eventRates = scenario.event_rates || {};
 
   empty.style.display = 'none';
   container.style.display = 'block';
 
-  const { stats, n, track } = simResults;
+  if (!drivers.length) {
+    container.innerHTML = '<div class="inline-note">The backend did not return aggregate driver statistics for this run.</div>';
+    return;
+  }
 
-  // Sort drivers by win rate
-  const sorted = DRIVERS.slice().sort((a, b) => stats[b.id].wins - stats[a.id].wins);
-  const top10 = sorted.slice(0, 10);
+  const topWinner = drivers[0];
+  const teamProjection = Object.entries(scenario.team_projection || {})
+    .map(([team, points]) => ({ team, team_key: normalizeTeamKey(team), points: toNumber(points) }))
+    .sort((a, b) => b.points - a.points);
 
-  // Summary cards
-  const topWinner = sorted[0];
-  const highestDNF = sorted.reduce((max, d) => stats[d.id].dnfs > stats[max.id].dnfs ? d : max, sorted[0]);
-  const avgDNFs = sorted.reduce((sum, d) => sum + stats[d.id].dnfs, 0) / sorted.length;
-
-  let html = `
+  const html = `
     <div class="race-header">
       <div>
-        <div class="race-title">${track.name} &mdash; Statistics</div>
-        <div class="race-meta">${n} Monte Carlo simulations</div>
+        <div class="race-title">${simResults.track} &mdash; Backend Statistics</div>
+        <div class="race-meta">${scenario.num_simulations} simulations &middot; ${titleFromKey(name)} &middot; ${track.drs_zones || 0} DRS zones</div>
       </div>
     </div>
 
     <div class="summary-strip">
       <div class="summary-card">
-        <div class="summary-value" style="color:${TEAMS[topWinner.team].color}">${topWinner.id}</div>
+        <div class="summary-value" style="color:${getTeamStyle(topWinner.team_key).color}">${topWinner.id}</div>
         <div class="summary-label">Most Likely Winner</div>
       </div>
       <div class="summary-card">
-        <div class="summary-value">${(stats[topWinner.id].wins / n * 100).toFixed(1)}%</div>
+        <div class="summary-value">${formatPercent(topWinner.win_rate)}</div>
         <div class="summary-label">Top Win Probability</div>
       </div>
       <div class="summary-card">
-        <div class="summary-value">${(stats[topWinner.id].podiums / n * 100).toFixed(1)}%</div>
-        <div class="summary-label">Top Podium Rate</div>
+        <div class="summary-value" style="font-size:1.2rem;color:${getTeamStyle(topTeam?.team_key).color}">${topTeam ? titleFromKey(topTeam.team_key) : '--'}</div>
+        <div class="summary-label">Top Constructor Projection</div>
       </div>
       <div class="summary-card">
-        <div class="summary-value">${avgDNFs.toFixed(1)}</div>
-        <div class="summary-label">Avg DNFs per Driver</div>
+        <div class="summary-value">${formatPercent(toNumber(eventRates.safety_car_race_rate) * 100)}</div>
+        <div class="summary-label">Safety Car Race Rate</div>
       </div>
     </div>
 
     <div class="stats-grid">
       <div class="stat-card">
         <div class="stat-card-title">Win Probability</div>
-        ${top10.map(d => {
-          const pct = stats[d.id].wins / n * 100;
-          return `
-            <div class="stat-bar-row">
-              <div class="stat-bar-label" style="color:${TEAMS[d.team].color}">${d.id}</div>
-              <div class="stat-bar-track">
-                <div class="stat-bar-fill" data-width="${pct}" style="background:${TEAMS[d.team].color};opacity:0.85"></div>
-              </div>
-              <div class="stat-bar-value">${pct.toFixed(1)}%</div>
-            </div>`;
-        }).join('')}
+        ${renderBarRows(
+          drivers.slice(0, 10),
+          driver => driver.id,
+          driver => driver.win_rate,
+          driver => getTeamStyle(driver.team_key).color,
+          value => formatPercent(value)
+        )}
       </div>
 
       <div class="stat-card">
-        <div class="stat-card-title">Podium Rate</div>
-        ${top10.map(d => {
-          const pct = stats[d.id].podiums / n * 100;
-          return `
-            <div class="stat-bar-row">
-              <div class="stat-bar-label" style="color:${TEAMS[d.team].color}">${d.id}</div>
-              <div class="stat-bar-track">
-                <div class="stat-bar-fill" data-width="${pct}" style="background:${TEAMS[d.team].color};opacity:0.85"></div>
-              </div>
-              <div class="stat-bar-value">${pct.toFixed(1)}%</div>
-            </div>`;
-        }).join('')}
+        <div class="stat-card-title">Top 10 Finish Rate</div>
+        ${renderBarRows(
+          drivers.slice(0, 10),
+          driver => driver.id,
+          driver => driver.top_10_finish_probability,
+          driver => getTeamStyle(driver.team_key).color,
+          value => formatPercent(value)
+        )}
       </div>
 
       <div class="stat-card">
-        <div class="stat-card-title">Average Points</div>
-        ${top10.map(d => {
-          const avgPts = stats[d.id].totalPoints / n;
-          const maxPts = 25;
-          return `
-            <div class="stat-bar-row">
-              <div class="stat-bar-label" style="color:${TEAMS[d.team].color}">${d.id}</div>
-              <div class="stat-bar-track">
-                <div class="stat-bar-fill" data-width="${avgPts / maxPts * 100}" style="background:${TEAMS[d.team].color};opacity:0.85"></div>
-              </div>
-              <div class="stat-bar-value">${avgPts.toFixed(1)}</div>
-            </div>`;
-        }).join('')}
+        <div class="stat-card-title">Constructor Projection</div>
+        ${renderBarRows(
+          teamProjection,
+          team => TEAM_SHORT_LABELS[team.team_key] || 'TEAM',
+          team => team.points,
+          team => getTeamStyle(team.team_key).color,
+          value => toNumber(value).toFixed(1),
+          Math.max(...teamProjection.map(team => team.points), 1)
+        )}
       </div>
 
       <div class="stat-card">
-        <div class="stat-card-title">DNF Rate</div>
-        ${sorted.slice().sort((a,b) => stats[b.id].dnfs - stats[a.id].dnfs).slice(0,10).map(d => {
-          const pct = stats[d.id].dnfs / n * 100;
-          return `
-            <div class="stat-bar-row">
-              <div class="stat-bar-label" style="color:${TEAMS[d.team].color}">${d.id}</div>
-              <div class="stat-bar-track">
-                <div class="stat-bar-fill" data-width="${pct * 3}" style="background:var(--f1-red);opacity:0.7"></div>
-              </div>
-              <div class="stat-bar-value">${pct.toFixed(1)}%</div>
-            </div>`;
-        }).join('')}
+        <div class="stat-card-title">Event Model</div>
+        <div class="detail-list">
+          <div class="detail-row"><span>Red flag race rate</span><span>${formatPercent(toNumber(eventRates.red_flag_race_rate) * 100)}</span></div>
+          <div class="detail-row"><span>Average safety cars</span><span>${toNumber(eventRates.avg_safety_cars).toFixed(2)}</span></div>
+          <div class="detail-row"><span>Average VSC</span><span>${toNumber(eventRates.avg_vsc).toFixed(2)}</span></div>
+          <div class="detail-row"><span>Average incidents</span><span>${toNumber(eventRates.avg_incidents).toFixed(2)}</span></div>
+          <div class="detail-row"><span>Base SC probability</span><span>${formatPercent(toNumber(track.safety_car_probability) * 100)}</span></div>
+          <div class="detail-row"><span>Weather variability</span><span>${formatPercent(toNumber(track.weather_variability) * 100)}</span></div>
+        </div>
       </div>
 
-      <!-- Position Distribution Heatmap -->
+      <div class="stat-card">
+        <div class="stat-card-title">Reliability Calibration</div>
+        ${renderReliabilityTable(scenario)}
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-card-title">Backend Ratings Snapshot</div>
+        ${renderRatingsTable(ratings)}
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-card-title">Car Baseline Snapshot</div>
+        ${renderCarTable(ratings)}
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-card-title">Exports & Run History</div>
+        ${renderArtifacts(scenario.artifacts || {})}
+        <div class="inline-note">Recent backend runs</div>
+        ${renderRecentRuns(recentRuns)}
+      </div>
+
       <div class="stat-card heatmap-container">
         <div class="stat-card-title">Position Distribution Heatmap</div>
-        ${renderHeatmap(sorted.slice(0, 12), stats, n)}
+        ${renderHeatmap(drivers.slice(0, 12))}
       </div>
     </div>
   `;
 
   container.innerHTML = html;
 
-  // Animate bars
   requestAnimationFrame(() => {
     setTimeout(() => {
       container.querySelectorAll('.stat-bar-fill').forEach(bar => {
-        bar.style.width = bar.dataset.width + '%';
+        bar.style.width = `${bar.dataset.width}%`;
       });
     }, 100);
   });
 }
 
-function renderHeatmap(drivers, stats, n) {
-  const positions = Array.from({ length: 20 }, (_, i) => i + 1);
+function renderScenarioCards(data) {
+  const scenarios = data.scenarios || {};
+  const names = Object.keys(scenarios);
+  const cardsEl = document.getElementById('compareCards');
+  if (!cardsEl) return;
 
-  let html = `<div class="heatmap" style="grid-template-columns: 50px repeat(20, 1fr);">`;
+  if (!names.length) {
+    cardsEl.innerHTML = '<div class="inline-note">No scenario data available for this run.</div>';
+    return;
+  }
 
-  // Header
-  html += `<div></div>`;
-  positions.forEach(p => {
-    html += `<div class="heatmap-pos-header">P${p}</div>`;
+  cardsEl.innerHTML = `
+    <div class="scenario-grid">
+      ${names.map(name => {
+        const scenario = scenarios[name] || {};
+        const top = (scenario.top3_win_probabilities || [])
+          .map(([driver, prob]) => `${driver}: ${toNumber(prob).toFixed(1)}%`)
+          .join('<br>');
+        const rates = scenario.event_rates || {};
+        const topTeam = Object.entries(scenario.team_projection || {})[0];
+
+        return `
+          <div class="scenario-card">
+            <div class="scenario-title">${titleFromKey(name)}</div>
+            <div class="detail-list">
+              <div class="detail-row"><span>Top 3 win</span><span>${top || '-'}</span></div>
+              <div class="detail-row"><span>Safety car</span><span>${formatPercent(toNumber(rates.safety_car_race_rate) * 100)}</span></div>
+              <div class="detail-row"><span>Red flag</span><span>${formatPercent(toNumber(rates.red_flag_race_rate) * 100)}</span></div>
+              <div class="detail-row"><span>Top team</span><span>${topTeam ? `${topTeam[0]} · ${toNumber(topTeam[1]).toFixed(1)}` : '-'}</span></div>
+              <div class="detail-row"><span>Runtime</span><span>${toNumber(scenario.runtime_seconds).toFixed(2)}s</span></div>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderScenarioWinChart(data) {
+  const scenarios = data.scenarios || {};
+  const names = Object.keys(scenarios);
+  const chartEl = document.getElementById('compareChart');
+  const topNEl = document.getElementById('compareTopN');
+  if (!chartEl || !topNEl) return;
+
+  if (!names.length) {
+    chartEl.innerHTML = '<div class="inline-note">No chart data available.</div>';
+    return;
+  }
+
+  const topN = Number(topNEl.value || '3');
+  const focusDrivers = (scenarios[names[0]].win_probabilities || []).slice(0, topN).map(([driver]) => driver);
+
+  chartEl.innerHTML = `
+    <div class="chart-wrap">
+      ${focusDrivers.map(driver => names.map(name => {
+        const row = (scenarios[name].win_probabilities || []).find(([id]) => id === driver);
+        const pct = row ? toNumber(row[1]) : 0;
+        return `
+          <div class="chart-row">
+            <div class="chart-label">${driver} · ${titleFromKey(name)} · ${pct.toFixed(1)}%</div>
+            <div class="bar-track">
+              <div class="bar-fill" style="width:${Math.max(0, Math.min(100, pct))}%"></div>
+            </div>
+          </div>
+        `;
+      }).join('')).join('')}
+    </div>
+  `;
+}
+
+function renderScenarioTrends(data) {
+  const scenarios = data.scenarios || {};
+  const names = Object.keys(scenarios);
+  const trendsEl = document.getElementById('compareTrends');
+  const metricEl = document.getElementById('compareTrendMetric');
+  const scaleEl = document.getElementById('compareTrendScale');
+  if (!trendsEl || !metricEl || !scaleEl) return;
+
+  if (!names.length) {
+    trendsEl.innerHTML = '<div class="inline-note">No trend data available.</div>';
+    return;
+  }
+
+  const metric = metricEl.value;
+  const scaleMode = scaleEl.value;
+  const values = names.map(name => {
+    const rates = scenarios[name].event_rates || {};
+    if (metric === 'rf') return toNumber(rates.red_flag_race_rate) * 100;
+    if (metric === 'inc') return toNumber(rates.avg_incidents);
+    return toNumber(rates.safety_car_race_rate) * 100;
+  });
+  const dynamicMax = Math.max(...values, 0.0001);
+
+  trendsEl.innerHTML = `
+    <div class="chart-wrap">
+      ${names.map(name => {
+        const rates = scenarios[name].event_rates || {};
+        let value = toNumber(rates.safety_car_race_rate) * 100;
+        let label = `SC ${value.toFixed(1)}%`;
+        let absoluteMax = 100;
+        if (metric === 'rf') {
+          value = toNumber(rates.red_flag_race_rate) * 100;
+          label = `RF ${value.toFixed(1)}%`;
+        } else if (metric === 'inc') {
+          value = toNumber(rates.avg_incidents);
+          label = `INC ${value.toFixed(2)}`;
+          absoluteMax = 5;
+        }
+
+        const maxValue = scaleMode === 'normalized' ? dynamicMax : absoluteMax;
+        const pct = Math.max(0, Math.min(100, (value / Math.max(maxValue, 0.0001)) * 100));
+
+        return `
+          <div class="chart-row">
+            <div class="chart-label">${titleFromKey(name)} · ${label}${scaleMode === 'normalized' ? ' · normalized' : ''}</div>
+            <div class="bar-track">
+              <div class="bar-fill" style="width:${pct}%"></div>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderDriverMatrix(data) {
+  const scenarios = data.scenarios || {};
+  const matrixEl = document.getElementById('compareMatrix');
+  const scenarioFilterEl = document.getElementById('compareScenarioFilter');
+  const driverFilterEl = document.getElementById('compareDriverFilter');
+  const sortEl = document.getElementById('compareMatrixSort');
+  const highlightEl = document.getElementById('compareMatrixHighlight');
+  const topNEl = document.getElementById('compareTopN');
+  if (!matrixEl || !scenarioFilterEl || !driverFilterEl || !sortEl || !highlightEl || !topNEl) return;
+
+  const scenarioFilter = scenarioFilterEl.value.trim().toLowerCase();
+  const names = Object.keys(scenarios).filter(name => !scenarioFilter || name.toLowerCase().includes(scenarioFilter));
+  if (!names.length) {
+    matrixEl.innerHTML = '<div class="inline-note">No scenarios match this filter.</div>';
+    return;
+  }
+
+  const topN = Number(topNEl.value || '3');
+  const driverFilter = driverFilterEl.value.trim().toLowerCase();
+  const drivers = new Set();
+  names.forEach(name => {
+    (scenarios[name].win_probabilities || []).slice(0, topN).forEach(([driver]) => drivers.add(driver));
   });
 
-  // Rows
-  drivers.forEach(d => {
-    html += `<div class="heatmap-label" style="color:${TEAMS[d.team].color}">${d.id}</div>`;
-    positions.forEach(p => {
-      const count = stats[d.id].positions[p] || 0;
-      const pct = count / n * 100;
-      const intensity = Math.min(pct / 40, 1);
-      const bg = intensity > 0
-        ? `rgba(${hexToRgb(TEAMS[d.team].color)}, ${intensity * 0.8 + 0.05})`
-        : 'rgba(255,255,255,0.02)';
-      html += `<div class="heatmap-cell" style="background:${bg}" title="${d.id} P${p}: ${pct.toFixed(1)}%">${pct >= 1 ? pct.toFixed(0) : ''}</div>`;
+  const rows = Array.from(drivers)
+    .filter(driver => !driverFilter || driver.toLowerCase().includes(driverFilter))
+    .map(driver => {
+      const values = names.map(name => {
+        const item = (scenarios[name].win_probabilities || []).find(([id]) => id === driver);
+        return item ? toNumber(item[1]) : 0;
+      });
+      return {
+        driver,
+        values,
+        best: Math.max(...values),
+        avg: values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1),
+      };
     });
+
+  if (!rows.length) {
+    matrixEl.innerHTML = '<div class="inline-note">No drivers match this filter.</div>';
+    return;
+  }
+
+  if (sortEl.value === 'best') {
+    rows.sort((a, b) => b.best - a.best);
+  } else if (sortEl.value === 'avg') {
+    rows.sort((a, b) => b.avg - a.avg);
+  } else {
+    rows.sort((a, b) => a.driver.localeCompare(b.driver));
+  }
+
+  matrixEl.innerHTML = `
+    <div class="matrix-wrap">
+      <table class="matrix-table">
+        <thead>
+          <tr><th>Driver</th>${names.map(name => `<th>${titleFromKey(name)}</th>`).join('')}</tr>
+        </thead>
+        <tbody>
+          ${rows.map(row => `
+            <tr>
+              <td><strong>${row.driver}</strong></td>
+              ${row.values.map(value => {
+                const highlight = highlightEl.checked && value === row.best && value > 0;
+                return `<td${highlight ? ' class="matrix-best"' : ''}>${value.toFixed(1)}%</td>`;
+              }).join('')}
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function exportScenarioMatrixCsv(data) {
+  const scenarios = data.scenarios || {};
+  const names = Object.keys(scenarios);
+  if (!names.length) return;
+
+  const topN = Number(document.getElementById('compareTopN')?.value || '3');
+  const drivers = new Set();
+  names.forEach(name => {
+    (scenarios[name].win_probabilities || []).slice(0, topN).forEach(([driver]) => drivers.add(driver));
   });
 
-  html += `</div>`;
-  return html;
+  const rows = Array.from(drivers).sort((a, b) => a.localeCompare(b)).map(driver => {
+    const values = names.map(name => {
+      const item = (scenarios[name].win_probabilities || []).find(([id]) => id === driver);
+      return item ? toNumber(item[1]).toFixed(1) : '0.0';
+    });
+    return [driver, ...values].join(',');
+  });
+
+  const csv = [['driver', ...names].join(','), ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'scenario_matrix.csv';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
-function hexToRgb(hex) {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `${r},${g},${b}`;
+function downloadResultJson(data) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'scenario_result.json';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
+
+function updateScenarioViews() {
+  if (!simResults) return;
+  renderScenarioCards(simResults);
+  renderScenarioWinChart(simResults);
+  renderScenarioTrends(simResults);
+  renderDriverMatrix(simResults);
+}
+
+function renderScenarioLab() {
+  if (!scenarioContentEl || !emptyScenariosEl) return;
+  if (!simResults) return;
+
+  emptyScenariosEl.style.display = 'none';
+  scenarioContentEl.style.display = 'block';
+
+  scenarioContentEl.innerHTML = `
+    <div class="comparison-toolbar">
+      <div class="control-group control-group-scenarios wide">
+        <label class="control-label">Scenario Set</label>
+        <div class="scenario-selector" id="compareScenarioSelector">
+          ${buildScenarioChipMarkup()}
+        </div>
+        <div class="scenario-preset-row">
+          ${buildScenarioPresetMarkup(true)}
+        </div>
+        <div class="scenario-summary" id="compareScenarioSummary"></div>
+      </div>
+      <div class="control-group">
+        <label class="control-label">Top Drivers</label>
+        <select id="compareTopN">
+          <option value="3">Top 3</option>
+          <option value="5" selected>Top 5</option>
+          <option value="8">Top 8</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label class="control-label">Trend Metric</label>
+        <select id="compareTrendMetric">
+          <option value="sc">Safety Car</option>
+          <option value="rf">Red Flag</option>
+          <option value="inc">Incidents</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label class="control-label">Scale</label>
+        <select id="compareTrendScale">
+          <option value="absolute">Absolute</option>
+          <option value="normalized">Normalized</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label class="control-label">Matrix Sort</label>
+        <select id="compareMatrixSort">
+          <option value="driver">Driver</option>
+          <option value="best">Best Win%</option>
+          <option value="avg">Average Win%</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label class="control-label">Driver Filter</label>
+        <input type="text" id="compareDriverFilter" value="" placeholder="e.g. VER">
+      </div>
+      <div class="control-group">
+        <label class="control-label">Scenario Filter</label>
+        <input type="text" id="compareScenarioFilter" value="" placeholder="e.g. rain">
+      </div>
+    </div>
+
+    <div class="compare-actions">
+      <button class="btn-simulate" type="button" id="rerunScenarioBtn">Run Current Set</button>
+      <button class="btn-simulate" type="button" id="downloadScenarioJsonBtn">Download JSON</button>
+      <button class="btn-simulate" type="button" id="downloadScenarioMatrixBtn">Export Matrix CSV</button>
+      <label class="control-label" style="display:flex;align-items:center;gap:0.45rem;margin:0 0 0 0.25rem;">
+        <input type="checkbox" id="compareMatrixHighlight" checked>
+        Highlight Best
+      </label>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card heatmap-container">
+        <div class="stat-card-title">Scenario Snapshot</div>
+        <div id="compareCards"></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-title">Win Probability Compare</div>
+        <div id="compareChart"></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-title">Event Trend Strip</div>
+        <div id="compareTrends"></div>
+      </div>
+      <div class="stat-card heatmap-container">
+        <div class="stat-card-title">Driver Matrix</div>
+        <div id="compareMatrix"></div>
+      </div>
+      <div class="stat-card heatmap-container">
+        <div class="stat-card-title">Raw Scenario Payload</div>
+        <pre style="margin:0">${JSON.stringify(simResults, null, 2)}</pre>
+      </div>
+    </div>
+  `;
+
+  const rerunBtn = document.getElementById('rerunScenarioBtn');
+  const downloadJsonBtn = document.getElementById('downloadScenarioJsonBtn');
+  const exportMatrixBtn = document.getElementById('downloadScenarioMatrixBtn');
+  const controlIds = [
+    'compareTopN',
+    'compareTrendMetric',
+    'compareTrendScale',
+    'compareMatrixSort',
+    'compareDriverFilter',
+    'compareScenarioFilter',
+    'compareMatrixHighlight',
+  ];
+
+  rerunBtn.addEventListener('click', async () => {
+    await runSimulation();
+  });
+  downloadJsonBtn.addEventListener('click', () => downloadResultJson(simResults));
+  exportMatrixBtn.addEventListener('click', () => exportScenarioMatrixCsv(simResults));
+  controlIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('change', updateScenarioViews);
+      el.addEventListener('input', updateScenarioViews);
+    }
+  });
+
+  syncScenarioControls();
+  updateScenarioViews();
+}
+
+(function init() {
+  const selector = document.getElementById('trackSelect');
+  TRACKS.forEach(track => {
+    const option = document.createElement('option');
+    option.value = track.id;
+    option.textContent = track.name;
+    selector.appendChild(option);
+  });
+
+  loadUiPrefs();
+  renderScenarioControlMounts();
+
+  const savedPayload = localStorage.getItem(LAST_PAYLOAD_KEY);
+  if (savedPayload) {
+    try {
+      const payload = JSON.parse(savedPayload);
+      if (payload.year) document.getElementById('yearSelect').value = String(payload.year);
+      if (payload.race) {
+        const trackId = Object.entries(TRACK_TO_RACE).find(([, race]) => race === payload.race)?.[0];
+        if (trackId) document.getElementById('trackSelect').value = trackId;
+      }
+      if (payload.simulations) document.getElementById('simCount').value = String(payload.simulations);
+      if (payload.seed != null) document.getElementById('seedInput').value = String(payload.seed);
+      if (typeof payload.parallel === 'boolean') {
+        document.getElementById('parallelSelect').value = payload.parallel ? 'true' : 'false';
+      }
+      if (payload.max_workers != null) {
+        document.getElementById('workersInput').value = String(payload.max_workers);
+      }
+      if (payload.scenarios) {
+        const scenarioNames = normalizeScenarioNames(payload.scenarios);
+        setScenarioSelection(scenarioNames, { persist: false });
+        if (scenarioNames.length) {
+          weatherSelectEl.value = SCENARIO_TO_WEATHER[scenarioNames[0]] || weatherSelectEl.value;
+        }
+      }
+    } catch {
+      // ignore malformed saved payload
+    }
+  }
+
+  if (!scenarioSetInput.value.trim()) {
+    setScenarioSelection([WEATHER_TO_SCENARIO[weatherSelectEl.value] || 'dry'], { persist: false });
+  } else {
+    syncScenarioControls();
+  }
+
+  weatherSelectEl.addEventListener('change', () => {
+    const focusedScenario = WEATHER_TO_SCENARIO[weatherSelectEl.value] || 'dry';
+    if (!getSelectedScenarioNames().includes(focusedScenario)) {
+      setScenarioSelection([...getSelectedScenarioNames(), focusedScenario], { persist: true });
+    } else {
+      saveUiPrefs();
+      syncScenarioControls();
+    }
+    if (simResults) {
+      if (simResults.scenarios?.[focusedScenario]) {
+        renderRace();
+        renderQualifying();
+        renderStats();
+      } else {
+        setStatusMessage(
+          `Focus updated to ${WEATHER_LABELS[focusedScenario] || titleFromKey(focusedScenario)} for the next run. Current results still reflect the last backend payload.`,
+          'success'
+        );
+      }
+    }
+  });
+
+  document.addEventListener('click', event => {
+    const chip = event.target.closest('[data-scenario-chip]');
+    if (chip) {
+      toggleScenarioSelection(chip.dataset.scenarioChip);
+      return;
+    }
+
+    const preset = event.target.closest('[data-scenario-preset]');
+    if (preset) {
+      const nextSelection = normalizeScenarioNames(preset.dataset.scenarioPreset);
+      const syncFocus = !nextSelection.includes(WEATHER_TO_SCENARIO[weatherSelectEl.value]);
+      setScenarioSelection(nextSelection, { syncFocus });
+    }
+  });
+
+  checkBackend();
+  fetchRecentRuns();
+})();
 </script>
 </body>
 </html>
