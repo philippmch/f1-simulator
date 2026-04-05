@@ -31,6 +31,7 @@ class DashboardRunRequest:
     simulations: int = 200
     scenarios: str = "dry,light_rain"
     seed: int = 42
+    qualifying_mode: str = "historical"
     parallel: bool = True
     max_workers: int | None = None
 
@@ -327,6 +328,12 @@ def _read_run_history(output_dir: str | Path = "output") -> list[dict[str, Any]]
 def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
     """Execute one dashboard simulation bundle and return summary."""
     loader = _get_loader()
+    round_number = loader.resolve_race_identifier(request.year, request.race)
+    events = loader.list_available_events(request.year)
+    canonical_race = next(
+        (event["race"] for event in events if event["round"] == round_number),
+        request.race,
+    )
 
     track_stats = loader.get_track_stats(request.year, request.race)
     driver_stats = loader.get_weighted_driver_stats(
@@ -341,7 +348,15 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
     drivers = loader.create_drivers_from_stats(driver_stats)
     cars = loader.create_cars_from_stats(driver_stats)
     track = loader.create_track_from_stats(track_stats)
-    historical_grid = loader.get_historical_grid(request.year, request.race)
+    qualifying_mode = str(request.qualifying_mode or "historical").strip().lower()
+    if qualifying_mode not in {"historical", "simulated"}:
+        raise ValueError("qualifying_mode must be 'historical' or 'simulated'")
+
+    historical_grid = (
+        loader.get_historical_grid(request.year, request.race)
+        if qualifying_mode == "historical"
+        else []
+    )
 
     base_weather = Weather(
         condition=WeatherCondition.DRY,
@@ -393,14 +408,15 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
     payload["track"] = track.name
     payload["track_details"] = _serialize_track(track)
     payload["year"] = request.year
-    payload["race"] = request.race
+    payload["race"] = canonical_race
     payload["historical_grid_used"] = bool(historical_grid)
     payload["request"] = {
         "year": request.year,
-        "race": request.race,
+        "race": canonical_race,
         "simulations": request.simulations,
         "scenarios": request.scenarios,
         "seed": request.seed,
+        "qualifying_mode": qualifying_mode,
         "parallel": request.parallel,
         "max_workers": request.max_workers,
     }
@@ -497,6 +513,16 @@ def build_fastapi_app() -> Any:
     def runs() -> dict[str, Any]:
         return {"runs": _read_run_history()[:20]}
 
+    @app.get("/api/calendar")
+    def calendar(
+        year: int = Query(default=2025, ge=2020, le=2030),
+    ) -> dict[str, Any]:
+        try:
+            loader = _get_loader()
+            return {"year": year, "events": loader.list_available_events(year)}
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.post("/api/run")
     def run(payload: DashboardRunRequest) -> dict[str, Any]:
         try:
@@ -514,6 +540,12 @@ def build_fastapi_app() -> Any:
             import numpy as np
 
             loader = _get_loader()
+            round_number = loader.resolve_race_identifier(year, race)
+            events = loader.list_available_events(year)
+            canonical_race = next(
+                (event["race"] for event in events if event["round"] == round_number),
+                race,
+            )
             driver_stats = loader.get_weighted_driver_stats(
                 year=year,
                 target_race=race,
@@ -560,7 +592,7 @@ def build_fastapi_app() -> Any:
 
             return {
                 "year": year,
-                "race": race,
+                "race": canonical_race,
                 "drivers": drivers_out,
                 "car_pace": car_pace,
                 "sample_sizes": sample_sizes,

@@ -39,6 +39,8 @@ def test_dashboard_summary_shape() -> None:
 def test_dashboard_html_contains_controls() -> None:
     html = build_dashboard_html()
     assert "Run Simulation" in html
+    assert "/api/calendar" in html
+    assert "fetchCalendar" in html
     assert "scenarioSetInput" in html
     assert "panel-scenarios" in html
     assert "renderScenarioLab" in html
@@ -56,6 +58,7 @@ def test_dashboard_html_contains_controls() -> None:
     assert "downloadScenarioJsonBtn" in html
     assert "downloadResultJson" in html
     assert "exportScenarioMatrixCsv" in html
+    assert "qualifyingModeSelect" in html
     assert "presetDryBtn" in html
     assert "presetMixedBtn" in html
     assert "presetChaosBtn" in html
