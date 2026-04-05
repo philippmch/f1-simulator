@@ -30,45 +30,39 @@ def test_dashboard_summary_shape() -> None:
     assert "win_probabilities" in summary["scenarios"]["dry"]
     assert "runtime_seconds" in summary["scenarios"]["dry"]
     assert "simulations_per_second" in summary["scenarios"]["dry"]
+    assert "driver_statistics" in summary["scenarios"]["dry"]
+    assert "sample_race" in summary["scenarios"]["dry"]
+    assert "sample_qualifying" in summary["scenarios"]["dry"]
+    assert summary["scenarios"]["dry"]["qualifying_mode"] == "simulated"
 
 
 def test_dashboard_html_contains_controls() -> None:
     html = build_dashboard_html()
     assert "Run Simulation" in html
-    assert "/api/run" in html
-    assert "/api/runs" in html
-    assert "/output/" in html
+    assert "/api/calendar" in html
+    assert "fetchCalendar" in html
+    assert "scenarioSetInput" in html
+    assert "panel-scenarios" in html
+    assert "renderScenarioLab" in html
     assert "renderScenarioCards" in html
-    assert "renderWinChart" in html
+    assert "renderScenarioWinChart" in html
     assert "renderScenarioTrends" in html
     assert "renderDriverMatrix" in html
-    assert "resultChart" in html
-    assert "resultTrends" in html
-    assert "trendMetric" in html
-    assert "trendScale" in html
-    assert "topNSelector" in html
-    assert "resultMatrix" in html
-    assert "matrixSort" in html
-    assert "matrixHighlight" in html
-    assert "matrixDriverFilter" in html
-    assert "matrixScenarioFilter" in html
-    assert "matrixExportBtn" in html
-    assert "exportMatrixCsv" in html
-    assert "exampleConfig" in html
-    assert "applyExampleBtn" in html
-    assert "runExampleBtn" in html
-    assert "downloadResultBtn" in html
+    assert "compareTopN" in html
+    assert "compareTrendMetric" in html
+    assert "compareTrendScale" in html
+    assert "compareMatrixSort" in html
+    assert "compareMatrixHighlight" in html
+    assert "compareDriverFilter" in html
+    assert "compareScenarioFilter" in html
+    assert "downloadScenarioJsonBtn" in html
     assert "downloadResultJson" in html
-    assert "loadSelectedExample" in html
-    assert "EXAMPLE_CONFIGS" in html
-    assert "renderQuickActions" in html
-    assert "presetDry" in html
-    assert "presetMixed" in html
-    assert "presetWet" in html
-    assert "rerunBtn" in html
-    assert "clearBtn" in html
-    assert "runsFilter" in html
+    assert "exportScenarioMatrixCsv" in html
+    assert "qualifyingModeSelect" in html
+    assert "presetDryBtn" in html
+    assert "presetMixedBtn" in html
+    assert "presetChaosBtn" in html
+    assert "LAST_PAYLOAD_KEY" in html
     assert "f1sim:lastPayload" in html
     assert "f1sim:uiPrefs" in html
-    assert "Open latest report" in html
     assert "scenarios" in html

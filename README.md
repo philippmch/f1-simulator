@@ -32,7 +32,7 @@ pip install -e '.[web]'
 
 ## Quick Start
 
-The recommended way to use the simulator is with the **web frontend + backend server**, which gives you real FastF1-derived ratings for every race:
+The recommended way to use the simulator is with the **web frontend + backend server**, which now uses the Python backend as the sole simulation engine and renderer data source:
 
 ```bash
 # 1. Start the backend server
@@ -44,7 +44,7 @@ open frontend/index.html
 # Or serve it: python3 -m http.server 3000 -d frontend
 ```
 
-When you run a simulation in the frontend, it automatically fetches real driver/car ratings from the backend (derived from FastF1 historical data). If the backend is unavailable, it falls back to hardcoded defaults.
+When you run a simulation in the frontend, it sends the request to the backend, which fetches FastF1-derived ratings, runs the Monte Carlo simulation in Python, and returns the rendered race/grid/statistics payload. The standalone frontend no longer contains its own local simulation fallback.
 
 The backend API dashboard is also available at http://127.0.0.1:8080 for running scenario comparisons.
 
@@ -95,12 +95,12 @@ SAI                    8.0% ####
 A standalone browser-based UI is included in `frontend/index.html`.
 
 Features:
-- Season and circuit selection with configurable simulation count
-- **Real-data ratings** from FastF1 when the backend server is running (green badge indicator)
-- Fallback to hardcoded ratings when offline (gray badge)
-- Race results timing tower (positions, gaps, tire strategy, pit stops, DNFs)
-- Qualifying results with Q1/Q2/Q3 elimination rounds
-- Monte Carlo statistics: win probabilities, podium rates, average points, DNF rates, and position distribution heatmap
+- Season, weather, simulation count, seed, and execution controls for the backend run
+- Backend-only race rendering using FastF1-derived ratings and the Python Monte Carlo engine
+- Race results timing tower from backend sample race output
+- Historical grid / qualifying display based on backend starting-grid mode
+- Integrated scenario-comparison lab in the same frontend for multi-weather runs, trend strips, and driver matrices
+- Monte Carlo statistics, constructor projections, reliability calibration output, rating snapshots, export links, and position distribution heatmap
 
 ## Project Structure
 
