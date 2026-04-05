@@ -13,6 +13,14 @@ from f1sim.data import HistoricalDataLoader
 from f1sim.models import Weather, WeatherCondition
 from f1sim.output import Exporter
 
+_EXPECTED_COMPONENT_RATES: dict[str, float] = {
+    "engine": 0.34,
+    "gearbox": 0.22,
+    "electrical": 0.18,
+    "cooling": 0.14,
+    "brakes": 0.12,
+}
+
 
 @dataclass
 class DashboardRunRequest:
@@ -27,15 +35,217 @@ class DashboardRunRequest:
     max_workers: int | None = None
 
 
+def _safe_call(results: Any, method_name: str, *args: Any, default: Any = None) -> Any:
+    """Call a result helper when available, otherwise return a default."""
+    method = getattr(results, method_name, None)
+    if callable(method):
+        return method(*args)
+    return default
+
+
+def _serialize_track(track: Any) -> dict[str, Any]:
+    """Serialize track data for frontend rendering."""
+    return {
+        "id": track.id,
+        "name": track.name,
+        "country": track.country,
+        "total_laps": track.total_laps,
+        "base_lap_time": track.base_lap_time,
+        "pit_lane_delta": track.pit_lane_delta,
+        "overtake_difficulty": track.overtake_difficulty,
+        "tire_stress": track.tire_stress,
+        "safety_car_probability": track.safety_car_probability,
+        "weather_variability": track.weather_variability,
+        "drs_zones": len(track.drs_zones),
+    }
+
+
+def _serialize_weather(weather: Weather) -> dict[str, Any]:
+    """Serialize scenario weather metadata for the UI."""
+    return {
+        "condition": weather.condition.value,
+        "track_temperature": weather.track_temperature,
+        "air_temperature": weather.air_temperature,
+        "humidity": weather.humidity,
+        "rain_intensity": weather.rain_intensity,
+        "track_wetness": weather.track_wetness,
+        "change_probability": weather.change_probability,
+    }
+
+
+def _serialize_race_result(result: Any) -> dict[str, Any]:
+    """Serialize one race result row."""
+    return {
+        "driver_id": result.driver_id,
+        "driver_name": result.driver_name,
+        "team": result.team,
+        "team_key": _normalize_team_id(result.team),
+        "position": result.position,
+        "total_time": result.total_time,
+        "gap_to_leader": result.gap_to_leader,
+        "pit_stops": result.pit_stops,
+        "fastest_lap": result.fastest_lap,
+        "status": result.status.value,
+        "dnf_reason": result.dnf_reason,
+        "strategy": list(result.strategy),
+    }
+
+
+def _serialize_quali_result(result: Any) -> dict[str, Any]:
+    """Serialize one qualifying/grid result row."""
+    return {
+        "driver_id": result.driver_id,
+        "driver_name": result.driver_name,
+        "position": result.position,
+        "best_time": result.best_time,
+        "q1_time": result.q1_time,
+        "q2_time": result.q2_time,
+        "q3_time": result.q3_time,
+        "eliminated_in": result.eliminated_in,
+    }
+
+
+def _serialize_sample_race(results: Any) -> list[dict[str, Any]]:
+    """Serialize the first simulated race, if present."""
+    races = getattr(results, "race_results", [])
+    if not races:
+        return []
+    return [_serialize_race_result(row) for row in races[0]]
+
+
+def _serialize_sample_qualifying(results: Any) -> list[dict[str, Any]]:
+    """Serialize the first qualifying/grid result, if present."""
+    qualifying = getattr(results, "qualifying_results", [])
+    if not qualifying:
+        return []
+    driver_stats = getattr(results, "driver_stats", {})
+    serialized = []
+    for row in qualifying[0]:
+        payload = _serialize_quali_result(row)
+        team = getattr(driver_stats.get(row.driver_id), "team", "Unknown")
+        payload["team"] = team
+        payload["team_key"] = _normalize_team_id(team)
+        serialized.append(payload)
+    return serialized
+
+
+def _serialize_driver_statistics(results: Any) -> dict[str, Any]:
+    """Serialize per-driver backend statistics for the frontend."""
+    driver_stats = getattr(results, "driver_stats", {})
+    if not isinstance(driver_stats, dict):
+        return {}
+
+    top_5 = _safe_call(results, "get_top_n_finish_probabilities", 5, default={}) or {}
+    top_10 = _safe_call(results, "get_top_n_finish_probabilities", 10, default={}) or {}
+    ordered_ids = list(
+        (_safe_call(results, "get_win_probabilities", default={}) or driver_stats).keys()
+    )
+
+    serialized: dict[str, Any] = {}
+    for driver_id in ordered_ids:
+        stats = driver_stats.get(driver_id)
+        if stats is None:
+            continue
+
+        serialized[driver_id] = {
+            "driver_name": stats.driver_name,
+            "team": stats.team,
+            "team_key": _normalize_team_id(stats.team),
+            "wins": stats.wins,
+            "win_rate": stats.win_rate,
+            "podiums": stats.podiums,
+            "podium_rate": stats.podium_rate,
+            "points_finishes": stats.points_finishes,
+            "dnfs": stats.dnfs,
+            "dnf_rate": stats.dnf_rate,
+            "total_points": stats.total_points,
+            "avg_position": stats.avg_position,
+            "avg_qualifying": stats.avg_qualifying,
+            "best_position": stats.best_position,
+            "worst_position": stats.worst_position,
+            "position_distribution": (
+                _safe_call(results, "get_position_distribution", driver_id, default={}) or {}
+            ),
+            "position_percentiles": (
+                _safe_call(results, "get_position_percentiles", driver_id, default={}) or {}
+            ),
+            "top_5_finish_probability": top_5.get(driver_id, 0.0),
+            "top_10_finish_probability": top_10.get(driver_id, 0.0),
+        }
+
+    return serialized
+
+
+def _serialize_ratings_snapshot(
+    drivers: list[Any],
+    cars: dict[str, Any],
+    driver_stats: dict[str, Any],
+) -> dict[str, Any]:
+    """Serialize FastF1-derived driver and car ratings used for a run."""
+    sample_sizes = {driver_id: stats.sample_size for driver_id, stats in driver_stats.items()}
+
+    drivers_out = []
+    for driver in drivers:
+        car = cars.get(driver.team_id)
+        drivers_out.append(
+            {
+                "id": driver.id,
+                "name": driver.name,
+                "team": car.team_name if car else driver.team_id,
+                "team_key": _normalize_team_id(driver.team_id),
+                "skill": round(driver.skill_rating, 4),
+                "consistency": round(driver.consistency, 4),
+                "wet_skill": round(driver.wet_skill_modifier, 4),
+                "overtaking": round(driver.overtaking_skill, 4),
+                "tire_management": round(driver.tire_management, 4),
+                "sample_size": sample_sizes.get(driver.id),
+            }
+        )
+
+    cars_out = []
+    for car in cars.values():
+        cars_out.append(
+            {
+                "team": car.team_name,
+                "team_key": _normalize_team_id(car.team_id),
+                "base_pace": round(car.base_pace, 4),
+                "reliability": round(car.reliability, 4),
+                "engine_reliability": round(car.engine_reliability, 4),
+                "gearbox_reliability": round(car.gearbox_reliability, 4),
+                "brakes_reliability": round(car.brakes_reliability, 4),
+                "electrical_reliability": round(car.electrical_reliability, 4),
+                "cooling_reliability": round(car.cooling_reliability, 4),
+                "wet_performance": round(car.wet_performance, 4),
+                "tire_degradation_factor": round(car.tire_degradation_factor, 4),
+                "pit_stop_avg": round(car.pit_stop_avg, 4),
+            }
+        )
+
+    drivers_out.sort(key=lambda row: row["skill"], reverse=True)
+    cars_out.sort(key=lambda row: row["base_pace"], reverse=True)
+
+    return {
+        "source": "fastf1",
+        "drivers": drivers_out,
+        "cars": cars_out,
+        "sample_sizes": sample_sizes,
+    }
+
+
 def _summarize_scenario_results(
     results_by_name: dict[str, Any],
     scenario_meta: dict[str, dict[str, float]] | None = None,
+    scenario_weather: dict[str, Weather] | None = None,
+    artifacts_by_name: dict[str, dict[str, str]] | None = None,
+    historical_grid_used: bool = False,
 ) -> dict[str, Any]:
     """Build compact summary payload for UI responses."""
     summary: dict[str, Any] = {"scenarios": {}}
     scenario_meta = scenario_meta or {}
+    scenario_weather = scenario_weather or {}
+    artifacts_by_name = artifacts_by_name or {}
     for scenario_name, results in results_by_name.items():
-        win_probs = results.get_win_probabilities()
+        win_probs = _safe_call(results, "get_win_probabilities", default={}) or {}
         top_3 = list(win_probs.items())[:3]
         meta = scenario_meta.get(scenario_name, {})
         summary["scenarios"][scenario_name] = {
@@ -43,10 +253,60 @@ def _summarize_scenario_results(
             "seed": results.seed,
             "top3_win_probabilities": top_3,
             "win_probabilities": list(win_probs.items()),
-            "event_rates": results.get_event_rates(),
-            "team_projection": results.get_team_championship_projection(),
+            "top_5_finish_probabilities": list(
+                (
+                    _safe_call(results, "get_top_n_finish_probabilities", 5, default={}) or {}
+                ).items()
+            ),
+            "top_10_finish_probabilities": list(
+                (
+                    _safe_call(results, "get_top_n_finish_probabilities", 10, default={}) or {}
+                ).items()
+            ),
+            "championship_projection": list(
+                (_safe_call(results, "get_championship_projection", default={}) or {}).items()
+            ),
+            "event_rates": _safe_call(results, "get_event_rates", default={}) or {},
+            "team_projection": _safe_call(
+                results,
+                "get_team_championship_projection",
+                default={},
+            )
+            or {},
+            "mechanical_failure_breakdown": (
+                getattr(getattr(results, "event_stats", None), "mechanical_failure_breakdown", {})
+                or {}
+            ),
+            "mechanical_failure_component_rates": _safe_call(
+                results,
+                "get_mechanical_failure_component_rates",
+                default={},
+            )
+            or {},
+            "mechanical_tuning_suggestions": _safe_call(
+                results,
+                "get_mechanical_tuning_suggestions",
+                _EXPECTED_COMPONENT_RATES,
+                default={},
+            )
+            or {},
+            "reliability_adjustment_recommendations": _safe_call(
+                results,
+                "get_reliability_adjustment_recommendations",
+                _EXPECTED_COMPONENT_RATES,
+                default={},
+            )
+            or {},
             "runtime_seconds": meta.get("runtime_seconds"),
             "simulations_per_second": meta.get("simulations_per_second"),
+            "weather": _serialize_weather(scenario_weather[scenario_name])
+            if scenario_name in scenario_weather
+            else None,
+            "sample_race": _serialize_sample_race(results),
+            "sample_qualifying": _serialize_sample_qualifying(results),
+            "qualifying_mode": "historical_grid" if historical_grid_used else "simulated",
+            "driver_statistics": _serialize_driver_statistics(results),
+            "artifacts": artifacts_by_name.get(scenario_name, {}),
         }
 
     return summary
@@ -66,7 +326,7 @@ def _read_run_history(output_dir: str | Path = "output") -> list[dict[str, Any]]
 
 def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
     """Execute one dashboard simulation bundle and return summary."""
-    loader = HistoricalDataLoader(cache_dir="data/cache")
+    loader = _get_loader()
 
     track_stats = loader.get_track_stats(request.year, request.race)
     driver_stats = loader.get_weighted_driver_stats(
@@ -93,10 +353,13 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
     labels = parse_scenario_labels(request.scenarios)
     scenario_results = {}
     scenario_meta: dict[str, dict[str, float]] = {}
+    scenario_weather: dict[str, Weather] = {}
+    artifacts_by_name: dict[str, dict[str, str]] = {}
     exporter = Exporter(output_dir="output")
 
     for idx, label in enumerate(labels):
         scenario = scenario_weather_from_label(base_weather, label)
+        scenario_weather[scenario.name] = scenario.weather
         runner = MonteCarloRunner(
             drivers=drivers,
             cars=cars,
@@ -117,813 +380,38 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
             "runtime_seconds": float(runtime),
             "simulations_per_second": float(request.simulations / runtime),
         }
-        exporter.export_all(result, prefix=f"{request.year}_{track.id}_{scenario.name}")
+        files = exporter.export_all(result, prefix=f"{request.year}_{track.id}_{scenario.name}")
+        artifacts_by_name[scenario.name] = {key: path.name for key, path in files.items()}
 
-    payload = _summarize_scenario_results(scenario_results, scenario_meta=scenario_meta)
+    payload = _summarize_scenario_results(
+        scenario_results,
+        scenario_meta=scenario_meta,
+        scenario_weather=scenario_weather,
+        artifacts_by_name=artifacts_by_name,
+        historical_grid_used=bool(historical_grid),
+    )
     payload["track"] = track.name
+    payload["track_details"] = _serialize_track(track)
     payload["year"] = request.year
     payload["race"] = request.race
+    payload["historical_grid_used"] = bool(historical_grid)
+    payload["request"] = {
+        "year": request.year,
+        "race": request.race,
+        "simulations": request.simulations,
+        "scenarios": request.scenarios,
+        "seed": request.seed,
+        "parallel": request.parallel,
+        "max_workers": request.max_workers,
+    }
+    payload["ratings"] = _serialize_ratings_snapshot(drivers, cars, driver_stats)
     return payload
 
 
 def build_dashboard_html() -> str:
-    """Build minimal dashboard HTML UI."""
-    return """<!doctype html>
-<html lang=\"en\">
-<head>
-  <meta charset=\"utf-8\" />
-  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-  <title>F1Sim Dashboard</title>
-  <style>
-    body {
-      font-family: Inter, system-ui, sans-serif;
-      margin: 24px;
-      background: #0f1220;
-      color: #e8ebff;
-    }
-    .card {
-      background: #181c30;
-      border: 1px solid #2a3156;
-      border-radius: 12px;
-      padding: 16px;
-      max-width: 860px;
-    }
-    label { display: block; margin-top: 10px; }
-    input {
-      width: 100%;
-      padding: 8px;
-      border-radius: 8px;
-      border: 1px solid #2a3156;
-      background: #10142a;
-      color: #e8ebff;
-    }
-    button {
-      margin-top: 14px;
-      padding: 10px 14px;
-      border-radius: 8px;
-      border: 0;
-      background: #7aa2ff;
-      color: #0b1024;
-      font-weight: 700;
-      cursor: pointer;
-    }
-    pre {
-      background: #10142a;
-      border: 1px solid #2a3156;
-      padding: 12px;
-      border-radius: 10px;
-      overflow: auto;
-    }
-    .runs-list { border: 1px solid #2a3156; border-radius: 10px; overflow: hidden; }
-    .run-item { padding: 10px 12px; border-bottom: 1px solid #2a3156; }
-    .run-item:last-child { border-bottom: 0; }
-    .run-meta { color: #b6c0ff; font-size: 12px; }
-    .scenario-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-      gap: 10px;
-    }
-    .scenario-card {
-      border: 1px solid #2a3156;
-      border-radius: 10px;
-      padding: 10px;
-      background: #10142a;
-    }
-    .scenario-title { font-weight: 700; margin-bottom: 6px; }
-    .chart-wrap {
-      border: 1px solid #2a3156;
-      border-radius: 10px;
-      padding: 10px;
-      background: #10142a;
-    }
-    .chart-row { margin-bottom: 8px; }
-    .chart-label { font-size: 12px; color: #b6c0ff; margin-bottom: 4px; }
-    .bar-track { background: #242c4f; border-radius: 8px; height: 12px; overflow: hidden; }
-    .bar-fill { background: #7aa2ff; height: 100%; }
-    .matrix-wrap { border: 1px solid #2a3156; border-radius: 10px; overflow: auto; }
-    .matrix-table { width: 100%; border-collapse: collapse; background: #10142a; }
-    .matrix-table th, .matrix-table td { border: 1px solid #2a3156; padding: 8px; font-size: 12px; }
-    .matrix-table th { background: #181c30; }
-    .matrix-best { background: rgba(122, 162, 255, 0.2); font-weight: 700; }
-    a { color: #7aa2ff; text-decoration: none; }
-  </style>
-</head>
-<body>
-  <div class=\"card\">
-    <h1>F1Sim Dashboard</h1>
-    <p>Run scenario simulations from the browser.</p>
-    <label>Year <input id=\"year\" value=\"2025\" /></label>
-    <label>Race <input id=\"race\" value=\"Bahrain\" /></label>
-    <label>Simulations <input id=\"simulations\" value=\"200\" /></label>
-    <label>Scenarios <input id=\"scenarios\" value=\"dry,light_rain,heavy_rain\" /></label>
-    <div style=\"margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;\">
-      <button type=\"button\" id=\"presetDry\" style=\"margin-top:0\">Preset: Dry vs Cloudy</button>
-      <button type=\"button\" id=\"presetMixed\" style=\"margin-top:0\">Preset: Mixed Race</button>
-      <button type=\"button\" id=\"presetWet\" style=\"margin-top:0\">Preset: Wet Heavy</button>
-    </div>
-    <label>Seed <input id=\"seed\" value=\"42\" /></label>
-    <label style=\"margin-top:8px\">Quick example
-      <select id=\"exampleConfig\">
-        <option value=\"\">Select preset…</option>
-        <option value=\"bahrain_baseline\">Bahrain baseline</option>
-        <option value=\"silverstone_mixed\">Silverstone mixed</option>
-        <option value=\"monaco_chaos\">Monaco chaos</option>
-      </select>
-    </label>
-    <div id=\"exampleSummary\" class=\"run-meta\">Pick a preset to preview what it configures.</div>
-    <button id=\"applyExampleBtn\" type=\"button\">Load Example</button>
-    <button id=\"runExampleBtn\" type=\"button\">Run Example Now</button>
-    <button id=\"runBtn\">Run Simulation</button>
-    <button id=\"downloadResultBtn\" type=\"button\">Download Result JSON</button>
-    <button id=\"rerunBtn\" type=\"button\">Re-run Last Config</button>
-    <button id=\"clearBtn\" type=\"button\">Clear Saved Config</button>
-    <div id=\"quickActions\" style=\"margin-top:10px;\"></div>
-    <h2>Scenario Comparison</h2>
-    <div id=\"resultCards\">No runs yet</div>
-    <h2>Win Probability Chart</h2>
-    <div id=\"resultChart\">No chart yet</div>
-    <h2>Scenario Trend Strip</h2>
-    <label style=\"margin:0\">Trend metric
-      <select id=\"trendMetric\">
-        <option value=\"sc\">Safety Car race rate</option>
-        <option value=\"rf\">Red flag race rate</option>
-        <option value=\"inc\">Average incidents</option>
-      </select>
-    </label>
-    <label style=\"margin:0\">Scale
-      <select id=\"trendScale\">
-        <option value=\"absolute\">Absolute</option>
-        <option value=\"normalized\">Normalized by max scenario</option>
-      </select>
-    </label>
-    <div id=\"resultTrends\">No trend data yet</div>
-    <h2>Driver Matrix (by scenario)</h2>
-    <div style=\"margin:6px 0; display:flex; gap:8px; flex-wrap:wrap;\">
-      <label style=\"margin:0\">Sort
-        <select id=\"matrixSort\">
-          <option value=\"driver\">Driver</option>
-          <option value=\"best\">Best win%</option>
-          <option value=\"avg\">Average win%</option>
-        </select>
-      </label>
-      <label style=\"margin:0\">
-        <input type=\"checkbox\" id=\"matrixHighlight\" checked />
-        Highlight best scenario per driver
-      </label>
-      <label style=\"margin:0\">Filter driver
-        <input id=\"matrixDriverFilter\" value=\"\" placeholder=\"e.g. VER\" />
-      </label>
-      <label style=\"margin:0\">Filter scenarios
-        <input id=\"matrixScenarioFilter\" value=\"\" placeholder=\"e.g. dry\" />
-      </label>
-      <button id=\"matrixExportBtn\" type=\"button\" style=\"margin-top:0\">
-        Export matrix CSV
-      </button>
-    </div>
-    <div id=\"resultMatrix\">No matrix yet</div>
-    <h2>Raw Result</h2>
-    <pre id=\"result\">{\"status\": \"idle\"}</pre>
-    <h2>Recent Runs</h2>
-    <label>
-      Filter runs by track
-      <input id=\"runsFilter\" value=\"\" placeholder=\"e.g. Bahrain\" />
-    </label>
-    <div id=\"runs\">No runs yet</div>
-  </div>
-
-  <script>
-    const runsEl = document.getElementById('runs');
-    const resultEl = document.getElementById('result');
-    const cardsEl = document.getElementById('resultCards');
-    const chartEl = document.getElementById('resultChart');
-    const trendsEl = document.getElementById('resultTrends');
-    const trendMetricEl = document.getElementById('trendMetric');
-    const trendScaleEl = document.getElementById('trendScale');
-    const topNSelectorEl = document.getElementById('topNSelector');
-    const matrixEl = document.getElementById('resultMatrix');
-    const matrixSortEl = document.getElementById('matrixSort');
-    const matrixHighlightEl = document.getElementById('matrixHighlight');
-    const matrixDriverFilterEl = document.getElementById('matrixDriverFilter');
-    const matrixScenarioFilterEl = document.getElementById('matrixScenarioFilter');
-    const matrixExportBtn = document.getElementById('matrixExportBtn');
-    const actionsEl = document.getElementById('quickActions');
-    const scenariosInput = document.getElementById('scenarios');
-    const rerunBtn = document.getElementById('rerunBtn');
-    const clearBtn = document.getElementById('clearBtn');
-    const exampleConfigEl = document.getElementById('exampleConfig');
-    const exampleSummaryEl = document.getElementById('exampleSummary');
-    const applyExampleBtn = document.getElementById('applyExampleBtn');
-    const runExampleBtn = document.getElementById('runExampleBtn');
-    const downloadResultBtn = document.getElementById('downloadResultBtn');
-    const runsFilterInput = document.getElementById('runsFilter');
-    let latestScenarioData = null;
-    const PREFS_KEY = 'f1sim:uiPrefs';
-
-    function saveUiPrefs() {
-      const prefs = {
-        trendMetric: trendMetricEl.value,
-        matrixSort: matrixSortEl.value,
-        matrixHighlight: matrixHighlightEl.checked,
-        matrixDriverFilter: matrixDriverFilterEl.value,
-        matrixScenarioFilter: matrixScenarioFilterEl.value,
-      };
-      localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
-    }
-
-    function loadUiPrefs() {
-      const raw = localStorage.getItem(PREFS_KEY);
-      if (!raw) return;
-      try {
-        const prefs = JSON.parse(raw);
-        if (prefs.trendMetric) trendMetricEl.value = prefs.trendMetric;
-        if (prefs.matrixSort) matrixSortEl.value = prefs.matrixSort;
-        if (typeof prefs.matrixHighlight === 'boolean') {
-          matrixHighlightEl.checked = prefs.matrixHighlight;
-        }
-        if (typeof prefs.matrixDriverFilter === 'string') {
-          matrixDriverFilterEl.value = prefs.matrixDriverFilter;
-        }
-        if (typeof prefs.matrixScenarioFilter === 'string') {
-          matrixScenarioFilterEl.value = prefs.matrixScenarioFilter;
-        }
-        if (prefs.topN) topNSelectorEl.value = prefs.topN;
-      } catch {
-        // ignore malformed prefs
-      }
-    }
-
-    function renderScenarioCards(data) {
-      const scenarios = data.scenarios || {};
-      const names = Object.keys(scenarios);
-      if (!names.length) {
-        cardsEl.textContent = 'No scenario results yet';
-        return;
-      }
-
-      const cards = names.map((name) => {
-        const s = scenarios[name] || {};
-        const top = (s.top3_win_probabilities || [])
-          .map(([driver, prob]) => `${driver}: ${prob.toFixed(1)}%`)
-          .join('<br/>');
-        const rates = s.event_rates || {};
-        const sc = ((rates.safety_car_race_rate || 0) * 100).toFixed(1);
-        const rf = ((rates.red_flag_race_rate || 0) * 100).toFixed(1);
-        const teams = s.team_projection || {};
-        const topTeam = Object.keys(teams)[0];
-        const topTeamPts = topTeam ? Number(teams[topTeam]).toFixed(2) : '-';
-        const runtime = Number(s.runtime_seconds || 0).toFixed(2);
-        const simsPerSec = Number(s.simulations_per_second || 0).toFixed(1);
-        return `
-          <div class="scenario-card">
-            <div class="scenario-title">${name}</div>
-            <div><strong>Top 3 win%</strong><br/>${top || '-'}</div>
-            <div style="margin-top:6px">
-              <strong>Event rates</strong><br/>
-              SC race rate: ${sc}%<br/>
-              Red flag rate: ${rf}%
-            </div>
-            <div style="margin-top:6px">
-              <strong>Top team</strong><br/>
-              ${topTeam || '-'} (${topTeamPts} pts/race)
-            </div>
-            <div style="margin-top:6px">
-              <strong>Runtime</strong><br/>
-              ${runtime}s (${simsPerSec} sims/s)
-            </div>
-          </div>
-        `;
-      });
-
-      cardsEl.innerHTML = `<div class="scenario-grid">${cards.join('')}</div>`;
-    }
-
-    function renderWinChart(data) {
-      const scenarios = data.scenarios || {};
-      const names = Object.keys(scenarios);
-      if (!names.length) {
-        chartEl.textContent = 'No chart data yet';
-        return;
-      }
-
-      // Use first scenario's top-N drivers as chart focus for quick visual compare.
-      const topN = Number(topNSelectorEl.value || '3');
-      const seedScenario = scenarios[names[0]] || {};
-      const focusDrivers = (seedScenario.win_probabilities || [])
-        .slice(0, topN)
-        .map(([d]) => d);
-
-      const rows = focusDrivers.map((driver) => {
-        const bars = names
-          .map((name) => {
-            const top = scenarios[name].win_probabilities || [];
-            const item = top.find(([d]) => d === driver);
-            const pct = item ? Number(item[1]) : 0;
-            const safePct = Math.max(0, Math.min(100, pct));
-            return `
-              <div class="chart-row">
-                <div class="chart-label">${driver} · ${name} · ${pct.toFixed(1)}%</div>
-                <div class="bar-track">
-                  <div class="bar-fill" style="width:${safePct}%"></div>
-                </div>
-              </div>
-            `;
-          })
-          .join('');
-        return bars;
-      });
-
-      chartEl.innerHTML = `<div class="chart-wrap">${rows.join('')}</div>`;
-    }
-
-    function renderScenarioTrends(data) {
-      const scenarios = data.scenarios || {};
-      const names = Object.keys(scenarios);
-      if (!names.length) {
-        trendsEl.textContent = 'No trend data yet';
-        return;
-      }
-
-      const metric = trendMetricEl.value;
-      const scaleMode = trendScaleEl.value;
-
-      const values = names.map((name) => {
-        const rates = scenarios[name].event_rates || {};
-        const sc = Number((rates.safety_car_race_rate || 0) * 100);
-        const rf = Number((rates.red_flag_race_rate || 0) * 100);
-        const incidents = Number(rates.avg_incidents || 0);
-
-        if (metric === 'rf') return rf;
-        if (metric === 'inc') return incidents;
-        return sc;
-      });
-
-      const dynamicMax = Math.max(...values, 0.0001);
-
-      const rows = names.map((name) => {
-        const rates = scenarios[name].event_rates || {};
-        const sc = Number((rates.safety_car_race_rate || 0) * 100);
-        const rf = Number((rates.red_flag_race_rate || 0) * 100);
-        const incidents = Number(rates.avg_incidents || 0);
-
-        let value = sc;
-        let label = `${name} · SC ${sc.toFixed(1)}%`;
-        let absoluteMax = 100;
-        if (metric === 'rf') {
-          value = rf;
-          label = `${name} · RF ${rf.toFixed(1)}%`;
-        } else if (metric === 'inc') {
-          value = incidents;
-          absoluteMax = 5;
-          label = `${name} · Inc ${incidents.toFixed(2)}`;
-        }
-
-        const maxValue = scaleMode === 'normalized' ? dynamicMax : absoluteMax;
-        const safePct = Math.max(0, Math.min(100, (value / Math.max(maxValue, 0.0001)) * 100));
-        const suffix = scaleMode === 'normalized' ? ' (normalized)' : '';
-        return `
-          <div class="chart-row">
-            <div class="chart-label">${label}${suffix}</div>
-            <div class="bar-track">
-              <div class="bar-fill" style="width:${safePct}%"></div>
-            </div>
-          </div>
-        `;
-      });
-
-      trendsEl.innerHTML = `<div class="chart-wrap">${rows.join('')}</div>`;
-    }
-
-    function renderDriverMatrix(data) {
-      latestScenarioData = data;
-      const scenarios = data.scenarios || {};
-      const allNames = Object.keys(scenarios);
-      const scenarioFilter = (matrixScenarioFilterEl.value || '').trim().toLowerCase();
-      const names = allNames.filter(
-        (name) => !scenarioFilter || name.toLowerCase().includes(scenarioFilter)
-      );
-      if (!names.length) {
-        matrixEl.textContent = 'No scenarios match this filter';
-        return;
-      }
-
-      const topN = Number(topNSelectorEl.value || '3');
-      const drivers = new Set();
-      names.forEach((name) => {
-        const top = (scenarios[name].win_probabilities || []).slice(0, topN);
-        top.forEach(([driver]) => drivers.add(driver));
-      });
-
-      const filterText = (matrixDriverFilterEl.value || '').trim().toLowerCase();
-      const driverRows = Array.from(drivers)
-        .filter((driver) => !filterText || driver.toLowerCase().includes(filterText))
-        .map((driver) => {
-          const values = names.map((name) => {
-            const top = scenarios[name].win_probabilities || [];
-            const item = top.find(([d]) => d === driver);
-            return item ? Number(item[1]) : 0;
-          });
-          return {
-            driver,
-            values,
-            best: Math.max(...values),
-            avg: values.reduce((a, b) => a + b, 0) / Math.max(values.length, 1),
-          };
-        });
-
-      if (!driverRows.length) {
-        matrixEl.textContent = 'No drivers match this filter';
-        return;
-      }
-
-      const sortMode = matrixSortEl.value;
-      if (sortMode === 'best') {
-        driverRows.sort((a, b) => b.best - a.best);
-      } else if (sortMode === 'avg') {
-        driverRows.sort((a, b) => b.avg - a.avg);
-      } else {
-        driverRows.sort((a, b) => a.driver.localeCompare(b.driver));
-      }
-
-      const highlight = matrixHighlightEl.checked;
-      const header = `<tr><th>Driver</th>${names.map((n) => `<th>${n}</th>`).join('')}</tr>`;
-      const rows = driverRows
-        .map((row) => {
-          const cols = row.values.map((value) => {
-            const isBest = highlight && value === row.best && value > 0;
-            const cls = isBest ? ' class="matrix-best"' : '';
-            return `<td${cls}>${value.toFixed(1)}%</td>`;
-          });
-          return `<tr><td><strong>${row.driver}</strong></td>${cols.join('')}</tr>`;
-        })
-        .join('');
-
-      matrixEl.innerHTML = `
-        <div class="matrix-wrap">
-          <table class="matrix-table">
-            <thead>${header}</thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
-      `;
-    }
-
-    function downloadResultJson(data) {
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'dashboard_result.json';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    }
-
-    function exportMatrixCsv(data) {
-      const scenarios = data.scenarios || {};
-      const allNames = Object.keys(scenarios);
-      const scenarioFilter = (matrixScenarioFilterEl.value || '').trim().toLowerCase();
-      const names = allNames.filter(
-        (name) => !scenarioFilter || name.toLowerCase().includes(scenarioFilter)
-      );
-      if (!names.length) {
-        resultEl.textContent = JSON.stringify(
-          { status: 'error', detail: 'No scenarios to export' },
-          null,
-          2
-        );
-        return;
-      }
-
-      const topN = Number(topNSelectorEl.value || '3');
-      const drivers = new Set();
-      names.forEach((name) => {
-        const top = (scenarios[name].win_probabilities || []).slice(0, topN);
-        top.forEach(([driver]) => drivers.add(driver));
-      });
-
-      const filterText = (matrixDriverFilterEl.value || '').trim().toLowerCase();
-      const driverRows = Array.from(drivers)
-        .filter((driver) => !filterText || driver.toLowerCase().includes(filterText))
-        .sort((a, b) => a.localeCompare(b));
-
-      const header = ['driver', ...names].join(',');
-      const rows = driverRows.map((driver) => {
-        const values = names.map((name) => {
-          const top = scenarios[name].win_probabilities || [];
-          const item = top.find(([d]) => d === driver);
-          const pct = item ? Number(item[1]).toFixed(1) : '0.0';
-          return pct;
-        });
-        return [driver, ...values].join(',');
-      });
-
-      const csv = [header, ...rows].join('\n');
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'scenario_matrix.csv';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    }
-
-    function renderQuickActions(runs) {
-      if (!runs.length) {
-        actionsEl.innerHTML = '';
-        return;
-      }
-      const latest = runs[0];
-      const files = latest.files || {};
-      const links = [];
-      if (files.report_html) {
-        links.push(`<a href="/output/${files.report_html}" target="_blank">Open latest report</a>`);
-      }
-      if (files.statistics_json) {
-        links.push(
-          `<a href="/output/${files.statistics_json}" target="_blank">Open latest stats</a>`
-        );
-      }
-      actionsEl.innerHTML = links.join(' · ');
-    }
-
-    function renderRunItem(run) {
-      const files = run.files || {};
-      const links = [];
-      if (files.report_html) {
-        links.push(`<a href="/output/${files.report_html}" target="_blank">report</a>`);
-      }
-      if (files.statistics_json) {
-        links.push(`<a href="/output/${files.statistics_json}" target="_blank">stats</a>`);
-      }
-      if (files.race_csv) {
-        links.push(`<a href="/output/${files.race_csv}" target="_blank">race csv</a>`);
-      }
-      const linkHtml = links.length ? links.join(' · ') : '-';
-      const summary =
-        `<strong>${run.track || '-'} </strong> · ` +
-        `sims=${run.num_simulations ?? '-'} · seed=${run.seed ?? '-'}`;
-
-      return `
-        <div class="run-item">
-          <div>${summary}</div>
-          <div class="run-meta">${run.timestamp || '-'} · ${run.prefix || ''}</div>
-          <div>${linkHtml}</div>
-        </div>
-      `;
-    }
-
-    async function refreshRuns() {
-      try {
-        const res = await fetch('/api/runs');
-        const data = await res.json();
-        const runs = data.runs || [];
-        const filter = (runsFilterInput.value || '').trim().toLowerCase();
-        const filteredRuns = !filter
-          ? runs
-          : runs.filter((run) => String(run.track || '').toLowerCase().includes(filter));
-
-        if (!filteredRuns.length) {
-          actionsEl.innerHTML = '';
-          runsEl.textContent = filter ? 'No runs match this filter' : 'No runs yet';
-          return;
-        }
-        renderQuickActions(filteredRuns);
-        runsEl.innerHTML =
-          `<div class="runs-list">${filteredRuns.map(renderRunItem).join('')}</div>`;
-      } catch (err) {
-        runsEl.textContent = JSON.stringify({ status: 'error', detail: String(err) }, null, 2);
-      }
-    }
-
-    document.getElementById('presetDry').addEventListener('click', () => {
-      scenariosInput.value = 'dry,cloudy';
-    });
-    document.getElementById('presetMixed').addEventListener('click', () => {
-      scenariosInput.value = 'dry,light_rain,heavy_rain';
-    });
-    document.getElementById('presetWet').addEventListener('click', () => {
-      scenariosInput.value = 'light_rain,heavy_rain';
-    });
-
-    const EXAMPLE_CONFIGS = {
-      bahrain_baseline: {
-        year: 2025,
-        race: 'Bahrain',
-        simulations: 300,
-        scenarios: 'dry,cloudy',
-        seed: 42,
-      },
-      silverstone_mixed: {
-        year: 2025,
-        race: 'Silverstone',
-        simulations: 400,
-        scenarios: 'dry,light_rain,heavy_rain',
-        seed: 77,
-      },
-      monaco_chaos: {
-        year: 2025,
-        race: 'Monaco',
-        simulations: 500,
-        scenarios: 'cloudy,light_rain,heavy_rain',
-        seed: 99,
-      },
-    };
-    const EXAMPLE_DESCRIPTIONS = {
-      bahrain_baseline: 'Stable dry-vs-cloudy baseline for quick performance comparison.',
-      silverstone_mixed: 'Faster track with mixed weather scenarios to compare volatility.',
-      monaco_chaos: 'Tight street circuit with chaotic wet scenarios and higher disruption risk.',
-    };
-
-    function updateExampleSummary() {
-      const key = exampleConfigEl.value;
-      exampleSummaryEl.textContent = key
-        ? EXAMPLE_DESCRIPTIONS[key] || 'Preset ready.'
-        : 'Pick a preset to preview what it configures.';
-    }
-
-    function readPayloadFromInputs() {
-      return {
-        year: Number(document.getElementById('year').value),
-        race: document.getElementById('race').value,
-        simulations: Number(document.getElementById('simulations').value),
-        scenarios: document.getElementById('scenarios').value,
-        seed: Number(document.getElementById('seed').value),
-      };
-    }
-
-    function writePayloadToInputs(payload) {
-      if (!payload) return;
-      if (payload.year != null) document.getElementById('year').value = payload.year;
-      if (payload.race != null) document.getElementById('race').value = payload.race;
-      if (payload.simulations != null) {
-        document.getElementById('simulations').value = payload.simulations;
-      }
-      if (payload.scenarios != null) document.getElementById('scenarios').value = payload.scenarios;
-      if (payload.seed != null) document.getElementById('seed').value = payload.seed;
-    }
-
-    async function runWithPayload(payload) {
-      resultEl.textContent = JSON.stringify({ status: 'running', payload }, null, 2);
-      try {
-        const res = await fetch('/api/run', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        const data = await res.json();
-        resultEl.textContent = JSON.stringify(data, null, 2);
-        renderScenarioCards(data);
-        renderWinChart(data);
-        renderScenarioTrends(data);
-        renderDriverMatrix(data);
-        localStorage.setItem('f1sim:lastPayload', JSON.stringify(payload));
-        await refreshRuns();
-      } catch (err) {
-        resultEl.textContent = JSON.stringify({ status: 'error', detail: String(err) }, null, 2);
-      }
-    }
-
-    document.getElementById('runBtn').addEventListener('click', async () => {
-      await runWithPayload(readPayloadFromInputs());
-    });
-
-    rerunBtn.addEventListener('click', async () => {
-      const raw = localStorage.getItem('f1sim:lastPayload');
-      if (!raw) {
-        resultEl.textContent = JSON.stringify(
-          { status: 'error', detail: 'No previous config saved yet' },
-          null,
-          2
-        );
-        return;
-      }
-      const payload = JSON.parse(raw);
-      writePayloadToInputs(payload);
-      await runWithPayload(payload);
-    });
-
-    clearBtn.addEventListener('click', () => {
-      localStorage.removeItem('f1sim:lastPayload');
-      resultEl.textContent = JSON.stringify({ status: 'saved config cleared' }, null, 2);
-    });
-
-    function loadSelectedExample() {
-      const key = exampleConfigEl.value;
-      const preset = EXAMPLE_CONFIGS[key];
-      if (!preset) {
-        resultEl.textContent = JSON.stringify(
-          { status: 'error', detail: 'Choose an example first' },
-          null,
-          2
-        );
-        return null;
-      }
-      writePayloadToInputs(preset);
-      localStorage.setItem('f1sim:lastPayload', JSON.stringify(preset));
-      return { key, preset };
-    }
-
-    exampleConfigEl.addEventListener('change', () => {
-      updateExampleSummary();
-      const loaded = loadSelectedExample();
-      if (!loaded) return;
-      resultEl.textContent = JSON.stringify(
-        { status: 'example loaded', preset: loaded.key },
-        null,
-        2
-      );
-    });
-
-    applyExampleBtn.addEventListener('click', () => {
-      const loaded = loadSelectedExample();
-      if (!loaded) return;
-      resultEl.textContent = JSON.stringify(
-        { status: 'example loaded', preset: loaded.key },
-        null,
-        2
-      );
-    });
-
-    runExampleBtn.addEventListener('click', async () => {
-      const loaded = loadSelectedExample();
-      if (!loaded) return;
-      await runWithPayload(loaded.preset);
-    });
-
-    runsFilterInput.addEventListener('input', () => {
-      refreshRuns();
-    });
-
-    matrixSortEl.addEventListener('change', () => {
-      saveUiPrefs();
-      if (latestScenarioData) {
-        renderDriverMatrix(latestScenarioData);
-      }
-    });
-    matrixHighlightEl.addEventListener('change', () => {
-      saveUiPrefs();
-      if (latestScenarioData) {
-        renderDriverMatrix(latestScenarioData);
-      }
-    });
-    matrixDriverFilterEl.addEventListener('input', () => {
-      saveUiPrefs();
-      if (latestScenarioData) {
-        renderDriverMatrix(latestScenarioData);
-      }
-    });
-    matrixScenarioFilterEl.addEventListener('input', () => {
-      saveUiPrefs();
-      if (latestScenarioData) {
-        renderDriverMatrix(latestScenarioData);
-      }
-    });
-    matrixExportBtn.addEventListener('click', () => {
-      if (latestScenarioData) {
-        exportMatrixCsv(latestScenarioData);
-      }
-    });
-    downloadResultBtn.addEventListener('click', () => {
-      if (latestScenarioData) {
-        downloadResultJson(latestScenarioData);
-      }
-    });
-    trendMetricEl.addEventListener('change', () => {
-      saveUiPrefs();
-      if (latestScenarioData) {
-        renderScenarioTrends(latestScenarioData);
-      }
-    });
-    trendScaleEl.addEventListener('change', () => {
-      saveUiPrefs();
-      if (latestScenarioData) {
-        renderScenarioTrends(latestScenarioData);
-      }
-    });
-    topNSelectorEl.addEventListener('change', () => {
-      saveUiPrefs();
-      if (latestScenarioData) {
-        renderWinChart(latestScenarioData);
-        renderDriverMatrix(latestScenarioData);
-      }
-    });
-
-    loadUiPrefs();
-
-    const saved = localStorage.getItem('f1sim:lastPayload');
-    if (saved) {
-      writePayloadToInputs(JSON.parse(saved));
-    }
-
-    updateExampleSummary();
-    refreshRuns();
-  </script>
-</body>
-</html>
-"""
+    """Return the shared polished frontend HTML."""
+    frontend_path = Path(__file__).resolve().parents[3] / "frontend" / "index.html"
+    return frontend_path.read_text(encoding="utf-8")
 
 
 _TEAM_ID_NORMALIZE: dict[str, str] = {
