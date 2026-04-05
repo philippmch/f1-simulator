@@ -103,7 +103,9 @@ class HistoricalDataLoader:
         """Resolve a race label or round to the season round number."""
         schedule = self.get_event_schedule(year)
         available_rounds = {
-            int(row["RoundNumber"]) for _, row in schedule.iterrows() if pd.notna(row["RoundNumber"])
+            int(row["RoundNumber"])
+            for _, row in schedule.iterrows()
+            if pd.notna(row["RoundNumber"])
         }
 
         if isinstance(race, int) or (isinstance(race, str) and race.isdigit()):
@@ -131,7 +133,10 @@ class HistoricalDataLoader:
             str(row.get("EventName", row.get("Country", row.get("RoundNumber", "?"))))
             for _, row in schedule.iterrows()
         )
-        raise ValueError(f"Race '{race}' not found in {year} calendar. Available events: {available}")
+        raise ValueError(
+            f"Race '{race}' not found in {year} calendar. "
+            f"Available events: {available}"
+        )
 
     def list_available_events(self, year: int) -> list[dict[str, Any]]:
         """Return frontend-friendly event metadata for a season."""
@@ -144,7 +149,9 @@ class HistoricalDataLoader:
             country = str(row.get("Country", "")) if pd.notna(row.get("Country")) else ""
             location = str(row.get("Location", "")) if pd.notna(row.get("Location")) else ""
             official_name = (
-                str(row.get("OfficialEventName", "")) if pd.notna(row.get("OfficialEventName")) else ""
+                str(row.get("OfficialEventName", ""))
+                if pd.notna(row.get("OfficialEventName"))
+                else ""
             )
             slug = self._normalize_event_text(race_name).replace(" ", "-")
 
