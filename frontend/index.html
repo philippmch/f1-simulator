@@ -1,0 +1,1445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>F1 Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Barlow:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ── Reset & Variables ── */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg-primary: #0a0a0a;
+  --bg-surface: #111113;
+  --bg-card: #18181b;
+  --bg-card-hover: #1e1e22;
+  --bg-elevated: #222226;
+  --border-subtle: rgba(255,255,255,0.06);
+  --border-medium: rgba(255,255,255,0.1);
+  --text-primary: #f0f0f0;
+  --text-secondary: #8a8a8e;
+  --text-muted: #555558;
+  --f1-red: #e10600;
+  --f1-red-glow: rgba(225,6,0,0.3);
+  --accent-green: #00d26a;
+  --accent-yellow: #f5a623;
+  --accent-purple: #a855f7;
+  --font-display: 'Chakra Petch', sans-serif;
+  --font-body: 'Barlow', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+}
+
+html { font-size: 15px; }
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── Background texture ── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 0%, rgba(225,6,0,0.04) 0%, transparent 60%),
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 60px,
+      rgba(255,255,255,0.015) 60px,
+      rgba(255,255,255,0.015) 61px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 60px,
+      rgba(255,255,255,0.015) 60px,
+      rgba(255,255,255,0.015) 61px
+    );
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Layout ── */
+.app { position: relative; z-index: 1; }
+
+/* ── Header ── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.2rem 2.5rem;
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(10,10,10,0.9);
+  backdrop-filter: blur(20px);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.logo-mark {
+  width: 36px;
+  height: 36px;
+  background: var(--f1-red);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: -0.02em;
+  color: white;
+  box-shadow: 0 0 20px var(--f1-red-glow);
+}
+
+.logo-text {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.15rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+
+.logo-text span { color: var(--text-muted); font-weight: 400; }
+
+/* ── Controls Bar ── */
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.control-label {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+select, input[type="number"] {
+  background: var(--bg-card);
+  border: 1px solid var(--border-medium);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 0.5rem 0.8rem;
+  border-radius: var(--radius-sm);
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  min-width: 150px;
+}
+
+select:hover, input[type="number"]:hover {
+  border-color: rgba(255,255,255,0.2);
+}
+
+select:focus, input[type="number"]:focus {
+  border-color: var(--f1-red);
+  box-shadow: 0 0 0 2px var(--f1-red-glow);
+}
+
+input[type="number"] { min-width: 80px; width: 80px; }
+
+select option { background: var(--bg-card); color: var(--text-primary); }
+
+.btn-simulate {
+  background: var(--f1-red);
+  color: white;
+  border: none;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.85rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 0.65rem 1.8rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 0 20px var(--f1-red-glow);
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-simulate:hover {
+  background: #ff1a10;
+  box-shadow: 0 0 30px var(--f1-red-glow);
+  transform: translateY(-1px);
+}
+
+.btn-simulate:active { transform: translateY(0); }
+
+.btn-simulate.running {
+  pointer-events: none;
+  opacity: 0.8;
+}
+
+.btn-simulate.running::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  animation: shimmer 1s infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* ── Tabs ── */
+.tabs-container {
+  padding: 0 2.5rem;
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(10,10,10,0.5);
+}
+
+.tabs {
+  display: flex;
+  gap: 0;
+}
+
+.tab {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  padding: 1rem 1.5rem;
+  cursor: pointer;
+  position: relative;
+  transition: color 0.2s;
+}
+
+.tab:hover { color: var(--text-secondary); }
+
+.tab.active { color: var(--text-primary); }
+
+.tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 1rem;
+  right: 1rem;
+  height: 2px;
+  background: var(--f1-red);
+  box-shadow: 0 0 8px var(--f1-red-glow);
+}
+
+/* ── Main Content ── */
+.main { padding: 2rem 2.5rem 4rem; }
+
+.tab-panel { display: none; animation: fadeIn 0.4s ease; }
+.tab-panel.active { display: block; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Race Results ── */
+.race-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
+.race-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.6rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.race-meta {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+
+.timing-tower {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.driver-row {
+  display: grid;
+  grid-template-columns: 40px 6px 52px 1fr 100px 100px 90px 140px 80px;
+  align-items: center;
+  gap: 0;
+  padding: 0.6rem 1rem;
+  background: var(--bg-card);
+  border-radius: var(--radius-sm);
+  transition: background 0.15s;
+  animation: slideIn 0.3s ease both;
+}
+
+.driver-row:hover { background: var(--bg-card-hover); }
+
+.driver-row.dnf { opacity: 0.45; }
+.driver-row.podium { background: rgba(255,255,255,0.04); }
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.pos {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.05rem;
+  text-align: center;
+  color: var(--text-primary);
+}
+
+.driver-row.podium:nth-child(1) .pos { color: #ffd700; }
+.driver-row.podium:nth-child(2) .pos { color: #c0c0c0; }
+.driver-row.podium:nth-child(3) .pos { color: #cd7f32; }
+
+.team-stripe {
+  width: 4px;
+  height: 28px;
+  border-radius: 2px;
+  margin: 0 0.5rem;
+}
+
+.driver-code {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.06em;
+}
+
+.driver-name {
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  padding-left: 0.8rem;
+}
+
+.gap {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.fastest-lap {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.fastest-lap.is-fastest { color: var(--accent-purple); }
+
+.pits {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.tire-strategy {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.tire-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  font-weight: 700;
+  color: #000;
+  border: 2px solid;
+}
+
+.tire-dot.soft { background: #ff3333; border-color: #ff3333; }
+.tire-dot.medium { background: #ffd700; border-color: #ffd700; }
+.tire-dot.hard { background: #f0f0f0; border-color: #f0f0f0; }
+.tire-dot.inter { background: #39b54a; border-color: #39b54a; }
+.tire-dot.wet { background: #2196f3; border-color: #2196f3; }
+
+.status {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  text-align: right;
+  padding-right: 0.2rem;
+}
+
+.status.finished { color: var(--accent-green); }
+.status.dnf-status { color: var(--f1-red); }
+
+/* ── Column Headers ── */
+.timing-header {
+  display: grid;
+  grid-template-columns: 40px 6px 52px 1fr 100px 100px 90px 140px 80px;
+  padding: 0 1rem 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.timing-header span:nth-child(5),
+.timing-header span:nth-child(6) { text-align: right; }
+.timing-header span:nth-child(7) { text-align: center; }
+.timing-header span:nth-child(8) { text-align: right; }
+.timing-header span:nth-child(9) { text-align: right; }
+
+/* ── Qualifying ── */
+.quali-section { margin-bottom: 2rem; }
+
+.quali-badge {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  margin-bottom: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.quali-badge .badge-marker {
+  width: 24px;
+  height: 3px;
+  background: var(--f1-red);
+  border-radius: 2px;
+}
+
+.quali-row {
+  display: grid;
+  grid-template-columns: 40px 6px 52px 1fr 120px 120px 120px;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  background: var(--bg-card);
+  border-radius: var(--radius-sm);
+  margin-bottom: 2px;
+  animation: slideIn 0.3s ease both;
+}
+
+.quali-row.eliminated { opacity: 0.4; }
+
+.quali-time {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.quali-time.best { color: var(--accent-purple); font-weight: 600; }
+.quali-time.no-time { color: var(--text-muted); }
+
+.quali-header {
+  display: grid;
+  grid-template-columns: 40px 6px 52px 1fr 120px 120px 120px;
+  padding: 0 1rem 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.quali-header span:nth-child(5),
+.quali-header span:nth-child(6),
+.quali-header span:nth-child(7) { text-align: right; }
+
+/* ── Statistics ── */
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.stat-card {
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  padding: 1.5rem;
+  border: 1px solid var(--border-subtle);
+}
+
+.stat-card-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.8rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 1.2rem;
+}
+
+.stat-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.5rem;
+}
+
+.stat-bar-label {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.75rem;
+  width: 36px;
+  letter-spacing: 0.04em;
+}
+
+.stat-bar-track {
+  flex: 1;
+  height: 22px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+
+.stat-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  width: 0;
+  position: relative;
+}
+
+.stat-bar-fill.animated { /* width set by JS */ }
+
+.stat-bar-value {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  width: 50px;
+  text-align: right;
+  color: var(--text-secondary);
+}
+
+/* ── Position Heatmap ── */
+.heatmap-container {
+  grid-column: 1 / -1;
+}
+
+.heatmap {
+  display: grid;
+  gap: 2px;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  overflow-x: auto;
+}
+
+.heatmap-label {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.72rem;
+  display: flex;
+  align-items: center;
+  padding-right: 0.5rem;
+  white-space: nowrap;
+}
+
+.heatmap-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem 0.2rem;
+  border-radius: 3px;
+  font-weight: 500;
+  color: var(--text-primary);
+  transition: transform 0.15s;
+  min-width: 36px;
+}
+
+.heatmap-cell:hover { transform: scale(1.15); z-index: 2; }
+
+.heatmap-pos-header {
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 0.3rem 0.2rem;
+}
+
+/* ── Summary Cards ── */
+.summary-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.summary-card {
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  padding: 1.2rem 1.4rem;
+  border: 1px solid var(--border-subtle);
+}
+
+.summary-value {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.8rem;
+  letter-spacing: -0.02em;
+}
+
+.summary-label {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: 0.3rem;
+}
+
+/* ── Empty State ── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 50vh;
+  text-align: center;
+}
+
+.empty-icon {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  margin-bottom: 1.5rem;
+  color: var(--text-muted);
+}
+
+.empty-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.1rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+  color: var(--text-secondary);
+}
+
+.empty-desc {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  max-width: 340px;
+}
+
+/* ── Simulation Overlay ── */
+.sim-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.85);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s;
+}
+
+.sim-overlay.active { opacity: 1; pointer-events: auto; }
+
+.sim-spinner {
+  width: 56px;
+  height: 56px;
+  border: 3px solid var(--border-medium);
+  border-top-color: var(--f1-red);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 1.5rem;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.sim-text {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.9rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.sim-count {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.5rem;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+/* ── Weather icons ── */
+.weather-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.weather-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.weather-dot.dry { background: #ffd700; }
+.weather-dot.cloudy { background: #8a8a8e; }
+.weather-dot.light-rain { background: #4fc3f7; }
+.weather-dot.heavy-rain { background: #1565c0; }
+
+/* ── Responsive ── */
+@media (max-width: 1100px) {
+  .stats-grid { grid-template-columns: 1fr; }
+  .summary-strip { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 860px) {
+  .header { flex-direction: column; gap: 1rem; padding: 1rem 1.2rem; }
+  .controls { flex-wrap: wrap; justify-content: center; }
+  .main { padding: 1.5rem 1rem; }
+  .driver-row { grid-template-columns: 32px 6px 44px 1fr 80px 80px; font-size: 0.8rem; }
+  .driver-row .fastest-lap,
+  .driver-row .tire-strategy,
+  .driver-row .status { display: none; }
+  .timing-header { grid-template-columns: 32px 6px 44px 1fr 80px 80px; }
+  .timing-header span:nth-child(7),
+  .timing-header span:nth-child(8),
+  .timing-header span:nth-child(9) { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Header -->
+  <header class="header">
+    <div class="logo">
+      <div class="logo-mark">F1</div>
+      <div class="logo-text">Simulator <span>Monte Carlo</span></div>
+    </div>
+    <div class="controls">
+      <div class="control-group">
+        <label class="control-label">Circuit</label>
+        <select id="trackSelect"></select>
+      </div>
+      <div class="control-group">
+        <label class="control-label">Weather</label>
+        <select id="weatherSelect">
+          <option value="DRY">Dry</option>
+          <option value="CLOUDY">Cloudy</option>
+          <option value="LIGHT_RAIN">Light Rain</option>
+          <option value="HEAVY_RAIN">Heavy Rain</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label class="control-label">Simulations</label>
+        <input type="number" id="simCount" value="100" min="10" max="1000" step="10">
+      </div>
+      <button class="btn-simulate" id="btnRun" onclick="runSimulation()">Run Simulation</button>
+    </div>
+  </header>
+
+  <!-- Tabs -->
+  <nav class="tabs-container">
+    <div class="tabs">
+      <button class="tab active" data-tab="race" onclick="switchTab('race')">Race Results</button>
+      <button class="tab" data-tab="qualifying" onclick="switchTab('qualifying')">Qualifying</button>
+      <button class="tab" data-tab="stats" onclick="switchTab('stats')">Statistics</button>
+    </div>
+  </nav>
+
+  <!-- Content -->
+  <main class="main">
+    <div id="panel-race" class="tab-panel active">
+      <div class="empty-state" id="emptyRace">
+        <div class="empty-icon">&#9201;</div>
+        <div class="empty-title">No simulation yet</div>
+        <div class="empty-desc">Select a circuit and run a simulation to see race results</div>
+      </div>
+      <div id="raceContent" style="display:none"></div>
+    </div>
+    <div id="panel-qualifying" class="tab-panel">
+      <div class="empty-state" id="emptyQuali">
+        <div class="empty-icon">&#9201;</div>
+        <div class="empty-title">No simulation yet</div>
+        <div class="empty-desc">Run a simulation to see qualifying results</div>
+      </div>
+      <div id="qualiContent" style="display:none"></div>
+    </div>
+    <div id="panel-stats" class="tab-panel">
+      <div class="empty-state" id="emptyStats">
+        <div class="empty-icon">&#9201;</div>
+        <div class="empty-title">No simulation yet</div>
+        <div class="empty-desc">Run a Monte Carlo simulation to see statistical analysis</div>
+      </div>
+      <div id="statsContent" style="display:none"></div>
+    </div>
+  </main>
+
+  <!-- Simulation overlay -->
+  <div class="sim-overlay" id="simOverlay">
+    <div class="sim-spinner"></div>
+    <div class="sim-text">Running simulations</div>
+    <div class="sim-count" id="simProgress">0 / 100</div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════
+//  DATA
+// ═══════════════════════════════════════════
+
+const TEAMS = {
+  red_bull:     { name: 'Red Bull Racing',   color: '#3671C6' },
+  ferrari:      { name: 'Scuderia Ferrari',  color: '#E8002D' },
+  mclaren:      { name: 'McLaren',           color: '#FF8000' },
+  mercedes:     { name: 'Mercedes-AMG',      color: '#27F4D2' },
+  aston_martin: { name: 'Aston Martin',      color: '#229971' },
+  alpine:       { name: 'Alpine',            color: '#0093CC' },
+  williams:     { name: 'Williams',          color: '#64C4FF' },
+  rb:           { name: 'RB',                color: '#6692FF' },
+  sauber:       { name: 'Kick Sauber',       color: '#52E252' },
+  haas:         { name: 'Haas',              color: '#B6BABD' },
+};
+
+const DRIVERS = [
+  { id: 'VER', name: 'Max Verstappen',    team: 'red_bull',     skill: 0.97, consistency: 0.96 },
+  { id: 'LAW', name: 'Liam Lawson',       team: 'red_bull',     skill: 0.82, consistency: 0.85 },
+  { id: 'LEC', name: 'Charles Leclerc',   team: 'ferrari',      skill: 0.94, consistency: 0.91 },
+  { id: 'HAM', name: 'Lewis Hamilton',    team: 'ferrari',      skill: 0.93, consistency: 0.93 },
+  { id: 'NOR', name: 'Lando Norris',      team: 'mclaren',      skill: 0.93, consistency: 0.90 },
+  { id: 'PIA', name: 'Oscar Piastri',     team: 'mclaren',      skill: 0.90, consistency: 0.89 },
+  { id: 'RUS', name: 'George Russell',    team: 'mercedes',     skill: 0.91, consistency: 0.90 },
+  { id: 'ANT', name: 'Kimi Antonelli',    team: 'mercedes',     skill: 0.84, consistency: 0.82 },
+  { id: 'ALO', name: 'Fernando Alonso',   team: 'aston_martin', skill: 0.89, consistency: 0.93 },
+  { id: 'STR', name: 'Lance Stroll',      team: 'aston_martin', skill: 0.78, consistency: 0.80 },
+  { id: 'GAS', name: 'Pierre Gasly',      team: 'alpine',       skill: 0.84, consistency: 0.86 },
+  { id: 'DOO', name: 'Jack Doohan',       team: 'alpine',       skill: 0.76, consistency: 0.78 },
+  { id: 'ALB', name: 'Alex Albon',        team: 'williams',     skill: 0.85, consistency: 0.87 },
+  { id: 'SAI', name: 'Carlos Sainz',      team: 'williams',     skill: 0.91, consistency: 0.91 },
+  { id: 'TSU', name: 'Yuki Tsunoda',      team: 'rb',           skill: 0.83, consistency: 0.84 },
+  { id: 'HAD', name: 'Isack Hadjar',      team: 'rb',           skill: 0.78, consistency: 0.80 },
+  { id: 'HUL', name: 'Nico Hulkenberg',   team: 'sauber',       skill: 0.82, consistency: 0.86 },
+  { id: 'BOR', name: 'Gabriel Bortoleto', team: 'sauber',       skill: 0.77, consistency: 0.78 },
+  { id: 'OCO', name: 'Esteban Ocon',      team: 'haas',         skill: 0.83, consistency: 0.85 },
+  { id: 'BEA', name: 'Oliver Bearman',    team: 'haas',         skill: 0.78, consistency: 0.80 },
+];
+
+const CAR_PACE = {
+  red_bull: 0.96, ferrari: 0.95, mclaren: 0.95, mercedes: 0.92,
+  aston_martin: 0.87, alpine: 0.83, williams: 0.84, rb: 0.84,
+  sauber: 0.80, haas: 0.82,
+};
+
+const TRACKS = [
+  { id: 'bahrain',    name: 'Bahrain Grand Prix',       country: 'Bahrain',       laps: 57, baseTime: 92,  overtake: 0.35, tireStress: 0.7 },
+  { id: 'jeddah',     name: 'Saudi Arabian Grand Prix',  country: 'Saudi Arabia',  laps: 50, baseTime: 89,  overtake: 0.40, tireStress: 0.5 },
+  { id: 'melbourne',  name: 'Australian Grand Prix',     country: 'Australia',     laps: 58, baseTime: 80,  overtake: 0.50, tireStress: 0.6 },
+  { id: 'suzuka',     name: 'Japanese Grand Prix',       country: 'Japan',         laps: 53, baseTime: 91,  overtake: 0.55, tireStress: 0.7 },
+  { id: 'shanghai',   name: 'Chinese Grand Prix',        country: 'China',         laps: 56, baseTime: 95,  overtake: 0.45, tireStress: 0.6 },
+  { id: 'miami',      name: 'Miami Grand Prix',          country: 'USA',           laps: 57, baseTime: 91,  overtake: 0.45, tireStress: 0.6 },
+  { id: 'imola',      name: 'Emilia Romagna Grand Prix', country: 'Italy',         laps: 63, baseTime: 77,  overtake: 0.60, tireStress: 0.5 },
+  { id: 'monaco',     name: 'Monaco Grand Prix',         country: 'Monaco',        laps: 78, baseTime: 73,  overtake: 0.95, tireStress: 0.3 },
+  { id: 'barcelona',  name: 'Spanish Grand Prix',        country: 'Spain',         laps: 66, baseTime: 78,  overtake: 0.55, tireStress: 0.7 },
+  { id: 'montreal',   name: 'Canadian Grand Prix',       country: 'Canada',        laps: 70, baseTime: 75,  overtake: 0.45, tireStress: 0.5 },
+  { id: 'silverstone',name: 'British Grand Prix',        country: 'UK',            laps: 52, baseTime: 88,  overtake: 0.45, tireStress: 0.8 },
+  { id: 'spa',        name: 'Belgian Grand Prix',        country: 'Belgium',       laps: 44, baseTime: 106, overtake: 0.35, tireStress: 0.6 },
+  { id: 'monza',      name: 'Italian Grand Prix',        country: 'Italy',         laps: 53, baseTime: 82,  overtake: 0.30, tireStress: 0.4 },
+  { id: 'singapore',  name: 'Singapore Grand Prix',      country: 'Singapore',     laps: 62, baseTime: 99,  overtake: 0.70, tireStress: 0.6 },
+  { id: 'cota',       name: 'US Grand Prix',             country: 'USA',           laps: 56, baseTime: 97,  overtake: 0.40, tireStress: 0.7 },
+  { id: 'interlagos', name: 'Brazilian Grand Prix',      country: 'Brazil',        laps: 71, baseTime: 73,  overtake: 0.35, tireStress: 0.6 },
+  { id: 'yas_marina', name: 'Abu Dhabi Grand Prix',      country: 'Abu Dhabi',     laps: 58, baseTime: 87,  overtake: 0.45, tireStress: 0.5 },
+];
+
+const TIRE_COMPOUNDS = ['soft', 'medium', 'hard', 'inter', 'wet'];
+const TIRE_LABELS = { soft: 'S', medium: 'M', hard: 'H', inter: 'I', wet: 'W' };
+
+// ═══════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════
+
+let simResults = null;
+
+// ═══════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════
+
+(function init() {
+  const sel = document.getElementById('trackSelect');
+  TRACKS.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = `${t.name}`;
+    sel.appendChild(opt);
+  });
+})();
+
+// ═══════════════════════════════════════════
+//  TABS
+// ═══════════════════════════════════════════
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `panel-${tab}`));
+}
+
+// ═══════════════════════════════════════════
+//  SIMULATION ENGINE (simplified Monte Carlo)
+// ═══════════════════════════════════════════
+
+function gaussRandom(mean = 0, std = 1) {
+  const u1 = Math.random(), u2 = Math.random();
+  return mean + std * Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+}
+
+function pickTireStrategy(weather, laps) {
+  if (weather === 'HEAVY_RAIN') return ['wet', 'wet'];
+  if (weather === 'LIGHT_RAIN') return Math.random() < 0.6 ? ['inter', 'inter'] : ['inter', 'medium'];
+  const strategies = [
+    ['soft', 'hard'],
+    ['soft', 'medium', 'hard'],
+    ['medium', 'hard'],
+    ['soft', 'medium'],
+    ['medium', 'hard', 'soft'],
+    ['hard', 'medium'],
+  ];
+  return strategies[Math.floor(Math.random() * strategies.length)];
+}
+
+function simulateSingleRace(track, weather) {
+  const results = DRIVERS.map(d => {
+    const carPace = CAR_PACE[d.team];
+    const performance = (d.skill * 0.45 + carPace * 0.55);
+    const wetPenalty = weather.includes('RAIN') ? (1 - d.consistency) * 0.03 : 0;
+    const baseLap = track.baseTime + (1 - performance) * 8 + wetPenalty * track.baseTime;
+    let totalTime = 0;
+    const strategy = pickTireStrategy(weather, track.laps);
+    const pitStops = strategy.length - 1;
+
+    // DNF check (~5% chance, lower for reliable cars)
+    const dnfChance = 0.02 + (1 - carPace) * 0.04;
+    const isDNF = Math.random() < dnfChance;
+    const dnfLap = isDNF ? Math.floor(Math.random() * track.laps * 0.8 + track.laps * 0.1) : -1;
+    const dnfReasons = ['Mechanical', 'Engine', 'Gearbox', 'Hydraulics', 'Collision', 'Spin'];
+
+    let fastestLap = Infinity;
+    for (let lap = 0; lap < track.laps; lap++) {
+      if (isDNF && lap >= dnfLap) break;
+      const variation = gaussRandom(0, (1 - d.consistency) * 1.2);
+      const tireDeg = Math.min(lap * 0.02, 1.5);
+      const lapTime = baseLap + variation + tireDeg * 0.3;
+      totalTime += lapTime;
+      if (lapTime < fastestLap) fastestLap = lapTime;
+    }
+
+    totalTime += pitStops * 23;
+
+    return {
+      driver: d,
+      totalTime,
+      strategy,
+      pitStops,
+      fastestLap: isDNF ? null : fastestLap,
+      dnf: isDNF,
+      dnfReason: isDNF ? dnfReasons[Math.floor(Math.random() * dnfReasons.length)] : null,
+      dnfLap,
+    };
+  });
+
+  // Sort: DNF last, then by time
+  results.sort((a, b) => {
+    if (a.dnf && !b.dnf) return 1;
+    if (!a.dnf && b.dnf) return -1;
+    if (a.dnf && b.dnf) return a.dnfLap - b.dnfLap;
+    return a.totalTime - b.totalTime;
+  });
+
+  const leaderTime = results[0].totalTime;
+  return results.map((r, i) => ({
+    ...r,
+    position: i + 1,
+    gap: i === 0 ? 0 : r.dnf ? null : r.totalTime - leaderTime,
+  }));
+}
+
+function simulateQualifying(track, weather) {
+  const base = track.baseTime - 1.5;
+  const entries = DRIVERS.map(d => {
+    const carPace = CAR_PACE[d.team];
+    const performance = d.skill * 0.5 + carPace * 0.5;
+    const q1 = base + (1 - performance) * 5 + gaussRandom(0, 0.15);
+    return { driver: d, performance, q1, q2: null, q3: null, eliminatedQ1: false, eliminatedQ2: false };
+  });
+
+  // Q1: eliminate P16-P20
+  entries.sort((a, b) => a.q1 - b.q1);
+  for (let i = 15; i < entries.length; i++) entries[i].eliminatedQ1 = true;
+
+  // Q2: top 15 compete, eliminate P11-P15
+  const q2Drivers = entries.filter(e => !e.eliminatedQ1);
+  q2Drivers.forEach(e => {
+    e.q2 = base + (1 - e.performance) * 5 + gaussRandom(0, 0.12);
+  });
+  q2Drivers.sort((a, b) => a.q2 - b.q2);
+  for (let i = 10; i < q2Drivers.length; i++) q2Drivers[i].eliminatedQ2 = true;
+
+  // Q3: top 10 compete
+  const q3Drivers = q2Drivers.filter(e => !e.eliminatedQ2);
+  q3Drivers.forEach(e => {
+    e.q3 = base + (1 - e.performance) * 5 + gaussRandom(0, 0.10);
+  });
+
+  // Final order: Q3 drivers sorted by Q3, then Q2 eliminated sorted by Q2, then Q1 eliminated sorted by Q1
+  const sorted = [
+    ...q3Drivers.sort((a, b) => a.q3 - b.q3),
+    ...q2Drivers.filter(e => e.eliminatedQ2).sort((a, b) => a.q2 - b.q2),
+    ...entries.filter(e => e.eliminatedQ1).sort((a, b) => a.q1 - b.q1),
+  ];
+
+  return sorted.map((r, i) => ({ ...r, position: i + 1 }));
+}
+
+function runMonteCarlo(track, weather, n) {
+  const allRaces = [];
+  const allQuali = [];
+  const stats = {};
+
+  DRIVERS.forEach(d => {
+    stats[d.id] = {
+      wins: 0, podiums: 0, dnfs: 0, totalPoints: 0,
+      positions: {}, totalPosition: 0, count: 0,
+    };
+  });
+
+  const pointsSystem = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
+
+  for (let i = 0; i < n; i++) {
+    const race = simulateSingleRace(track, weather);
+    const quali = simulateQualifying(track, weather);
+    allRaces.push(race);
+    allQuali.push(quali);
+
+    race.forEach(r => {
+      const s = stats[r.driver.id];
+      if (r.position === 1) s.wins++;
+      if (r.position <= 3 && !r.dnf) s.podiums++;
+      if (r.dnf) s.dnfs++;
+      if (r.position <= 10 && !r.dnf) s.totalPoints += pointsSystem[r.position - 1];
+      s.positions[r.position] = (s.positions[r.position] || 0) + 1;
+      s.totalPosition += r.position;
+      s.count++;
+    });
+  }
+
+  return { allRaces, allQuali, stats, n };
+}
+
+// ═══════════════════════════════════════════
+//  RUN
+// ═══════════════════════════════════════════
+
+async function runSimulation() {
+  const trackId = document.getElementById('trackSelect').value;
+  const weather = document.getElementById('weatherSelect').value;
+  const n = parseInt(document.getElementById('simCount').value) || 100;
+  const track = TRACKS.find(t => t.id === trackId);
+
+  const btn = document.getElementById('btnRun');
+  const overlay = document.getElementById('simOverlay');
+  btn.classList.add('running');
+  btn.textContent = 'Running...';
+  overlay.classList.add('active');
+
+  // Animate progress
+  const progress = document.getElementById('simProgress');
+  let shown = 0;
+
+  await new Promise(resolve => {
+    const interval = setInterval(() => {
+      shown = Math.min(shown + Math.ceil(n / 30), n);
+      progress.textContent = `${shown} / ${n}`;
+      if (shown >= n) { clearInterval(interval); resolve(); }
+    }, 50);
+  });
+
+  // Run simulation
+  simResults = runMonteCarlo(track, weather, n);
+  simResults.track = track;
+  simResults.weather = weather;
+
+  await new Promise(r => setTimeout(r, 300));
+
+  overlay.classList.remove('active');
+  btn.classList.remove('running');
+  btn.textContent = 'Run Simulation';
+
+  renderAll();
+}
+
+// ═══════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════
+
+function formatTime(seconds) {
+  if (seconds == null) return '--';
+  const m = Math.floor(seconds / 60);
+  const s = (seconds % 60).toFixed(3);
+  return `${m}:${s.padStart(6, '0')}`;
+}
+
+function formatGap(gap) {
+  if (gap == null) return 'DNF';
+  if (gap === 0) return 'LEADER';
+  return `+${gap.toFixed(3)}`;
+}
+
+function renderAll() {
+  renderRace();
+  renderQualifying();
+  renderStats();
+}
+
+function renderRace() {
+  const container = document.getElementById('raceContent');
+  const empty = document.getElementById('emptyRace');
+  if (!simResults) return;
+
+  empty.style.display = 'none';
+  container.style.display = 'block';
+
+  // Show the first simulation's race result as the "sample" race
+  const race = simResults.allRaces[0];
+  const track = simResults.track;
+
+  const weatherLabels = { DRY: 'Dry', CLOUDY: 'Cloudy', LIGHT_RAIN: 'Light Rain', HEAVY_RAIN: 'Heavy Rain' };
+  const weatherClass = simResults.weather.toLowerCase().replace('_', '-');
+
+  // Find fastest lap
+  let fastestLapTime = Infinity;
+  let fastestLapDriver = '';
+  race.forEach(r => {
+    if (r.fastestLap && r.fastestLap < fastestLapTime) {
+      fastestLapTime = r.fastestLap;
+      fastestLapDriver = r.driver.id;
+    }
+  });
+
+  let html = `
+    <div class="race-header">
+      <div>
+        <div class="race-title">${track.name}</div>
+        <div class="race-meta">${track.laps} laps &middot; Sample race from ${simResults.n} simulations</div>
+      </div>
+      <div class="weather-indicator">
+        <div class="weather-dot ${weatherClass}"></div>
+        ${weatherLabels[simResults.weather]}
+      </div>
+    </div>
+    <div class="timing-header">
+      <span>POS</span><span></span><span></span><span>DRIVER</span>
+      <span>GAP</span><span>FASTEST</span><span>PITS</span><span>STRATEGY</span><span>STATUS</span>
+    </div>
+    <div class="timing-tower">
+  `;
+
+  race.forEach((r, i) => {
+    const team = TEAMS[r.driver.team];
+    const isPodium = r.position <= 3 && !r.dnf;
+    const isFastest = r.driver.id === fastestLapDriver;
+
+    html += `
+      <div class="driver-row ${r.dnf ? 'dnf' : ''} ${isPodium ? 'podium' : ''}" style="animation-delay:${i * 0.04}s">
+        <div class="pos">${r.position}</div>
+        <div class="team-stripe" style="background:${team.color}"></div>
+        <div class="driver-code">${r.driver.id}</div>
+        <div class="driver-name">${r.driver.name}</div>
+        <div class="gap">${formatGap(r.gap)}</div>
+        <div class="fastest-lap ${isFastest ? 'is-fastest' : ''}">${r.fastestLap ? formatTime(r.fastestLap) : '--'}</div>
+        <div class="pits">${r.pitStops}</div>
+        <div class="tire-strategy">
+          ${r.strategy.map(t => `<div class="tire-dot ${t}">${TIRE_LABELS[t]}</div>`).join('')}
+        </div>
+        <div class="status ${r.dnf ? 'dnf-status' : 'finished'}">${r.dnf ? r.dnfReason : 'Finished'}</div>
+      </div>
+    `;
+  });
+
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function renderQualifying() {
+  const container = document.getElementById('qualiContent');
+  const empty = document.getElementById('emptyQuali');
+  if (!simResults) return;
+
+  empty.style.display = 'none';
+  container.style.display = 'block';
+
+  const quali = simResults.allQuali[0];
+  const track = simResults.track;
+
+  let html = `
+    <div class="race-header">
+      <div>
+        <div class="race-title">${track.name} &mdash; Qualifying</div>
+        <div class="race-meta">Sample qualifying session</div>
+      </div>
+    </div>
+    <div class="quali-header">
+      <span>POS</span><span></span><span></span><span>DRIVER</span>
+      <span>Q1</span><span>Q2</span><span>Q3</span>
+    </div>
+  `;
+
+  // Find best Q3 time
+  const bestQ3 = Math.min(...quali.filter(q => !q.eliminatedQ1 && !q.eliminatedQ2).map(q => q.q3));
+
+  quali.forEach((q, i) => {
+    const team = TEAMS[q.driver.team];
+    const elim = q.eliminatedQ1 || q.eliminatedQ2;
+
+    html += `
+      <div class="quali-row ${elim ? 'eliminated' : ''}" style="animation-delay:${i * 0.04}s">
+        <div class="pos">${q.position}</div>
+        <div class="team-stripe" style="background:${team.color}"></div>
+        <div class="driver-code">${q.driver.id}</div>
+        <div class="driver-name">${q.driver.name}</div>
+        <div class="quali-time">${formatTime(q.q1)}</div>
+        <div class="quali-time ${q.eliminatedQ1 ? 'no-time' : ''}">${q.eliminatedQ1 ? '--' : formatTime(q.q2)}</div>
+        <div class="quali-time ${(q.eliminatedQ1 || q.eliminatedQ2) ? 'no-time' : ''} ${(!q.eliminatedQ1 && !q.eliminatedQ2 && q.q3 === bestQ3) ? 'best' : ''}">
+          ${(q.eliminatedQ1 || q.eliminatedQ2) ? '--' : formatTime(q.q3)}
+        </div>
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+}
+
+function renderStats() {
+  const container = document.getElementById('statsContent');
+  const empty = document.getElementById('emptyStats');
+  if (!simResults) return;
+
+  empty.style.display = 'none';
+  container.style.display = 'block';
+
+  const { stats, n, track } = simResults;
+
+  // Sort drivers by win rate
+  const sorted = DRIVERS.slice().sort((a, b) => stats[b.id].wins - stats[a.id].wins);
+  const top10 = sorted.slice(0, 10);
+
+  // Summary cards
+  const topWinner = sorted[0];
+  const highestDNF = sorted.reduce((max, d) => stats[d.id].dnfs > stats[max.id].dnfs ? d : max, sorted[0]);
+  const avgDNFs = sorted.reduce((sum, d) => sum + stats[d.id].dnfs, 0) / sorted.length;
+
+  let html = `
+    <div class="race-header">
+      <div>
+        <div class="race-title">${track.name} &mdash; Statistics</div>
+        <div class="race-meta">${n} Monte Carlo simulations</div>
+      </div>
+    </div>
+
+    <div class="summary-strip">
+      <div class="summary-card">
+        <div class="summary-value" style="color:${TEAMS[topWinner.team].color}">${topWinner.id}</div>
+        <div class="summary-label">Most Likely Winner</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-value">${(stats[topWinner.id].wins / n * 100).toFixed(1)}%</div>
+        <div class="summary-label">Top Win Probability</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-value">${(stats[topWinner.id].podiums / n * 100).toFixed(1)}%</div>
+        <div class="summary-label">Top Podium Rate</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-value">${avgDNFs.toFixed(1)}</div>
+        <div class="summary-label">Avg DNFs per Driver</div>
+      </div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-card-title">Win Probability</div>
+        ${top10.map(d => {
+          const pct = stats[d.id].wins / n * 100;
+          return `
+            <div class="stat-bar-row">
+              <div class="stat-bar-label" style="color:${TEAMS[d.team].color}">${d.id}</div>
+              <div class="stat-bar-track">
+                <div class="stat-bar-fill" data-width="${pct}" style="background:${TEAMS[d.team].color};opacity:0.85"></div>
+              </div>
+              <div class="stat-bar-value">${pct.toFixed(1)}%</div>
+            </div>`;
+        }).join('')}
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-card-title">Podium Rate</div>
+        ${top10.map(d => {
+          const pct = stats[d.id].podiums / n * 100;
+          return `
+            <div class="stat-bar-row">
+              <div class="stat-bar-label" style="color:${TEAMS[d.team].color}">${d.id}</div>
+              <div class="stat-bar-track">
+                <div class="stat-bar-fill" data-width="${pct}" style="background:${TEAMS[d.team].color};opacity:0.85"></div>
+              </div>
+              <div class="stat-bar-value">${pct.toFixed(1)}%</div>
+            </div>`;
+        }).join('')}
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-card-title">Average Points</div>
+        ${top10.map(d => {
+          const avgPts = stats[d.id].totalPoints / n;
+          const maxPts = 25;
+          return `
+            <div class="stat-bar-row">
+              <div class="stat-bar-label" style="color:${TEAMS[d.team].color}">${d.id}</div>
+              <div class="stat-bar-track">
+                <div class="stat-bar-fill" data-width="${avgPts / maxPts * 100}" style="background:${TEAMS[d.team].color};opacity:0.85"></div>
+              </div>
+              <div class="stat-bar-value">${avgPts.toFixed(1)}</div>
+            </div>`;
+        }).join('')}
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-card-title">DNF Rate</div>
+        ${sorted.slice().sort((a,b) => stats[b.id].dnfs - stats[a.id].dnfs).slice(0,10).map(d => {
+          const pct = stats[d.id].dnfs / n * 100;
+          return `
+            <div class="stat-bar-row">
+              <div class="stat-bar-label" style="color:${TEAMS[d.team].color}">${d.id}</div>
+              <div class="stat-bar-track">
+                <div class="stat-bar-fill" data-width="${pct * 3}" style="background:var(--f1-red);opacity:0.7"></div>
+              </div>
+              <div class="stat-bar-value">${pct.toFixed(1)}%</div>
+            </div>`;
+        }).join('')}
+      </div>
+
+      <!-- Position Distribution Heatmap -->
+      <div class="stat-card heatmap-container">
+        <div class="stat-card-title">Position Distribution Heatmap</div>
+        ${renderHeatmap(sorted.slice(0, 12), stats, n)}
+      </div>
+    </div>
+  `;
+
+  container.innerHTML = html;
+
+  // Animate bars
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      container.querySelectorAll('.stat-bar-fill').forEach(bar => {
+        bar.style.width = bar.dataset.width + '%';
+      });
+    }, 100);
+  });
+}
+
+function renderHeatmap(drivers, stats, n) {
+  const positions = Array.from({ length: 20 }, (_, i) => i + 1);
+
+  let html = `<div class="heatmap" style="grid-template-columns: 50px repeat(20, 1fr);">`;
+
+  // Header
+  html += `<div></div>`;
+  positions.forEach(p => {
+    html += `<div class="heatmap-pos-header">P${p}</div>`;
+  });
+
+  // Rows
+  drivers.forEach(d => {
+    html += `<div class="heatmap-label" style="color:${TEAMS[d.team].color}">${d.id}</div>`;
+    positions.forEach(p => {
+      const count = stats[d.id].positions[p] || 0;
+      const pct = count / n * 100;
+      const intensity = Math.min(pct / 40, 1);
+      const bg = intensity > 0
+        ? `rgba(${hexToRgb(TEAMS[d.team].color)}, ${intensity * 0.8 + 0.05})`
+        : 'rgba(255,255,255,0.02)';
+      html += `<div class="heatmap-cell" style="background:${bg}" title="${d.id} P${p}: ${pct.toFixed(1)}%">${pct >= 1 ? pct.toFixed(0) : ''}</div>`;
+    });
+  });
+
+  html += `</div>`;
+  return html;
+}
+
+function hexToRgb(hex) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `${r},${g},${b}`;
+}
+</script>
+</body>
+</html>
