@@ -1,4 +1,4 @@
-"""Minimal web dashboard for running and comparing simulations."""
+"""F1 Simulator web server – API and dashboard UI."""
 
 from __future__ import annotations
 
@@ -926,13 +926,61 @@ def build_dashboard_html() -> str:
 """
 
 
+_TEAM_ID_NORMALIZE: dict[str, str] = {
+    "red_bull_racing": "red_bull",
+    "red_bull": "red_bull",
+    "scuderia_ferrari": "ferrari",
+    "ferrari": "ferrari",
+    "mclaren": "mclaren",
+    "mercedes": "mercedes",
+    "aston_martin_aramco": "aston_martin",
+    "aston_martin": "aston_martin",
+    "alpine": "alpine",
+    "bwt_alpine_f1_team": "alpine",
+    "williams": "williams",
+    "williams_racing": "williams",
+    "rb": "rb",
+    "racing_bulls": "rb",
+    "visa_cash_app_rb": "rb",
+    "sauber": "sauber",
+    "kick_sauber": "sauber",
+    "stake_f1_team_kick_sauber": "sauber",
+    "haas": "haas",
+    "haas_f1_team": "haas",
+    "moneygram_haas_f1_team": "haas",
+}
+
+
+def _normalize_team_id(raw_team_id: str) -> str:
+    """Map FastF1 team IDs to frontend-friendly keys."""
+    cleaned = raw_team_id.lower().replace(" ", "_").replace("-", "_")
+    if cleaned in _TEAM_ID_NORMALIZE:
+        return _TEAM_ID_NORMALIZE[cleaned]
+    for key, val in _TEAM_ID_NORMALIZE.items():
+        if key in cleaned or cleaned in key:
+            return val
+    return cleaned
+
+
+_shared_loader: HistoricalDataLoader | None = None
+
+
+def _get_loader() -> HistoricalDataLoader:
+    """Get a shared HistoricalDataLoader instance for cross-request caching."""
+    global _shared_loader
+    if _shared_loader is None:
+        _shared_loader = HistoricalDataLoader(cache_dir="data/cache")
+    return _shared_loader
+
+
 def build_fastapi_app() -> Any:
     """Build FastAPI dashboard app.
 
     FastAPI import is lazy so core package remains usable without web deps.
     """
     try:
-        from fastapi import FastAPI, HTTPException
+        from fastapi import FastAPI, HTTPException, Query
+        from fastapi.middleware.cors import CORSMiddleware
         from fastapi.responses import HTMLResponse
         from fastapi.staticfiles import StaticFiles
     except Exception as exc:  # pragma: no cover
@@ -940,6 +988,12 @@ def build_fastapi_app() -> Any:
         raise RuntimeError(msg) from exc
 
     app = FastAPI(title="F1Sim Dashboard", version="0.1")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     Path("output").mkdir(parents=True, exist_ok=True)
     app.mount("/output", StaticFiles(directory="output"), name="output")
 
@@ -961,6 +1015,73 @@ def build_fastapi_app() -> Any:
             return run_dashboard_simulation(payload)
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/ratings")
+    def ratings(
+        year: int = Query(default=2025, ge=2020, le=2030),
+        race: str = Query(..., description="Race name, e.g. 'Bahrain', 'Monaco'"),
+    ) -> dict[str, Any]:
+        """Return driver skill ratings and car pace derived from real FastF1 data."""
+        try:
+            import numpy as np
+
+            loader = _get_loader()
+            driver_stats = loader.get_weighted_driver_stats(
+                year=year,
+                target_race=race,
+                form_races=3,
+                track_weight=0.5,
+                form_weight=0.3,
+                quali_weight=0.2,
+            )
+
+            if not driver_stats:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"No data available for {year} {race}",
+                )
+
+            # Use a fixed seed so wet_skill_modifier is deterministic per request
+            rng_state = np.random.get_state()
+            np.random.seed(hash((year, race)) % 2**31)
+            drivers = loader.create_drivers_from_stats(driver_stats)
+            cars = loader.create_cars_from_stats(driver_stats)
+            np.random.set_state(rng_state)
+
+            drivers_out = []
+            for d in drivers:
+                drivers_out.append({
+                    "id": d.id,
+                    "name": d.name,
+                    "team": _normalize_team_id(d.team_id),
+                    "skill": round(d.skill_rating, 4),
+                    "consistency": round(d.consistency, 4),
+                    "wet_skill": round(d.wet_skill_modifier, 4),
+                    "overtaking": round(d.overtaking_skill, 4),
+                    "tire_management": round(d.tire_management, 4),
+                })
+
+            car_pace: dict[str, float] = {}
+            for car in cars.values():
+                team_key = _normalize_team_id(car.team_id)
+                car_pace[team_key] = round(car.base_pace, 4)
+
+            sample_sizes = {
+                sid: s.sample_size for sid, s in driver_stats.items()
+            }
+
+            return {
+                "year": year,
+                "race": race,
+                "drivers": drivers_out,
+                "car_pace": car_pace,
+                "sample_sizes": sample_sizes,
+                "source": "fastf1",
+            }
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return app
 

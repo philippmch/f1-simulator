@@ -1,4 +1,4 @@
-from f1sim.web.dashboard import _summarize_scenario_results, build_dashboard_html
+from f1sim.web.server import _summarize_scenario_results, build_dashboard_html
 
 
 class _FakeResults:

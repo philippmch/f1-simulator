@@ -1,6 +1,6 @@
 """Web dashboard module."""
 
-from .dashboard import (
+from .server import (
     DashboardRunRequest,
     build_dashboard_html,
     build_fastapi_app,
