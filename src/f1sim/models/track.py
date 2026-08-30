@@ -1,4 +1,4 @@
-"""Track model with sectors and DRS zones."""
+"""Track model with sectors and 2026 active-aero zones."""
 
 from pydantic import BaseModel, Field
 
@@ -20,22 +20,22 @@ class Sector(BaseModel):
     )
 
 
-class DRSZone(BaseModel):
-    """Represents a DRS zone on track."""
+class ActiveAeroZone(BaseModel):
+    """Represents a configured straight-mode active-aero section."""
 
-    zone_id: int = Field(..., ge=1, description="DRS zone identifier")
+    zone_id: int = Field(..., ge=1, description="Active-aero zone identifier")
     sector: int = Field(..., ge=1, le=3, description="Which sector this zone is in")
     time_gain: float = Field(
         default=0.3,
         ge=0.0,
         le=1.0,
-        description="Time gain in seconds when DRS is used",
+        description="Straight-mode time gain in seconds",
     )
-    detection_point_pct: float = Field(
+    activation_point_pct: float = Field(
         default=0.0,
         ge=0.0,
         le=1.0,
-        description="Track percentage where DRS detection occurs",
+        description="Track percentage where straight mode begins",
     )
 
 
@@ -64,9 +64,15 @@ class Track(BaseModel):
         default_factory=list,
         description="Track sectors (should have 3)",
     )
-    drs_zones: list[DRSZone] = Field(
+    active_aero_zones: list[ActiveAeroZone] = Field(
         default_factory=list,
-        description="DRS zones on track",
+        description="Configured straight-mode active-aero sections",
+    )
+    overtake_mode_detection_gap: float = Field(
+        default=1.0,
+        gt=0.0,
+        le=3.0,
+        description="Detection gap in seconds for Overtake Mode",
     )
 
     # Track characteristics affecting racing
@@ -104,6 +110,11 @@ class Track(BaseModel):
         return self.base_lap_time / 3
 
     @property
-    def total_drs_gain(self) -> float:
-        """Maximum time gain from all DRS zones."""
-        return sum(zone.time_gain for zone in self.drs_zones)
+    def total_active_aero_gain(self) -> float:
+        """Maximum straight-mode time gain from configured sections."""
+        return sum(zone.time_gain for zone in self.active_aero_zones)
+
+    @property
+    def active_aero_zone_count(self) -> int:
+        """Number of configured straight-mode active-aero sections."""
+        return len(self.active_aero_zones)

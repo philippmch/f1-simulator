@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Example: Simulate an F1 race using historical data.
+"""Simulate a current-season F1 race using freshly fetched data.
 
 This script demonstrates the full workflow:
-1. Load historical data from FastF1
-2. Create driver/car/track models from real data
+1. Fetch the live current-season calendar, roster, and results
+2. Create driver/car/track models from current-season data
 3. Run Monte Carlo simulations
 4. Display and export results
 
@@ -17,6 +17,7 @@ Examples:
 
 import argparse
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Add src to path for development
@@ -27,30 +28,69 @@ from f1sim.analysis import (
     parse_scenario_labels,
     scenario_weather_from_label,
 )
-from f1sim.data import HistoricalDataLoader
+from f1sim.data import CurrentSeasonDataLoader
 from f1sim.models import Weather, WeatherCondition
 from f1sim.output import ConsoleOutput, Exporter
 
+MAX_SIMULATIONS = 1000
+MAX_WORKERS = 16
+MAX_TOP_N = 22
+MAX_SEED = 2**32 - 1
 
-def main():
+
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
+def _non_negative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be a non-negative integer")
+    return parsed
+
+
+def _bounded_positive_int(value: str, maximum: int) -> int:
+    parsed = _positive_int(value)
+    if parsed > maximum:
+        raise argparse.ArgumentTypeError(f"must be at most {maximum}")
+    return parsed
+
+
+def _simulation_count(value: str) -> int:
+    return _bounded_positive_int(value, MAX_SIMULATIONS)
+
+
+def _worker_count(value: str) -> int:
+    return _bounded_positive_int(value, MAX_WORKERS)
+
+
+def _top_n_count(value: str) -> int:
+    return _bounded_positive_int(value, MAX_TOP_N)
+
+
+def _seed_value(value: str) -> int:
+    parsed = _non_negative_int(value)
+    if parsed > MAX_SEED:
+        raise argparse.ArgumentTypeError(f"must be at most {MAX_SEED}")
+    return parsed
+
+
+def main() -> int:
     parser = argparse.ArgumentParser(description="Simulate F1 race with Monte Carlo")
     parser.add_argument(
         "--race",
-        default="Bahrain",
-        help="Race name or round number (default: Bahrain)",
+        default="1",
+        help="Current-season race name or round number (default: round 1)",
     )
     parser.add_argument(
         "--simulations",
         "-n",
-        type=int,
+        type=_simulation_count,
         default=100,
-        help="Number of simulations (default: 100)",
-    )
-    parser.add_argument(
-        "--year",
-        type=int,
-        default=2025,
-        help="Season year (default: 2025)",
+        help=f"Number of simulations (1-{MAX_SIMULATIONS}; default: 100)",
     )
     parser.add_argument(
         "--parallel",
@@ -80,20 +120,20 @@ def main():
     )
     parser.add_argument(
         "--top-n",
-        type=int,
+        type=_top_n_count,
         default=10,
-        help="Top-N finish probability table size (default: 10)",
+        help=f"Top-N finish probability table size (1-{MAX_TOP_N}; default: 10)",
     )
     parser.add_argument(
         "--seed",
-        type=int,
+        type=_seed_value,
         default=42,
-        help="Random seed for reproducible simulation runs (default: 42)",
+        help=f"Random seed for reproducible runs (0-{MAX_SEED}; default: 42)",
     )
     parser.add_argument(
         "--max-workers",
-        type=int,
-        help="Maximum worker processes for parallel mode (default: CPU count)",
+        type=_worker_count,
+        help=f"Maximum worker processes for parallel mode (1-{MAX_WORKERS})",
     )
     parser.add_argument(
         "--scenarios",
@@ -104,40 +144,33 @@ def main():
         ),
     )
     args = parser.parse_args()
+    try:
+        scenario_labels = parse_scenario_labels(args.scenarios) if args.scenarios else ["dry"]
+    except ValueError as exc:
+        parser.error(str(exc))
 
     print("F1 Monte Carlo Race Simulation")
     print(f"{'=' * 40}")
-    print(f"Year: {args.year}")
+    current_season = datetime.now(timezone.utc).year
+    print(f"Season: {current_season} (live only)")
     print(f"Race: {args.race}")
     print(f"Simulations: {args.simulations}")
     print(f"Parallel: {args.parallel}")
     print(f"Seed: {args.seed}")
     print(f"Top-N table: {args.top_n}")
-    if args.max_workers:
+    if args.max_workers is not None:
         print(f"Max workers: {args.max_workers}")
     print()
 
-    # Initialize data loader
-    print("Loading historical data from FastF1...")
-    loader = HistoricalDataLoader(cache_dir="data/cache")
-
-    # Get track stats for the specified race
-    try:
-        track_stats = loader.get_track_stats(args.year, args.race)
-        print(f"Track: {track_stats.track_name} ({track_stats.country})")
-        print(f"Laps: {track_stats.total_laps}")
-        print(f"Avg lap time: {track_stats.avg_lap_time:.3f}s")
-    except Exception as e:
-        print(f"Error loading track data: {e}")
-        print("Make sure FastF1 can access the race data.")
-        return 1
+    # Initialize the live, current-season-only data loader.
+    print("Fetching the current calendar, official roster, and season form...")
+    loader = CurrentSeasonDataLoader(current_year=current_season)
 
     # Get driver stats using weighted form + track performance
-    print("\nLoading driver statistics (form + track-specific)...")
+    print("Loading current driver, team, and form statistics...")
     try:
-        # Weighted combination: 50% track race, 30% recent form, 20% qualifying
         driver_stats = loader.get_weighted_driver_stats(
-            year=args.year,
+            year=current_season,
             target_race=args.race,
             form_races=3,
             track_weight=0.5,
@@ -149,7 +182,19 @@ def main():
         print(f"Error loading driver data: {e}")
         return 1
 
-    # Create models from historical data
+    # Result rows loaded above authoritatively mark completed rounds before
+    # the track model optionally calibrates its fastest-lap reference.
+    try:
+        track_stats = loader.get_track_stats(current_season, args.race)
+        print(f"Track: {track_stats.track_name} ({track_stats.country})")
+        print(f"Laps: {track_stats.total_laps}")
+        print(f"Avg lap time: {track_stats.avg_lap_time:.3f}s")
+    except Exception as e:
+        print(f"Error loading track data: {e}")
+        print("Make sure this machine can access Jolpica and Formula1.com.")
+        return 1
+
+    # Create models from fresh current-season data.
     print("\nCreating simulation models...")
     drivers = loader.create_drivers_from_stats(driver_stats)
     cars = loader.create_cars_from_stats(driver_stats)
@@ -166,18 +211,11 @@ def main():
     print(f"\nDrivers: {len(drivers)}")
     print(f"Teams: {len(cars)}")
 
-    # Load historical qualifying grid
-    print("\nLoading historical qualifying grid...")
-    historical_grid = loader.get_historical_grid(args.year, args.race)
-    print(f"Grid: {' '.join(historical_grid[:5])}...")
-
     # Run Monte Carlo simulation
     print(f"\nRunning {args.simulations} simulations...")
     print("(This may take a while for large numbers of simulations)")
 
     scenario_results = {}
-
-    scenario_labels = parse_scenario_labels(args.scenarios) if args.scenarios else ["dry"]
 
     for idx, label in enumerate(scenario_labels):
         scenario = scenario_weather_from_label(weather, label)
@@ -190,7 +228,6 @@ def main():
             track=track,
             weather=scenario.weather,
             seed=scenario_seed,
-            historical_grid=historical_grid,
         )
 
         scenario_result = runner.run(
@@ -233,7 +270,7 @@ def main():
         for scenario_name, scenario_result in scenario_results.items():
             files = exporter.export_all(
                 scenario_result,
-                prefix=f"{args.year}_{track.id}_{scenario_name}",
+                prefix=f"{current_season}_{track.id}_{scenario_name}",
             )
             for fmt, path in files.items():
                 print(f"  {scenario_name}:{fmt}: {path}")
@@ -241,7 +278,7 @@ def main():
         if len(scenario_results) > 1:
             comparison = exporter.export_scenario_comparison_json(
                 scenario_results,
-                filename=f"{args.year}_{track.id}_scenario_comparison.json",
+                filename=f"{current_season}_{track.id}_scenario_comparison.json",
             )
             print(f"  comparison_json: {comparison}")
 

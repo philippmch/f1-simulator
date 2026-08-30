@@ -1,6 +1,6 @@
-# FastF1 cache (large data files)
-data/cache/
-examples/data/cache/
+# Live F1 feeds are never persisted locally
+/data/
+/examples/data/
 
 # Python
 __pycache__/

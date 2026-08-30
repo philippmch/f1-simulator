@@ -3,12 +3,12 @@
 from .car import Car
 from .driver import Driver
 from .tire import Tire, TireCompound
-from .track import DRSZone, Sector, Track
+from .track import ActiveAeroZone, Sector, Track
 from .weather import Weather, WeatherCondition
 
 __all__ = [
     "Car",
-    "DRSZone",
+    "ActiveAeroZone",
     "Driver",
     "Sector",
     "Tire",

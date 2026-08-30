@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.models import Weather, WeatherCondition
 
+SUPPORTED_SCENARIO_LABELS = ("dry", "cloudy", "light_rain", "heavy_rain")
+
 
 @dataclass(frozen=True)
 class WeatherScenario:
@@ -61,7 +63,7 @@ def scenario_weather_from_label(base_weather: Weather, label: str) -> WeatherSce
 
 
 def parse_scenario_labels(raw: str) -> list[str]:
-    """Parse comma-separated scenario labels, preserving order and uniqueness."""
+    """Parse and validate scenario labels, preserving order and uniqueness."""
     labels: list[str] = []
     seen: set[str] = set()
 
@@ -74,6 +76,12 @@ def parse_scenario_labels(raw: str) -> list[str]:
 
     if not labels:
         msg = "At least one scenario label is required"
+        raise ValueError(msg)
+
+    unsupported = [label for label in labels if label not in SUPPORTED_SCENARIO_LABELS]
+    if unsupported:
+        supported = ", ".join(SUPPORTED_SCENARIO_LABELS)
+        msg = f"Unknown scenario label(s): {', '.join(unsupported)}. Supported: {supported}"
         raise ValueError(msg)
 
     return labels

@@ -24,7 +24,7 @@ class OvertakingModel:
         defender_car: Car,
         track: Track,
         gap: float,
-        has_drs: bool = False,
+        overtake_mode_active: bool = False,
         is_wet: bool = False,
         restart_boost: bool = False,
     ) -> tuple[bool, bool]:
@@ -37,7 +37,7 @@ class OvertakingModel:
             defender_car: Defender's car
             track: Current track
             gap: Time gap between cars in seconds
-            has_drs: Whether attacker has DRS
+            overtake_mode_active: Whether attacker deployed Overtake Mode
             is_wet: Whether track is wet
             restart_boost: Whether this is a SC restart lap (increased aggression)
 
@@ -49,6 +49,14 @@ class OvertakingModel:
         if gap > max_gap:
             return False, False  # Too far behind to attempt
 
+        # Keep the detection-gap rule at the maneuver boundary as well as in
+        # the race-state deployment step.  This protects direct callers from
+        # accidentally turning a non-eligible attack into a mode deployment.
+        mode_active = (
+            overtake_mode_active
+            and gap <= track.overtake_mode_detection_gap
+        )
+
         # Calculate success probability
         prob = self._calculate_probability(
             attacker,
@@ -57,7 +65,7 @@ class OvertakingModel:
             defender_car,
             track,
             gap,
-            has_drs,
+            mode_active,
             is_wet,
             restart_boost=restart_boost,
         )
@@ -83,7 +91,7 @@ class OvertakingModel:
         defender_car: Car,
         track: Track,
         gap: float,
-        has_drs: bool,
+        overtake_mode_active: bool,
         is_wet: bool,
         restart_boost: bool = False,
     ) -> float:
@@ -105,13 +113,23 @@ class OvertakingModel:
         # Gap factor (closer = higher chance)
         gap_factor = max(0, 1.0 - gap / 1.5)
 
-        # DRS bonus - scaled by track overtake opportunity (less effective at tight tracks)
-        if has_drs and not is_wet:
-            # At Monaco (difficulty 0.95), DRS bonus is nearly zero
-            # At Monza (difficulty 0.25), DRS bonus is nearly full
-            drs_bonus = 0.2 * (1.0 - track.overtake_difficulty)
+        # Overtake Mode is distinct from common Straight Mode.  Its bounded
+        # passing bonus reflects the amount of straight-mode opportunity on
+        # this venue, the attacker's straight-line package, and how difficult
+        # it is to complete a pass at this circuit.
+        if overtake_mode_active and not is_wet:
+            active_aero_mix = float(
+                np.clip(track.total_active_aero_gain / 1.2, 0.0, 1.0)
+            )
+            straight_speed = float(np.clip(attacker_car.straight_line_speed, 0.5, 1.1))
+            overtake_mode_bonus = (
+                0.16
+                * active_aero_mix
+                * (0.8 + 0.4 * straight_speed)
+                * (1.0 - 0.5 * track.overtake_difficulty)
+            )
         else:
-            drs_bonus = 0.0
+            overtake_mode_bonus = 0.0
 
         # Driver skill difference
         skill_diff = attacker.overtaking_skill - defender.overtaking_skill * 0.5
@@ -128,7 +146,7 @@ class OvertakingModel:
         # Combine factors
         probability = (
             base_prob * pace_factor * gap_factor * skill_factor * speed_factor * wet_modifier
-            + drs_bonus
+            + overtake_mode_bonus
         )
 
         # SC restart bonus - drivers are more aggressive, tires cold, field bunched

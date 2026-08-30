@@ -9,6 +9,24 @@ from f1sim.models.tire import TireCompound
 class LapSimulator:
     """Calculates realistic lap times with all contributing factors."""
 
+    # Fresh slick compounds are not interchangeable: Pirelli's softer tyre
+    # normally gives a measurable one-lap advantage, while the harder tyre
+    # trades that grip for a longer usable stint.  Express the delta as a
+    # fraction of the circuit's reference lap so the same calibration scales
+    # naturally from a 70-second street lap to a 110-second power circuit.
+    # Degradation is still applied independently below, so the soft tyre can
+    # lose its fresh-lap advantage as a stint ages.
+    _COMPOUND_PACE_FACTORS = {
+        TireCompound.SOFT: -0.0045,
+        TireCompound.MEDIUM: 0.0,
+        TireCompound.HARD: 0.0045,
+        # Wet compounds are deliberately only a small baseline offset.  The
+        # weather mismatch/crossover model remains the dominant signal when
+        # the track is damp or flooded.
+        TireCompound.INTERMEDIATE: 0.006,
+        TireCompound.WET: 0.010,
+    }
+
     def __init__(self, rng: np.random.Generator | None = None):
         """Initialize the lap simulator.
 
@@ -27,7 +45,8 @@ class LapSimulator:
         lap_number: int,
         total_laps: int,
         gap_to_car_ahead: float | None = None,
-        is_drs_enabled: bool = True,
+        active_aero_enabled: bool = True,
+        overtake_mode_active: bool = False,
     ) -> float:
         """Calculate a single lap time with all factors.
 
@@ -40,7 +59,8 @@ class LapSimulator:
             lap_number: Current lap (1-indexed)
             total_laps: Total race laps
             gap_to_car_ahead: Gap in seconds to car ahead (None if leading)
-            is_drs_enabled: Whether DRS is active this lap
+            active_aero_enabled: Whether Straight Mode is available this lap
+            overtake_mode_active: Whether this car deployed Overtake Mode
 
         Returns:
             Lap time in seconds
@@ -48,8 +68,22 @@ class LapSimulator:
         # Base lap time from track
         base_time = track.base_lap_time
 
-        # Car performance delta
+        # Fresh-compound pace is separate from degradation.  At age zero the
+        # degradation curve has no effect, but the compound still must: soft
+        # < medium < hard on a dry track is a core race-strategy signal.
+        compound_delta = self._compound_pace_delta(
+            tire,
+            base_time,
+            tire_age=driver.current_tire_laps,
+        )
+
+        # Car performance delta.  ``base_pace`` describes the package as a
+        # whole, while the aero/top-speed terms below let the circuit profile
+        # decide where that pace is useful.  Keeping the specialised terms to
+        # well under one percent of a lap avoids turning a small rating
+        # difference into an implausible multi-second swing.
         car_delta = car.pace_delta_seconds(base_time)
+        car_delta += self._track_car_delta(car, track, base_time)
 
         # Driver skill effect (top driver ~0.3-0.5s faster per lap than midfield)
         # Skill range is ~0.75-1.0, so delta ranges from 0 to ~0.75s per lap
@@ -65,6 +99,14 @@ class LapSimulator:
             base_time,
             driver.tire_management,
         )
+        # A stressed circuit and a car that is hard on its tyres both amplify
+        # the same underlying compound degradation curve.  The bounded range
+        # keeps defaults neutral (1.0) while preventing an accidental rating
+        # outlier from dominating the race.
+        tire_stress_multiplier = 0.75 + 0.5 * float(np.clip(track.tire_stress, 0.0, 1.0))
+        tire_delta *= float(
+            np.clip(car.tire_degradation_factor * tire_stress_multiplier, 0.5, 1.75)
+        )
 
         # Fuel effect (lighter = faster, ~0.03s per lap of fuel burned)
         fuel_remaining_pct = (total_laps - lap_number + 1) / total_laps
@@ -78,6 +120,16 @@ class LapSimulator:
             wet_adjustment = 1.0 + (1.0 - driver.wet_skill_modifier) * 0.02
             weather_multiplier *= wet_adjustment
 
+        # Wet-performance is a car-package property, distinct from the
+        # driver's ability to find grip.  Include rain intensity as a signal
+        # even before wetness crosses the tyre-change threshold.
+        wet_severity = float(
+            np.clip(max(weather.track_wetness, weather.rain_intensity * 0.7), 0.0, 1.0)
+        )
+        if wet_severity > 0.0:
+            car_wet_penalty = (1.0 - car.wet_performance) * wet_severity * 0.06
+            weather_multiplier *= 1.0 + float(np.clip(car_wet_penalty, 0.0, 0.06))
+
         # Tire/weather mismatch penalty (catastrophic if wrong tires)
         mismatch_penalty = self._tire_weather_mismatch(tire, weather)
 
@@ -88,25 +140,139 @@ class LapSimulator:
             dirty_air_factor = max(0, 1.0 - gap_to_car_ahead / 2.0)
             traffic_delta = dirty_air_factor * 0.5
 
-        # DRS effect (if enabled and within 1s of car ahead)
-        drs_gain = 0.0
-        if (
-            is_drs_enabled
-            and gap_to_car_ahead is not None
-            and gap_to_car_ahead <= 1.0
-            and not weather.is_wet()
-        ):
-            drs_gain = track.total_drs_gain * 0.8  # 80% of theoretical gain
+        # Active Aero Straight Mode is common to every green-running car on
+        # the configured sections.  Unlike Overtake Mode, it is deliberately
+        # not proximity-gated by the gap to the car ahead.
+        active_aero_gain = 0.0
+        if active_aero_enabled and track.total_active_aero_gain > 0.0:
+            _, opportunity_mix = self._track_profile(track)
+            active_aero_effectiveness = (0.65 + 0.35 * opportunity_mix) * (
+                0.9 + 0.2 * car.straight_line_speed
+            )
+            active_aero_gain = track.total_active_aero_gain * 0.8 * active_aero_effectiveness
+
+        # Overtake Mode is a separate, short-duration deployment.  Energy
+        # accounting is owned by RaceSimulator; this term only converts an
+        # eligible deployment into a bounded lap-time advantage.  Scale its
+        # effect with actual straight-mode opportunities and package speed so
+        # a zero-zone venue (e.g. Monaco) cannot accidentally gain a bonus.
+        overtake_mode_gain = 0.0
+        if overtake_mode_active and not weather.is_wet():
+            active_aero_mix = float(
+                np.clip(track.total_active_aero_gain / 1.0, 0.0, 1.0)
+            )
+            overtake_mode_gain = min(
+                0.35,
+                0.18
+                * active_aero_mix
+                * (0.85 + 0.3 * car.straight_line_speed),
+            )
 
         # Calculate final lap time
-        lap_time = base_time + car_delta + skill_delta + random_variation
-        lap_time += tire_delta + fuel_delta + traffic_delta - drs_gain
+        lap_time = (
+            base_time
+            + car_delta
+            + skill_delta
+            + compound_delta
+            + random_variation
+        )
+        lap_time += (
+            tire_delta
+            + fuel_delta
+            + traffic_delta
+            - active_aero_gain
+            - overtake_mode_gain
+        )
         lap_time *= weather_multiplier
         lap_time += mismatch_penalty  # Add after multiplier (flat penalty)
 
         # Ensure minimum realistic lap time
         min_lap_time = track.base_lap_time * 0.95
         return max(min_lap_time, lap_time)
+
+    @classmethod
+    def _compound_pace_delta(
+        cls,
+        tire: Tire,
+        reference_lap_time: float,
+        tire_age: int = 0,
+    ) -> float:
+        """Return the fresh-compound pace offset in seconds.
+
+        The offset is intentionally small compared with weather mismatch and
+        tyre degradation.  This keeps wet/intermediate crossover behaviour
+        governed by track conditions while ensuring equal-age dry compounds
+        have a realistic order.
+        """
+        factor = cls._COMPOUND_PACE_FACTORS.get(tire.compound, 0.0)
+        if tire.compound == TireCompound.SOFT:
+            # Fresh soft grip fades into the normal degradation curve as the
+            # stint ages.  This creates the expected crossover against a
+            # medium tyre instead of preserving a permanent qualifying-like
+            # bonus after the soft set has fallen off its cliff.
+            factor *= max(0.0, 1.0 - max(tire_age, 0) / 35.0)
+        return reference_lap_time * factor
+
+    @staticmethod
+    def _track_profile(track: Track) -> tuple[float, float]:
+        """Return time-weighted high-speed and passing-opportunity mixes.
+
+        Tracks built from sparse data may not have sectors.  In that case the
+        opportunity value still gives the car model a useful, bounded signal
+        without inventing a circuit layout.
+        """
+        sectors = list(track.sectors)
+        if not sectors:
+            return 0.0, float(np.clip(1.0 - track.overtake_difficulty, 0.0, 1.0))
+
+        weights = np.asarray([max(float(sector.base_time), 0.0) for sector in sectors])
+        if float(weights.sum()) <= 0.0:
+            weights = np.ones(len(sectors), dtype=float)
+        weights /= weights.sum()
+
+        high_speed_mix = float(
+            np.clip(
+                sum(weight for weight, sector in zip(weights, sectors) if sector.is_high_speed),
+                0.0,
+                1.0,
+            )
+        )
+        opportunity_mix = float(
+            np.clip(
+                sum(
+                    weight * float(sector.overtake_opportunity)
+                    for weight, sector in zip(weights, sectors)
+                ),
+                0.0,
+                1.0,
+            )
+        )
+        return high_speed_mix, opportunity_mix
+
+    @classmethod
+    def _track_car_delta(cls, car: Car, track: Track, reference_lap_time: float) -> float:
+        """Calculate bounded aero/top-speed delta for a car on a track.
+
+        ``downforce_level`` is rewarded in corner-heavy sectors and incurs a
+        small drag cost in high-speed sectors.  ``straight_line_speed`` is
+        rewarded on high-speed and overtaking sections.  Ratings are centred
+        on the model's neutral value (0.8), so existing default cars retain
+        their previous pace.
+        """
+        high_speed_mix, opportunity_mix = cls._track_profile(track)
+        corner_mix = 1.0 - high_speed_mix
+        straight_mix = float(np.clip(0.55 * high_speed_mix + 0.45 * opportunity_mix, 0.0, 1.0))
+
+        neutral = 0.8
+        downforce_delta = (
+            (neutral - car.downforce_level) * corner_mix
+            + (car.downforce_level - neutral) * high_speed_mix
+        )
+        straight_delta = (neutral - car.straight_line_speed) * straight_mix
+
+        # At most roughly 1.2% for a maximally specialised rating on a
+        # representative lap, before the normal base-pace term is applied.
+        return reference_lap_time * (0.006 * downforce_delta + 0.008 * straight_delta)
 
     def calculate_pit_stop_time(self, car: Car, tire_change: bool = True) -> float:
         """Calculate pit stop duration.
@@ -156,8 +322,9 @@ class LapSimulator:
         # Base qualifying time (faster than race pace)
         base_time = track.base_lap_time * 0.98  # ~2% quicker
 
-        # Car performance
+        # Car performance, including the circuit's aero/top-speed balance.
         car_delta = car.pace_delta_seconds(base_time)
+        car_delta += self._track_car_delta(car, track, base_time)
 
         # Driver skill (more important in qualifying)
         skill_delta = (1.0 - driver.skill_rating) * base_time * 0.012
@@ -178,8 +345,16 @@ class LapSimulator:
         # Tire grip (fresh soft tires in qualifying)
         tire_bonus = (tire.initial_grip - 1.0) * 0.5  # Bonus from soft tire grip
 
-        # Weather effect
+        # Weather effect.  Qualifying still benefits from a car's wet package
+        # when the session is not fully dry.
         weather_multiplier = weather.lap_time_multiplier()
+        wet_severity = float(
+            np.clip(max(weather.track_wetness, weather.rain_intensity * 0.7), 0.0, 1.0)
+        )
+        if wet_severity > 0.0:
+            weather_multiplier *= 1.0 + float(
+                np.clip((1.0 - car.wet_performance) * wet_severity * 0.06, 0.0, 0.06)
+            )
 
         lap_time = (
             base_time + car_delta + skill_delta + random_variation - tire_bonus

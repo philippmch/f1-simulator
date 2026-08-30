@@ -3,13 +3,14 @@
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
+from numbers import Integral
 
 import numpy as np
 
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.simulation.events import EventType
 from f1sim.simulation.qualifying import QualifyingResult, QualifyingSimulator
-from f1sim.simulation.race import RaceResult, RaceSimulator
+from f1sim.simulation.race import DriverStatus, RaceResult, RaceSimulator
 
 
 @dataclass
@@ -267,12 +268,12 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     """Run a single race simulation (for multiprocessing).
 
     Args:
-        args: Tuple of (drivers_data, cars_data, track_data, weather_data, seed, historical_grid)
+        args: Tuple of (drivers_data, cars_data, track_data, weather_data, seed)
 
     Returns:
         Tuple of (race_results, qualifying_results, event_counts)
     """
-    drivers_data, cars_data, track_data, weather_data, seed, historical_grid = args
+    drivers_data, cars_data, track_data, weather_data, seed = args
 
     # Reconstruct objects from serializable data
     drivers = [Driver.model_validate(d) for d in drivers_data]
@@ -283,27 +284,10 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     # Create RNG with seed
     rng = np.random.default_rng(seed)
 
-    # Run qualifying (or use historical grid)
+    # Every run receives a newly simulated qualifying session.
     quali_sim = QualifyingSimulator(rng=rng)
-    if historical_grid:
-        # Use historical grid - create dummy qualifying results
-        starting_grid = historical_grid
-        quali_results = [
-            QualifyingResult(
-                driver_id=driver_id,
-                driver_name=driver_id,
-                position=pos,
-                best_time=0.0,
-                q1_time=None,
-                q2_time=None,
-                q3_time=None,
-                eliminated_in=None,
-            )
-            for pos, driver_id in enumerate(starting_grid, 1)
-        ]
-    else:
-        quali_results = quali_sim.simulate_qualifying(drivers, cars, track, weather)
-        starting_grid = quali_sim.get_starting_grid(quali_results)
+    quali_results = quali_sim.simulate_qualifying(drivers, cars, track, weather)
+    starting_grid = quali_sim.get_starting_grid(quali_results)
 
     # Run race
     race_sim = RaceSimulator(rng=rng)
@@ -359,7 +343,6 @@ class MonteCarloRunner:
         track: Track,
         weather: Weather,
         seed: int | None = None,
-        historical_grid: list[str] | None = None,
     ):
         """Initialize Monte Carlo runner.
 
@@ -369,14 +352,12 @@ class MonteCarloRunner:
             track: Circuit to simulate
             weather: Initial weather conditions
             seed: Random seed for reproducibility
-            historical_grid: If provided, use this grid instead of simulating qualifying
         """
         self.drivers = drivers
         self.cars = cars
         self.track = track
         self.weather = weather
         self.base_seed = seed if seed is not None else np.random.default_rng().integers(0, 2**31)
-        self.historical_grid = historical_grid
 
     def run(
         self,
@@ -394,9 +375,24 @@ class MonteCarloRunner:
         Returns:
             SimulationResults with aggregated statistics
         """
-        if num_simulations <= 0:
-            msg = "num_simulations must be greater than 0"
+        if (
+            isinstance(num_simulations, bool)
+            or not isinstance(num_simulations, Integral)
+            or num_simulations <= 0
+        ):
+            msg = "num_simulations must be greater than 0 (integer required)"
             raise ValueError(msg)
+        num_simulations = int(num_simulations)
+
+        if max_workers is not None and (
+            isinstance(max_workers, bool)
+            or not isinstance(max_workers, Integral)
+            or max_workers <= 0
+        ):
+            msg = "max_workers must be greater than 0 (integer required)"
+            raise ValueError(msg)
+        if max_workers is not None:
+            max_workers = int(max_workers)
 
         # Prepare serializable data for multiprocessing
         drivers_data = [d.model_dump() for d in self.drivers]
@@ -408,7 +404,7 @@ class MonteCarloRunner:
         seeds = [self.base_seed + i for i in range(num_simulations)]
 
         args_list = [
-            (drivers_data, cars_data, track_data, weather_data, seed, self.historical_grid)
+            (drivers_data, cars_data, track_data, weather_data, seed)
             for seed in seeds
         ]
 
@@ -418,8 +414,10 @@ class MonteCarloRunner:
 
         if parallel and num_simulations > 1:
             with ProcessPoolExecutor(max_workers=max_workers) as executor:
-                results = list(executor.map(_run_single_simulation, args_list))
-                for race_res, quali_res, event_counts in results:
+                for race_res, quali_res, event_counts in executor.map(
+                    _run_single_simulation,
+                    args_list,
+                ):
                     all_race_results.append(race_res)
                     all_quali_results.append(quali_res)
                     all_event_counts.append(event_counts)
@@ -471,20 +469,35 @@ class MonteCarloRunner:
 
                 driver_stat = stats[result.driver_id]
                 driver_stat.positions.append(result.position)
+                is_dnf = getattr(result.status, "value", result.status) == DriverStatus.DNF.value
 
-                if result.position == 1:
-                    driver_stat.wins += 1
-                if result.position <= 3:
-                    driver_stat.podiums += 1
-                if result.position <= 10:
-                    driver_stat.points_finishes += 1
-                    driver_stat.total_points += POINTS_SYSTEM.get(result.position, 0)
+                # Race positions can be populated for retired cars so their
+                # distribution and best/worst records remain truthful.  A
+                # DNF, however, is never a win, podium, or points finish even
+                # if an upstream classifier temporarily reports a top-ten
+                # position before applying retirement ordering.
+                if not is_dnf:
+                    if result.position == 1:
+                        driver_stat.wins += 1
+                    if result.position <= 3:
+                        driver_stat.podiums += 1
+                    if result.position <= 10:
+                        driver_stat.points_finishes += 1
+                        driver_stat.total_points += POINTS_SYSTEM.get(result.position, 0)
 
-                if result.status.value == "dnf":
+                if is_dnf:
                     driver_stat.dnfs += 1
 
-                driver_stat.best_position = min(driver_stat.best_position, result.position)
-                driver_stat.worst_position = max(driver_stat.worst_position, result.position)
+                # The fixed 20-car defaults (20th best/1st worst) are useful
+                # only as empty-state sentinels.  Replace both on the first
+                # observation so a first P21/P22 result is not clipped to a
+                # fictional 20-car field.
+                if len(driver_stat.positions) == 1:
+                    driver_stat.best_position = result.position
+                    driver_stat.worst_position = result.position
+                else:
+                    driver_stat.best_position = min(driver_stat.best_position, result.position)
+                    driver_stat.worst_position = max(driver_stat.worst_position, result.position)
 
         # Process qualifying results
         quali_positions: dict[str, list[int]] = defaultdict(list)

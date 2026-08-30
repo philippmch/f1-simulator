@@ -1,17 +1,26 @@
-"""F1 Simulator web server – API and dashboard UI."""
+"""Current-season F1 simulator API and dashboard UI."""
 
 from __future__ import annotations
 
-import json
+import logging
+import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from f1sim.analysis import MonteCarloRunner, parse_scenario_labels, scenario_weather_from_label
-from f1sim.data import HistoricalDataLoader
+from f1sim.data import CurrentSeasonDataError, CurrentSeasonDataLoader
 from f1sim.models import Weather, WeatherCondition
-from f1sim.output import Exporter
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def _current_season() -> int:
+    """Resolve the UTC season at request time, including across New Year."""
+
+    return datetime.now(timezone.utc).year
 
 _EXPECTED_COMPONENT_RATES: dict[str, float] = {
     "engine": 0.34,
@@ -21,19 +30,65 @@ _EXPECTED_COMPONENT_RATES: dict[str, float] = {
     "brakes": 0.12,
 }
 
+_MIN_DASHBOARD_SIMULATIONS = 10
+_MAX_DASHBOARD_SIMULATIONS = 1000
+_MAX_DASHBOARD_WORKERS = 16
+_DEFAULT_DASHBOARD_WORKERS = min(8, os.cpu_count() or 1)
+_MAX_SEED = 2**32 - 1
+
 
 @dataclass
 class DashboardRunRequest:
     """Input payload for dashboard simulation run."""
 
-    year: int = 2025
-    race: str = "Bahrain"
+    year: int = field(default_factory=_current_season)
+    race: str = "1"
     simulations: int = 200
     scenarios: str = "dry,light_rain"
     seed: int = 42
-    qualifying_mode: str = "historical"
+    qualifying_mode: str = "simulated"
     parallel: bool = True
     max_workers: int | None = None
+
+
+def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
+    """Validate resource bounds and return all scenarios before live I/O."""
+
+    current_season = _current_season()
+    if isinstance(request.year, bool) or not isinstance(request.year, int):
+        raise ValueError(f"Only the live {current_season} F1 season is available.")
+    if request.year != current_season:
+        raise ValueError(
+            f"Only the live {current_season} F1 season is available; received {request.year}."
+        )
+    if not isinstance(request.race, str) or not request.race.strip():
+        raise ValueError("race must be a non-empty current-season race name or round")
+    if len(request.race) > 160:
+        raise ValueError("race must be at most 160 characters")
+    if isinstance(request.simulations, bool) or not isinstance(request.simulations, int):
+        raise ValueError("simulations must be an integer")
+    if not _MIN_DASHBOARD_SIMULATIONS <= request.simulations <= _MAX_DASHBOARD_SIMULATIONS:
+        raise ValueError(
+            "simulations must be between "
+            f"{_MIN_DASHBOARD_SIMULATIONS} and {_MAX_DASHBOARD_SIMULATIONS}"
+        )
+    if isinstance(request.seed, bool) or not isinstance(request.seed, int):
+        raise ValueError("seed must be an integer")
+    if not 0 <= request.seed <= _MAX_SEED:
+        raise ValueError(f"seed must be between 0 and {_MAX_SEED}")
+    if not isinstance(request.parallel, bool):
+        raise ValueError("parallel must be a boolean")
+    if request.max_workers is not None:
+        if isinstance(request.max_workers, bool) or not isinstance(request.max_workers, int):
+            raise ValueError("max_workers must be an integer or null")
+        if not 1 <= request.max_workers <= _MAX_DASHBOARD_WORKERS:
+            raise ValueError(f"max_workers must be between 1 and {_MAX_DASHBOARD_WORKERS}")
+    if str(request.qualifying_mode or "simulated").strip().lower() != "simulated":
+        raise ValueError("Only freshly simulated qualifying is available.")
+    if not isinstance(request.scenarios, str) or len(request.scenarios) > 100:
+        raise ValueError("scenarios must be a comma-separated string of at most 100 characters")
+
+    return parse_scenario_labels(request.scenarios)
 
 
 def _safe_call(results: Any, method_name: str, *args: Any, default: Any = None) -> Any:
@@ -57,7 +112,9 @@ def _serialize_track(track: Any) -> dict[str, Any]:
         "tire_stress": track.tire_stress,
         "safety_car_probability": track.safety_car_probability,
         "weather_variability": track.weather_variability,
-        "drs_zones": len(track.drs_zones),
+        "active_aero_zones": track.active_aero_zone_count,
+        "active_aero_time_gain": track.total_active_aero_gain,
+        "overtake_mode_detection_gap": track.overtake_mode_detection_gap,
     }
 
 
@@ -106,22 +163,52 @@ def _serialize_quali_result(result: Any) -> dict[str, Any]:
     }
 
 
-def _serialize_sample_race(results: Any) -> list[dict[str, Any]]:
-    """Serialize the first simulated race, if present."""
+def _representative_sample_index(results: Any) -> int:
+    """Choose the simulated race closest to aggregate finishing positions."""
+
+    races = getattr(results, "race_results", [])
+    if len(races) <= 1:
+        return 0
+    driver_stats = getattr(results, "driver_stats", {})
+    expected_positions = {
+        driver_id: float(stats.avg_position)
+        for driver_id, stats in driver_stats.items()
+        if getattr(stats, "avg_position", 0) > 0
+    }
+    if not expected_positions:
+        return 0
+
+    def score(race: list[Any]) -> float:
+        deviations = [
+            abs(float(row.position) - expected_positions[row.driver_id])
+            for row in race
+            if row.driver_id in expected_positions
+        ]
+        return sum(deviations) / len(deviations) if deviations else float("inf")
+
+    return min(range(len(races)), key=lambda index: score(races[index]))
+
+
+def _serialize_sample_race(results: Any, index: int = 0) -> list[dict[str, Any]]:
+    """Serialize one representative simulated race, if present."""
+
     races = getattr(results, "race_results", [])
     if not races:
         return []
-    return [_serialize_race_result(row) for row in races[0]]
+    selected = min(max(index, 0), len(races) - 1)
+    return [_serialize_race_result(row) for row in races[selected]]
 
 
-def _serialize_sample_qualifying(results: Any) -> list[dict[str, Any]]:
-    """Serialize the first qualifying/grid result, if present."""
+def _serialize_sample_qualifying(results: Any, index: int = 0) -> list[dict[str, Any]]:
+    """Serialize qualifying paired with the representative race."""
+
     qualifying = getattr(results, "qualifying_results", [])
     if not qualifying:
         return []
+    selected = min(max(index, 0), len(qualifying) - 1)
     driver_stats = getattr(results, "driver_stats", {})
     serialized = []
-    for row in qualifying[0]:
+    for row in qualifying[selected]:
         payload = _serialize_quali_result(row)
         team = getattr(driver_stats.get(row.driver_id), "team", "Unknown")
         payload["team"] = team
@@ -182,7 +269,7 @@ def _serialize_ratings_snapshot(
     cars: dict[str, Any],
     driver_stats: dict[str, Any],
 ) -> dict[str, Any]:
-    """Serialize FastF1-derived driver and car ratings used for a run."""
+    """Serialize live current-season driver and car ratings used for a run."""
     sample_sizes = {driver_id: stats.sample_size for driver_id, stats in driver_stats.items()}
 
     drivers_out = []
@@ -226,7 +313,7 @@ def _serialize_ratings_snapshot(
     cars_out.sort(key=lambda row: row["base_pace"], reverse=True)
 
     return {
-        "source": "fastf1",
+        "source": "Jolpica + Formula1.com",
         "drivers": drivers_out,
         "cars": cars_out,
         "sample_sizes": sample_sizes,
@@ -237,18 +324,16 @@ def _summarize_scenario_results(
     results_by_name: dict[str, Any],
     scenario_meta: dict[str, dict[str, float]] | None = None,
     scenario_weather: dict[str, Weather] | None = None,
-    artifacts_by_name: dict[str, dict[str, str]] | None = None,
-    historical_grid_used: bool = False,
 ) -> dict[str, Any]:
     """Build compact summary payload for UI responses."""
     summary: dict[str, Any] = {"scenarios": {}}
     scenario_meta = scenario_meta or {}
     scenario_weather = scenario_weather or {}
-    artifacts_by_name = artifacts_by_name or {}
     for scenario_name, results in results_by_name.items():
         win_probs = _safe_call(results, "get_win_probabilities", default={}) or {}
         top_3 = list(win_probs.items())[:3]
         meta = scenario_meta.get(scenario_name, {})
+        sample_index = _representative_sample_index(results)
         summary["scenarios"][scenario_name] = {
             "num_simulations": results.num_simulations,
             "seed": results.seed,
@@ -303,30 +388,19 @@ def _summarize_scenario_results(
             "weather": _serialize_weather(scenario_weather[scenario_name])
             if scenario_name in scenario_weather
             else None,
-            "sample_race": _serialize_sample_race(results),
-            "sample_qualifying": _serialize_sample_qualifying(results),
-            "qualifying_mode": "historical_grid" if historical_grid_used else "simulated",
+            "sample_index": sample_index,
+            "sample_race": _serialize_sample_race(results, sample_index),
+            "sample_qualifying": _serialize_sample_qualifying(results, sample_index),
+            "qualifying_mode": "simulated",
             "driver_statistics": _serialize_driver_statistics(results),
-            "artifacts": artifacts_by_name.get(scenario_name, {}),
         }
 
     return summary
 
 
-def _read_run_history(output_dir: str | Path = "output") -> list[dict[str, Any]]:
-    """Read exporter run history file if present."""
-    history_path = Path(output_dir) / ".run_history.json"
-    if not history_path.exists():
-        return []
-
-    data = json.loads(history_path.read_text())
-    if not isinstance(data, list):
-        return []
-    return [row for row in data if isinstance(row, dict)]
-
-
 def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
     """Execute one dashboard simulation bundle and return summary."""
+    labels = _validate_dashboard_request(request)
     loader = _get_loader()
     round_number = loader.resolve_race_identifier(request.year, request.race)
     events = loader.list_available_events(request.year)
@@ -335,7 +409,6 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
         request.race,
     )
 
-    track_stats = loader.get_track_stats(request.year, request.race)
     driver_stats = loader.get_weighted_driver_stats(
         year=request.year,
         target_race=request.race,
@@ -344,20 +417,13 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
         form_weight=0.3,
         quali_weight=0.2,
     )
+    # Loading the result feed first lets the calendar mark completed rounds
+    # from authoritative rows before track fastest-lap calibration runs.
+    track_stats = loader.get_track_stats(request.year, request.race)
 
     drivers = loader.create_drivers_from_stats(driver_stats)
     cars = loader.create_cars_from_stats(driver_stats)
     track = loader.create_track_from_stats(track_stats)
-    qualifying_mode = str(request.qualifying_mode or "historical").strip().lower()
-    if qualifying_mode not in {"historical", "simulated"}:
-        raise ValueError("qualifying_mode must be 'historical' or 'simulated'")
-
-    historical_grid = (
-        loader.get_historical_grid(request.year, request.race)
-        if qualifying_mode == "historical"
-        else []
-    )
-
     base_weather = Weather(
         condition=WeatherCondition.DRY,
         track_temperature=35.0,
@@ -365,12 +431,17 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
         change_probability=track.weather_variability,
     )
 
-    labels = parse_scenario_labels(request.scenarios)
     scenario_results = {}
     scenario_meta: dict[str, dict[str, float]] = {}
     scenario_weather: dict[str, Weather] = {}
-    artifacts_by_name: dict[str, dict[str, str]] = {}
-    exporter = Exporter(output_dir="output")
+    effective_max_workers = (
+        min(
+            request.max_workers or _DEFAULT_DASHBOARD_WORKERS,
+            request.simulations,
+        )
+        if request.parallel
+        else None
+    )
 
     for idx, label in enumerate(labels):
         scenario = scenario_weather_from_label(base_weather, label)
@@ -381,13 +452,12 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
             track=track,
             weather=scenario.weather,
             seed=request.seed + idx * 1000,
-            historical_grid=historical_grid,
         )
         t0 = time.perf_counter()
         result = runner.run(
             num_simulations=request.simulations,
             parallel=request.parallel,
-            max_workers=request.max_workers,
+            max_workers=effective_max_workers,
         )
         runtime = max(time.perf_counter() - t0, 1e-9)
         scenario_results[scenario.name] = result
@@ -395,32 +465,29 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
             "runtime_seconds": float(runtime),
             "simulations_per_second": float(request.simulations / runtime),
         }
-        files = exporter.export_all(result, prefix=f"{request.year}_{track.id}_{scenario.name}")
-        artifacts_by_name[scenario.name] = {key: path.name for key, path in files.items()}
 
     payload = _summarize_scenario_results(
         scenario_results,
         scenario_meta=scenario_meta,
         scenario_weather=scenario_weather,
-        artifacts_by_name=artifacts_by_name,
-        historical_grid_used=bool(historical_grid),
     )
     payload["track"] = track.name
     payload["track_details"] = _serialize_track(track)
     payload["year"] = request.year
     payload["race"] = canonical_race
-    payload["historical_grid_used"] = bool(historical_grid)
     payload["request"] = {
         "year": request.year,
         "race": canonical_race,
         "simulations": request.simulations,
         "scenarios": request.scenarios,
         "seed": request.seed,
-        "qualifying_mode": qualifying_mode,
+        "qualifying_mode": "simulated",
         "parallel": request.parallel,
-        "max_workers": request.max_workers,
+        "max_workers": effective_max_workers,
+        "requested_max_workers": request.max_workers,
     }
     payload["ratings"] = _serialize_ratings_snapshot(drivers, cars, driver_stats)
+    payload["provenance"] = loader.get_provenance()
     return payload
 
 
@@ -445,10 +512,12 @@ _TEAM_ID_NORMALIZE: dict[str, str] = {
     "williams_racing": "williams",
     "rb": "rb",
     "racing_bulls": "rb",
+    "rb_f1_team": "rb",
     "visa_cash_app_rb": "rb",
-    "sauber": "sauber",
-    "kick_sauber": "sauber",
-    "stake_f1_team_kick_sauber": "sauber",
+    "audi": "audi",
+    "audi_f1_team": "audi",
+    "cadillac": "cadillac",
+    "cadillac_f1_team": "cadillac",
     "haas": "haas",
     "haas_f1_team": "haas",
     "moneygram_haas_f1_team": "haas",
@@ -456,7 +525,7 @@ _TEAM_ID_NORMALIZE: dict[str, str] = {
 
 
 def _normalize_team_id(raw_team_id: str) -> str:
-    """Map FastF1 team IDs to frontend-friendly keys."""
+    """Map current-season team names to frontend-friendly keys."""
     cleaned = raw_team_id.lower().replace(" ", "_").replace("-", "_")
     if cleaned in _TEAM_ID_NORMALIZE:
         return _TEAM_ID_NORMALIZE[cleaned]
@@ -466,15 +535,9 @@ def _normalize_team_id(raw_team_id: str) -> str:
     return cleaned
 
 
-_shared_loader: HistoricalDataLoader | None = None
-
-
-def _get_loader() -> HistoricalDataLoader:
-    """Get a shared HistoricalDataLoader instance for cross-request caching."""
-    global _shared_loader
-    if _shared_loader is None:
-        _shared_loader = HistoricalDataLoader(cache_dir="data/cache")
-    return _shared_loader
+def _get_loader() -> CurrentSeasonDataLoader:
+    """Create an isolated live snapshot loader for one API request."""
+    return CurrentSeasonDataLoader()
 
 
 def build_fastapi_app() -> Any:
@@ -484,70 +547,92 @@ def build_fastapi_app() -> Any:
     """
     try:
         from fastapi import FastAPI, HTTPException, Query
-        from fastapi.middleware.cors import CORSMiddleware
         from fastapi.responses import HTMLResponse
-        from fastapi.staticfiles import StaticFiles
     except Exception as exc:  # pragma: no cover
         msg = "FastAPI is not installed. Install with: pip install -e '.[web]'"
         raise RuntimeError(msg) from exc
 
-    app = FastAPI(title="F1Sim Dashboard", version="0.1")
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-    Path("output").mkdir(parents=True, exist_ok=True)
-    app.mount("/output", StaticFiles(directory="output"), name="output")
+    app = FastAPI(title="F1Sim Dashboard", version="0.2")
+
+    @app.middleware("http")
+    async def disable_api_caching(request: Any, call_next: Any) -> Any:
+        """Apply local-dashboard security and live-data cache controls."""
+
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        if request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+        return response
 
     @app.get("/", response_class=HTMLResponse)
     def home() -> str:
         return build_dashboard_html()
 
     @app.get("/api/health")
-    def health() -> dict[str, str]:
-        return {"status": "ok"}
-
-    @app.get("/api/runs")
-    def runs() -> dict[str, Any]:
-        return {"runs": _read_run_history()[:20]}
+    def health() -> dict[str, str | int]:
+        return {
+            "status": "ok",
+            "season": _current_season(),
+            "data_policy": "live-current-season-only",
+        }
 
     @app.get("/api/calendar")
     def calendar(
-        year: int = Query(default=2025, ge=2020, le=2030),
+        year: int | None = Query(default=None),
     ) -> dict[str, Any]:
+        requested_year = _current_season() if year is None else year
         try:
             loader = _get_loader()
-            return {"year": year, "events": loader.list_available_events(year)}
-        except Exception as exc:
+            return {
+                "year": requested_year,
+                "events": loader.list_available_events(requested_year),
+                "provenance": loader.get_provenance(),
+            }
+        except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except (CurrentSeasonDataError, OSError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except Exception as exc:
+            _LOGGER.exception("Unexpected calendar endpoint failure")
+            raise HTTPException(status_code=500, detail="Unexpected server error") from exc
 
     @app.post("/api/run")
     def run(payload: DashboardRunRequest) -> dict[str, Any]:
         try:
             return run_dashboard_simulation(payload)
-        except Exception as exc:
+        except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except (CurrentSeasonDataError, OSError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except Exception as exc:
+            _LOGGER.exception("Unexpected simulation endpoint failure")
+            raise HTTPException(status_code=500, detail="Unexpected server error") from exc
 
     @app.get("/api/ratings")
     def ratings(
-        year: int = Query(default=2025, ge=2020, le=2030),
-        race: str = Query(..., description="Race name, e.g. 'Bahrain', 'Monaco'"),
+        year: int | None = Query(default=None),
+        race: str = Query(
+            ...,
+            min_length=1,
+            max_length=160,
+            description="Current-season race name or round, e.g. 'Monaco' or '6'",
+        ),
     ) -> dict[str, Any]:
-        """Return driver skill ratings and car pace derived from real FastF1 data."""
+        """Return ratings derived only from fresh current-season data."""
+        requested_year = _current_season() if year is None else year
         try:
-            import numpy as np
-
             loader = _get_loader()
-            round_number = loader.resolve_race_identifier(year, race)
-            events = loader.list_available_events(year)
+            round_number = loader.resolve_race_identifier(requested_year, race)
+            events = loader.list_available_events(requested_year)
             canonical_race = next(
                 (event["race"] for event in events if event["round"] == round_number),
                 race,
             )
             driver_stats = loader.get_weighted_driver_stats(
-                year=year,
+                year=requested_year,
                 target_race=race,
                 form_races=3,
                 track_weight=0.5,
@@ -558,15 +643,11 @@ def build_fastapi_app() -> Any:
             if not driver_stats:
                 raise HTTPException(
                     status_code=404,
-                    detail=f"No data available for {year} {race}",
+                    detail=f"No data available for {requested_year} {race}",
                 )
 
-            # Use a fixed seed so wet_skill_modifier is deterministic per request
-            rng_state = np.random.get_state()
-            np.random.seed(hash((year, race)) % 2**31)
             drivers = loader.create_drivers_from_stats(driver_stats)
             cars = loader.create_cars_from_stats(driver_stats)
-            np.random.set_state(rng_state)
 
             drivers_out = []
             for d in drivers:
@@ -591,17 +672,23 @@ def build_fastapi_app() -> Any:
             }
 
             return {
-                "year": year,
+                "year": requested_year,
                 "race": canonical_race,
                 "drivers": drivers_out,
                 "car_pace": car_pace,
                 "sample_sizes": sample_sizes,
-                "source": "fastf1",
+                "source": "Jolpica + Formula1.com",
+                "provenance": loader.get_provenance(),
             }
         except HTTPException:
             raise
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except (CurrentSeasonDataError, OSError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            _LOGGER.exception("Unexpected ratings endpoint failure")
+            raise HTTPException(status_code=500, detail="Unexpected server error") from exc
 
     return app
 

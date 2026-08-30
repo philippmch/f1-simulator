@@ -29,6 +29,11 @@ class RaceEvent:
     drivers_involved: list[str] = field(default_factory=list)
     duration_laps: int = 0
     description: str = ""
+    # Consequences are carried with the event so the race engine can apply
+    # them to its per-driver state after event detection.  Existing callers
+    # remain compatible because both fields are optional.
+    time_loss_seconds: float = 0.0
+    forces_pit_stop: bool = False
 
 
 class EventManager:
@@ -48,10 +53,15 @@ class EventManager:
         self.vsc_laps_remaining = 0
         self.sc_just_ended = False  # Flag for restart lap
         self.sc_restart_lap = False  # True on the lap after SC ends
+        self.sc_restart_lap_number: int | None = None
+        self.current_lap: int | None = None
+        self._lap_overtake_mode_snapshot: bool | None = None
+        self._lap_started_neutralized = False
         # Red flag state
         self.red_flag_active = False
         self.red_flag_just_ended = False  # Flag for restart lap after red flag
         self.red_flag_restart_lap = False  # True on the lap after red flag ends
+        self.red_flag_restart_lap_number: int | None = None
         # Manual trigger configuration
         self.forced_red_flag_laps: set[int] = set()  # Laps to force red flags
         self.forced_safety_car_laps: set[int] = set()  # Laps to force safety cars
@@ -70,9 +80,14 @@ class EventManager:
         self.vsc_laps_remaining = 0
         self.sc_just_ended = False
         self.sc_restart_lap = False
+        self.sc_restart_lap_number = None
+        self.current_lap = None
+        self._lap_overtake_mode_snapshot = None
+        self._lap_started_neutralized = False
         self.red_flag_active = False
         self.red_flag_just_ended = False
         self.red_flag_restart_lap = False
+        self.red_flag_restart_lap_number: int | None = None
 
         self.safety_car_deployments = 0
         self.vsc_deployments = 0
@@ -128,6 +143,19 @@ class EventManager:
         Returns:
             List of events that occurred
         """
+        self.current_lap = lap
+        # A countdown expiring during this call does not make the already
+        # completed lap a green-flag lap.  Keep this snapshot separate from
+        # the live state, which is updated below for the following lap.
+        self._lap_started_neutralized = self.safety_car_active or self.vsc_active
+        # Capture control state before any SC/VSC/red-flag transition for the
+        # lap.  Consumers querying this lap after process_lap gets the same
+        # answer as consumers that queried it before the transition.
+        self._lap_overtake_mode_snapshot = None
+        self._lap_overtake_mode_snapshot = self.is_overtake_mode_allowed(
+            lap,
+            weather,
+        )
         lap_events: list[RaceEvent] = []
 
         # Track restart lap (lap after SC ended)
@@ -149,6 +177,7 @@ class EventManager:
             if self.safety_car_laps_remaining <= 0:
                 self.safety_car_active = False
                 self.sc_just_ended = True  # Next lap is restart
+                self.sc_restart_lap_number = lap + 1
 
         if self.vsc_active:
             self.vsc_laps_remaining -= 1
@@ -169,14 +198,22 @@ class EventManager:
                 lap_events.append(failure)
 
         # Check for random incidents (spins, etc.)
-        if not self.safety_car_active:
+        if (
+            not self._lap_started_neutralized
+            and not self.safety_car_active
+            and not self.vsc_active
+        ):
             random_incident = self._check_random_incident(drivers, track, weather, lap)
             if random_incident:
                 lap_events.append(random_incident)
                 incidents_this_lap += 1
 
         # Check for forced red flag
-        if lap in self.forced_red_flag_laps and not self.red_flag_active:
+        if (
+            lap in self.forced_red_flag_laps
+            and not self._lap_started_neutralized
+            and not self.red_flag_active
+        ):
             red_flag_event = self.deploy_red_flag(lap, "Manual trigger")
             lap_events.append(red_flag_event)
             self.events.extend(lap_events)
@@ -185,7 +222,9 @@ class EventManager:
         # Check for forced safety car
         if (
             lap in self.forced_safety_car_laps
+            and not self._lap_started_neutralized
             and not self.safety_car_active
+            and not self.vsc_active
             and not self.red_flag_active
         ):
             self.safety_car_active = True
@@ -199,8 +238,16 @@ class EventManager:
             )
             lap_events.append(sc_event)
 
-        # Deploy safety car or red flag if needed (from incidents)
-        if incidents_this_lap > 0 and not self.safety_car_active and not self.red_flag_active:
+        # Convert the track's race-level event probability into a lap hazard.
+        # Calling this once per lap also allows an unmodelled marshal/debris
+        # event to produce a safety intervention; incident context still
+        # increases the hazard when one is already known this lap.
+        if (
+            not self._lap_started_neutralized
+            and not self.safety_car_active
+            and not self.vsc_active
+            and not self.red_flag_active
+        ):
             sc_event = self._deploy_safety_measure(lap, incidents_this_lap, track, weather)
             if sc_event:
                 lap_events.append(sc_event)
@@ -305,9 +352,13 @@ class EventManager:
         if len(active_drivers) < 2:
             return 0.0
 
-        # Derive lap-level risk from track-level safety-car likelihood.
-        # Typical race has ~50 laps and several incident opportunities.
-        base_prob = track.safety_car_probability / max(track.total_laps * 0.6, 1)
+        # Derive lap-level incident risk from the same race-level safety-car
+        # signal used for deployment.  Incidents are still a little more
+        # frequent than full SC deployments, hence the calibrated 0.6 factor.
+        base_prob = self._race_probability_to_lap_hazard(
+            track.safety_car_probability,
+            track.total_laps,
+        ) / 0.6
 
         # Hard-to-pass tracks create compression and mistakes.
         base_prob *= 0.85 + track.overtake_difficulty * 0.7
@@ -326,6 +377,26 @@ class EventManager:
         # Clamp to avoid unrealistic extreme rates.
         return float(np.clip(base_prob, 0.0005, 0.08))
 
+    @staticmethod
+    def _race_probability_to_lap_hazard(
+        race_probability: float,
+        total_laps: int,
+    ) -> float:
+        """Convert a probability of at least one event in a race to a hazard.
+
+        For an independent, constant per-lap hazard ``h``,
+        ``1 - (1 - h) ** total_laps`` is the probability of seeing an event
+        during the race.  Using the inverse keeps low-risk circuits low risk
+        instead of imposing an arbitrary per-lap floor.
+        """
+        race_probability = float(np.clip(race_probability, 0.0, 1.0))
+        laps = max(int(total_laps), 1)
+        if race_probability <= 0.0:
+            return 0.0
+        if race_probability >= 1.0:
+            return 1.0
+        return float(-np.expm1(np.log1p(-race_probability) / laps))
+
     def _check_random_incident(
         self,
         drivers: list[Driver],
@@ -341,8 +412,12 @@ class EventManager:
         incident_prob = self._incident_probability(active_drivers, track, weather)
 
         if self.rng.random() < incident_prob:
-            # Select random driver for incident
-            driver = self.rng.choice(active_drivers)
+            # Drivers with lower consistency are more exposed to spins and
+            # contact.  In wet conditions, lower wet skill adds a second risk
+            # channel.  The weights are intentionally modest so a single
+            # rating cannot make a driver deterministic.
+            weights = self._incident_driver_weights(active_drivers, weather)
+            driver = self.rng.choice(active_drivers, p=weights)
 
             # Determine incident severity
             severity_roll = self.rng.random()
@@ -354,6 +429,7 @@ class EventManager:
                     lap=lap,
                     drivers_involved=[driver.id],
                     description=f"{driver.name} spun but continues",
+                    time_loss_seconds=float(self.rng.uniform(2.0, 6.0)),
                 )
             elif severity_roll < 0.6:
                 # Puncture
@@ -362,6 +438,10 @@ class EventManager:
                     lap=lap,
                     drivers_involved=[driver.id],
                     description=f"{driver.name} suffered a puncture",
+                    # The driver loses time limping to the pits, then must
+                    # take a complete stop on the following lap.
+                    time_loss_seconds=float(self.rng.uniform(6.0, 14.0)),
+                    forces_pit_stop=True,
                 )
             else:
                 # Crash, DNF
@@ -372,9 +452,37 @@ class EventManager:
                     lap=lap,
                     drivers_involved=[driver.id],
                     description=f"{driver.name} crashed and retired",
+                    time_loss_seconds=float(self.rng.uniform(8.0, 18.0)),
                 )
 
         return None
+
+    @staticmethod
+    def _incident_driver_weights(
+        drivers: list[Driver],
+        weather: Weather,
+    ) -> np.ndarray:
+        """Return deterministic, normalized incident-victim risk weights."""
+        if not drivers:
+            return np.asarray([], dtype=float)
+
+        weights: list[float] = []
+        for driver in drivers:
+            # Keep a non-zero baseline: even a very consistent driver can be
+            # caught by debris or another car.
+            consistency_risk = 0.45 + 1.55 * (1.0 - float(np.clip(driver.consistency, 0.0, 1.0)))
+            if weather.is_wet() or weather.rain_intensity > 0.0:
+                wet_skill_risk = float(
+                    np.clip(1.5 - driver.wet_skill_modifier, 0.0, 1.0)
+                )
+                consistency_risk *= 1.0 + 0.9 * wet_skill_risk
+            weights.append(consistency_risk)
+
+        normalized = np.asarray(weights, dtype=float)
+        total = float(normalized.sum())
+        if total <= 0.0:
+            return np.full(len(drivers), 1.0 / len(drivers), dtype=float)
+        return normalized / total
 
     def _calibrated_safety_probs(
         self,
@@ -384,11 +492,25 @@ class EventManager:
         lap: int,
     ) -> tuple[float, float]:
         """Calibrate SC/VSC probabilities from track+weather+incident context."""
-        # Convert track-level race risk into lap-level pressure.
-        base_pressure = track.safety_car_probability / max(track.total_laps * 0.6, 1)
+        # ``Track.safety_car_probability`` is specifically the chance of at
+        # least one full safety car across a race.  VSC is modelled as a
+        # separate, lower-risk process; it is not subtracted from the SC
+        # probability.  Both are converted with the inverse cumulative hazard
+        # equation, with no arbitrary per-lap floor.
+        sc_pressure = self._race_probability_to_lap_hazard(
+            track.safety_car_probability,
+            track.total_laps,
+        )
+        vsc_race_probability = float(np.clip(track.safety_car_probability * 0.5, 0.0, 1.0))
+        vsc_pressure = self._race_probability_to_lap_hazard(
+            vsc_race_probability,
+            track.total_laps,
+        )
 
-        race_progress = lap / max(track.total_laps, 1)
-        progress_modifier = 0.9 + 0.35 * race_progress
+        race_progress = float(np.clip(lap / max(track.total_laps, 1), 0.0, 1.0))
+        # Centred at one over a dry, incident-free race so the full-SC
+        # probability remains statistically calibrated across all laps.
+        progress_modifier = 0.8 + 0.4 * race_progress
 
         weather_modifier = 1.0
         if weather is not None:
@@ -399,16 +521,9 @@ class EventManager:
 
         incident_modifier = 1.0 + incidents * 0.5
 
-        pressure = base_pressure * progress_modifier * weather_modifier * incident_modifier
-
-        sc_prob = float(np.clip(pressure * 3.0, 0.03, 0.9))
-        vsc_prob = float(np.clip(pressure * 2.0, 0.02, 0.75))
-
-        # Avoid unrealistic repeated full SC deployments in one race.
-        expected_sc = int(round(0.4 + track.safety_car_probability * 1.8))
-        if self.safety_car_deployments >= max(expected_sc, 1):
-            sc_prob *= 0.55
-            vsc_prob *= 0.85
+        context_modifier = progress_modifier * weather_modifier * incident_modifier
+        sc_prob = float(np.clip(sc_pressure * context_modifier, 0.0, 0.95))
+        vsc_prob = float(np.clip(vsc_pressure * context_modifier, 0.0, 0.95))
 
         return sc_prob, vsc_prob
 
@@ -442,7 +557,7 @@ class EventManager:
                 description="Safety car deployed",
             )
 
-        if roll < sc_prob + vsc_prob * (1.0 - sc_prob):
+        if roll < sc_prob + (1.0 - sc_prob) * vsc_prob:
             # Virtual safety car
             self.vsc_active = True
             self.vsc_laps_remaining = self.rng.integers(2, 4)
@@ -525,6 +640,8 @@ class EventManager:
         """End the red flag period and prepare for restart."""
         self.red_flag_active = False
         self.red_flag_just_ended = True
+        if self.current_lap is not None:
+            self.red_flag_restart_lap_number = self.current_lap + 1
 
     def is_red_flag_active(self) -> bool:
         """Check if red flag is currently active."""
@@ -552,9 +669,96 @@ class EventManager:
         """Check if it's a good time to pit (under SC/VSC/red flag)."""
         return self.safety_car_active or self.vsc_active or self.red_flag_active
 
-    def is_restart_lap(self) -> bool:
+    def is_restart_lap(self, lap: int | None = None) -> bool:
         """Check if this is a restart lap after SC or red flag."""
-        return self.sc_restart_lap or self.red_flag_restart_lap
+        target_lap = lap if lap is not None else self.current_lap
+        if target_lap is not None:
+            if target_lap in {
+                self.sc_restart_lap_number,
+                self.red_flag_restart_lap_number,
+            }:
+                return True
+            return (
+                self.sc_restart_lap_number is None
+                and (self.sc_just_ended or self.sc_restart_lap)
+            ) or (
+                self.red_flag_restart_lap_number is None
+                and (self.red_flag_just_ended or self.red_flag_restart_lap)
+            )
+        return (
+            self.sc_restart_lap
+            or self.red_flag_restart_lap
+            or self.sc_just_ended
+            or self.red_flag_just_ended
+        )
+
+    def is_active_aero_allowed(self) -> bool:
+        """Return whether green-flag straight mode is currently available.
+
+        Active Aero is a car mode rather than a following aid: every car may
+        use it on the track's configured sections whenever the race is green.
+        There is consequently no detection-gap check here.
+        """
+        return not (
+            self.safety_car_active
+            or self.vsc_active
+            or self.red_flag_active
+        )
+
+    def is_overtake_mode_allowed(
+        self,
+        lap: int | None = None,
+        weather: Weather | None = None,
+    ) -> bool:
+        """Return whether Overtake Mode may be deployed this lap.
+
+        Overtake Mode is a distinct, detection-gap-gated deployment.  The
+        first useful detection opportunity is approximated as lap two, and
+        deployment remains unavailable through safety-car/VSC/red-flag
+        running and the first lap after a restart.  Wet or otherwise low-grip
+        conditions also disable the mode.
+        """
+        effective_lap = lap if lap is not None else self.current_lap
+        if (
+            effective_lap is not None
+            and self._lap_overtake_mode_snapshot is not None
+            and effective_lap == self.current_lap
+        ):
+            return self._lap_overtake_mode_snapshot
+        if self.safety_car_active or self.vsc_active or self.red_flag_active:
+            return False
+        if effective_lap is not None:
+            if effective_lap in {
+                self.sc_restart_lap_number,
+                self.red_flag_restart_lap_number,
+            }:
+                return False
+            # Preserve compatibility for callers that set the legacy boolean
+            # restart flags directly without a lap-number timeline.
+            if (
+                self.sc_restart_lap_number is None
+                and (self.sc_just_ended or self.sc_restart_lap)
+            ) or (
+                self.red_flag_restart_lap_number is None
+                and (self.red_flag_just_ended or self.red_flag_restart_lap)
+            ):
+                return False
+        elif (
+            self.sc_just_ended
+            or self.sc_restart_lap
+            or self.red_flag_just_ended
+            or self.red_flag_restart_lap
+        ):
+            return False
+        if effective_lap is not None and effective_lap < 2:
+            return False
+        if weather is not None and (
+            weather.is_wet()
+            or weather.track_wetness > 0.2
+            or weather.rain_intensity > 0.25
+        ):
+            return False
+        return True
 
     def bunch_field(self, driver_states: list) -> None:
         """Bunch up the field behind safety car.
@@ -572,7 +776,10 @@ class EventManager:
         if len(racing) < 2:
             return
 
-        # Leader stays unchanged; each following car is set to ~0.8-1.2s behind.
+        # Leader stays unchanged; each following car is set to ~0.8-1.2s
+        # behind.  RaceSimulator classifies positions by elapsed time before
+        # calling this method, so a same-lap incident's position loss survives
+        # the gap reset even though ordinary clean gaps are closed here.
         for i, state in enumerate(racing[1:], 1):
             gap_to_ahead = self.rng.uniform(0.8, 1.2)
             state.total_time = racing[i - 1].total_time + gap_to_ahead

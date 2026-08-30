@@ -5,7 +5,7 @@ from enum import Enum
 
 import numpy as np
 
-from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather
+from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather, WeatherCondition
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.events import EventManager, EventType, RaceEvent
 from f1sim.simulation.lap import LapSimulator
@@ -47,6 +47,20 @@ class DriverRaceState:
     planned_pit_laps: list[int] = field(default_factory=list)
     pit_plan_options: list[list[int]] = field(default_factory=list)
     active_pit_plan_index: int = 0
+    # Actual compounds used, in stint order.  This is deliberately state on
+    # the race rather than a post-hoc strategy guess.
+    tire_compound_history: list[str] = field(default_factory=list)
+    force_pit_next_lap: bool = False
+    # 2026 Overtake Mode energy store.  The store is bounded and deliberately
+    # kept on each race state so a driver cannot deploy on every lap forever.
+    overtake_mode_energy: float = 1.0
+    overtake_mode_deployments: int = 0
+    overtake_mode_active_lap: bool = False
+
+    def __post_init__(self) -> None:
+        """Seed tyre history from the driver's actual starting set."""
+        if not self.tire_compound_history:
+            self.tire_compound_history.append(self.current_tire.compound.value)
 
 
 @dataclass
@@ -82,6 +96,13 @@ class RaceState:
 
 class RaceSimulator:
     """Simulates a full F1 race."""
+
+    # A deployment is a meaningful burst rather than a free per-lap bonus.
+    # Green running recharges gradually; neutralized laps recharge faster
+    # while the field is constrained and no deployment can be made.
+    OVERTAKE_MODE_DEPLOYMENT_COST = 0.35
+    OVERTAKE_MODE_GREEN_RECHARGE = 0.04
+    OVERTAKE_MODE_NEUTRAL_RECHARGE = 0.12
 
     def __init__(
         self,
@@ -158,8 +179,19 @@ class RaceSimulator:
         Returns:
             List of RaceResult sorted by finishing position
         """
+        # Reset mutable driver state as well as event state.  Monte Carlo
+        # workers may intentionally reuse model instances between simulations.
+        for driver in drivers:
+            driver.reset_race_state()
+
         # Reset event manager
         self.event_manager.reset()
+
+        # Keep the caller's supplied weather as the immutable lap-one
+        # snapshot.  Weather evolution is applied only after a lap has been
+        # simulated, so every driver and race-control decision on lap one
+        # sees exactly the conditions the caller provided.
+        current_weather = weather.model_copy(deep=True)
 
         # Initialize driver states based on starting grid
         driver_map = {d.id: d for d in drivers}
@@ -174,13 +206,21 @@ class RaceSimulator:
             if car is None:
                 continue
 
-            # Starting tire (default to medium for Q2+ drivers, soft for others)
+            strategy = self._infer_team_strategy(car, track)
+
+            # Starting tyres are a strategy decision, not a hidden grid-
+            # position rule.  Explicit caller overrides remain authoritative;
+            # otherwise choose from the seeded RNG using the team strategy,
+            # track stress and initial weather.
             if starting_tires and driver_id in starting_tires:
                 tire_compound = starting_tires[driver_id]
             else:
-                tire_compound = TireCompound.MEDIUM if pos <= 10 else TireCompound.SOFT
+                tire_compound = self._choose_starting_compound(
+                    strategy,
+                    track,
+                    current_weather,
+                )
 
-            strategy = self._infer_team_strategy(car, track)
             pit_plans = self._plan_pit_lap_options(strategy, track)
             states.append(
                 DriverRaceState(
@@ -197,26 +237,39 @@ class RaceSimulator:
 
         # Track fastest laps
         fastest_laps: dict[str, float] = {}
-        current_weather = weather.model_copy(deep=True)
         all_events: list[RaceEvent] = []
 
         # Simulate each lap
         for lap in range(1, track.total_laps + 1):
-            # Evolve weather
-            current_weather = current_weather.evolve(self.rng)
+            # Snapshot race-control state once.  SC/VSC/red-flag transitions
+            # are resolved after this lap's running; using immutable values
+            # prevents a neutralization ending during process_lap from
+            # changing mode eligibility for only part of the lap.
+            lap_active_aero_enabled = self.event_manager.is_active_aero_allowed()
+            lap_overtake_mode_allowed = self.event_manager.is_overtake_mode_allowed(
+                lap,
+                current_weather,
+            )
+            lap_started_neutralized = not lap_active_aero_enabled
+            lap_restart = self.event_manager.is_restart_lap(lap)
+
+            fastest_laps_before_lap = dict(fastest_laps)
 
             # Simulate lap for each driver
             lap_times: dict[str, float] = {}
             incidents_this_lap = 0
             drivers_pitting: list[DriverRaceState] = []
+            material_penalty_ids: set[str] = set()
 
             # Phase 1: Determine who pits and calculate lap times
             for state in states:
                 if state.status != DriverStatus.RACING:
                     continue
+                state.overtake_mode_active_lap = False
 
                 # Check for pit stop decision
-                should_pit = self._should_pit(
+                forced_pit = state.force_pit_next_lap
+                should_pit = forced_pit or self._should_pit(
                     state,
                     states,
                     track,
@@ -236,9 +289,19 @@ class RaceSimulator:
                     state.pit_stops += 1
                     state.pit_laps.append(lap)
                     drivers_pitting.append(state)
+                    state.force_pit_next_lap = False
 
                 # Calculate lap time
                 gap_ahead = self._get_gap_to_car_ahead(state, states)
+                if not should_pit:
+                    state.overtake_mode_active_lap = (
+                        self._deploy_overtake_mode_if_eligible(
+                            state,
+                            track,
+                            gap_ahead,
+                            lap_overtake_mode_allowed,
+                        )
+                    )
 
                 lap_time = self.lap_simulator.calculate_lap_time(
                     driver=state.driver,
@@ -249,7 +312,8 @@ class RaceSimulator:
                     lap_number=lap,
                     total_laps=track.total_laps,
                     gap_to_car_ahead=gap_ahead,
-                    is_drs_enabled=lap > 2 and not self.event_manager.safety_car_active,
+                    active_aero_enabled=lap_active_aero_enabled,
+                    overtake_mode_active=state.overtake_mode_active_lap,
                 )
 
                 # Apply safety car modifier
@@ -262,22 +326,76 @@ class RaceSimulator:
 
                 lap_times[state.driver.id] = lap_time
 
-                # Track fastest lap
-                if state.driver.id not in fastest_laps:
-                    fastest_laps[state.driver.id] = lap_time
-                else:
-                    fastest_laps[state.driver.id] = min(fastest_laps[state.driver.id], lap_time)
-
             # Phase 2: Handle position changes from pit stops
             # (after all lap times calculated).
             # At high overtake-difficulty tracks (Monaco, Singapore),
             # pit stops have minimal position impact because everyone pits
             # in a narrow window and can't recover via overtaking.
             if track.overtake_difficulty < 0.8:  # Only apply at easier-to-pass tracks
+                pre_pit_order = {
+                    state.driver.id: index
+                    for index, state in enumerate(
+                        sorted(
+                            (
+                                state
+                                for state in states
+                                if state.status == DriverStatus.RACING
+                            ),
+                            key=lambda state: state.position,
+                        )
+                    )
+                }
                 for pitting_driver in drivers_pitting:
                     self._handle_pit_position_changes(pitting_driver, states)
+                if drivers_pitting:
+                    # Several cars can pit on the same lap. Applying their
+                    # individual losses in sequence can temporarily assign
+                    # the same position to two cars. Resolve only those ties
+                    # by the elapsed clock after service, with the pre-stop
+                    # track order as a deterministic secondary key.
+                    pit_batch_order = {
+                        state.driver.id: index
+                        for index, state in enumerate(
+                            sorted(
+                                (
+                                    state
+                                    for state in states
+                                    if state.status == DriverStatus.RACING
+                                ),
+                                key=lambda state: (
+                                    state.position,
+                                    state.total_time,
+                                    pre_pit_order[state.driver.id],
+                                ),
+                            )
+                        )
+                    }
+                    self._normalize_positions(
+                        states,
+                        preferred_order=pit_batch_order,
+                    )
 
-            # Process events first to know if SC is active
+            # Overtakes happen on the racing lap before race-control events
+            # are resolved.  Their incidents therefore feed SC/VSC/red-flag
+            # decisions for this same lap.
+            if (
+                not self.event_manager.safety_car_active
+                and not self.event_manager.vsc_active
+                and not self.event_manager.red_flag_active
+                and (track.overtake_difficulty < 0.9 or lap_restart)
+            ):
+                overtake_incidents = self._process_overtakes(
+                    states,
+                    track,
+                    current_weather,
+                    restart_lap=lap_restart,
+                    lap=lap,
+                    overtake_mode_allowed=lap_overtake_mode_allowed,
+                )
+                incidents_this_lap += overtake_incidents
+
+            # Resolve random/mechanical incidents and race-control events
+            # after all on-track incidents have been collected.
             active_drivers = [s.driver for s in states if s.status == DriverStatus.RACING]
             lap_events = self.event_manager.process_lap(
                 lap=lap,
@@ -292,34 +410,90 @@ class RaceSimulator:
             for event in lap_events:
                 for driver_id in event.drivers_involved:
                     for state in states:
-                        if state.driver.id == driver_id and state.driver.dnf:
+                        if state.driver.id != driver_id:
+                            continue
+
+                        # Incidents are detected after the lap has been
+                        # completed.  Apply their explicit consequence to the
+                        # race clock rather than leaving them as log entries.
+                        if event.time_loss_seconds > 0.0:
+                            state.total_time += event.time_loss_seconds
+                            state.last_lap_time += event.time_loss_seconds
+                            material_penalty_ids.add(driver_id)
+
+                        if event.forces_pit_stop and state.status == DriverStatus.RACING:
+                            state.force_pit_next_lap = True
+
+                        if state.driver.dnf:
                             state.status = DriverStatus.DNF
                             state.dnf_reason = state.driver.dnf_reason
+
+            # A post-lap incident can make the car that was physically ahead
+            # slower on elapsed time than a car behind it.  Reclassify only
+            # drivers carrying a material penalty; ordinary on-track
+            # overtakes remain position-authoritative.
+            if material_penalty_ids:
+                self._reorder_positions_after_material_penalties(
+                    states,
+                    material_penalty_ids,
+                )
 
             all_events.extend(lap_events)
 
             # Check if safety car was just deployed - bunch up the field
             sc_deployed_this_lap = any(e.event_type == EventType.SAFETY_CAR for e in lap_events)
             if sc_deployed_this_lap:
+                # Classify any same-lap incident consequences while elapsed
+                # times still contain their penalties.  Bunching then resets
+                # clean gaps without erasing the victim's position loss.
+                self._classify_positions_before_neutralization(
+                    states,
+                    material_penalty_ids,
+                )
                 self.event_manager.bunch_field(states)
 
             # Check if red flag was just deployed
             red_flag_deployed_this_lap = any(e.event_type == EventType.RED_FLAG for e in lap_events)
             if red_flag_deployed_this_lap:
                 # Handle red flag: bunch field and allow tire changes
+                self._classify_positions_before_neutralization(
+                    states,
+                    material_penalty_ids,
+                )
                 self._handle_red_flag_stop(states, current_weather)
 
-            # Phase 3: Process overtakes
-            # Skip at extremely difficult tracks like Monaco (unless restart lap)
-            is_restart = self.event_manager.is_restart_lap()
-            if track.overtake_difficulty < 0.9 or is_restart:
-                # More overtaking attempts on restart laps
-                incidents_this_lap += self._process_overtakes(
-                    states, track, current_weather, restart_lap=is_restart
-                )
+            # Commit fastest laps only after all on-track incidents and race
+            # control consequences for this lap have been applied.  In
+            # particular, an incident lap cannot retain the clean pre-penalty
+            # value that was measured before the event was detected.
+            for state in states:
+                if state.driver.id in lap_times:
+                    fastest_laps[state.driver.id] = min(
+                        fastest_laps_before_lap.get(state.driver.id, float("inf")),
+                        state.last_lap_time,
+                    )
 
             # Update positions
             self._update_positions(states)
+
+            # Overtake Mode is unavailable while neutralized, but the store
+            # can recharge.  Include a lap that started under neutralization
+            # even if the event countdown expires during process_lap.
+            self._recharge_overtake_mode_energy(
+                states,
+                neutralized=(
+                    lap_started_neutralized
+                    or self.event_manager.safety_car_active
+                    or self.event_manager.vsc_active
+                    or self.event_manager.red_flag_active
+                    or red_flag_deployed_this_lap
+                ),
+            )
+
+            # The initial weather snapshot was used unchanged on lap one.
+            # Evolve only when another lap will actually consume the result.
+            if lap < track.total_laps:
+                current_weather = current_weather.evolve(self.rng)
 
         # Mark finished drivers
         for state in states:
@@ -339,13 +513,9 @@ class RaceSimulator:
 
         results = []
         for state in sorted_states:
-            # Build strategy list
-            strategy = [state.current_tire.compound.value]
-            if state.pit_stops > 0:
-                # Simplified strategy tracking
-                strategy = (
-                    ["medium", "hard"] if state.pit_stops == 1 else ["soft", "hard", "medium"]
-                )
+            # Emit the compounds actually used by this state, including
+            # weather/red-flag changes and incident-forced stops.
+            strategy = list(state.tire_compound_history)
 
             results.append(
                 RaceResult(
@@ -382,6 +552,73 @@ class RaceSimulator:
             return TeamStrategyArchetype.AGGRESSIVE
 
         return TeamStrategyArchetype.BALANCED
+
+    def _choose_starting_compound(
+        self,
+        strategy: TeamStrategyArchetype,
+        track: Track,
+        weather: Weather,
+    ) -> TireCompound:
+        """Choose a plausible opening tyre set for the current conditions.
+
+        Current regulations allow drivers to choose their starting compound;
+        qualifying position no longer determines a hidden medium/soft split.
+        Wet starts are deterministic because using the wrong tyre is unsafe.
+        Dry starts use seeded probabilities shaped by team strategy, tyre
+        stress, race length and overtaking difficulty.
+        """
+        if weather.requires_wet_tires():
+            return TireCompound.WET
+        if (
+            weather.is_wet()
+            or weather.rain_intensity >= 0.2
+            or weather.condition in {
+                WeatherCondition.LIGHT_RAIN,
+                WeatherCondition.HEAVY_RAIN,
+            }
+        ):
+            return TireCompound.INTERMEDIATE
+
+        # Weights represent realistic dry-grid variation rather than a
+        # position-based assignment.  Aggressive teams bias toward a short
+        # soft opening stint; conservative teams protect the long race.
+        strategy_weights = {
+            TeamStrategyArchetype.AGGRESSIVE: np.array([0.48, 0.42, 0.10]),
+            TeamStrategyArchetype.BALANCED: np.array([0.35, 0.50, 0.15]),
+            TeamStrategyArchetype.CONSERVATIVE: np.array([0.20, 0.55, 0.25]),
+        }
+        weights = strategy_weights[strategy].astype(float, copy=True)
+
+        # Tyre stress makes the durable compounds more attractive.  Shorter
+        # races and difficult-to-pass tracks reward track position and hence
+        # a little more fresh soft-tyre grip.
+        stress = float(np.clip(track.tire_stress, 0.0, 1.0))
+        stress_shift = (stress - 0.5) * 0.24
+        weights[0] -= stress_shift
+        weights[2] += stress_shift
+        if track.total_laps < 45:
+            weights[0] += 0.05
+            weights[1] -= 0.03
+            weights[2] -= 0.02
+        if track.overtake_difficulty > 0.7:
+            weights[0] += 0.04
+            weights[1] -= 0.03
+            weights[2] -= 0.01
+
+        weights = np.clip(weights, 0.02, None)
+        weights /= weights.sum()
+        # NumPy converts Enum objects to truncated unicode labels when it
+        # builds an object array (for example ``"TireCo"``).  Sample the
+        # stable string values instead, then reconstruct the enum.
+        compounds = [
+            TireCompound.SOFT.value,
+            TireCompound.MEDIUM.value,
+            TireCompound.HARD.value,
+        ]
+        selected = self.rng.choice(compounds, p=weights)
+        if isinstance(selected, TireCompound):
+            return selected
+        return TireCompound(str(selected))
 
     def _should_switch_conservative_to_balanced(
         self,
@@ -493,11 +730,25 @@ class RaceSimulator:
             max_stops += 1
         if weather is not None and weather.track_wetness > 0.3:
             max_stops = max(max_stops, 4)  # Allow more stops in changing conditions
+
+        # The dry-race regulation is about two distinct slick compounds,
+        # not simply a stop count.  Keep one additional stop available when
+        # an earlier stop repeated the same compound, so a short race cannot
+        # exhaust its ordinary stop budget before satisfying the rule.
+        dry_rule_required = not self._has_used_wet_compound(state) and len(
+            self._used_slick_compounds(state)
+        ) < 2
+        if dry_rule_required:
+            max_stops = max(max_stops, state.pit_stops + 1)
         if state.pit_stops >= max_stops:
             return False
 
-        # Mandatory pit stop check (must stop at least once)
-        if lap == track.total_laps - 1 and state.pit_stops == 0:
+        # At the final viable dry-race stop, force a stop for a new slick set
+        # even when the driver already made an earlier same-compound stop.
+        if (
+            lap == track.total_laps - 1
+            and dry_rule_required
+        ):
             return True
 
         # Don't pit on first 5 laps or last 5 laps
@@ -599,6 +850,70 @@ class RaceSimulator:
 
         return False
 
+    @staticmethod
+    def _has_used_wet_compound(state: DriverRaceState) -> bool:
+        """Return whether a state has used an intermediate or full wet tyre."""
+        wet_compounds = {TireCompound.INTERMEDIATE.value, TireCompound.WET.value}
+        return (
+            state.current_tire.compound in {TireCompound.INTERMEDIATE, TireCompound.WET}
+            or any(compound in wet_compounds for compound in state.tire_compound_history)
+        )
+
+    @staticmethod
+    def _used_slick_compounds(state: DriverRaceState) -> set[TireCompound]:
+        """Return distinct slick compounds used by a driver so far."""
+        slick_compounds = {
+            TireCompound.SOFT,
+            TireCompound.MEDIUM,
+            TireCompound.HARD,
+        }
+        used: set[TireCompound] = set()
+        for compound in state.tire_compound_history:
+            try:
+                parsed = TireCompound(compound)
+            except (TypeError, ValueError):
+                continue
+            if parsed in slick_compounds:
+                used.add(parsed)
+
+        # Keep manually constructed or externally restored states truthful
+        # even if their history predates the current stint.
+        if state.current_tire.compound in slick_compounds:
+            used.add(state.current_tire.compound)
+        return used
+
+    def _choose_distinct_dry_compound(
+        self,
+        state: DriverRaceState,
+        track: Track,
+        current_lap: int,
+    ) -> TireCompound:
+        """Choose a new slick compound while the dry-use rule is open."""
+        slick_compounds = [
+            TireCompound.SOFT,
+            TireCompound.MEDIUM,
+            TireCompound.HARD,
+        ]
+        used = self._used_slick_compounds(state)
+        available = [compound for compound in slick_compounds if compound not in used]
+
+        # Prefer the normal strategy choice when it is a genuinely new set.
+        preferred = self._choose_compound_for_next_stint(state, track, current_lap)
+        if preferred in available:
+            return preferred
+
+        if available:
+            # Preserve a deterministic seeded choice when multiple unused
+            # slicks are plausible, without ever selecting a used compound.
+            return available[int(self.rng.integers(0, len(available)))]
+
+        # This branch is defensive for malformed/restored states that report
+        # fewer than two compounds but have exhausted all three slick names.
+        alternatives = [
+            compound for compound in slick_compounds if compound != state.current_tire.compound
+        ]
+        return alternatives[int(self.rng.integers(0, len(alternatives)))]
+
     def _choose_compound_for_next_stint(
         self,
         state: DriverRaceState,
@@ -654,8 +969,16 @@ class RaceSimulator:
         Returns:
             Time lost in seconds
         """
-        # Pit lane time + stationary time
-        pit_lane_time = track.pit_lane_delta
+        # Pit lane time + stationary time.  Under a full safety car the field
+        # is travelling much more slowly, so the relative pit-lane loss is
+        # materially smaller; VSC provides a moderate reduction.  Stationary
+        # service remains unchanged and is still sampled per team/car.
+        pit_lane_factor = 1.0
+        if self.event_manager.safety_car_active:
+            pit_lane_factor = 0.55
+        elif self.event_manager.vsc_active:
+            pit_lane_factor = 0.75
+        pit_lane_time = track.pit_lane_delta * pit_lane_factor
         stationary_time = self.lap_simulator.calculate_pit_stop_time(state.car)
 
         # Choose new tire compound
@@ -663,6 +986,16 @@ class RaceSimulator:
             new_compound = TireCompound.WET
         elif weather.is_wet():
             new_compound = TireCompound.INTERMEDIATE
+        elif len(self._used_slick_compounds(state)) < 2 and not self._has_used_wet_compound(state):
+            # A dry stop must add a new slick compound until the two-compound
+            # requirement is satisfied.  In particular, do not let a
+            # strategy callback repeating the current compound count as a
+            # distinct set.
+            new_compound = self._choose_distinct_dry_compound(
+                state,
+                track,
+                current_lap,
+            )
         else:
             new_compound = self._choose_compound_for_next_stint(
                 state,
@@ -672,6 +1005,10 @@ class RaceSimulator:
 
         state.current_tire = TIRE_COMPOUNDS[new_compound].model_copy(deep=True)
         state.tire_laps = 0
+        state.driver.current_tire_laps = 0
+        # Every stop creates a new tyre stint, even when the same compound is
+        # fitted again (e.g. a wet-weather stop or a repeated medium stint).
+        state.tire_compound_history.append(new_compound.value)
 
         return pit_lane_time + stationary_time
 
@@ -686,7 +1023,11 @@ class RaceSimulator:
 
         for other in all_states:
             if other.position == state.position - 1 and other.status == DriverStatus.RACING:
-                return abs(state.total_time - other.total_time)
+                # A time-penalised car can transiently be faster in elapsed
+                # time than the car it is physically chasing.  Treat that as
+                # zero racing gap until classification resolves the ordering,
+                # rather than inflating it with an absolute-value shortcut.
+                return max(0.0, state.total_time - other.total_time)
 
         return None
 
@@ -698,9 +1039,58 @@ class RaceSimulator:
         """Get time gap to car behind."""
         for other in all_states:
             if other.position == state.position + 1 and other.status == DriverStatus.RACING:
-                return abs(other.total_time - state.total_time)
+                return max(0.0, other.total_time - state.total_time)
 
         return None
+
+    def _deploy_overtake_mode_if_eligible(
+        self,
+        state: DriverRaceState,
+        track: Track,
+        gap_ahead: float | None,
+        mode_allowed: bool,
+    ) -> bool:
+        """Consume one Overtake Mode burst when a driver is eligible.
+
+        The FIA detection-gap rule is represented at lap resolution: a car
+        must be within the track-configured gap at the start of its lap, the
+        event manager must allow deployment, and the bounded store must hold
+        enough energy for a full burst.  No random draw is used here, making
+        the energy timeline deterministic for a fixed simulation seed.
+        """
+        if not mode_allowed or gap_ahead is None:
+            return False
+        if gap_ahead > track.overtake_mode_detection_gap:
+            return False
+
+        available = float(np.clip(state.overtake_mode_energy, 0.0, 1.0))
+        cost = self.OVERTAKE_MODE_DEPLOYMENT_COST
+        if available + 1e-12 < cost:
+            state.overtake_mode_energy = available
+            return False
+
+        state.overtake_mode_energy = float(np.clip(available - cost, 0.0, 1.0))
+        state.overtake_mode_deployments += 1
+        return True
+
+    def _recharge_overtake_mode_energy(
+        self,
+        states: list[DriverRaceState],
+        neutralized: bool = False,
+    ) -> None:
+        """Recharge each racing car's Overtake Mode store by a bounded step."""
+        recharge = (
+            self.OVERTAKE_MODE_NEUTRAL_RECHARGE
+            if neutralized
+            else self.OVERTAKE_MODE_GREEN_RECHARGE
+        )
+        for state in states:
+            if state.status != DriverStatus.RACING:
+                continue
+            state.overtake_mode_energy = float(
+                np.clip(state.overtake_mode_energy + recharge, 0.0, 1.0)
+            )
+            state.overtake_mode_active_lap = False
 
     def _process_overtakes(
         self,
@@ -708,6 +1098,8 @@ class RaceSimulator:
         track: Track,
         weather: Weather,
         restart_lap: bool = False,
+        lap: int | None = None,
+        overtake_mode_allowed: bool | None = None,
     ) -> int:
         """Process overtaking opportunities. Returns number of incidents.
 
@@ -716,8 +1108,11 @@ class RaceSimulator:
             track: Current track
             weather: Current weather
             restart_lap: If True, this is a restart after SC (more overtaking)
+            lap: Current race lap, used to enforce Overtake Mode activation
+            overtake_mode_allowed: Immutable mode snapshot for this lap
         """
         incidents = 0
+        material_penalty_ids: set[str] = set()
         racing_states = [s for s in states if s.status == DriverStatus.RACING]
 
         # Sort by position to check if faster cars are stuck behind slower ones
@@ -765,7 +1160,14 @@ class RaceSimulator:
                 defender_car=defender.car,
                 track=track,
                 gap=overtake_gap,
-                has_drs=overtake_gap <= 1.0 and not weather.is_wet(),
+                overtake_mode_active=(
+                    attacker.overtake_mode_active_lap
+                    and (
+                        self.event_manager.is_overtake_mode_allowed(lap, weather)
+                        if overtake_mode_allowed is None
+                        else overtake_mode_allowed
+                    )
+                ),
                 is_wet=weather.is_wet(),
                 restart_boost=restart_lap,  # Extra chance on restart
             )
@@ -777,8 +1179,16 @@ class RaceSimulator:
             if incident:
                 incidents += 1
                 # Small time loss for both drivers
-                attacker.total_time += self.rng.uniform(1, 3)
-                defender.total_time += self.rng.uniform(0.5, 2)
+                attacker_loss = float(self.rng.uniform(1, 3))
+                defender_loss = float(self.rng.uniform(0.5, 2))
+                attacker.total_time += attacker_loss
+                defender.total_time += defender_loss
+                attacker.last_lap_time += attacker_loss
+                defender.last_lap_time += defender_loss
+                material_penalty_ids.update((attacker.driver.id, defender.driver.id))
+
+        if material_penalty_ids:
+            self._reorder_positions_after_material_penalties(states, material_penalty_ids)
 
         return incidents
 
@@ -822,6 +1232,43 @@ class RaceSimulator:
         # Move the pitting driver back by the number of cars that passed
         pitting_driver.position = original_pos + cars_passing
 
+    def _normalize_positions(
+        self,
+        states: list[DriverRaceState],
+        preferred_order: dict[str, int] | None = None,
+    ) -> None:
+        """Restore one unique position per car without sorting by race time.
+
+        ``preferred_order`` supplies the authoritative order immediately
+        before a batch operation such as simultaneous pit stops. It is used
+        only to resolve temporary equal-position ties; ordinary position
+        changes remain authoritative.
+        """
+        preferred_order = preferred_order or {}
+        fallback_order = {id(state): index for index, state in enumerate(states)}
+
+        def order_key(state: DriverRaceState) -> tuple[int, int]:
+            return (
+                state.position,
+                preferred_order.get(
+                    state.driver.id,
+                    fallback_order[id(state)],
+                ),
+            )
+
+        racing = sorted(
+            (state for state in states if state.status == DriverStatus.RACING),
+            key=order_key,
+        )
+        dnf = sorted(
+            (state for state in states if state.status == DriverStatus.DNF),
+            key=order_key,
+        )
+        for position, state in enumerate(racing, 1):
+            state.position = position
+        for position, state in enumerate(dnf, len(racing) + 1):
+            state.position = position
+
     def _update_positions(self, states: list[DriverRaceState]) -> None:
         """Update positions, respecting track position (no auto-sort by time).
 
@@ -830,21 +1277,89 @@ class RaceSimulator:
         2. Pit stops (handled in _handle_pit_position_changes)
         3. DNFs (moved to back)
         """
-        # Separate racing and DNF drivers
-        racing = [s for s in states if s.status == DriverStatus.RACING]
-        dnf = [s for s in states if s.status == DriverStatus.DNF]
+        self._normalize_positions(states)
 
-        # Keep racing drivers in their current positions (no re-sort by time)
-        # Just ensure DNF drivers are moved to the back
-        racing.sort(key=lambda s: s.position)
+    def _classify_positions_before_neutralization(
+        self,
+        states: list[DriverRaceState],
+        penalized_driver_ids: set[str] | None = None,
+    ) -> None:
+        """Apply explicit penalty position loss before a field gap reset.
 
-        # Re-assign positions to ensure no gaps from DNFs
-        for pos, state in enumerate(racing, 1):
-            state.position = pos
+        A safety-car or red-flag bunching pass intentionally replaces the
+        absolute time gaps with a compact queue.  Track position is therefore
+        authoritative for clean laps, including a valid overtake whose
+        cumulative clock happens to be slower.  Only drivers carrying an
+        explicit material incident/time penalty may be reclassified before
+        the gap reset.
 
-        # DNF drivers get positions after racing drivers
-        for i, state in enumerate(dnf):
-            state.position = len(racing) + i + 1
+        ``None`` is retained as a safe no-op for callers that only need to
+        request a neutralization classification without penalty metadata.
+        """
+        if penalized_driver_ids:
+            self._reorder_positions_after_material_penalties(
+                states,
+                penalized_driver_ids,
+            )
+
+    def _reorder_positions_after_material_penalties(
+        self,
+        states: list[DriverRaceState],
+        penalized_driver_ids: set[str],
+    ) -> None:
+        """Move penalized racing cars behind any faster elapsed-time rivals.
+
+        Track position remains authoritative during normal racing so a clean
+        overtake is not undone merely because cumulative lap clocks differ by
+        a fraction.  An explicit incident/time penalty is different: once its
+        material consequence is applied, a slower elapsed-time car cannot
+        remain ahead of a faster car.  Only penalized cars are allowed to
+        cross position boundaries here; the rest of the on-track order is
+        preserved.
+        """
+        racing = [state for state in states if state.status == DriverStatus.RACING]
+        if len(racing) < 2:
+            return
+        if len({state.position for state in racing}) != len(racing):
+            # Defensive repair for external/direct callers. The race loop
+            # already normalizes every pit batch, but this method must never
+            # spin if it receives a malformed equal-position state.
+            self._normalize_positions(states)
+            racing = [state for state in states if state.status == DriverStatus.RACING]
+
+        for driver_id in sorted(penalized_driver_ids):
+            affected = next((state for state in racing if state.driver.id == driver_id), None)
+            if affected is None:
+                continue
+
+            # A penalty adds time, so the affected car can only fall back.
+            # Locate by identity rather than Pydantic/dataclass equality, then
+            # compute the destination in one bounded pass. This cannot loop
+            # indefinitely even if malformed state reaches the helper.
+            ordered = sorted(racing, key=lambda state: state.position)
+            index = next(
+                (position for position, state in enumerate(ordered) if state is affected),
+                None,
+            )
+            if index is None:
+                continue
+            destination = index
+            for candidate in ordered[index + 1 :]:
+                if affected.total_time <= candidate.total_time + 1e-9:
+                    break
+                destination += 1
+            if destination == index:
+                continue
+
+            position_slots = [
+                state.position for state in ordered[index : destination + 1]
+            ]
+            for state, position in zip(
+                ordered[index + 1 : destination + 1],
+                position_slots,
+            ):
+                state.position = position
+            affected.position = position_slots[-1]
 
     def _handle_red_flag_stop(
         self,
@@ -874,6 +1389,10 @@ class RaceSimulator:
             new_compound = self._choose_red_flag_tire(weather)
             state.current_tire = TIRE_COMPOUNDS[new_compound].model_copy(deep=True)
             state.tire_laps = 0  # Fresh tires
+            state.driver.current_tire_laps = 0
+            # A red-flag tyre change also starts a new physical stint and is
+            # therefore represented even when the compound repeats.
+            state.tire_compound_history.append(new_compound.value)
 
         # Simulate red flag suspension (2-5 laps worth of time)
         # The race is stopped so we just end the red flag for restart

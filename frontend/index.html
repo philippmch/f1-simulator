@@ -325,6 +325,13 @@ select option { background: var(--bg-card); color: var(--text-primary); }
 
 .btn-simulate:active { transform: translateY(0); }
 
+.btn-simulate:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  box-shadow: none;
+  transform: none;
+}
+
 .btn-simulate.running {
   pointer-events: none;
   opacity: 0.8;
@@ -435,6 +442,14 @@ select option { background: var(--bg-card); color: var(--text-primary); }
 }
 
 .tab:hover { color: var(--text-secondary); }
+
+.tab:focus-visible,
+.btn-simulate:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 3px;
+}
 
 .tab.active { color: var(--text-primary); }
 
@@ -1114,6 +1129,15 @@ select option { background: var(--bg-card); color: var(--text-primary); }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 .sim-text {
   font-family: var(--font-display);
   font-weight: 600;
@@ -1193,19 +1217,17 @@ select option { background: var(--bg-card); color: var(--text-primary); }
       </div>
       <div class="controls">
         <div class="control-group">
-          <label class="control-label">Season</label>
-          <select id="yearSelect">
-            <option value="2023">2023</option>
-            <option value="2024">2024</option>
-            <option value="2025" selected>2025</option>
+          <label class="control-label" for="yearSelect">Season</label>
+          <select id="yearSelect" disabled title="Only the live current F1 season is available">
+            <option value="">Loading current season...</option>
           </select>
         </div>
         <div class="control-group">
-          <label class="control-label">Circuit</label>
+          <label class="control-label" for="trackSelect">Circuit</label>
           <select id="trackSelect"></select>
         </div>
         <div class="control-group">
-          <label class="control-label">Focus</label>
+          <label class="control-label" for="weatherSelect">Focus</label>
           <select id="weatherSelect">
             <option value="DRY">Dry</option>
             <option value="CLOUDY">Cloudy</option>
@@ -1214,61 +1236,60 @@ select option { background: var(--bg-card); color: var(--text-primary); }
           </select>
         </div>
         <div class="control-group">
-          <label class="control-label">Simulations</label>
+          <label class="control-label" for="simCount">Simulations</label>
           <input type="number" id="simCount" value="100" min="10" max="1000" step="10">
         </div>
-        <button class="btn-simulate" id="btnRun" onclick="runSimulation()">Run Simulation</button>
-        <span class="data-source-badge loading" id="dataSourceBadge" title="Where driver/car ratings come from">Checking backend...</span>
+        <button class="btn-simulate" id="btnRun" type="button" disabled onclick="runSimulation()">Run Simulation</button>
+        <span class="data-source-badge loading" id="dataSourceBadge" role="status" aria-live="polite" title="Where driver/car ratings come from">Checking backend...</span>
       </div>
     </div>
     <div class="header-advanced">
       <div class="control-group control-group-scenarios">
-        <label class="control-label">Scenario Set</label>
-        <div class="scenario-selector" id="headerScenarioSelector"></div>
+        <span class="control-label" id="scenarioSetLabel">Scenario Set</span>
+        <div class="scenario-selector" id="headerScenarioSelector" role="group" aria-labelledby="scenarioSetLabel"></div>
         <div class="scenario-preset-row" id="headerScenarioPresets"></div>
         <div class="scenario-summary" id="scenarioSetSummary">Build a weather sweep for the backend run.</div>
         <input type="text" id="scenarioSetInput" value="" class="scenario-set-hidden" aria-hidden="true" tabindex="-1">
       </div>
       <div class="control-group">
-        <label class="control-label">Seed</label>
-        <input type="number" id="seedInput" value="42" min="0" step="1">
+        <label class="control-label" for="seedInput">Seed</label>
+        <input type="number" id="seedInput" value="42" min="0" max="4294967295" step="1">
       </div>
       <div class="control-group">
-        <label class="control-label">Qualifying</label>
-        <select id="qualifyingModeSelect">
-          <option value="historical" selected>Historical Grid</option>
-          <option value="simulated">Simulate Again</option>
+        <label class="control-label" for="qualifyingModeSelect">Qualifying</label>
+        <select id="qualifyingModeSelect" disabled title="Qualifying is simulated from the fresh current-season ratings">
+          <option value="simulated" selected>Simulated</option>
         </select>
       </div>
       <div class="control-group">
-        <label class="control-label">Execution</label>
+        <label class="control-label" for="parallelSelect">Execution</label>
         <select id="parallelSelect">
           <option value="true" selected>Parallel</option>
           <option value="false">Single Core</option>
         </select>
       </div>
       <div class="control-group">
-        <label class="control-label">Workers</label>
-        <input type="number" id="workersInput" value="" min="1" step="1" placeholder="Auto">
+        <label class="control-label" for="workersInput">Workers</label>
+        <input type="number" id="workersInput" value="" min="1" max="16" step="1" placeholder="Auto">
       </div>
     </div>
   </header>
 
   <!-- Tabs -->
   <nav class="tabs-container">
-    <div class="tabs">
-      <button class="tab active" data-tab="race" onclick="switchTab('race')">Race Results</button>
-      <button class="tab" data-tab="qualifying" onclick="switchTab('qualifying')">Qualifying</button>
-      <button class="tab" data-tab="stats" onclick="switchTab('stats')">Statistics</button>
-      <button class="tab" data-tab="scenarios" onclick="switchTab('scenarios')">Scenario Lab</button>
+    <div class="tabs" role="tablist" aria-label="Simulation views">
+      <button class="tab active" id="tab-race" type="button" role="tab" aria-selected="true" aria-controls="panel-race" tabindex="0" data-tab="race" onclick="switchTab('race')">Race Results</button>
+      <button class="tab" id="tab-qualifying" type="button" role="tab" aria-selected="false" aria-controls="panel-qualifying" tabindex="-1" data-tab="qualifying" onclick="switchTab('qualifying')">Qualifying</button>
+      <button class="tab" id="tab-stats" type="button" role="tab" aria-selected="false" aria-controls="panel-stats" tabindex="-1" data-tab="stats" onclick="switchTab('stats')">Statistics</button>
+      <button class="tab" id="tab-scenarios" type="button" role="tab" aria-selected="false" aria-controls="panel-scenarios" tabindex="-1" data-tab="scenarios" onclick="switchTab('scenarios')">Scenario Lab</button>
     </div>
   </nav>
 
-  <div class="status-banner" id="appStatus">Backend-backed mode only. Start <code>python -m f1sim.web.server</code> to run simulations.</div>
+  <div class="status-banner" id="appStatus" role="status" aria-live="polite">Backend-backed mode only. Start <code>python -m f1sim.web.server</code> to run simulations.</div>
 
   <!-- Content -->
   <main class="main">
-    <div id="panel-race" class="tab-panel active">
+    <div id="panel-race" class="tab-panel active" role="tabpanel" aria-labelledby="tab-race">
       <div class="empty-state" id="emptyRace">
         <div class="empty-icon">&#9201;</div>
         <div class="empty-title">No simulation yet</div>
@@ -1276,7 +1297,7 @@ select option { background: var(--bg-card); color: var(--text-primary); }
       </div>
       <div id="raceContent" style="display:none"></div>
     </div>
-    <div id="panel-qualifying" class="tab-panel">
+    <div id="panel-qualifying" class="tab-panel" role="tabpanel" aria-labelledby="tab-qualifying" hidden>
       <div class="empty-state" id="emptyQuali">
         <div class="empty-icon">&#9201;</div>
         <div class="empty-title">No simulation yet</div>
@@ -1284,15 +1305,15 @@ select option { background: var(--bg-card); color: var(--text-primary); }
       </div>
       <div id="qualiContent" style="display:none"></div>
     </div>
-    <div id="panel-stats" class="tab-panel">
+    <div id="panel-stats" class="tab-panel" role="tabpanel" aria-labelledby="tab-stats" hidden>
       <div class="empty-state" id="emptyStats">
         <div class="empty-icon">&#9201;</div>
         <div class="empty-title">No simulation yet</div>
-        <div class="empty-desc">Run a backend Monte Carlo simulation to see full statistics, ratings, and export artifacts</div>
+        <div class="empty-desc">Run a backend Monte Carlo simulation to see full statistics and freshly fetched ratings</div>
       </div>
       <div id="statsContent" style="display:none"></div>
     </div>
-    <div id="panel-scenarios" class="tab-panel">
+    <div id="panel-scenarios" class="tab-panel" role="tabpanel" aria-labelledby="tab-scenarios" hidden>
       <div class="empty-state" id="emptyScenarios">
         <div class="empty-icon">&#9201;</div>
         <div class="empty-title">No scenario comparison yet</div>
@@ -1303,7 +1324,7 @@ select option { background: var(--bg-card); color: var(--text-primary); }
   </main>
 
   <!-- Simulation overlay -->
-  <div class="sim-overlay" id="simOverlay">
+  <div class="sim-overlay" id="simOverlay" role="status" aria-live="polite" aria-hidden="true">
     <div class="sim-spinner"></div>
     <div class="sim-text">Running simulations</div>
     <div class="sim-count" id="simProgress">0 / 100</div>
@@ -1320,7 +1341,8 @@ const TEAM_STYLES = {
   alpine:       { name: 'Alpine', color: '#0093CC' },
   williams:     { name: 'Williams', color: '#64C4FF' },
   rb:           { name: 'Racing Bulls', color: '#6692FF' },
-  sauber:       { name: 'Kick Sauber', color: '#52E252' },
+  audi:         { name: 'Audi', color: '#f50537' },
+  cadillac:     { name: 'Cadillac', color: '#b8b8b8' },
   haas:         { name: 'Haas', color: '#B6BABD' },
   unknown:      { name: 'Unknown', color: '#8a8a8e' },
 };
@@ -1334,7 +1356,8 @@ const TEAM_SHORT_LABELS = {
   alpine: 'ALP',
   williams: 'WIL',
   rb: 'RB',
-  sauber: 'SAU',
+  audi: 'AUD',
+  cadillac: 'CAD',
   haas: 'HAA',
   unknown: 'UNK',
 };
@@ -1363,35 +1386,15 @@ const TEAM_KEY_NORMALIZE = {
   racing_bulls: 'rb',
   'racing bulls': 'rb',
   visa_cash_app_rb: 'rb',
-  sauber: 'sauber',
-  kick_sauber: 'sauber',
-  'kick sauber': 'sauber',
-  stake_f1_team_kick_sauber: 'sauber',
+  audi: 'audi',
+  audi_f1_team: 'audi',
+  cadillac: 'cadillac',
+  cadillac_f1_team: 'cadillac',
   haas: 'haas',
   haas_f1_team: 'haas',
   'haas f1 team': 'haas',
   moneygram_haas_f1_team: 'haas',
 };
-
-const FALLBACK_EVENTS = [
-  { race: 'Bahrain Grand Prix', label: 'Bahrain Grand Prix' },
-  { race: 'Saudi Arabian Grand Prix', label: 'Saudi Arabian Grand Prix' },
-  { race: 'Australian Grand Prix', label: 'Australian Grand Prix' },
-  { race: 'Japanese Grand Prix', label: 'Japanese Grand Prix' },
-  { race: 'Chinese Grand Prix', label: 'Chinese Grand Prix' },
-  { race: 'Miami Grand Prix', label: 'Miami Grand Prix' },
-  { race: 'Emilia Romagna Grand Prix', label: 'Emilia Romagna Grand Prix' },
-  { race: 'Monaco Grand Prix', label: 'Monaco Grand Prix' },
-  { race: 'Spanish Grand Prix', label: 'Spanish Grand Prix' },
-  { race: 'Canadian Grand Prix', label: 'Canadian Grand Prix' },
-  { race: 'British Grand Prix', label: 'British Grand Prix' },
-  { race: 'Belgian Grand Prix', label: 'Belgian Grand Prix' },
-  { race: 'Italian Grand Prix', label: 'Italian Grand Prix' },
-  { race: 'Singapore Grand Prix', label: 'Singapore Grand Prix' },
-  { race: 'United States Grand Prix', label: 'United States Grand Prix' },
-  { race: 'Brazilian Grand Prix', label: 'Brazilian Grand Prix' },
-  { race: 'Abu Dhabi Grand Prix', label: 'Abu Dhabi Grand Prix' },
-];
 
 const WEATHER_TO_SCENARIO = {
   DRY: 'dry',
@@ -1429,20 +1432,26 @@ const SCENARIO_PRESETS = [
 
 const TIRE_LABELS = { soft: 'S', medium: 'M', hard: 'H', inter: 'I', wet: 'W' };
 const RELIABILITY_COMPONENTS = ['engine', 'gearbox', 'electrical', 'cooling', 'brakes'];
-const BACKEND_URL = 'http://127.0.0.1:8080';
 
 let simResults = null;
-let recentRuns = [];
 let backendConnected = false;
+let calendarReady = false;
+let runInProgress = false;
 const PREFS_KEY = 'f1sim:uiPrefs';
-const LAST_PAYLOAD_KEY = 'f1sim:lastPayload';
 const scenarioSetInput = document.getElementById('scenarioSetInput');
 const weatherSelectEl = document.getElementById('weatherSelect');
 const scenarioContentEl = document.getElementById('scenarioContent');
 const emptyScenariosEl = document.getElementById('emptyScenarios');
 
 function apiUrl(path) {
-  return `${BACKEND_URL}${path}`;
+  // The dashboard is served by FastAPI, so relative URLs keep custom ports,
+  // hostnames, reverse proxies, and remote access on the same origin.
+  return path;
+}
+
+function updateRunAvailability() {
+  const button = document.getElementById('btnRun');
+  if (button) button.disabled = runInProgress || !backendConnected || !calendarReady;
 }
 
 function updateBadge(state, text) {
@@ -1462,6 +1471,16 @@ function setStatusMessage(message, tone = '') {
 function toNumber(value, fallback = 0) {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, character => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[character]);
 }
 
 function titleFromKey(value) {
@@ -1509,10 +1528,6 @@ function formatGap(result) {
   return `+${toNumber(result.gap_to_leader).toFixed(3)}`;
 }
 
-function artifactUrl(filename) {
-  return apiUrl(`/output/${encodeURIComponent(filename)}`);
-}
-
 function normalizeCalendarText(value) {
   return String(value || '')
     .toLowerCase()
@@ -1541,11 +1556,12 @@ function findMatchingEvent(events, preferredRace) {
 
 function populateTrackSelect(events, preferredRace = '') {
   const selector = document.getElementById('trackSelect');
-  const options = events.length ? events : FALLBACK_EVENTS;
+  const options = Array.isArray(events) ? events : [];
   const currentValue = preferredRace || selector.value;
   const matched = findMatchingEvent(options, currentValue);
 
   selector.innerHTML = '';
+  selector.disabled = options.length === 0;
   options.forEach(event => {
     const option = document.createElement('option');
     option.value = event.race;
@@ -1559,7 +1575,7 @@ function populateTrackSelect(events, preferredRace = '') {
     selector.value = options[0].race;
   }
 
-  return { matched: Boolean(matched), selectedRace: selector.value };
+  return { matched: Boolean(matched), selectedRace: selector.value, eventCount: options.length };
 }
 
 async function fetchCalendar(year, preferredRace = '') {
@@ -1570,16 +1586,22 @@ async function fetchCalendar(year, preferredRace = '') {
 
     const events = (data.events || []).map(event => ({
       race: event.race,
-      label: `R${event.round} · ${event.race}`,
+      label: `R${event.round} · ${event.race}${event.location ? ` · ${event.location}` : ''}`,
     }));
+    if (!events.length) throw new Error('The live source returned no current-season races');
+    calendarReady = true;
+    updateRunAvailability();
     return {
       ok: true,
+      provenance: data.provenance || null,
       ...populateTrackSelect(events, preferredRace),
     };
   } catch (error) {
+    calendarReady = false;
+    updateRunAvailability();
     return {
       ok: false,
-      ...populateTrackSelect(FALLBACK_EVENTS, preferredRace),
+      ...populateTrackSelect([], preferredRace),
       error,
     };
   }
@@ -1587,26 +1609,9 @@ async function fetchCalendar(year, preferredRace = '') {
 
 function populateYearSelect() {
   const selector = document.getElementById('yearSelect');
-  const preferredYear = selector.value;
-  const currentYear = Math.min(new Date().getFullYear(), 2030);
-  const endYear = Math.max(2025, currentYear);
-  const years = [];
-
-  for (let year = 2020; year <= endYear; year += 1) {
-    years.push(String(year));
-  }
-
-  selector.innerHTML = '';
-  years.forEach(year => {
-    const option = document.createElement('option');
-    option.value = year;
-    option.textContent = year;
-    selector.appendChild(option);
-  });
-
-  selector.value = years.includes(preferredYear)
-    ? preferredYear
-    : (years.includes('2025') ? '2025' : years[years.length - 1]);
+  const currentYear = new Date().getUTCFullYear();
+  selector.innerHTML = `<option value="${currentYear}" selected>${currentYear} · Live only</option>`;
+  selector.value = String(currentYear);
 }
 
 function normalizeScenarioNames(value) {
@@ -1631,6 +1636,7 @@ function buildScenarioChipMarkup() {
       class="scenario-chip"
       type="button"
       data-scenario-chip="${option.key}"
+      aria-pressed="false"
       style="--scenario-accent:${option.accent}"
     >
       <strong>${option.label}</strong>
@@ -1646,6 +1652,7 @@ function buildScenarioPresetMarkup(includeIds = false) {
       type="button"
       ${includeIds ? `id="${preset.id}"` : ''}
       data-scenario-preset="${preset.values.join(',')}"
+      aria-pressed="false"
     >${preset.label}</button>
   `).join('');
 }
@@ -1669,10 +1676,14 @@ function syncScenarioControls() {
   const serialized = serializeScenarioNames(selected);
 
   document.querySelectorAll('[data-scenario-chip]').forEach(button => {
-    button.classList.toggle('active', selected.includes(button.dataset.scenarioChip));
+    const active = selected.includes(button.dataset.scenarioChip);
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
   });
   document.querySelectorAll('[data-scenario-preset]').forEach(button => {
-    button.classList.toggle('active', button.dataset.scenarioPreset === serialized);
+    const active = button.dataset.scenarioPreset === serialized;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
   });
 
   ['scenarioSetSummary', 'compareScenarioSummary'].forEach(id => {
@@ -1765,80 +1776,18 @@ function renderBarRows(items, getLabel, getValue, getColor, formatValue, explici
     const width = Math.max(0, Math.min(100, (value / Math.max(maxValue, 0.0001)) * 100));
     return `
       <div class="stat-bar-row">
-        <div class="stat-bar-label" style="color:${getColor(item)}">${getLabel(item)}</div>
+        <div class="stat-bar-label" style="color:${getColor(item)}">${escapeHtml(getLabel(item))}</div>
         <div class="stat-bar-track">
           <div class="stat-bar-fill" data-width="${width}" style="background:${getColor(item)};opacity:0.85"></div>
         </div>
-        <div class="stat-bar-value">${formatValue(value)}</div>
+        <div class="stat-bar-value">${escapeHtml(formatValue(value))}</div>
       </div>
     `;
   }).join('');
 }
 
-function renderArtifacts(artifacts) {
-  const entries = [
-    ['Interactive report', artifacts.report_html],
-    ['Statistics JSON', artifacts.statistics_json],
-    ['Race CSV', artifacts.race_csv],
-    ['Qualifying CSV', artifacts.qualifying_csv],
-    ['Runs index', artifacts.runs_index_html],
-  ].filter(([, file]) => Boolean(file));
-
-  if (!entries.length) {
-    return '<div class="inline-note">No export artifacts were reported for this run.</div>';
-  }
-
-  return `
-    <div class="backend-links">
-      ${entries.map(([label, file]) => (
-        `<a class="backend-link" href="${artifactUrl(file)}" target="_blank" rel="noreferrer">${label}</a>`
-      )).join('')}
-    </div>
-  `;
-}
-
-function renderRecentRuns(runs) {
-  if (!runs.length) {
-    return '<div class="inline-note">No recent backend runs available yet.</div>';
-  }
-
-  return `
-    <div class="stats-table-wrap">
-      <table class="metrics-table">
-        <thead>
-          <tr>
-            <th>Track</th>
-            <th>Simulations</th>
-            <th>Seed</th>
-            <th>Files</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${runs.slice(0, 5).map(run => {
-            const files = run.files || {};
-            const links = [
-              files.report_html ? `<a href="${artifactUrl(files.report_html)}" target="_blank" rel="noreferrer">report</a>` : '',
-              files.statistics_json ? `<a href="${artifactUrl(files.statistics_json)}" target="_blank" rel="noreferrer">stats</a>` : '',
-              files.race_csv ? `<a href="${artifactUrl(files.race_csv)}" target="_blank" rel="noreferrer">race</a>` : '',
-            ].filter(Boolean).join(' · ');
-
-            return `
-              <tr>
-                <td>${run.track || '-'}</td>
-                <td>${run.num_simulations ?? '-'}</td>
-                <td>${run.seed ?? '-'}</td>
-                <td>${links || '-'}</td>
-              </tr>
-            `;
-          }).join('')}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
 function renderRatingsTable(ratings) {
-  const drivers = (ratings?.drivers || []).slice(0, 10);
+  const drivers = ratings?.drivers || [];
   if (!drivers.length) {
     return '<div class="inline-note">No ratings snapshot returned from the backend.</div>';
   }
@@ -1860,13 +1809,13 @@ function renderRatingsTable(ratings) {
         <tbody>
           ${drivers.map(driver => `
             <tr>
-              <td style="color:${getTeamStyle(driver.team_key).color}">${driver.id}</td>
+              <td style="color:${getTeamStyle(driver.team_key).color}">${escapeHtml(driver.id)}</td>
               <td>${toNumber(driver.skill).toFixed(3)}</td>
               <td>${toNumber(driver.consistency).toFixed(3)}</td>
               <td>${toNumber(driver.wet_skill).toFixed(3)}</td>
               <td>${toNumber(driver.overtaking).toFixed(3)}</td>
               <td>${toNumber(driver.tire_management).toFixed(3)}</td>
-              <td>${driver.sample_size ?? '-'}</td>
+              <td>${escapeHtml(driver.sample_size ?? '-')}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -1897,7 +1846,7 @@ function renderCarTable(ratings) {
         <tbody>
           ${cars.map(car => `
             <tr>
-              <td style="color:${getTeamStyle(car.team_key).color}">${titleFromKey(car.team_key)}</td>
+              <td style="color:${getTeamStyle(car.team_key).color}">${escapeHtml(titleFromKey(car.team_key))}</td>
               <td>${toNumber(car.base_pace).toFixed(3)}</td>
               <td>${toNumber(car.reliability).toFixed(3)}</td>
               <td>${toNumber(car.wet_performance).toFixed(3)}</td>
@@ -1937,9 +1886,9 @@ function renderReliabilityTable(scenario) {
         <tbody>
           ${components.map(component => `
             <tr>
-              <td>${titleFromKey(component)}</td>
+              <td>${escapeHtml(titleFromKey(component))}</td>
               <td>${formatPercent(toNumber(rates[component]) * 100, 1)}</td>
-              <td>${titleFromKey(suggestions[component] || 'n/a')}</td>
+              <td>${escapeHtml(titleFromKey(suggestions[component] || 'n/a'))}</td>
               <td>${formatSigned(adjustments[component] || 0, 3)}</td>
             </tr>
           `).join('')}
@@ -1950,8 +1899,18 @@ function renderReliabilityTable(scenario) {
 }
 
 function renderHeatmap(drivers) {
-  const positions = Array.from({ length: 20 }, (_, index) => index + 1);
-  let html = '<div class="heatmap" style="grid-template-columns: 56px repeat(20, 1fr);">';
+  const distributionPositions = drivers.flatMap(driver => (
+    Object.keys(driver.position_distribution || {})
+      .map(Number)
+      .filter(position => Number.isInteger(position) && position > 0)
+  ));
+  const fieldSize = Math.max(
+    simResults?.ratings?.drivers?.length || 0,
+    drivers.length,
+    ...distributionPositions,
+  );
+  const positions = Array.from({ length: fieldSize }, (_, index) => index + 1);
+  let html = `<div class="heatmap" style="grid-template-columns: 56px repeat(${fieldSize}, minmax(36px, 1fr));">`;
 
   html += '<div></div>';
   positions.forEach(position => {
@@ -1960,7 +1919,7 @@ function renderHeatmap(drivers) {
 
   drivers.forEach(driver => {
     const team = getTeamStyle(driver.team_key);
-    html += `<div class="heatmap-label" style="color:${team.color}">${driver.id}</div>`;
+    html += `<div class="heatmap-label" style="color:${team.color}">${escapeHtml(driver.id)}</div>`;
 
     positions.forEach(position => {
       const distribution = driver.position_distribution || {};
@@ -1973,7 +1932,7 @@ function renderHeatmap(drivers) {
         <div
           class="heatmap-cell"
           style="background:${bg}"
-          title="${driver.id} P${position}: ${pct.toFixed(1)}%"
+          title="${escapeHtml(driver.id)} P${position}: ${pct.toFixed(1)}%"
         >${pct >= 1 ? pct.toFixed(0) : ''}</div>
       `;
     });
@@ -1990,17 +1949,33 @@ function hexToRgb(hex) {
   return `${r},${g},${b}`;
 }
 
+function readOptionalStorage(key) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeOptionalStorage(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function saveUiPrefs() {
   const payload = {
     focusScenario: weatherSelectEl.value,
     scenarioSet: getScenarioSetValue(),
-    qualifyingMode: document.getElementById('qualifyingModeSelect').value,
   };
-  localStorage.setItem(PREFS_KEY, JSON.stringify(payload));
+  writeOptionalStorage(PREFS_KEY, JSON.stringify(payload));
 }
 
 function loadUiPrefs() {
-  const raw = localStorage.getItem(PREFS_KEY);
+  const raw = readOptionalStorage(PREFS_KEY);
   if (!raw) return;
   try {
     const prefs = JSON.parse(raw);
@@ -2010,9 +1985,6 @@ function loadUiPrefs() {
     if (typeof prefs.scenarioSet === 'string') {
       scenarioSetInput.value = serializeScenarioNames(prefs.scenarioSet);
     }
-    if (typeof prefs.qualifyingMode === 'string') {
-      document.getElementById('qualifyingModeSelect').value = prefs.qualifyingMode;
-    }
   } catch {
     // ignore malformed UI prefs
   }
@@ -2020,10 +1992,15 @@ function loadUiPrefs() {
 
 function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(button => {
-    button.classList.toggle('active', button.dataset.tab === tab);
+    const active = button.dataset.tab === tab;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
+    button.tabIndex = active ? 0 : -1;
   });
   document.querySelectorAll('.tab-panel').forEach(panel => {
-    panel.classList.toggle('active', panel.id === `panel-${tab}`);
+    const active = panel.id === `panel-${tab}`;
+    panel.classList.toggle('active', active);
+    panel.hidden = !active;
   });
 }
 
@@ -2035,8 +2012,15 @@ async function checkBackend() {
     const response = await fetch(apiUrl('/api/health'), { signal: controller.signal });
     clearTimeout(timeoutId);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const health = await response.json();
+    if (Number.isInteger(health.season)) {
+      const yearSelector = document.getElementById('yearSelect');
+      yearSelector.innerHTML = `<option value="${health.season}" selected>${health.season} · Live only</option>`;
+      yearSelector.value = String(health.season);
+    }
 
     backendConnected = true;
+    updateRunAvailability();
     updateBadge('live', 'Backend connected');
     setStatusMessage(
       'Backend-backed mode active. This frontend now renders Python simulation output instead of running its own model.',
@@ -2045,6 +2029,7 @@ async function checkBackend() {
     return true;
   } catch (error) {
     backendConnected = false;
+    updateRunAvailability();
     updateBadge('', 'Backend required');
     setStatusMessage(
       'Backend unavailable. Start python -m f1sim.web.server and rerun. Local browser simulation is disabled.',
@@ -2054,36 +2039,44 @@ async function checkBackend() {
   }
 }
 
-async function fetchRecentRuns() {
-  try {
-    const response = await fetch(apiUrl('/api/runs'));
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json();
-    recentRuns = data.runs || [];
-  } catch (error) {
-    recentRuns = [];
-  }
-  return recentRuns;
-}
-
 function buildRunPayload() {
   const selectedRace = document.getElementById('trackSelect').value;
-  const workersValue = document.getElementById('workersInput').value;
+  const simulationsInput = document.getElementById('simCount');
+  const seedInput = document.getElementById('seedInput');
+  const workersInput = document.getElementById('workersInput');
+  const numericInputs = [simulationsInput, seedInput, workersInput];
+  const invalidInput = numericInputs.find(input => !input.checkValidity());
+
+  if (!selectedRace) {
+    setStatusMessage('Choose a race from the fresh current-season calendar first.', 'error');
+    return null;
+  }
+  if (invalidInput) {
+    invalidInput.reportValidity();
+    setStatusMessage(`Invalid ${invalidInput.previousElementSibling?.textContent?.trim() || 'run'} value.`, 'error');
+    return null;
+  }
+
+  const simulations = Number(simulationsInput.value);
+  const seed = Number(seedInput.value);
+  const workersValue = workersInput.value.trim();
 
   return {
-    year: parseInt(document.getElementById('yearSelect').value, 10) || 2025,
-    race: selectedRace || 'Bahrain Grand Prix',
-    simulations: parseInt(document.getElementById('simCount').value, 10) || 100,
+    year: parseInt(document.getElementById('yearSelect').value, 10),
+    race: selectedRace,
+    simulations,
     scenarios: getScenarioSetValue(),
-    seed: parseInt(document.getElementById('seedInput').value, 10) || 42,
-    qualifying_mode: document.getElementById('qualifyingModeSelect').value || 'historical',
+    seed,
+    qualifying_mode: 'simulated',
     parallel: document.getElementById('parallelSelect').value === 'true',
-    max_workers: workersValue ? parseInt(workersValue, 10) : null,
+    max_workers: workersValue ? Number(workersValue) : null,
   };
 }
 
 async function runSimulation() {
+  if (runInProgress) return;
   const payload = buildRunPayload();
+  if (!payload) return;
   const button = document.getElementById('btnRun');
   const overlay = document.getElementById('simOverlay');
   const simText = document.querySelector('.sim-text');
@@ -2092,19 +2085,24 @@ async function runSimulation() {
     .map(name => WEATHER_LABELS[name] || titleFromKey(name))
     .join(' / ') || titleFromKey(payload.scenarios);
 
+  runInProgress = true;
+  updateRunAvailability();
   button.classList.add('running');
   overlay.classList.add('active');
+  overlay.setAttribute('aria-hidden', 'false');
   button.textContent = 'Running...';
   simText.textContent = 'Running backend simulation';
   simProgress.textContent = `${payload.year} ${payload.race} · ${scenarioLabel}`;
   updateBadge('loading', `Running ${payload.year} ${payload.race}...`);
 
+  let responseReceived = false;
   try {
     const response = await fetch(apiUrl('/api/run'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
+    responseReceived = true;
 
     const raw = await response.text();
     let data = {};
@@ -2119,28 +2117,30 @@ async function runSimulation() {
     }
 
     simResults = data;
-    localStorage.setItem(LAST_PAYLOAD_KEY, JSON.stringify(payload));
     const returnedScenarios = Object.keys(data.scenarios || {});
     if (returnedScenarios.length && !returnedScenarios.includes(WEATHER_TO_SCENARIO[weatherSelectEl.value])) {
       weatherSelectEl.value = SCENARIO_TO_WEATHER[returnedScenarios[0]] || weatherSelectEl.value;
     }
     saveUiPrefs();
     backendConnected = true;
-    updateBadge('live', `FastF1 ${data.year} ${data.race}`);
+    const sourceLabel = data.provenance?.source || data.ratings?.source || 'live F1 data';
+    updateBadge('live', `${data.year} · ${sourceLabel}`);
     setStatusMessage(
       `Backend run complete for ${data.year} ${data.race}. Rendering ${returnedScenarios.length} backend scenario${returnedScenarios.length === 1 ? '' : 's'} from Python output.`,
       'success'
     );
-    await fetchRecentRuns();
     renderAll();
   } catch (error) {
-    backendConnected = false;
-    updateBadge('', 'Backend error');
+    if (!responseReceived) backendConnected = false;
+    updateBadge(backendConnected ? 'live' : '', backendConnected ? 'Backend connected' : 'Backend unavailable');
     setStatusMessage(`Run failed: ${error.message}`, 'error');
   } finally {
     overlay.classList.remove('active');
+    overlay.setAttribute('aria-hidden', 'true');
     button.classList.remove('running');
     button.textContent = 'Run Simulation';
+    runInProgress = false;
+    updateRunAvailability();
   }
 }
 
@@ -2175,8 +2175,9 @@ function renderRace() {
   }
 
   const pills = [
-    'FastF1 data',
-    scenario.qualifying_mode === 'historical_grid' ? 'Historical grid' : 'Simulated qualifying',
+    simResults.provenance?.source || 'Fresh current-season data',
+    'Simulated qualifying',
+    Number.isInteger(scenario.sample_index) ? `Representative run ${scenario.sample_index + 1}` : '',
     simResults.request?.parallel ? 'Parallel execution' : 'Single-core execution',
     simResults.request?.max_workers ? `${simResults.request.max_workers} worker cap` : 'Auto workers',
     scenario.simulations_per_second ? `${toNumber(scenario.simulations_per_second).toFixed(1)} sims/s` : '',
@@ -2185,14 +2186,14 @@ function renderRace() {
   let html = `
     <div class="race-header">
       <div>
-        <div class="race-title">${simResults.track}</div>
+        <div class="race-title">${escapeHtml(simResults.track)}</div>
         <div class="race-meta">${track.total_laps || '--'} laps &middot; ${scenario.num_simulations} simulations &middot; seed ${scenario.seed}</div>
-        <div class="race-meta">${track.country || 'Unknown country'} &middot; Scenario ${titleFromKey(name)}${topTeam ? ` &middot; Top constructor ${topTeam[0]}` : ''}</div>
-        <div class="meta-pills">${pills.map(pill => `<div class="meta-pill">${pill}</div>`).join('')}</div>
+        <div class="race-meta">${escapeHtml(track.country || 'Unknown country')} &middot; Scenario ${escapeHtml(titleFromKey(name))}${topTeam ? ` &middot; Top constructor ${escapeHtml(topTeam[0])}` : ''}</div>
+        <div class="meta-pills">${pills.map(pill => `<div class="meta-pill">${escapeHtml(pill)}</div>`).join('')}</div>
       </div>
       <div class="weather-indicator">
         <div class="weather-dot ${String(weather.condition || 'dry').replace('_', '-')}"></div>
-        ${WEATHER_LABELS[weather.condition] || titleFromKey(weather.condition || 'dry')}
+        ${escapeHtml(WEATHER_LABELS[weather.condition] || titleFromKey(weather.condition || 'dry'))}
       </div>
     </div>
     <div class="timing-header">
@@ -2212,15 +2213,18 @@ function renderRace() {
       <div class="driver-row ${finished ? '' : 'dnf'} ${isPodium ? 'podium' : ''}" style="animation-delay:${index * 0.04}s">
         <div class="pos">${result.position}</div>
         <div class="team-stripe" style="background:${team.color}"></div>
-        <div class="driver-code">${result.driver_id}</div>
-        <div class="driver-name">${result.driver_name}</div>
+        <div class="driver-code">${escapeHtml(result.driver_id)}</div>
+        <div class="driver-name">${escapeHtml(result.driver_name)}</div>
         <div class="gap">${formatGap(result)}</div>
         <div class="fastest-lap ${isFastest ? 'is-fastest' : ''}">${formatTime(result.fastest_lap)}</div>
         <div class="pits">${result.pit_stops}</div>
         <div class="tire-strategy">
-          ${(result.strategy || []).map(compound => `<div class="tire-dot ${compound}">${TIRE_LABELS[compound] || compound.slice(0, 1).toUpperCase()}</div>`).join('')}
+          ${(result.strategy || []).map(compound => {
+            const normalized = TIRE_LABELS[compound] ? compound : 'unknown';
+            return `<div class="tire-dot ${normalized}">${escapeHtml(TIRE_LABELS[compound] || String(compound).slice(0, 1).toUpperCase())}</div>`;
+          }).join('')}
         </div>
-        <div class="status ${finished ? 'finished' : 'dnf-status'}">${finished ? 'Finished' : (result.dnf_reason || 'DNF')}</div>
+        <div class="status ${finished ? 'finished' : 'dnf-status'}">${escapeHtml(finished ? 'Finished' : (result.dnf_reason || 'DNF'))}</div>
       </div>
     `;
   });
@@ -2237,7 +2241,6 @@ function renderQualifying() {
 
   const { data: scenario } = scenarioEntry;
   const qualifying = scenario.sample_qualifying || [];
-  const usesHistoricalGrid = Boolean(simResults.historical_grid_used || scenario.qualifying_mode === 'historical_grid');
   const bestQ3 = Math.min(
     ...qualifying
       .map(row => toNumber(row.q3_time, NaN))
@@ -2255,8 +2258,8 @@ function renderQualifying() {
   let html = `
     <div class="race-header">
       <div>
-        <div class="race-title">${simResults.track} &mdash; ${usesHistoricalGrid ? 'Starting Grid' : 'Qualifying'}</div>
-        <div class="race-meta">${usesHistoricalGrid ? 'FastF1 historical qualifying order used as backend starting grid' : 'Sample backend qualifying session'}</div>
+        <div class="race-title">${escapeHtml(simResults.track)} &mdash; Qualifying</div>
+        <div class="race-meta">Fresh current-season ratings with a newly simulated qualifying session</div>
       </div>
     </div>
     <div class="quali-header">
@@ -2274,20 +2277,16 @@ function renderQualifying() {
       <div class="quali-row ${eliminated ? 'eliminated' : ''}" style="animation-delay:${index * 0.04}s">
         <div class="pos">${result.position}</div>
         <div class="team-stripe" style="background:${team.color}"></div>
-        <div class="driver-code">${result.driver_id}</div>
-        <div class="driver-name">${result.driver_name}</div>
+        <div class="driver-code">${escapeHtml(result.driver_id)}</div>
+        <div class="driver-name">${escapeHtml(result.driver_name)}</div>
         <div class="quali-time">${formatTime(result.q1_time)}</div>
         <div class="quali-time ${result.eliminated_in === 'Q1' ? 'no-time' : ''}">${formatTime(result.q2_time)}</div>
-        <div class="quali-time ${usesHistoricalGrid || result.eliminated_in ? 'no-time' : ''} ${isBest ? 'best' : ''}">
+        <div class="quali-time ${result.eliminated_in ? 'no-time' : ''} ${isBest ? 'best' : ''}">
           ${formatTime(result.q3_time)}
         </div>
       </div>
     `;
   });
-
-  if (usesHistoricalGrid) {
-    html += '<div class="inline-note">This run used the historical FastF1 grid, so the row order is authoritative while the timing columns are intentionally blank.</div>';
-  }
 
   container.innerHTML = html;
 }
@@ -2325,14 +2324,14 @@ function renderStats() {
   const html = `
     <div class="race-header">
       <div>
-        <div class="race-title">${simResults.track} &mdash; Backend Statistics</div>
-        <div class="race-meta">${scenario.num_simulations} simulations &middot; ${titleFromKey(name)} &middot; ${track.drs_zones || 0} DRS zones</div>
+        <div class="race-title">${escapeHtml(simResults.track)} &mdash; Backend Statistics</div>
+        <div class="race-meta">${scenario.num_simulations} simulations &middot; ${escapeHtml(titleFromKey(name))} &middot; ${toNumber(track.active_aero_zones)} Active Aero zones &middot; ${toNumber(track.overtake_mode_detection_gap, 1).toFixed(1)}s Overtake Mode gap</div>
       </div>
     </div>
 
     <div class="summary-strip">
       <div class="summary-card">
-        <div class="summary-value" style="color:${getTeamStyle(topWinner.team_key).color}">${topWinner.id}</div>
+        <div class="summary-value" style="color:${getTeamStyle(topWinner.team_key).color}">${escapeHtml(topWinner.id)}</div>
         <div class="summary-label">Most Likely Winner</div>
       </div>
       <div class="summary-card">
@@ -2340,7 +2339,7 @@ function renderStats() {
         <div class="summary-label">Top Win Probability</div>
       </div>
       <div class="summary-card">
-        <div class="summary-value" style="font-size:1.2rem;color:${getTeamStyle(topTeam?.team_key).color}">${topTeam ? titleFromKey(topTeam.team_key) : '--'}</div>
+        <div class="summary-value" style="font-size:1.2rem;color:${getTeamStyle(topTeam?.team_key).color}">${escapeHtml(topTeam ? titleFromKey(topTeam.team_key) : '--')}</div>
         <div class="summary-label">Top Constructor Projection</div>
       </div>
       <div class="summary-card">
@@ -2412,15 +2411,18 @@ function renderStats() {
       </div>
 
       <div class="stat-card">
-        <div class="stat-card-title">Exports & Run History</div>
-        ${renderArtifacts(scenario.artifacts || {})}
-        <div class="inline-note">Recent backend runs</div>
-        ${renderRecentRuns(recentRuns)}
+        <div class="stat-card-title">Live Data Provenance</div>
+        <div class="detail-list">
+          <div class="detail-row"><span>Season</span><span>${simResults.year}</span></div>
+          <div class="detail-row"><span>Source</span><span>${escapeHtml(simResults.provenance?.source || ratings.source || 'Live current-season feeds')}</span></div>
+          <div class="detail-row"><span>Fetched</span><span>${escapeHtml(simResults.provenance?.fetched_at || ratings.fetched_at || 'This run')}</span></div>
+          <div class="detail-row"><span>Active drivers</span><span>${(ratings.drivers || []).length}</span></div>
+        </div>
       </div>
 
       <div class="stat-card heatmap-container">
         <div class="stat-card-title">Position Distribution Heatmap</div>
-        ${renderHeatmap(drivers.slice(0, 12))}
+        ${renderHeatmap(drivers)}
       </div>
     </div>
   `;
@@ -2452,19 +2454,19 @@ function renderScenarioCards(data) {
       ${names.map(name => {
         const scenario = scenarios[name] || {};
         const top = (scenario.top3_win_probabilities || [])
-          .map(([driver, prob]) => `${driver}: ${toNumber(prob).toFixed(1)}%`)
+          .map(([driver, prob]) => `${escapeHtml(driver)}: ${toNumber(prob).toFixed(1)}%`)
           .join('<br>');
         const rates = scenario.event_rates || {};
         const topTeam = Object.entries(scenario.team_projection || {})[0];
 
         return `
           <div class="scenario-card">
-            <div class="scenario-title">${titleFromKey(name)}</div>
+            <div class="scenario-title">${escapeHtml(titleFromKey(name))}</div>
             <div class="detail-list">
               <div class="detail-row"><span>Top 3 win</span><span>${top || '-'}</span></div>
               <div class="detail-row"><span>Safety car</span><span>${formatPercent(toNumber(rates.safety_car_race_rate) * 100)}</span></div>
               <div class="detail-row"><span>Red flag</span><span>${formatPercent(toNumber(rates.red_flag_race_rate) * 100)}</span></div>
-              <div class="detail-row"><span>Top team</span><span>${topTeam ? `${topTeam[0]} · ${toNumber(topTeam[1]).toFixed(1)}` : '-'}</span></div>
+              <div class="detail-row"><span>Top team</span><span>${topTeam ? `${escapeHtml(topTeam[0])} · ${toNumber(topTeam[1]).toFixed(1)}` : '-'}</span></div>
               <div class="detail-row"><span>Runtime</span><span>${toNumber(scenario.runtime_seconds).toFixed(2)}s</span></div>
             </div>
           </div>
@@ -2487,7 +2489,9 @@ function renderScenarioWinChart(data) {
   }
 
   const topN = Number(topNEl.value || '3');
-  const focusDrivers = (scenarios[names[0]].win_probabilities || []).slice(0, topN).map(([driver]) => driver);
+  const focusDrivers = Array.from(new Set(names.flatMap(name => (
+    (scenarios[name].win_probabilities || []).slice(0, topN).map(([driver]) => driver)
+  ))));
 
   chartEl.innerHTML = `
     <div class="chart-wrap">
@@ -2496,7 +2500,7 @@ function renderScenarioWinChart(data) {
         const pct = row ? toNumber(row[1]) : 0;
         return `
           <div class="chart-row">
-            <div class="chart-label">${driver} · ${titleFromKey(name)} · ${pct.toFixed(1)}%</div>
+            <div class="chart-label">${escapeHtml(driver)} · ${escapeHtml(titleFromKey(name))} · ${pct.toFixed(1)}%</div>
             <div class="bar-track">
               <div class="bar-fill" style="width:${Math.max(0, Math.min(100, pct))}%"></div>
             </div>
@@ -2551,7 +2555,7 @@ function renderScenarioTrends(data) {
 
         return `
           <div class="chart-row">
-            <div class="chart-label">${titleFromKey(name)} · ${label}${scaleMode === 'normalized' ? ' · normalized' : ''}</div>
+            <div class="chart-label">${escapeHtml(titleFromKey(name))} · ${escapeHtml(label)}${scaleMode === 'normalized' ? ' · normalized' : ''}</div>
             <div class="bar-track">
               <div class="bar-fill" style="width:${pct}%"></div>
             </div>
@@ -2618,12 +2622,12 @@ function renderDriverMatrix(data) {
     <div class="matrix-wrap">
       <table class="matrix-table">
         <thead>
-          <tr><th>Driver</th>${names.map(name => `<th>${titleFromKey(name)}</th>`).join('')}</tr>
+          <tr><th>Driver</th>${names.map(name => `<th>${escapeHtml(titleFromKey(name))}</th>`).join('')}</tr>
         </thead>
         <tbody>
           ${rows.map(row => `
             <tr>
-              <td><strong>${row.driver}</strong></td>
+              <td><strong>${escapeHtml(row.driver)}</strong></td>
               ${row.values.map(value => {
                 const highlight = highlightEl.checked && value === row.best && value > 0;
                 return `<td${highlight ? ' class="matrix-best"' : ''}>${value.toFixed(1)}%</td>`;
@@ -2652,10 +2656,10 @@ function exportScenarioMatrixCsv(data) {
       const item = (scenarios[name].win_probabilities || []).find(([id]) => id === driver);
       return item ? toNumber(item[1]).toFixed(1) : '0.0';
     });
-    return [driver, ...values].join(',');
+    return [driver, ...values].map(csvCell).join(',');
   });
 
-  const csv = [['driver', ...names].join(','), ...rows].join('\n');
+  const csv = [['driver', ...names].map(csvCell).join(','), ...rows].join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -2665,6 +2669,12 @@ function exportScenarioMatrixCsv(data) {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+function csvCell(value) {
+  let text = String(value ?? '');
+  if (/^[=+\-@]/.test(text)) text = `'${text}`;
+  return `"${text.replace(/"/g, '""')}"`;
 }
 
 function downloadResultJson(data) {
@@ -2697,8 +2707,8 @@ function renderScenarioLab() {
   scenarioContentEl.innerHTML = `
     <div class="comparison-toolbar">
       <div class="control-group control-group-scenarios wide">
-        <label class="control-label">Scenario Set</label>
-        <div class="scenario-selector" id="compareScenarioSelector">
+        <span class="control-label" id="compareScenarioSetLabel">Scenario Set</span>
+        <div class="scenario-selector" id="compareScenarioSelector" role="group" aria-labelledby="compareScenarioSetLabel">
           ${buildScenarioChipMarkup()}
         </div>
         <div class="scenario-preset-row">
@@ -2707,7 +2717,7 @@ function renderScenarioLab() {
         <div class="scenario-summary" id="compareScenarioSummary"></div>
       </div>
       <div class="control-group">
-        <label class="control-label">Top Drivers</label>
+        <label class="control-label" for="compareTopN">Top Drivers</label>
         <select id="compareTopN">
           <option value="3">Top 3</option>
           <option value="5" selected>Top 5</option>
@@ -2715,7 +2725,7 @@ function renderScenarioLab() {
         </select>
       </div>
       <div class="control-group">
-        <label class="control-label">Trend Metric</label>
+        <label class="control-label" for="compareTrendMetric">Trend Metric</label>
         <select id="compareTrendMetric">
           <option value="sc">Safety Car</option>
           <option value="rf">Red Flag</option>
@@ -2723,14 +2733,14 @@ function renderScenarioLab() {
         </select>
       </div>
       <div class="control-group">
-        <label class="control-label">Scale</label>
+        <label class="control-label" for="compareTrendScale">Scale</label>
         <select id="compareTrendScale">
           <option value="absolute">Absolute</option>
           <option value="normalized">Normalized</option>
         </select>
       </div>
       <div class="control-group">
-        <label class="control-label">Matrix Sort</label>
+        <label class="control-label" for="compareMatrixSort">Matrix Sort</label>
         <select id="compareMatrixSort">
           <option value="driver">Driver</option>
           <option value="best">Best Win%</option>
@@ -2738,11 +2748,11 @@ function renderScenarioLab() {
         </select>
       </div>
       <div class="control-group">
-        <label class="control-label">Driver Filter</label>
+        <label class="control-label" for="compareDriverFilter">Driver Filter</label>
         <input type="text" id="compareDriverFilter" value="" placeholder="e.g. VER">
       </div>
       <div class="control-group">
-        <label class="control-label">Scenario Filter</label>
+        <label class="control-label" for="compareScenarioFilter">Scenario Filter</label>
         <input type="text" id="compareScenarioFilter" value="" placeholder="e.g. rain">
       </div>
     </div>
@@ -2776,7 +2786,7 @@ function renderScenarioLab() {
       </div>
       <div class="stat-card heatmap-container">
         <div class="stat-card-title">Raw Scenario Payload</div>
-        <pre style="margin:0">${JSON.stringify(simResults, null, 2)}</pre>
+        <pre style="margin:0">${escapeHtml(JSON.stringify(simResults, null, 2))}</pre>
       </div>
     </div>
   `;
@@ -2816,47 +2826,7 @@ function renderScenarioLab() {
   loadUiPrefs();
   renderScenarioControlMounts();
 
-  let restoredRace = '';
-  const savedPayload = localStorage.getItem(LAST_PAYLOAD_KEY);
-  if (savedPayload) {
-    try {
-      const payload = JSON.parse(savedPayload);
-      if (payload.year) document.getElementById('yearSelect').value = String(payload.year);
-      if (payload.race) restoredRace = payload.race;
-      if (payload.simulations) document.getElementById('simCount').value = String(payload.simulations);
-      if (payload.seed != null) document.getElementById('seedInput').value = String(payload.seed);
-      if (typeof payload.qualifying_mode === 'string') {
-        document.getElementById('qualifyingModeSelect').value = payload.qualifying_mode;
-      }
-      if (typeof payload.parallel === 'boolean') {
-        document.getElementById('parallelSelect').value = payload.parallel ? 'true' : 'false';
-      }
-      if (payload.max_workers != null) {
-        document.getElementById('workersInput').value = String(payload.max_workers);
-      }
-      if (payload.scenarios) {
-        const scenarioNames = normalizeScenarioNames(payload.scenarios);
-        setScenarioSelection(scenarioNames, { persist: false });
-        if (scenarioNames.length) {
-          weatherSelectEl.value = SCENARIO_TO_WEATHER[scenarioNames[0]] || weatherSelectEl.value;
-        }
-      }
-    } catch {
-      // ignore malformed saved payload
-    }
-  }
-
   const yearSelectEl = document.getElementById('yearSelect');
-  const initialCalendar = await fetchCalendar(
-    parseInt(yearSelectEl.value, 10) || 2025,
-    restoredRace,
-  );
-  if (!initialCalendar.ok && initialCalendar.error) {
-    setStatusMessage(
-      `Calendar lookup failed for ${yearSelectEl.value}. Using a fallback list until the backend is reachable.`,
-      'error'
-    );
-  }
 
   if (!scenarioSetInput.value.trim()) {
     setScenarioSelection([WEATHER_TO_SCENARIO[weatherSelectEl.value] || 'dry'], { persist: false });
@@ -2866,13 +2836,12 @@ function renderScenarioLab() {
 
   await checkBackend();
   const connectedCalendar = await fetchCalendar(
-    parseInt(yearSelectEl.value, 10) || 2025,
-    restoredRace || document.getElementById('trackSelect').value,
+    parseInt(yearSelectEl.value, 10),
   );
-  if (connectedCalendar.ok && restoredRace && !connectedCalendar.matched) {
+  if (!connectedCalendar.ok && connectedCalendar.error) {
     setStatusMessage(
-      `${restoredRace} is not on the ${yearSelectEl.value} calendar. Switched to ${connectedCalendar.selectedRace}.`,
-      'success'
+      `Fresh ${yearSelectEl.value} calendar lookup failed: ${connectedCalendar.error.message}. No stale fallback data will be used.`,
+      'error'
     );
   }
 
@@ -2898,19 +2867,23 @@ function renderScenarioLab() {
     }
   });
 
-  yearSelectEl.addEventListener('change', async () => {
-    const previousRace = document.getElementById('trackSelect').value;
-    const selectedYear = parseInt(yearSelectEl.value, 10) || 2025;
-    const calendar = await fetchCalendar(selectedYear, previousRace);
-    if (previousRace && !calendar.matched && calendar.selectedRace) {
-      setStatusMessage(
-        `${previousRace} is not available in ${selectedYear}. Switched to ${calendar.selectedRace}.`,
-        calendar.ok ? 'success' : 'error'
-      );
-    }
-  });
+  document.querySelector('.tabs')?.addEventListener('keydown', event => {
+    const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
+    const currentIndex = tabs.indexOf(document.activeElement);
+    if (currentIndex < 0) return;
 
-  document.getElementById('qualifyingModeSelect').addEventListener('change', saveUiPrefs);
+    let nextIndex = currentIndex;
+    if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % tabs.length;
+    else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+    else if (event.key === 'Home') nextIndex = 0;
+    else if (event.key === 'End') nextIndex = tabs.length - 1;
+    else return;
+
+    event.preventDefault();
+    const nextTab = tabs[nextIndex];
+    switchTab(nextTab.dataset.tab);
+    nextTab.focus();
+  });
 
   document.addEventListener('click', event => {
     const chip = event.target.closest('[data-scenario-chip]');
@@ -2926,8 +2899,6 @@ function renderScenarioLab() {
       setScenarioSelection(nextSelection, { syncFocus });
     }
   });
-
-  fetchRecentRuns();
 })();
 </script>
 </body>

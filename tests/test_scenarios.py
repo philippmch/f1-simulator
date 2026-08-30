@@ -22,3 +22,8 @@ def test_scenario_weather_light_rain_sets_wet_conditions() -> None:
 def test_parse_scenario_labels_rejects_empty() -> None:
     with pytest.raises(ValueError, match="At least one scenario label"):
         parse_scenario_labels("  ,  ")
+
+
+def test_parse_scenario_labels_rejects_unknown_before_simulation() -> None:
+    with pytest.raises(ValueError, match="Unknown scenario label.*snow"):
+        parse_scenario_labels("dry,snow")
