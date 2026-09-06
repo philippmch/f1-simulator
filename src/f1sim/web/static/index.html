@@ -424,9 +424,11 @@ select option { background: var(--bg-card); color: var(--text-primary); }
 .tabs {
   display: flex;
   gap: 0;
+  overflow-x: auto;
 }
 
 .tab {
+  flex-shrink: 0;
   font-family: var(--font-display);
   font-weight: 500;
   font-size: 0.8rem;
@@ -710,6 +712,7 @@ input:focus-visible {
 }
 
 .stat-card {
+  min-width: 0;
   background: var(--bg-card);
   border-radius: var(--radius-md);
   padding: 1.5rem;
@@ -964,6 +967,7 @@ input:focus-visible {
 }
 
 .scenario-card {
+  min-width: 0;
   background: var(--bg-card);
   border-radius: var(--radius-md);
   padding: 1.1rem 1.2rem;
@@ -1188,21 +1192,32 @@ input:focus-visible {
 }
 
 @media (max-width: 860px) {
+  .header { position: static; }
   .header-top { flex-direction: column; gap: 1rem; padding: 1rem 1.2rem; }
   .header-advanced { padding: 0.6rem 1.2rem 0.8rem; flex-wrap: wrap; }
   .status-banner { margin: 0.8rem 1rem 0; }
   .controls { flex-wrap: wrap; justify-content: center; }
-  .control-group-scenarios { min-width: 0; width: 100%; }
+  .controls, .control-group { min-width: 0; max-width: 100%; }
+  select { max-width: 100%; }
+  .control-group-scenarios { min-width: 0; width: 100%; flex-direction: column; align-items: flex-start; }
   .scenario-selector { flex-wrap: wrap; }
+  .scenario-preset-row { flex-wrap: wrap; }
+  .tabs-container { padding: 0 1rem; }
+  .tab { padding: 1rem; }
+  .race-header { flex-wrap: wrap; gap: 0.75rem; }
+  .race-header > div { min-width: 0; }
+  .meta-pill, .detail-row { overflow-wrap: anywhere; }
   .main { padding: 1.5rem 1rem; }
-  .driver-row { grid-template-columns: 32px 6px 44px 1fr 80px 80px; font-size: 0.8rem; }
+  .results-table { overflow-x: auto; }
+  .driver-row { grid-template-columns: 32px 6px 44px minmax(110px, 1fr) 80px 45px; min-width: 370px; font-size: 0.8rem; }
   .driver-row .fastest-lap,
   .driver-row .tire-strategy,
   .driver-row .status { display: none; }
-  .timing-header { grid-template-columns: 32px 6px 44px 1fr 80px 80px; }
-  .timing-header span:nth-child(7),
+  .timing-header { grid-template-columns: 32px 6px 44px minmax(110px, 1fr) 80px 45px; min-width: 370px; }
+  .timing-header span:nth-child(6),
   .timing-header span:nth-child(8),
   .timing-header span:nth-child(9) { display: none; }
+  .quali-header, .quali-row { min-width: 720px; }
 }
 </style>
 </head>
@@ -1272,6 +1287,7 @@ input:focus-visible {
         <label class="control-label" for="workersInput">Workers</label>
         <input type="number" id="workersInput" value="" min="1" max="16" step="1" placeholder="Auto">
       </div>
+      <button class="scenario-preset" type="button" id="btnRefresh" onclick="refreshLiveData()">Refresh live data</button>
     </div>
   </header>
 
@@ -1437,6 +1453,7 @@ let simResults = null;
 let backendConnected = false;
 let calendarReady = false;
 let runInProgress = false;
+let connectionRefreshInProgress = false;
 const PREFS_KEY = 'f1sim:uiPrefs';
 const scenarioSetInput = document.getElementById('scenarioSetInput');
 const weatherSelectEl = document.getElementById('weatherSelect');
@@ -1451,7 +1468,9 @@ function apiUrl(path) {
 
 function updateRunAvailability() {
   const button = document.getElementById('btnRun');
-  if (button) button.disabled = runInProgress || !backendConnected || !calendarReady;
+  if (button) button.disabled = runInProgress || connectionRefreshInProgress || !backendConnected || !calendarReady;
+  const refresh = document.getElementById('btnRefresh');
+  if (refresh) refresh.disabled = runInProgress || connectionRefreshInProgress;
 }
 
 function updateBadge(state, text) {
@@ -1524,7 +1543,7 @@ function formatSigned(value, digits = 3) {
 
 function formatGap(result) {
   if (!result || result.status === 'dnf') return 'DNF';
-  if (toNumber(result.gap_to_leader) === 0 || result.position === 1) return 'LEADER';
+  if (result.position === 1) return 'LEADER';
   return `+${toNumber(result.gap_to_leader).toFixed(3)}`;
 }
 
@@ -1659,10 +1678,7 @@ function buildScenarioPresetMarkup(includeIds = false) {
 
 function describeScenarioSelection(names) {
   const labels = names.map(name => WEATHER_LABELS[name] || titleFromKey(name));
-  if (!labels.length) return 'Focus weather will seed the next backend run.';
-  if (labels.length === 1) return `Single-condition run: ${labels[0]}.`;
-  if (labels.length === 2) return `${labels[0]} vs ${labels[1]} comparison loaded.`;
-  return `${labels.length}-scenario sweep: ${labels.join(' • ')}.`;
+  return `Starting weather: ${labels.join(' / ') || 'selected focus'}. Conditions can change during the race.`;
 }
 
 function getSelectedScenarioNames() {
@@ -2006,11 +2022,10 @@ function switchTab(tab) {
 
 async function checkBackend() {
   updateBadge('loading', 'Checking backend...');
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
     const response = await fetch(apiUrl('/api/health'), { signal: controller.signal });
-    clearTimeout(timeoutId);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const health = await response.json();
     if (Number.isInteger(health.season)) {
@@ -2032,10 +2047,31 @@ async function checkBackend() {
     updateRunAvailability();
     updateBadge('', 'Backend required');
     setStatusMessage(
-      'Backend unavailable. Start python -m f1sim.web.server and rerun. Local browser simulation is disabled.',
+      'Cannot connect to the simulator. Use Refresh live data to retry when the connection returns.',
       'error'
     );
     return false;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function refreshLiveData() {
+  if (runInProgress || connectionRefreshInProgress) return;
+  connectionRefreshInProgress = true;
+  updateRunAvailability();
+  try {
+    if (!await checkBackend()) return;
+    const year = Number(document.getElementById('yearSelect').value);
+    const calendar = await fetchCalendar(year);
+    if (!calendar.ok) {
+      setStatusMessage(`Live calendar unavailable: ${calendar.error.message}. Use Refresh live data to retry.`, 'error');
+    } else {
+      setStatusMessage(`Live ${year} calendar ready. Choose a race and run a simulation.`, 'success');
+    }
+  } finally {
+    connectionRefreshInProgress = false;
+    updateRunAvailability();
   }
 }
 
@@ -2074,7 +2110,7 @@ function buildRunPayload() {
 }
 
 async function runSimulation() {
-  if (runInProgress) return;
+  if (runInProgress || connectionRefreshInProgress) return;
   const payload = buildRunPayload();
   if (!payload) return;
   const button = document.getElementById('btnRun');
@@ -2196,6 +2232,7 @@ function renderRace() {
         ${escapeHtml(WEATHER_LABELS[weather.condition] || titleFromKey(weather.condition || 'dry'))}
       </div>
     </div>
+    <div class="results-table" tabindex="0" role="region" aria-label="Race classification">
     <div class="timing-header">
       <span>POS</span><span></span><span></span><span>DRIVER</span>
       <span>GAP</span><span>FASTEST</span><span>PITS</span><span>STRATEGY</span><span>STATUS</span>
@@ -2229,7 +2266,7 @@ function renderRace() {
     `;
   });
 
-  html += '</div>';
+  html += '</div></div>';
   container.innerHTML = html;
 }
 
@@ -2262,6 +2299,7 @@ function renderQualifying() {
         <div class="race-meta">Fresh current-season ratings with a newly simulated qualifying session</div>
       </div>
     </div>
+    <div class="results-table" tabindex="0" role="region" aria-label="Qualifying classification">
     <div class="quali-header">
       <span>POS</span><span></span><span></span><span>DRIVER</span>
       <span>Q1</span><span>Q2</span><span>Q3</span>
@@ -2288,7 +2326,7 @@ function renderQualifying() {
     `;
   });
 
-  container.innerHTML = html;
+  container.innerHTML = html + '</div>';
 }
 
 function renderStats() {
@@ -2784,10 +2822,6 @@ function renderScenarioLab() {
         <div class="stat-card-title">Driver Matrix</div>
         <div id="compareMatrix"></div>
       </div>
-      <div class="stat-card heatmap-container">
-        <div class="stat-card-title">Raw Scenario Payload</div>
-        <pre style="margin:0">${escapeHtml(JSON.stringify(simResults, null, 2))}</pre>
-      </div>
     </div>
   `;
 
@@ -2826,24 +2860,13 @@ function renderScenarioLab() {
   loadUiPrefs();
   renderScenarioControlMounts();
 
-  const yearSelectEl = document.getElementById('yearSelect');
-
   if (!scenarioSetInput.value.trim()) {
     setScenarioSelection([WEATHER_TO_SCENARIO[weatherSelectEl.value] || 'dry'], { persist: false });
   } else {
     syncScenarioControls();
   }
 
-  await checkBackend();
-  const connectedCalendar = await fetchCalendar(
-    parseInt(yearSelectEl.value, 10),
-  );
-  if (!connectedCalendar.ok && connectedCalendar.error) {
-    setStatusMessage(
-      `Fresh ${yearSelectEl.value} calendar lookup failed: ${connectedCalendar.error.message}. No stale fallback data will be used.`,
-      'error'
-    );
-  }
+  await refreshLiveData();
 
   weatherSelectEl.addEventListener('change', () => {
     const focusedScenario = WEATHER_TO_SCENARIO[weatherSelectEl.value] || 'dry';

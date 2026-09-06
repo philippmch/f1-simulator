@@ -165,7 +165,7 @@ def test_dashboard_html_contains_controls() -> None:
     assert 'role="tablist"' in html
     assert 'aria-live="polite"' in html
     assert "escapeHtml(result.driver_name)" in html
-    assert "escapeHtml(JSON.stringify(simResults" in html
+    assert 'id="btnRefresh"' in html
     assert "names.flatMap" in html
     assert "readOptionalStorage" in html
     assert "writeOptionalStorage" in html

@@ -87,6 +87,8 @@ If supplied, `year` must equal the current UTC year; omitting it selects the liv
 `qualifying_mode` accepts only `simulated`.
 Dashboard requests accept 10–1,000 simulations, up to four supported weather scenarios, seeds from 0 through 4,294,967,295, and at most 16 worker processes. Inputs are validated before any live-data request is made.
 
+Weather scenario names describe the starting conditions. Weather evolves during each race, so a dry start can develop rain. Wetness and red-flag frequency are heuristic model assumptions, not calibrated weather forecasts.
+
 ## Live data policy
 
 - Canonical calendar, circuits, standings, and results: [Jolpica F1 API](https://api.jolpi.ca/docs/)
@@ -108,6 +110,13 @@ python -m pip install -e ".[web,dev]"
 pytest -q
 ruff check .
 ```
+
+For an interactive browser regression check, start the server and run
+`node tests/browser_dashboard.cjs` with Playwright installed and its Chromium
+browser available. `PLAYWRIGHT_MODULE` can point to an existing Playwright
+installation; `BROWSER_CHANNEL=msedge` selects installed Microsoft Edge.
+The check uses live data for a small run, then tests responsive layouts,
+exports, keyboard navigation, and recovery from simulated connection failures.
 
 Project layout:
 
