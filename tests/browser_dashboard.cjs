@@ -31,6 +31,11 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         await page.locator(`#tab-${tab}`).click();
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
           `${tab} overflows at ${width}px`);
+        if (tab === 'race' || tab === 'qualifying') {
+          assert(await page.locator('.tab-panel.active .team-stripe').first().evaluate(stripe =>
+            stripe.getBoundingClientRect().right <= stripe.nextElementSibling.getBoundingClientRect().left),
+          `Team stripe overlaps driver code at ${width}px`);
+        }
       }
     }
     assert.equal(await page.evaluate(() => formatGap({position: 2, gap_to_leader: 0})), '+0.000');
