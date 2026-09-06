@@ -124,12 +124,24 @@ class SimulationResults:
             msg = "n must be greater than 0"
             raise ValueError(msg)
 
+        # Classified positions also include retired cars. When full race
+        # results are available, count only actual finishes in the top N.
+        finish_counts: dict[str, int] = defaultdict(int)
+        for race in self.race_results:
+            for result in race:
+                if result.status == DriverStatus.FINISHED and result.position <= n:
+                    finish_counts[result.driver_id] += 1
+
         probs: dict[str, float] = {}
         for driver_id, stats in self.driver_stats.items():
             if not stats.positions:
                 probs[driver_id] = 0.0
                 continue
-            top_n_count = sum(1 for pos in stats.positions if pos <= n)
+            top_n_count = (
+                finish_counts[driver_id]
+                if self.race_results
+                else sum(1 for pos in stats.positions if pos <= n)
+            )
             probs[driver_id] = top_n_count / len(stats.positions) * 100
 
         return dict(sorted(probs.items(), key=lambda x: x[1], reverse=True))

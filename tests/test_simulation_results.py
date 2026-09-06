@@ -1,6 +1,7 @@
 import pytest
 
 from f1sim.analysis.montecarlo import DriverStatistics, SimulationResults
+from f1sim.simulation.race import DriverStatus, RaceResult
 
 
 def _stats(
@@ -181,6 +182,25 @@ def test_top_n_finish_probabilities_rejects_invalid_n() -> None:
 
     with pytest.raises(ValueError, match="n must be greater than 0"):
         results.get_top_n_finish_probabilities(0)
+
+
+def test_top_n_probabilities_exclude_retirements_classified_in_top_ten() -> None:
+    def result(status: DriverStatus) -> RaceResult:
+        return RaceResult(
+            driver_id="A", driver_name="A", team="Test", position=2,
+            total_time=100.0, gap_to_leader=1.0, pit_stops=0,
+            fastest_lap=90.0, status=status, dnf_reason=None, strategy=[],
+        )
+
+    results = SimulationResults(
+        num_simulations=2, track_name="Test",
+        driver_stats={"A": _stats("A", [2, 2])},
+        race_results=[[result(DriverStatus.FINISHED)], [result(DriverStatus.DNF)]],
+        qualifying_results=[],
+    )
+
+    assert results.get_top_n_finish_probabilities(10) == {"A": 50.0}
+    assert results.get_top_n_finish_probabilities(1) == {"A": 0.0}
 
 
 def test_event_rates_and_calibration_delta() -> None:
