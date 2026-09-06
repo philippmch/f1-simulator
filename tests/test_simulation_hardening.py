@@ -549,6 +549,150 @@ def test_event_manager_separates_common_active_aero_from_mode_eligibility() -> N
     assert not manager.is_overtake_mode_allowed(2)
 
 
+@pytest.mark.parametrize("successful_pass", [False, True])
+def test_finishing_clocks_follow_blocked_and_successful_passes(
+    monkeypatch: pytest.MonkeyPatch, successful_pass: bool,
+) -> None:
+    simulator = RaceSimulator(rng=np.random.default_rng(36))
+    drivers = [_driver("A"), _driver("B"), _driver("C")]
+    cars = {
+        driver.team_id: Car(team_id=driver.team_id, team_name=driver.id)
+        for driver in drivers
+    }
+    # In the successful case B passes despite a slightly slower provisional
+    # lap clock. In the blocked case B and C cannot bank their excess pace.
+    pace = {"A": 100.0, "B": 100.5 if successful_pass else 99.0, "C": 98.0}
+    attempts: list[str] = []
+    lap_start_gaps: list[float | None] = []
+
+    def calculate_lap_time(**kwargs: Any) -> float:
+        lap_start_gaps.append(kwargs["gap_to_car_ahead"])
+        return pace[kwargs["driver"].id]
+
+    def attempt_overtake(**kwargs: Any) -> tuple[bool, bool]:
+        attacker_id = kwargs["attacker"].id
+        attempts.append(attacker_id)
+        return successful_pass and attacker_id == "B", False
+
+    monkeypatch.setattr(simulator.lap_simulator, "calculate_lap_time", calculate_lap_time)
+    monkeypatch.setattr(simulator, "_should_pit", lambda *args, **kwargs: False)
+    monkeypatch.setattr(simulator.event_manager, "process_lap", lambda **kwargs: [])
+    monkeypatch.setattr(
+        simulator.overtaking_model, "should_attempt_overtake", lambda *args: True,
+    )
+    monkeypatch.setattr(simulator.overtaking_model, "attempt_overtake", attempt_overtake)
+
+    results = simulator.simulate_race(
+        drivers, cars, _track(total_laps=3), Weather(), ["A", "B", "C"],
+    )
+
+    assert "B" in attempts
+    assert [result.driver_id for result in results] == (
+        ["B", "A", "C"] if successful_pass else ["A", "B", "C"]
+    )
+    constrained_pace = 100.5 if successful_pass else 100.0
+    assert [result.total_time for result in results] == pytest.approx(
+        [3 * constrained_pace] * 3,
+    )
+    # Waiting time is real lap time, so it cannot win a spurious fastest lap.
+    assert [result.fastest_lap for result in results] == pytest.approx(
+        [constrained_pace] * 3,
+    )
+    gaps = [result.gap_to_leader for result in results]
+    assert gaps == sorted(gaps)
+    assert all(gap >= 0.0 for gap in gaps)
+    assert all(
+        result.gap_to_leader == result.total_time - results[0].total_time
+        for result in results
+    )
+    assert all(gap is None or gap == 0.0 for gap in lap_start_gaps)
+
+
+@pytest.mark.parametrize("difficulty", [0.5, 1.0])
+@pytest.mark.parametrize("faster_followers", [False, True])
+@pytest.mark.parametrize("pit_losses", [{}, {"A": 25.0}, {"A": 40.0, "B": 25.0}])
+def test_pit_batch_preserves_actual_loss_and_nonpitter_order(
+    monkeypatch: pytest.MonkeyPatch, difficulty: float,
+    faster_followers: bool, pit_losses: dict[str, float],
+) -> None:
+    simulator = RaceSimulator(rng=np.random.default_rng(36))
+    drivers = [_driver("A"), _driver("B"), _driver("C")]
+    cars = {
+        driver.team_id: Car(team_id=driver.team_id, team_name=driver.id)
+        for driver in drivers
+    }
+    pace = {"A": 100.0, "B": 99.0, "C": 98.0} if faster_followers else dict.fromkeys(
+        ["A", "B", "C"], 100.0,
+    )
+
+    def should_pit(
+        state: DriverRaceState, states: list[DriverRaceState],
+        track: Track, lap: int, pit_window_open: bool, **kwargs: Any,
+    ) -> bool:
+        return lap == 2 and state.driver.id in pit_losses
+
+    monkeypatch.setattr(simulator, "_should_pit", should_pit)
+    monkeypatch.setattr(
+        simulator, "_execute_pit_stop",
+        lambda state, *args, **kwargs: pit_losses[state.driver.id],
+    )
+    monkeypatch.setattr(
+        simulator.lap_simulator, "calculate_lap_time",
+        lambda **kwargs: pace[kwargs["driver"].id],
+    )
+    monkeypatch.setattr(simulator.event_manager, "process_lap", lambda **kwargs: [])
+    monkeypatch.setattr(simulator, "_process_overtakes", lambda *args, **kwargs: 0)
+
+    results = simulator.simulate_race(
+        drivers, cars, _track(total_laps=2, overtake_difficulty=difficulty),
+        Weather(), ["A", "B", "C"],
+    )
+
+    if not pit_losses:
+        expected_order = ["A", "B", "C"]
+        expected_clocks = [200.0] * 3
+    elif "B" not in pit_losses:
+        expected_order = ["B", "C", "A"]
+        # C cannot automatically pass B even when its provisional clock is
+        # faster. Neither nonpitter inherits A's time spent in the pit lane.
+        expected_clocks = [100.0 + pace["B"], 100.0 + pace["B"], 225.0]
+    else:
+        expected_order = ["C", "B", "A"]
+        expected_clocks = [100.0 + pace["C"], 125.0 + pace["B"], 240.0]
+    assert [result.driver_id for result in results] == expected_order
+    assert [result.total_time for result in results] == pytest.approx(expected_clocks)
+    assert [result.position for result in results] == [1, 2, 3]
+    assert [result.gap_to_leader for result in results] == pytest.approx(
+        [clock - expected_clocks[0] for clock in expected_clocks],
+    )
+
+
+def test_full_field_finisher_gaps_are_monotonic(monkeypatch: pytest.MonkeyPatch) -> None:
+    drivers = [_driver(f"D{index:02d}") for index in range(20)]
+    cars = {
+        driver.team_id: Car(
+            team_id=driver.team_id, team_name=driver.id, reliability=1.0,
+        )
+        for driver in drivers
+    }
+    simulator = RaceSimulator(rng=np.random.default_rng(36))
+    monkeypatch.setattr(Weather, "evolve", lambda self, rng: self)
+    monkeypatch.setattr(simulator.event_manager, "process_lap", lambda **kwargs: [])
+
+    results = simulator.simulate_race(
+        drivers, cars, _track(total_laps=50), Weather(), [driver.id for driver in drivers],
+    )
+
+    assert len(results) == 20
+    assert all(result.status == DriverStatus.FINISHED for result in results)
+    clocks = [result.total_time for result in results]
+    gaps = [result.gap_to_leader for result in results]
+    assert clocks == sorted(clocks)
+    assert gaps == sorted(gaps)
+    assert all(gap >= 0.0 for gap in gaps)
+    assert gaps == pytest.approx([clock - clocks[0] for clock in clocks])
+
+
 def _race_result(driver_id: str, position: int, status: DriverStatus) -> RaceResult:
     return RaceResult(
         driver_id=driver_id,

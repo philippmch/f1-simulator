@@ -330,54 +330,9 @@ class RaceSimulator:
 
                 lap_times[state.driver.id] = lap_time
 
-            # Phase 2: Handle position changes from pit stops
-            # (after all lap times calculated).
-            # At high overtake-difficulty tracks (Monaco, Singapore),
-            # pit stops have minimal position impact because everyone pits
-            # in a narrow window and can't recover via overtaking.
-            if track.overtake_difficulty < 0.8:  # Only apply at easier-to-pass tracks
-                pre_pit_order = {
-                    state.driver.id: index
-                    for index, state in enumerate(
-                        sorted(
-                            (
-                                state
-                                for state in states
-                                if state.status == DriverStatus.RACING
-                            ),
-                            key=lambda state: state.position,
-                        )
-                    )
-                }
-                for pitting_driver in drivers_pitting:
-                    self._handle_pit_position_changes(pitting_driver, states)
-                if drivers_pitting:
-                    # Several cars can pit on the same lap. Applying their
-                    # individual losses in sequence can temporarily assign
-                    # the same position to two cars. Resolve only those ties
-                    # by the elapsed clock after service, with the pre-stop
-                    # track order as a deterministic secondary key.
-                    pit_batch_order = {
-                        state.driver.id: index
-                        for index, state in enumerate(
-                            sorted(
-                                (
-                                    state
-                                    for state in states
-                                    if state.status == DriverStatus.RACING
-                                ),
-                                key=lambda state: (
-                                    state.position,
-                                    state.total_time,
-                                    pre_pit_order[state.driver.id],
-                                ),
-                            )
-                        )
-                    }
-                    self._normalize_positions(
-                        states,
-                        preferred_order=pit_batch_order,
-                    )
+            # Resolve the entire pit batch by actual post-stop clocks on every
+            # track. Pit-lane position changes do not require on-track passing.
+            self._handle_pit_batch_position_changes(drivers_pitting, states)
 
             # Overtakes happen on the racing lap before race-control events
             # are resolved.  Their incidents therefore feed SC/VSC/red-flag
@@ -441,6 +396,12 @@ class RaceSimulator:
                     states,
                     material_penalty_ids,
                 )
+
+            # Lap pace is unconstrained until passing and incident outcomes
+            # establish the physical order. A car that remains behind must
+            # spend any excess pace waiting, rather than banking a faster
+            # cumulative clock for a later lap or the final classification.
+            self._reconcile_racing_times(states)
 
             all_events.extend(lap_events)
 
@@ -1196,45 +1157,60 @@ class RaceSimulator:
 
         return incidents
 
-    def _handle_pit_position_changes(
+    def _handle_pit_batch_position_changes(
         self,
-        pitting_driver: DriverRaceState,
+        pitting_drivers: list[DriverRaceState],
         all_states: list[DriverRaceState],
     ) -> None:
-        """Handle position changes when a driver pits.
+        """Merge cars leaving the pits into the unchanged on-track queue.
 
-        Only cars that were close behind (within pit window gap) can pass.
-        Typical pit stop costs ~22-25 seconds, so only cars within ~20-25s can realistically pass.
+        Actual elapsed clocks include each car's own service and pit-lane loss.
+        Resolve simultaneous stops together, using pre-stop positions to break
+        ties. Cars that stayed out retain their relative physical order until
+        the overtaking model resolves their battles.
         """
-        original_pos = pitting_driver.position
+        if not pitting_drivers:
+            return
+        pitting_ids = {state.driver.id for state in pitting_drivers}
+        racing = sorted(
+            (state for state in all_states if state.status == DriverStatus.RACING),
+            key=lambda state: state.position,
+        )
+        pitting = sorted(
+            (state for state in racing if state.driver.id in pitting_ids),
+            key=lambda state: (state.total_time, state.position),
+        )
+        staying_out = [state for state in racing if state.driver.id not in pitting_ids]
+        ordered: list[DriverRaceState] = []
+        pit_index = 0
+        for on_track in staying_out:
+            while pit_index < len(pitting) and (
+                pitting[pit_index].total_time, pitting[pit_index].position
+            ) < (on_track.total_time, on_track.position):
+                ordered.append(pitting[pit_index])
+                pit_index += 1
+            ordered.append(on_track)
+        ordered.extend(pitting[pit_index:])
+        for position, state in enumerate(ordered, 1):
+            state.position = position
 
-        # Get the pitting driver's time BEFORE pit stop was added
-        # (pit_time was already added to total_time before this is called)
-        # Estimate: typical pit loss is ~23 seconds
-        estimated_pit_loss = 23.0
+    def _reconcile_racing_times(self, states: list[DriverRaceState]) -> None:
+        """Charge blocked running to the lap without changing track order.
 
-        # Get all racing cars sorted by their current position
-        racing = [s for s in all_states if s.status == DriverStatus.RACING]
-        racing.sort(key=lambda s: s.position)
-
-        # Find cars that were behind the pitting driver
-        cars_behind = [s for s in racing if s.position > original_pos]
-
-        # Count how many cars pass - only if they were within the pit window gap
-        cars_passing = 0
-        for state in cars_behind:
-            # Calculate how far behind this car was before the pit stop
-            # If pitting driver now has more time, the difference includes pit loss
-            time_diff = pitting_driver.total_time - state.total_time
-
-            # Only pass if they were close enough that the pit stop put them ahead
-            # AND they're now ahead in total time
-            if time_diff > 0 and time_diff < estimated_pit_loss:
-                cars_passing += 1
-                state.position -= 1
-
-        # Move the pitting driver back by the number of cars that passed
-        pitting_driver.position = original_pos + cars_passing
+        A successful pass can also put a car with a slightly slower provisional
+        clock ahead. The displaced car then waits behind that new leader.
+        Equal clocks represent a gap below this lap-level model's resolution;
+        physical position remains the tie-breaker. Retired cars do not constrain
+        running cars, and this correction never removes elapsed race time.
+        """
+        racing = sorted(
+            (state for state in states if state.status == DriverStatus.RACING),
+            key=lambda state: state.position,
+        )
+        for ahead, behind in zip(racing, racing[1:]):
+            blocked_time = max(0.0, ahead.total_time - behind.total_time)
+            behind.total_time = max(behind.total_time, ahead.total_time)
+            behind.last_lap_time += blocked_time
 
     def _normalize_positions(
         self,
