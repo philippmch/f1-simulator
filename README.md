@@ -119,6 +119,6 @@ src/f1sim/
 ├── analysis/      # Monte Carlo aggregation and scenarios
 ├── output/        # opt-in CLI exports
 └── web/           # FastAPI service and dashboard payloads
-frontend/
-└── index.html     # current-season-only dashboard
+    └── static/
+        └── index.html  # packaged current-season-only dashboard
 ```

@@ -7,7 +7,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
+from importlib.resources import files
 from typing import Any
 
 from f1sim.analysis import MonteCarloRunner, parse_scenario_labels, scenario_weather_from_label
@@ -493,7 +493,7 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
 
 def build_dashboard_html() -> str:
     """Return the shared polished frontend HTML."""
-    frontend_path = Path(__file__).resolve().parents[3] / "frontend" / "index.html"
+    frontend_path = files("f1sim.web").joinpath("static", "index.html")
     return frontend_path.read_text(encoding="utf-8")
 
 
