@@ -13,6 +13,7 @@ from typing import Any
 from f1sim.analysis import MonteCarloRunner, parse_scenario_labels, scenario_weather_from_label
 from f1sim.data import CurrentSeasonDataError, CurrentSeasonDataLoader
 from f1sim.models import Weather, WeatherCondition
+from f1sim.web.capacity import RunCapacity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -553,6 +554,7 @@ def build_fastapi_app() -> Any:
         raise RuntimeError(msg) from exc
 
     app = FastAPI(title="F1Sim Dashboard", version="0.2")
+    run_capacity = RunCapacity.from_environment()
 
     @app.middleware("http")
     async def disable_api_caching(request: Any, call_next: Any) -> Any:
@@ -602,7 +604,17 @@ def build_fastapi_app() -> Any:
     @app.post("/api/run")
     def run(payload: DashboardRunRequest) -> dict[str, Any]:
         try:
-            return run_dashboard_simulation(payload)
+            _validate_dashboard_request(payload)
+            with run_capacity.acquire() as admitted:
+                if not admitted:
+                    raise HTTPException(
+                        status_code=429,
+                        detail="Simulation capacity is busy. Please retry shortly.",
+                        headers={"Retry-After": "5"},
+                    )
+                return run_dashboard_simulation(payload)
+        except HTTPException:
+            raise
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except (CurrentSeasonDataError, OSError) as exc:

@@ -89,6 +89,26 @@ Dashboard requests accept 10–1,000 simulations, up to four supported weather s
 
 Weather scenario names describe the starting conditions. Weather evolves during each race, so a dry start can develop rain. Wetness and red-flag frequency are heuristic model assumptions, not calibrated weather forecasts.
 
+## Server capacity
+
+The server admits one complete simulation request at a time by default, including
+live-data loading and every selected weather scenario. Additional requests receive
+HTTP 429 with `Retry-After: 5`; the dashboard keeps the Run button available for a
+later retry. Calendar and health requests remain available.
+
+Set `F1SIM_MAX_CONCURRENT_RUNS` to an integer from 1 through 4 before starting the
+server to change this limit. Each admitted request still has its own maximum of
+16 simulation workers, so choose both limits to suit the host.
+
+The limit is shared across threads and server processes through OS file locks.
+All processes must use the same limit and `F1SIM_RUN_LOCK_DIR`, which defaults to
+`f1sim-run-capacity` in the system temporary directory. Use a common writable
+local directory for services with different temporary directories or containers
+sharing one host. Coordination files contain no live F1 data; do not delete them
+while servers are running. Locks release on completion, failure, or process exit.
+This limit covers the API on one host; independent hosts and direct CLI runs are
+separate capacity domains.
+
 ## Live data policy
 
 - Canonical calendar, circuits, standings, and results: [Jolpica F1 API](https://api.jolpi.ca/docs/)

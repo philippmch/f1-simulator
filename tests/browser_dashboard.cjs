@@ -55,14 +55,17 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     await page.keyboard.press('ArrowRight');
     assert.equal(await page.locator('[role=tab][aria-selected=true]').getAttribute('id'),
       'tab-qualifying');
-    await page.route('**/api/run', route => route.fulfill({
-      status: 503, contentType: 'application/json',
-      body: JSON.stringify({detail: 'Provider temporarily unavailable'}),
-    }));
-    await page.locator('#btnRun').click();
-    await page.waitForFunction(() => !runInProgress);
-    assert((await page.locator('#appStatus').innerText()).includes('Provider temporarily unavailable'));
-    assert(await page.locator('#btnRun').isEnabled());
+    for (const [status, detail] of [
+      [503, 'Provider temporarily unavailable'], [429, 'Simulation capacity is busy'],
+    ]) {
+      await page.route('**/api/run', route => route.fulfill({
+        status, contentType: 'application/json', body: JSON.stringify({detail}),
+      }));
+      await page.locator('#btnRun').click();
+      await page.waitForFunction(() => !runInProgress);
+      assert((await page.locator('#appStatus').innerText()).includes(detail));
+      assert(await page.locator('#btnRun').isEnabled());
+    }
     await page.route('**/api/run', route => route.abort());
     await page.locator('#btnRun').click();
     await page.waitForFunction(() => !runInProgress);
