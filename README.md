@@ -87,7 +87,7 @@ If supplied, `year` must equal the current UTC year; omitting it selects the liv
 `qualifying_mode` accepts only `simulated`.
 Dashboard requests accept 10–1,000 simulations, up to four supported weather scenarios, seeds from 0 through 4,294,967,295, and at most 16 worker processes. Inputs are validated before any live-data request is made.
 
-Weather scenario names describe the starting conditions. Weather evolves during each race, so a dry start can develop rain. Wetness and red-flag frequency are heuristic model assumptions, not calibrated weather forecasts.
+Weather scenario names describe the starting conditions. Weather evolves during each race, so a dry start can develop rain. The [weather calibration notes](docs/weather-calibration.md) explain the observations, model assumptions, and reproducible checks.
 
 ## Server capacity
 

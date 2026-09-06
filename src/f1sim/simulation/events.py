@@ -7,6 +7,11 @@ import numpy as np
 
 from f1sim.models import Car, Driver, Track, Weather
 
+# Broad model priors, not precise estimates from the small observed race sample.
+# Background interruptions cover unmodelled major crashes/track blockages.
+BACKGROUND_RED_FLAG_RACE_PROBABILITY = 0.10
+SEVERE_WEATHER_RED_FLAG_EPISODE_PROBABILITY = 0.50
+
 
 class EventType(str, Enum):
     """Types of race events."""
@@ -62,6 +67,7 @@ class EventManager:
         self.red_flag_just_ended = False  # Flag for restart lap after red flag
         self.red_flag_restart_lap = False  # True on the lap after red flag ends
         self.red_flag_restart_lap_number: int | None = None
+        self._severe_weather_episode_decided = False
         # Manual trigger configuration
         self.forced_red_flag_laps: set[int] = set()  # Laps to force red flags
         self.forced_safety_car_laps: set[int] = set()  # Laps to force safety cars
@@ -88,6 +94,7 @@ class EventManager:
         self.red_flag_just_ended = False
         self.red_flag_restart_lap = False
         self.red_flag_restart_lap_number: int | None = None
+        self._severe_weather_episode_decided = False
 
         self.safety_car_deployments = 0
         self.vsc_deployments = 0
@@ -144,6 +151,7 @@ class EventManager:
             List of events that occurred
         """
         self.current_lap = lap
+        self._update_weather_episode(weather)
         # A countdown expiring during this call does not make the already
         # completed lap a green-flag lap.  Keep this snapshot separate from
         # the live state, which is updated below for the following lap.
@@ -537,7 +545,9 @@ class EventManager:
         """Deploy safety car, VSC, or red flag based on incidents and conditions."""
         # Check for red flag conditions first
         # Red flags are rare but occur for major incidents or dangerous weather
-        red_flag_event = self._check_red_flag_conditions(lap, incidents, weather)
+        red_flag_event = self._check_red_flag_conditions(
+            lap, incidents, weather, total_laps=track.total_laps
+        )
         if red_flag_event:
             return red_flag_event
 
@@ -577,39 +587,43 @@ class EventManager:
         lap: int,
         incidents: int,
         weather: Weather | None = None,
+        *,
+        total_laps: int,
     ) -> RaceEvent | None:
-        """Check if conditions warrant a red flag.
+        """Sample background interruptions and one decision per severe storm.
 
-        Red flags are deployed for:
-        - Multiple serious incidents (3+ in a single lap)
-        - Extremely dangerous weather conditions
-        - Major track blockage (simulated by high incident severity)
+        ``incidents`` includes minor overtake contact, not major wrecks, so it
+        does not increase the red-flag prior. Separate major incidents remain
+        possible through the background hazard even within a decided storm.
+        Suspension duration is abstracted by the race engine; a weather flag
+        does not imply that the next simulated lap has physically dried out.
         """
-        red_flag_probability = 0.0
-
-        # Multiple incidents significantly increase red flag chance
-        if incidents >= 3:
-            red_flag_probability += 0.4
-        elif incidents >= 2:
-            red_flag_probability += 0.15
-
-        # Severe weather can trigger red flag
+        self._update_weather_episode(weather)
         if weather is not None:
-            if weather.track_wetness > 0.9:
-                # Standing water on track - very dangerous
-                red_flag_probability += 0.3
-            elif weather.track_wetness > 0.8 and weather.rain_intensity > 0.8:
-                # Heavy rain with very wet track
-                red_flag_probability += 0.15
+            severe = weather.track_wetness >= 0.95 or (
+                weather.track_wetness >= 0.8 and weather.rain_intensity >= 0.8
+            )
+            if severe and not self._severe_weather_episode_decided:
+                self._severe_weather_episode_decided = True
+                if self.rng.random() < SEVERE_WEATHER_RED_FLAG_EPISODE_PROBABILITY:
+                    return self.deploy_red_flag(lap, "Severe weather")
 
-        # Random major incident chance (rare)
-        if incidents > 0 and self.rng.random() < 0.05:
-            red_flag_probability += 0.3
-
-        if red_flag_probability > 0 and self.rng.random() < red_flag_probability:
-            return self.deploy_red_flag(lap, "Dangerous conditions")
+        probability = self._race_probability_to_lap_hazard(
+            BACKGROUND_RED_FLAG_RACE_PROBABILITY, total_laps
+        )
+        if self.rng.random() < probability:
+            return self.deploy_red_flag(lap, "Major incident or track obstruction")
 
         return None
+
+    def _update_weather_episode(self, weather: Weather | None) -> None:
+        """Require a clear improvement before a new storm can be sampled."""
+        if (
+            weather is not None
+            and weather.rain_intensity < 0.65
+            and weather.track_wetness < 0.8
+        ):
+            self._severe_weather_episode_decided = False
 
     def deploy_red_flag(self, lap: int, reason: str = "Incident") -> RaceEvent:
         """Deploy a red flag, stopping the race.

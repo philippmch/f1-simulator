@@ -5,6 +5,9 @@ from enum import Enum
 import numpy as np
 from pydantic import BaseModel, Field
 
+# Normalized surface response: drainage balances rainfall at the intensity target.
+WETNESS_RESPONSE_PER_LAP = 0.2
+
 
 class WeatherCondition(str, Enum):
     """Weather condition types."""
@@ -95,14 +98,15 @@ class Weather(BaseModel):
 
         # Track wetness changes even without condition change
         if new_weather.rain_intensity > 0:
-            # Rain adds wetness quickly
-            wetness_gain = 0.08 + 0.12 * new_weather.rain_intensity
-            new_weather.track_wetness = min(1.0, self.track_wetness + wetness_gain)
+            # Light rain approaches a damp equilibrium instead of flooding.
+            new_weather.track_wetness += WETNESS_RESPONSE_PER_LAP * (
+                new_weather.rain_intensity - self.track_wetness
+            )
         else:
-            # Track dries slowly (takes ~20 laps to fully dry)
+            # Track dries slowly (up to 34 laps from fully flooded)
             new_weather.track_wetness = max(0.0, self.track_wetness - 0.03)
 
-        if rng.random() > self.change_probability:
+        if rng.random() >= self.change_probability:
             # No condition change, but wetness already updated
             return new_weather
 
