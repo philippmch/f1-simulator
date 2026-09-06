@@ -444,6 +444,96 @@ def test_overtake_mode_energy_depletes_and_recharges_with_fixed_seed() -> None:
     assert state.overtake_mode_energy == pytest.approx(1.0)
 
 
+@pytest.mark.parametrize("reverse_iteration", [False, True])
+def test_race_lap_gaps_use_completed_lap_times(
+    monkeypatch: pytest.MonkeyPatch, reverse_iteration: bool,
+) -> None:
+    simulator = RaceSimulator(rng=np.random.default_rng(33))
+    drivers = [_driver("A"), _driver("B")]
+    cars = {
+        driver.team_id: Car(team_id=driver.team_id, team_name=driver.id)
+        for driver in drivers
+    }
+    observations: dict[tuple[int, str], tuple[float | None, bool]] = {}
+
+    def calculate_lap_time(**kwargs: Any) -> float:
+        driver_id = kwargs["driver"].id
+        observations[kwargs["lap_number"], driver_id] = (
+            kwargs["gap_to_car_ahead"], kwargs["overtake_mode_active"],
+        )
+        return 90.0 if driver_id == "A" else 100.0
+
+    monkeypatch.setattr(simulator.lap_simulator, "calculate_lap_time", calculate_lap_time)
+    monkeypatch.setattr(simulator, "_should_pit", lambda *args, **kwargs: False)
+    monkeypatch.setattr(simulator.event_manager, "process_lap", lambda **kwargs: [])
+    monkeypatch.setattr(simulator, "_process_overtakes", lambda *args, **kwargs: 0)
+    if reverse_iteration:
+        update_positions = simulator._update_positions
+
+        def reverse_states(states: list[DriverRaceState]) -> None:
+            update_positions(states)
+            states.reverse()
+
+        monkeypatch.setattr(simulator, "_update_positions", reverse_states)
+
+    results = simulator.simulate_race(
+        drivers, cars, _track(total_laps=4), Weather(), ["A", "B"],
+    )
+
+    for lap in range(1, 5):
+        assert observations[lap, "A"] == (None, False)
+        assert observations[lap, "B"] == (10.0 * (lap - 1), False)
+    assert results[1].gap_to_leader == pytest.approx(40.0)
+
+
+def test_pit_decisions_and_lap_gaps_share_pre_stop_timing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    simulator = RaceSimulator(rng=np.random.default_rng(33))
+    drivers = [_driver("A"), _driver("B"), _driver("C")]
+    cars = {
+        driver.team_id: Car(team_id=driver.team_id, team_name=driver.id)
+        for driver in drivers
+    }
+    strategy_gaps: dict[tuple[int, str], tuple[float | None, float | None]] = {}
+    lap_gaps: dict[tuple[int, str], float | None] = {}
+
+    def should_pit(
+        state: DriverRaceState, states: list[DriverRaceState],
+        track: Track, lap: int, pit_window_open: bool, **kwargs: Any,
+    ) -> bool:
+        ahead = simulator._get_gap_to_car_ahead(state, states)
+        behind = simulator._get_gap_to_car_behind(state, states)
+        strategy_gaps[lap, state.driver.id] = (ahead, behind)
+        return lap == 2 and (
+            state.driver.id == "A" or (state.driver.id == "B" and ahead > 5.0)
+        )
+
+    def calculate_lap_time(**kwargs: Any) -> float:
+        driver_id = kwargs["driver"].id
+        lap_gaps[kwargs["lap_number"], driver_id] = kwargs["gap_to_car_ahead"]
+        return {"A": 90.0, "B": 100.0, "C": 110.0}[driver_id]
+
+    monkeypatch.setattr(simulator, "_should_pit", should_pit)
+    monkeypatch.setattr(simulator, "_execute_pit_stop", lambda *args, **kwargs: 25.0)
+    monkeypatch.setattr(simulator.lap_simulator, "calculate_lap_time", calculate_lap_time)
+    monkeypatch.setattr(simulator.event_manager, "process_lap", lambda **kwargs: [])
+    monkeypatch.setattr(simulator, "_process_overtakes", lambda *args, **kwargs: 0)
+
+    results = simulator.simulate_race(
+        drivers, cars, _track(total_laps=3), Weather(), ["A", "B", "C"],
+    )
+
+    assert strategy_gaps[2, "A"] == (None, 10.0)
+    assert strategy_gaps[2, "B"] == (10.0, 10.0)
+    assert strategy_gaps[2, "C"] == (10.0, None)
+    assert lap_gaps[2, "B"] == 10.0
+    assert lap_gaps[2, "C"] == 10.0
+    assert {result.driver_id: result.pit_stops for result in results} == {
+        "A": 1, "B": 1, "C": 0,
+    }
+
+
 def test_event_manager_separates_common_active_aero_from_mode_eligibility() -> None:
     manager = EventManager(rng=np.random.default_rng(34))
     assert manager.is_active_aero_allowed()

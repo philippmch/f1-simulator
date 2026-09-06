@@ -1,6 +1,6 @@
 """Race simulation engine."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 
 import numpy as np
@@ -254,6 +254,10 @@ class RaceSimulator:
             lap_restart = self.event_manager.is_restart_lap(lap)
 
             fastest_laps_before_lap = dict(fastest_laps)
+            # Timing and track positions must describe the same completed
+            # lap for every driver. Shallow copies freeze these scalar fields
+            # while the live states accumulate this lap's running and pit loss.
+            lap_start_states = [replace(state) for state in states]
 
             # Simulate lap for each driver
             lap_times: dict[str, float] = {}
@@ -266,12 +270,13 @@ class RaceSimulator:
                 if state.status != DriverStatus.RACING:
                     continue
                 state.overtake_mode_active_lap = False
+                gap_ahead = self._get_gap_to_car_ahead(state, lap_start_states)
 
                 # Check for pit stop decision
                 forced_pit = state.force_pit_next_lap
                 should_pit = forced_pit or self._should_pit(
                     state,
-                    states,
+                    lap_start_states,
                     track,
                     lap,
                     self.event_manager.is_pit_window_open(),
@@ -292,7 +297,6 @@ class RaceSimulator:
                     state.force_pit_next_lap = False
 
                 # Calculate lap time
-                gap_ahead = self._get_gap_to_car_ahead(state, states)
                 if not should_pit:
                     state.overtake_mode_active_lap = (
                         self._deploy_overtake_mode_if_eligible(
