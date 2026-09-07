@@ -16,6 +16,11 @@ class OvertakingModel:
         """
         self.rng = rng if rng is not None else np.random.default_rng()
 
+    @staticmethod
+    def _maximum_attempt_gap(restart_boost: bool) -> float:
+        """Shared opportunity envelope for eligibility and success probability."""
+        return 2.0 if restart_boost else 1.5
+
     def attempt_overtake(
         self,
         attacker: Driver,
@@ -47,7 +52,7 @@ class OvertakingModel:
             Tuple of (overtake_successful, incident_occurred)
         """
         # Check if overtake is possible (wider window on restarts)
-        max_gap = 2.0 if restart_boost else 1.5
+        max_gap = self._maximum_attempt_gap(restart_boost)
         if gap > max_gap:
             return False, False  # Too far behind to attempt
 
@@ -122,7 +127,7 @@ class OvertakingModel:
         pace_factor = self._sigmoid(pace_delta * 3, offset=0)  # ~0-1 based on pace diff
 
         # Gap factor (closer = higher chance)
-        gap_factor = max(0, 1.0 - gap / 1.5)
+        gap_factor = max(0, 1.0 - gap / self._maximum_attempt_gap(restart_boost))
 
         # Overtake Mode is distinct from common Straight Mode.  Its bounded
         # passing bonus reflects the amount of straight-mode opportunity on
