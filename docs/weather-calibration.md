@@ -63,6 +63,10 @@ Neither source supplies numerical parameters for this normalized model.
 
 ## Reproducible comparison
 
+Recorded with the weather-calibration implementation at commit `d5aac75`.
+Later simulation changes may alter these fixed-seed observations; rerun the
+diagnostic against the current checkout for current values.
+
 Synthetic 22-driver field, 50 laps, safety-car prior 0.3, identical car models,
 100 simulations per scenario, seed 42. Fixed scenarios disable condition
 transitions but still update surface water. The evolving case uses probability

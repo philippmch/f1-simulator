@@ -1112,7 +1112,7 @@ class RaceSimulator:
                 attacker.driver,
                 defender.driver,
                 overtake_gap,
-                track.total_laps,
+                track.total_laps if lap is None else max(1, track.total_laps - lap + 1),
                 attacker.position,
             ):
                 continue

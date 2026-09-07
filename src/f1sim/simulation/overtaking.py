@@ -211,9 +211,12 @@ class OvertakingModel:
         # Driver aggression based on overtaking skill
         aggression = attacker.overtaking_skill
 
-        threshold = 0.3 + urgency * 0.2 + aggression * 0.2
-        if in_points_battle:
-            threshold -= 0.1
-
-        # Attempt if gap is small enough relative to threshold
-        return gap < 1.5 * (1.0 - threshold + 0.5)
+        # More urgency/attacking skill should widen the window, not shrink it.
+        # Keep an actual decision inside the 1.5-second opportunity envelope:
+        # a patient driver waits for a closer gap, while a late points battle
+        # can justify an attempt from farther back. These are model thresholds.
+        attempt_gap = min(
+            1.5,
+            0.7 + aggression * 0.4 + urgency * 0.3 + (0.1 if in_points_battle else 0.0),
+        )
+        return gap < attempt_gap
