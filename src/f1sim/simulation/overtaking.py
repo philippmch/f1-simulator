@@ -27,6 +27,7 @@ class OvertakingModel:
         overtake_mode_active: bool = False,
         is_wet: bool = False,
         restart_boost: bool = False,
+        tire_pace_advantage_seconds: float = 0.0,
     ) -> tuple[bool, bool]:
         """Attempt an overtake maneuver.
 
@@ -40,6 +41,7 @@ class OvertakingModel:
             overtake_mode_active: Whether attacker deployed Overtake Mode
             is_wet: Whether track is wet
             restart_boost: Whether this is a SC restart lap (increased aggression)
+            tire_pace_advantage_seconds: Positive for a faster attacker tyre set
 
         Returns:
             Tuple of (overtake_successful, incident_occurred)
@@ -68,6 +70,7 @@ class OvertakingModel:
             mode_active,
             is_wet,
             restart_boost=restart_boost,
+            tire_pace_advantage_seconds=tire_pace_advantage_seconds,
         )
 
         # Attempt the overtake
@@ -94,6 +97,7 @@ class OvertakingModel:
         overtake_mode_active: bool,
         is_wet: bool,
         restart_boost: bool = False,
+        tire_pace_advantage_seconds: float = 0.0,
     ) -> float:
         """Calculate overtake success probability.
 
@@ -108,6 +112,13 @@ class OvertakingModel:
 
         # Pace advantage factor
         pace_delta = attacker_car.base_pace - defender_car.base_pace
+        # Lap timing uses 3% of reference lap time per unit of car pace.
+        # Bound tyre influence to one equivalent unit before the sigmoid;
+        # even extreme wear must still respect circuit and passing gates.
+        if not is_wet:
+            pace_delta += float(np.clip(
+                tire_pace_advantage_seconds / (track.base_lap_time * 0.03), -1.0, 1.0
+            ))
         pace_factor = self._sigmoid(pace_delta * 3, offset=0)  # ~0-1 based on pace diff
 
         # Gap factor (closer = higher chance)
