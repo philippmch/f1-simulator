@@ -46,7 +46,7 @@ def test_current_neutralization_matches_remaining_one_stop_alternatives(
 
         simulator._should_pit = choose
         if forced_compound is not None:
-            simulator._choose_distinct_dry_compound = lambda *args: forced_compound
+            simulator._choose_committed_dry_compound = lambda *args: forced_compound
         return simulator.simulate_race(
             [driver], {"team": car}, track, Weather(change_probability=0), ["A"],
             starting_tires={"A": TireCompound.MEDIUM},

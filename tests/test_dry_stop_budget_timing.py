@@ -26,7 +26,7 @@ def run(laps, budget=None, forced_lap=None, forced_compound=None):
         simulator._dry_stop_budget = lambda *args: budget
     if forced_lap is not None:
         simulator._should_pit = lambda state, states, track, lap, *a, **kw: lap == forced_lap
-        simulator._choose_distinct_dry_compound = lambda *args: forced_compound
+        simulator._choose_committed_dry_compound = lambda *args: forced_compound
     return simulator.simulate_race(
         [driver], {"team": car}, track, Weather(change_probability=0), ["A"],
         starting_tires={"A": TireCompound.SOFT},

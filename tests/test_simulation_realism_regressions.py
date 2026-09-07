@@ -599,7 +599,7 @@ def test_repeated_compound_stints_are_preserved() -> None:
     # Once two distinct slicks have actually been used, repeating a compound
     # is legal and should remain represented as a real new stint.
     state.tire_compound_history = ["medium", "hard"]
-    simulator._choose_compound_for_next_stint = (  # type: ignore[method-assign]
+    simulator._choose_committed_dry_compound = (  # type: ignore[method-assign]
         lambda *args: TireCompound.MEDIUM
     )
     simulator._execute_pit_stop(state, _track(), Weather(), current_lap=20)
@@ -646,6 +646,6 @@ def test_driver_state_tire_history_tracks_actual_stop_compound() -> None:
             cliff_multiplier=3.0,
         ),
     )
-    simulator._choose_compound_for_next_stint = lambda *args: TireCompound.HARD  # type: ignore[method-assign]
+    simulator._choose_committed_dry_compound = lambda *args: TireCompound.HARD  # type: ignore[method-assign]
     simulator._execute_pit_stop(state, _track(), Weather(), current_lap=20)
     assert state.tire_compound_history == ["medium", "hard"]

@@ -31,7 +31,7 @@ def run_race(stress, forced_lap=None, forced_compound=None):
     simulator._infer_team_strategy = lambda *args: TeamStrategyArchetype.BALANCED
     if forced_lap is not None:
         simulator._should_pit = lambda state, states, track, lap, *args, **kwargs: lap == forced_lap
-        simulator._choose_distinct_dry_compound = lambda *args: forced_compound
+        simulator._choose_committed_dry_compound = lambda *args: forced_compound
     stops = []
     execute = simulator._execute_pit_stop
 

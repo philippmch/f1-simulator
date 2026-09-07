@@ -311,7 +311,7 @@ def test_discounted_safety_car_stop_is_worthwhile_in_last_five_laps():
     assert sim._should_pit(state, [state], track, 55, True, Weather())
     assert state.dry_pit_proposal == (55, TireCompound.SOFT)
     # Even an adversarial legacy stint chooser cannot replace the DP action.
-    sim._choose_compound_for_next_stint = lambda *args: TireCompound.HARD
+    sim._choose_committed_dry_compound = lambda *args: TireCompound.HARD
     sim._execute_pit_stop(state, track, Weather(), 55)
     assert state.current_tire.compound == TireCompound.SOFT
     assert state.dry_pit_proposal is None
@@ -402,7 +402,7 @@ def test_full_race_matches_best_exhaustive_legal_one_stop(stress):
         sim._infer_team_strategy = lambda *args: TeamStrategyArchetype.BALANCED
         if forced_lap is not None:
             sim._should_pit = lambda state, states, track, lap, *args, **kwargs: lap == forced_lap
-            sim._choose_distinct_dry_compound = lambda *args: forced_compound
+            sim._choose_committed_dry_compound = lambda *args: forced_compound
         return sim.simulate_race(
             [state.driver], {state.car.team_id: state.car}, track, Weather(change_probability=0),
             [state.driver.id], starting_tires={state.driver.id: TireCompound.MEDIUM},

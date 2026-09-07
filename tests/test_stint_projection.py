@@ -111,7 +111,7 @@ def test_projected_differences_match_controlled_actual_laps():
         )
 
 
-def test_full_race_projects_next_stop_not_current_stop(monkeypatch):
+def test_damp_fallback_projects_next_stop_not_current_stop(monkeypatch):
     state, track = setup_state()
     sim = RaceSimulator(rng=np.random.default_rng(9))
     horizons = []
@@ -129,7 +129,10 @@ def test_full_race_projects_next_stop_not_current_stop(monkeypatch):
         sim, "_should_pit", lambda state, states, track, lap, *args, **kwargs: lap in [21, 42]
     )
     monkeypatch.setattr(sim.event_manager, "process_lap", lambda **kwargs: [])
-    sim.simulate_race([state.driver], {"A": state.car}, track, Weather(change_probability=0), ["A"])
+    sim.simulate_race(
+        [state.driver], {"A": state.car}, track,
+        Weather(track_wetness=0.1, rain_intensity=0.1, change_probability=0), ["A"],
+    )
     assert horizons == [(21, 0, 21), (42, 1, 22)]
 
 

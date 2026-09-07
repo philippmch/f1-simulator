@@ -46,7 +46,7 @@ def run_restart(suspension_lap, stop_budget, forced_compound=None, degradation=1
 
     simulator._should_pit = should_pit
     simulator.event_manager.process_lap = events
-    simulator._choose_distinct_dry_compound = lambda *args: TireCompound.HARD
+    simulator._choose_committed_dry_compound = lambda *args: TireCompound.HARD
     selected = []
     original_choose = simulator._choose_red_flag_tire
 

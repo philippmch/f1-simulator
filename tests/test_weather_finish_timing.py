@@ -43,7 +43,7 @@ def test_final_damp_lap_avoids_costly_stop_in_controlled_full_race():
             return should_pit(state, states, track, lap, *args, **kwargs)
 
         simulator._should_pit = choose
-        simulator._choose_distinct_dry_compound = lambda *args: TireCompound.HARD
+        simulator._choose_committed_dry_compound = lambda *args: TireCompound.HARD
         return simulator.simulate_race(
             [driver], {"team": car}, track, Weather(change_probability=0), ["A"],
             starting_tires={"A": TireCompound.MEDIUM},

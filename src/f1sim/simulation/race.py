@@ -1128,6 +1128,32 @@ class RaceSimulator:
             return 0.75
         return 1.0
 
+    def _choose_committed_dry_compound(
+        self, state: DriverRaceState, track: Track, current_lap: int,
+    ) -> TireCompound:
+        """Price a chosen paid stop's fresh set and all remaining dry stints.
+
+        This stop has not entered pit_stops yet. Its common service/lane loss
+        cancels between compounds; only subsequent stops consume the remaining
+        budget. A set must run this lap before another stop is possible.
+        """
+        used = self._used_slick_compounds(state)
+        wet_exemption = self._has_used_wet_compound(state)
+        candidates = [TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD]
+        if len(used) < 2 and not wet_exemption:
+            candidates = [compound for compound in candidates if compound not in used]
+        future_budget = min(3, max(0, self._dry_stop_budget(state, track) - state.pit_stops - 1))
+
+        def remaining_cost(compound: TireCompound) -> float:
+            return plan_dry_stop(
+                state.driver, state.car, track, TIRE_COMPOUNDS[compound], 0,
+                track.total_laps - current_lap + 1, future_budget,
+                used | {compound}, wet_exemption,
+                current_lap_time_modifier=self.event_manager.get_lap_time_modifier(),
+            ).wait_cost
+
+        return min(candidates, key=remaining_cost)
+
     def _execute_pit_stop(
         self,
         state: DriverRaceState,
@@ -1172,6 +1198,8 @@ class RaceSimulator:
             and weather.track_wetness < 0.08 and weather.rain_intensity < 0.15
         ):
             new_compound = proposal[1]
+        elif weather.track_wetness < 0.08 and weather.rain_intensity < 0.15:
+            new_compound = self._choose_committed_dry_compound(state, track, current_lap)
         elif len(self._used_slick_compounds(state)) < 2 and not self._has_used_wet_compound(state):
             # A dry stop must add a new slick compound until the two-compound
             # requirement is satisfied.  In particular, do not let a
