@@ -119,6 +119,22 @@ parameters, not values calibrated from that source. Because pit service occurs
 before lap pace in this engine, the post-stop gap represents the running lap;
 there is no separate in-lap/out-lap sector simulation.
 
+On clearly dry laps, slick-versus-slick passing probability also uses the tyre
+pace difference between the cars. The shared lap model includes compound,
+current tyre age, driver management, circuit stress and car degradation. Because
+the maneuver is resolved after running the lap, this comparison uses the
+current end-of-lap tyre ages. A fresh set fitted for that lap has age one.
+
+The defender's tyre cost minus the attacker's cost is converted to a base-pace
+equivalent using the car model's 3%-of-reference-lap scale, then bounded to one
+pace unit in either direction before entering the existing passing curve.
+Equal tyre contributions preserve the old probability. This is a bounded
+heuristic, not a fitted relationship between lap-time advantage and passing
+success. Circuit difficulty, proximity, driver skill and Overtake Mode still
+affect the maneuver, and a tyre advantage cannot bypass the gap restriction.
+Wet/damp laps and comparisons involving rain tyres retain their existing passing
+model until a separate wet-grip interaction is calibrated.
+
 Weather and damage stops retain priority. For a forced or fallback stop whose
 compound has not already been selected, the simulator compares tyre contribution over the
 next stint for each eligible fresh slick. The projection shares the actual lap
