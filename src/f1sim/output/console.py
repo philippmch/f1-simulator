@@ -16,35 +16,34 @@ class ConsoleOutput:
         Args:
             results: Qualifying results sorted by position
         """
-        print("\n" + "=" * 60)
+        print("\n" + "=" * 88)
         print("QUALIFYING RESULTS")
-        print("=" * 60)
-        print(f"{'Pos':<4} {'Driver':<20} {'Team':<15} {'Time':<12} {'Gap':<10}")
-        print("-" * 60)
+        print("=" * 88)
+        print(f"{'Pos':<4} {'Driver':<20} {'Q1':<11} {'Q2':<11} {'Q3':<11} {'Best':<11} Status")
+        print("-" * 88)
 
         ordered = sorted(results, key=lambda r: r.position)
-        pole_time = finite_time(ordered[0].best_time) if ordered else None
 
         for result in ordered:
             time = finite_time(result.best_time)
             time_text = f"{time:.3f}s" if time is not None else "No time"
-            gap = ""
-            if result.position > 1 and time is not None and pole_time is not None:
-                gap_secs = time - pole_time
-                gap = f"+{gap_secs:.3f}"
+            session_times = []
+            for value in (result.q1_time, result.q2_time, result.q3_time):
+                session_time = finite_time(value)
+                session_times.append(f"{session_time:.3f}s" if session_time is not None else "--")
 
-            eliminated = f" (out in {result.eliminated_in})" if result.eliminated_in else ""
+            eliminated = f"out in {result.eliminated_in}" if result.eliminated_in else ""
+            times_text = " ".join(f"{value:<11}" for value in session_times)
 
             print(
                 f"{result.position:<4} "
                 f"{result.driver_name:<20} "
-                f"{'':<15} "
-                f"{time_text} "
-                f"{gap:<10}"
+                f"{times_text} {time_text:<11} "
                 f"{eliminated}"
             )
 
-        print("=" * 60)
+        print("Best is the fastest lap across sessions; grid order follows session classification.")
+        print("=" * 88)
 
     @staticmethod
     def print_race_results(results: list[RaceResult]) -> None:
