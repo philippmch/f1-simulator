@@ -143,9 +143,13 @@ parameters, not values calibrated from that source. Because pit service occurs
 before lap pace in this engine, the post-stop gap represents the running lap;
 there is no separate in-lap/out-lap sector simulation.
 
-On clearly dry laps, slick-versus-slick passing probability also uses the tyre
-pace difference between the cars. The shared lap model includes compound,
-current tyre age, driver management, circuit stress and car degradation. Because
+Passing probability also uses the tyre pace difference between the cars in
+dry, damp and wet conditions. The shared lap model includes compound,
+current tyre age, driver management, circuit stress and car degradation. Tyre
+pace receives the same driver/car weather multiplier as actual lap running,
+plus the flat penalty for a compound that mismatches surface conditions. This
+lets suitable rain tyres help an attack against slicks on a wet surface, and
+lets worn or overheating rain tyres weaken an attack. Because
 the maneuver is resolved after running the lap, this comparison uses the
 current end-of-lap tyre ages. A fresh set fitted for that lap has age one.
 
@@ -156,8 +160,10 @@ Equal tyre contributions preserve the old probability. This is a bounded
 heuristic, not a fitted relationship between lap-time advantage and passing
 success. Circuit difficulty, proximity, driver skill and Overtake Mode still
 affect the maneuver, and a tyre advantage cannot bypass the gap restriction.
-Wet/damp laps and comparisons involving rain tyres retain their existing passing
-model until a separate wet-grip interaction is calibrated.
+The wet passing difficulty multiplier and wet Overtake Mode restriction remain
+in effect. This extends the existing lap-time heuristic to rain tyres; it does
+not model aquaplaning, a racing line that dries separately, or measured wet-grip
+passing probabilities.
 
 Restart passing uses a two-second attempt window, compared with 1.5 seconds
 in normal running. The proximity factor decreases across the corresponding
