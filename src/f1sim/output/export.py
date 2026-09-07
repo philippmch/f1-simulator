@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from f1sim.analysis.montecarlo import SimulationResults
+from f1sim.simulation.race import result_is_classified
 
 
 class Exporter:
@@ -143,7 +144,7 @@ class Exporter:
             writer.writerow([
                 "simulation", "position", "driver_id", "driver_name", "team",
                 "total_time", "gap_to_leader", "pit_stops", "fastest_lap",
-                "status", "dnf_reason", "strategy",
+                "status", "dnf_reason", "strategy", "laps_completed", "classified",
             ])
 
             for sim_idx, race_results in enumerate(results.race_results, 1):
@@ -161,6 +162,8 @@ class Exporter:
                         result.status.value,
                         result.dnf_reason or "",
                         ",".join(result.strategy),
+                        getattr(result, "laps_completed", None),
+                        str(result_is_classified(result)).lower(),
                     ])
 
         return filepath
@@ -230,6 +233,7 @@ class Exporter:
                 "max_workers": results.max_workers,
             },
             "win_probabilities": results.get_win_probabilities(),
+            "probability_intervals": results.get_probability_intervals(),
             "top_3_finish_probabilities": results.get_top_n_finish_probabilities(3),
             "top_10_finish_probabilities": results.get_top_n_finish_probabilities(10),
             "championship_projection": results.get_championship_projection(),

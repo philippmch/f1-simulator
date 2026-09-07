@@ -2,7 +2,7 @@
 
 from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.simulation.qualifying import QualifyingResult
-from f1sim.simulation.race import RaceResult
+from f1sim.simulation.race import RaceResult, result_is_classified
 
 
 class ConsoleOutput:
@@ -52,7 +52,8 @@ class ConsoleOutput:
         print("\n" + "=" * 70)
         print("RACE RESULTS")
         print("=" * 70)
-        print(f"{'Pos':<4} {'Driver':<20} {'Team':<18} {'Time/Gap':<15} {'Pits':<5} {'Status':<10}")
+        print(f"{'Pos':<4} {'Driver':<20} {'Team':<18} {'Time/Gap':<15} "
+              f"{'Pits':<5} {'Laps':<5} {'Status'}")
         print("-" * 70)
 
         leader_time = None
@@ -72,16 +73,21 @@ class ConsoleOutput:
             else:
                 time_str = result.dnf_reason or "DNF"
 
+            classified = result_is_classified(result)
+            position = str(result.position) if classified else "NC"
+            completed = getattr(result, "laps_completed", None)
+            laps = str(completed) if completed is not None else "-"
             status_str = result.status.value.upper()
-            if result.status.value == "finished":
-                status_str = ""
+            if result.status.value != "finished" or not classified:
+                status_str += " / " + ("Classified" if classified else "Not classified")
 
             print(
-                f"{result.position:<4} "
+                f"{position:<4} "
                 f"{result.driver_name:<20} "
                 f"{result.team:<18} "
                 f"{time_str:<15} "
                 f"{result.pit_stops:<5} "
+                f"{laps:<5} "
                 f"{status_str:<10}"
             )
 
