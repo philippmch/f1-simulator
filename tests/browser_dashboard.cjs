@@ -54,7 +54,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     const response = await responsePromise;
     assert.equal(response.status(), 200);
     const payload = await response.json();
-    const driverId = Object.values(payload.scenarios)[0].sample_race[0].driver_id;
+    // The matrix initially shows aggregate top contenders, which need not
+    // include the winner of the representative individual race.
+    const driverId = Object.values(payload.scenarios)[0].win_probabilities[0][0];
     await page.waitForFunction(() => !runInProgress);
     await page.locator('#tab-stats').click();
     await page.locator('#probabilityIntervals summary').click();
