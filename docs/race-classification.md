@@ -11,6 +11,12 @@ silently overwriting an entrant or classifying the same driver twice. IDs remain
 case-sensitive. Existing partial-grid behavior is unchanged: race entries without
 a matching driver or car are skipped, and an unusable grid yields no results.
 
+Qualifying retains an entrant without a matching car as eliminated in Q1 with
+no recorded lap. Unavailable qualifying times are `null` in API responses,
+blank in CSV exports and shown as "No time" in console output. Nonfinite times
+from legacy result objects receive the same treatment. This keeps incomplete
+fields serializable without dropping entrants or inventing a lap time.
+
 The distance threshold follows B2.5.5 of the [FIA 2026 Sporting Regulations,
 Issue 08, 5 August 2026](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_b_sporting_-_iss_08_-_2026-08-05_7.pdf):
 cars below 90% of the winner's completed laps, rounded down to whole laps, are
