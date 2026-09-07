@@ -3,8 +3,10 @@
 import csv
 import json
 from datetime import UTC, datetime
+from html import escape
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.simulation.race import result_is_classified
@@ -34,14 +36,14 @@ class Exporter:
         if not path.exists():
             return []
 
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(data, list):
             return []
 
         return [row for row in data if isinstance(row, dict)]
 
     def _write_history(self, history: list[dict[str, Any]]) -> None:
-        self._history_path().write_text(json.dumps(history, indent=2))
+        self._history_path().write_text(json.dumps(history, indent=2), encoding="utf-8")
 
     def _record_export_run(
         self,
@@ -70,18 +72,23 @@ class Exporter:
 
         rows = []
         for row in history:
-            ts = row.get("timestamp", "-")
-            track = row.get("track", "-")
-            sims = row.get("num_simulations", "-")
-            seed = row.get("seed", "-")
+            ts = escape(str(row.get("timestamp", "-")))
+            track = escape(str(row.get("track", "-")))
+            sims = escape(str(row.get("num_simulations", "-")))
+            seed = escape(str(row.get("seed", "-")))
             files = row.get("files", {})
             report = files.get("report_html") if isinstance(files, dict) else None
             stats = files.get("statistics_json") if isinstance(files, dict) else None
             links = []
-            if report:
-                links.append(f"<a href=\"{report}\">report</a>")
-            if stats:
-                links.append(f"<a href=\"{stats}\">stats</a>")
+            for label, artifact in (("report", report), ("stats", stats)):
+                if not artifact:
+                    continue
+                if (isinstance(artifact, str) and artifact not in (".", "..")
+                        and "/" not in artifact and "\\" not in artifact):
+                    href = escape("./" + quote(artifact, safe=""), quote=True)
+                    links.append(f'<a href="{href}">{label}</a>')
+                else:
+                    links.append(escape(str(artifact)))
             row_links = " | ".join(links) if links else "-"
             rows.append(
                 f"<tr><td>{ts}</td><td>{track}</td><td>{sims}</td><td>{seed}</td><td>{row_links}</td></tr>"
@@ -120,7 +127,7 @@ class Exporter:
 </body>
 </html>
 """
-        filepath.write_text(html)
+        filepath.write_text(html, encoding="utf-8")
         return filepath
 
     def export_race_results_csv(
@@ -336,12 +343,21 @@ class Exporter:
         team_labels = list(team_proj.keys())[:10]
         team_values = [team_proj[t] for t in team_labels]
 
+        def script_json(value: Any) -> str:
+            # JSON quoting alone does not prevent HTML's script-end parser.
+            return (json.dumps(value).replace("<", "\\u003c")
+                    .replace(">", "\\u003e").replace("&", "\\u0026"))
+
+        track_text = escape(str(results.track_name))
+        simulations_text = escape(str(results.num_simulations))
+        seed_text = escape(str(results.seed))
+
         html = f"""<!doctype html>
 <html lang=\"en\">
 <head>
   <meta charset=\"utf-8\" />
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-  <title>F1 Simulation Report - {results.track_name}</title>
+  <title>F1 Simulation Report - {track_text}</title>
   <script src=\"{self._PLOTLY_CDN}\"></script>
   <style>
     body {{
@@ -359,7 +375,7 @@ class Exporter:
 <body>
   <h1>F1 Simulation Report</h1>
   <div class=\"meta\">
-    Track: {results.track_name} · Simulations: {results.num_simulations} · Seed: {results.seed}
+    Track: {track_text} · Simulations: {simulations_text} · Seed: {seed_text}
   </div>
   <div class=\"grid\">
     <div class=\"card\"><h2>Top 10 Win Probabilities</h2><div id=\"wins\"></div></div>
@@ -368,8 +384,8 @@ class Exporter:
   <script>
     Plotly.newPlot('wins', [{{
       type: 'bar',
-      x: {json.dumps(top_labels)},
-      y: {json.dumps(top_values)},
+      x: {script_json(top_labels)},
+      y: {script_json(top_values)},
       marker: {{ color: '#7aa2ff' }}
     }}], {{
       paper_bgcolor: '#181c30', plot_bgcolor: '#181c30',
@@ -378,8 +394,8 @@ class Exporter:
 
     Plotly.newPlot('teams', [{{
       type: 'bar',
-      x: {json.dumps(team_labels)},
-      y: {json.dumps(team_values)},
+      x: {script_json(team_labels)},
+      y: {script_json(team_values)},
       marker: {{ color: '#53d8b8' }}
     }}], {{
       paper_bgcolor: '#181c30', plot_bgcolor: '#181c30',
@@ -389,7 +405,7 @@ class Exporter:
 </body>
 </html>
 """
-        filepath.write_text(html)
+        filepath.write_text(html, encoding="utf-8")
         return filepath
 
     def export_all(
