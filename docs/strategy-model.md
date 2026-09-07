@@ -26,13 +26,29 @@ distinct-compound requirement. Existing strategy weights choose between
 minimum-cost opening compounds, allowing different orders of equally fast
 stints. A numerical tolerance of one billionth of a second treats floating-point
 ties consistently. If no legal projected plan exists, the original weighted
-choice remains available. Explicit starting-tyre overrides and precautionary
-rain starts retain priority. This projection shares the dry optimizer's limits
-on weather, traffic, inventory and future interruptions.
+choice remains available. Explicit starting-tyre overrides and rain sets selected
+by the surface/rainfall crossover retain priority. This projection shares the dry
+optimizer's limits on weather, traffic, inventory and future interruptions.
 Precautionary intermediates must also pass the same mismatch check used during
 the race. A rainy condition label with a sufficiently dry surface and low
 rainfall does not fit intermediates that would immediately require a paid
 replacement before lap one. Explicit starting-tyre overrides remain available.
+
+When intermediates are only a precaution, the selector compares them with all
+three slick compounds using isolated, traffic-free runs of the existing pit
+policy. These runs cover the full race, use mean lap pace and expected service
+time, and advance surface wetness after each lap under constant rainfall and
+weather condition. They include later paid stops and the compound-use rule.
+Each candidate uses the same eight fixed private reaction seeds; the selector
+compares their average total time and favours the existing intermediate choice
+in a tie. The real race's random generator and input objects are untouched.
+
+This is an approximate comparison of the current policy under sustained
+conditions, not a global wet-strategy optimizer or a forecast of changing rain,
+traffic, or incidents. Close choices can depend on the sampled reaction paths.
+Results are cached with a bounded capacity, including the driver, car, circuit,
+weather, tyre configuration, and strategy settings. Direct selector calls
+without driver/car context retain the original precautionary choice.
 
 Aggressive, balanced and conservative profiles influence opening slick choices
 and close timing decisions. The fallback weather strategy retains its style-based
