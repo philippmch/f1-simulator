@@ -25,6 +25,14 @@ driver to react when conditions change after the planned stops are exhausted.
 The dry-compound check counts distinct slick compounds rather than stops; using
 an intermediate or wet compound exempts that driver's modeled dry-use rule.
 
+Race results expose the actual paid pit laps, shown below each dashboard stop
+count and included as `pit_laps` in the API and downloaded scenario JSON.
+The race CSV appends a `pit_laps` column containing a JSON array, such as
+`[17, 34]`. An empty array means no paid stops; legacy results with unavailable
+timing use null in JSON and a blank CSV cell. Free red-flag tyre changes remain
+in compound history but do not add a paid pit lap. A stop performed before a
+retirement on the same lap remains part of that driver's stop history.
+
 Fresh weather tyre selection shares the slick-mismatch crossover: above 0.2
 surface wetness or 0.4 rain intensity, a stop fits intermediates; above 0.7
 surface wetness, it fits full wets. These values are normalized model parameters,
