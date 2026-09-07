@@ -46,6 +46,11 @@ MAX_PAGINATION_ROWS = 10_000
 DEFAULT_LIVE_FETCH_BUDGET = 60.0
 MAX_LIVE_FETCH_BUDGET = 300.0
 MAX_HTTP_TIMEOUT = 120.0
+# The official teams HTML is approximately 350 KiB and a calendar page 14 KiB.
+# Leave substantial headroom for provider markup changes while bounding each
+# response before decoding/parsing (pagination has its own independent bounds).
+MAX_HTTP_RESPONSE_BYTES = 8 * 1024 * 1024
+HTTP_READ_CHUNK_BYTES = 64 * 1024
 RESULT_ROUND_COMPLETENESS = 0.8
 
 
@@ -832,8 +837,40 @@ class CurrentSeasonDataLoader:
     @staticmethod
     def _default_http_get(url: str, *, headers: Mapping[str, str], timeout: float) -> bytes:
         request = Request(url, headers=dict(headers), method="GET")
+        deadline = time.monotonic() + timeout
         with urlopen(request, timeout=timeout) as response:  # noqa: S310 - URL is a fixed API/page endpoint
-            return response.read()
+            declared_length = _as_int(response.headers.get("Content-Length"))
+            if declared_length is not None and declared_length > MAX_HTTP_RESPONSE_BYTES:
+                raise CurrentSeasonDataError(
+                    f"Live response exceeds {MAX_HTTP_RESPONSE_BYTES} bytes: {url}"
+                )
+            body = bytearray()
+            while True:
+                if time.monotonic() >= deadline:
+                    raise CurrentSeasonDataError(f"Live response read budget exhausted: {url}")
+                # read1 returns after at most one underlying read, unlike read
+                # which can wait indefinitely for a slow trickle to fill its
+                # requested size. Check elapsed time between reads; urllib's
+                # connection/header handling and a blocking socket operation
+                # still use socket timeouts, so this is not a hard deadline.
+                chunk = response.read1(
+                    min(HTTP_READ_CHUNK_BYTES, MAX_HTTP_RESPONSE_BYTES + 1 - len(body))
+                )
+                if time.monotonic() >= deadline:
+                    raise CurrentSeasonDataError(f"Live response read budget exhausted: {url}")
+                if not chunk:
+                    if (
+                        declared_length is not None
+                        and not response.chunked
+                        and len(body) < declared_length
+                    ):
+                        raise CurrentSeasonDataError(f"Incomplete live response body: {url}")
+                    return bytes(body)
+                body.extend(chunk)
+                if len(body) > MAX_HTTP_RESPONSE_BYTES:
+                    raise CurrentSeasonDataError(
+                        f"Live response exceeds {MAX_HTTP_RESPONSE_BYTES} bytes: {url}"
+                    )
 
     def _assert_current_year(self, year: int) -> None:
         runtime_year = _utc_now().year
@@ -934,6 +971,7 @@ class CurrentSeasonDataLoader:
                 self._mark_failed_url(url)
                 raise
         except CurrentSeasonDataError:
+            self._mark_failed_url(url)
             raise
         except Exception:
             self._mark_failed_url(url)
