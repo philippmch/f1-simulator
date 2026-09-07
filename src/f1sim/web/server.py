@@ -226,6 +226,7 @@ def _serialize_driver_statistics(results: Any) -> dict[str, Any]:
 
     top_5 = _safe_call(results, "get_top_n_finish_probabilities", 5, default={}) or {}
     top_10 = _safe_call(results, "get_top_n_finish_probabilities", 10, default={}) or {}
+    intervals = _safe_call(results, "get_probability_intervals", default={}) or {}
     ordered_ids = list(
         (_safe_call(results, "get_win_probabilities", default={}) or driver_stats).keys()
     )
@@ -247,6 +248,7 @@ def _serialize_driver_statistics(results: Any) -> dict[str, Any]:
             "points_finishes": stats.points_finishes,
             "dnfs": stats.dnfs,
             "dnf_rate": stats.dnf_rate,
+            "probability_intervals": intervals.get(driver_id),
             "total_points": stats.total_points,
             "avg_position": stats.avg_position,
             "avg_qualifying": stats.avg_qualifying,

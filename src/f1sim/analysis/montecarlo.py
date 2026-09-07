@@ -3,7 +3,9 @@
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
+from math import sqrt
 from numbers import Integral
+from statistics import NormalDist
 
 import numpy as np
 
@@ -11,6 +13,38 @@ from f1sim.models import Car, Driver, Track, Weather
 from f1sim.simulation.events import EventType
 from f1sim.simulation.qualifying import QualifyingResult, QualifyingSimulator
 from f1sim.simulation.race import DriverStatus, RaceResult, RaceSimulator
+
+
+def wilson_interval(successes: int, trials: int) -> dict[str, float]:
+    """Return a 95% Wilson binomial score interval in percentage units.
+
+    These bounds describe sampling error across independent Monte Carlo trials,
+    conditional on the model and inputs. They do not measure model calibration
+    or uncertainty about a real race. With no observations, return [0, 100].
+    """
+    if (
+        isinstance(successes, bool)
+        or isinstance(trials, bool)
+        or not isinstance(successes, Integral)
+        or not isinstance(trials, Integral)
+    ):
+        raise ValueError("successes and trials must be integers")
+    if trials < 0 or successes < 0 or successes > trials:
+        raise ValueError("counts must satisfy 0 <= successes <= trials")
+    if trials == 0:
+        return {"lower": 0.0, "upper": 100.0}
+
+    z_squared = NormalDist().inv_cdf(0.975) ** 2
+    proportion = successes / trials
+    denominator = 1 + z_squared / trials
+    center = (proportion + z_squared / (2 * trials)) / denominator
+    margin = sqrt(
+        z_squared * (proportion * (1 - proportion) + z_squared / (4 * trials)) / trials
+    ) / denominator
+    return {
+        "lower": 0.0 if successes == 0 else max(0.0, (center - margin) * 100),
+        "upper": 100.0 if successes == trials else min(100.0, (center + margin) * 100),
+    }
 
 
 @dataclass
@@ -83,6 +117,27 @@ class SimulationResults:
     seed: int | None = None
     parallel: bool = True
     max_workers: int | None = None
+
+    def get_probability_intervals(self) -> dict[str, dict]:
+        """95% sampling intervals for win, podium and DNF rates, in percent.
+
+        Use each driver's observed race count, including DNFs, matching the
+        denominators of the existing point estimates. Counts come from the
+        status-aware aggregation, so a classified retirement is not a win.
+        These are individual intervals, not simultaneous bounds across drivers.
+        """
+        return {
+            driver_id: {
+                "confidence": 0.95,
+                "method": "wilson",
+                "scope": "monte_carlo_sampling",
+                "trials": len(stats.positions),
+                "win": wilson_interval(stats.wins, len(stats.positions)),
+                "podium": wilson_interval(stats.podiums, len(stats.positions)),
+                "dnf": wilson_interval(stats.dnfs, len(stats.positions)),
+            }
+            for driver_id, stats in self.driver_stats.items()
+        }
 
     def get_win_probabilities(self) -> dict[str, float]:
         """Get win probability for each driver."""

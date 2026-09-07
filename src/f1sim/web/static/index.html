@@ -1142,6 +1142,18 @@ input:focus-visible {
   }
 }
 
+.sampling-range {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  line-height: 1.5;
+}
+
+.probability-details { margin-top: 1.2rem; }
+.probability-details summary { cursor: pointer; font-size: 0.8rem; }
+
 .sim-text {
   font-family: var(--font-display);
   font-weight: 600;
@@ -2329,6 +2341,38 @@ function renderQualifying() {
   container.innerHTML = html + '</div>';
 }
 
+function formatSamplingRange(interval) {
+  if (!Number.isFinite(interval?.lower) || !Number.isFinite(interval?.upper)) return '—';
+  return `${interval.lower.toFixed(1)}–${interval.upper.toFixed(1)}%`;
+}
+
+function renderProbabilityIntervals(drivers) {
+  const available = drivers.filter(driver => driver.probability_intervals?.scope === 'monte_carlo_sampling');
+  if (!available.length) return '';
+  const cell = (driver, event, rate) => `${formatPercent(driver[rate])}
+    <span class="sampling-range">${formatSamplingRange(driver.probability_intervals[event])}</span>`;
+  return `
+    <details class="probability-details" id="probabilityIntervals">
+      <summary>95% sampling ranges for all drivers</summary>
+      <p class="inline-note">Each cell shows an estimate and its individual 95% sampling range.
+        More simulations reduce sampling noise. These ranges do not measure model accuracy
+        or guarantee what will happen in a real race.</p>
+      <div class="stats-table-wrap" tabindex="0" role="region" aria-label="Probability sampling ranges">
+        <table class="metrics-table">
+          <thead><tr><th scope="col">Driver</th><th scope="col">Trials</th>
+            <th scope="col">Win</th><th scope="col">Podium</th><th scope="col">DNF</th></tr></thead>
+          <tbody>${available.map(driver => `<tr>
+            <th scope="row">${escapeHtml(driver.id)}</th>
+            <td>${toNumber(driver.probability_intervals.trials)}</td>
+            <td>${cell(driver, 'win', 'win_rate')}</td>
+            <td>${cell(driver, 'podium', 'podium_rate')}</td>
+            <td>${cell(driver, 'dnf', 'dnf_rate')}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>
+    </details>`;
+}
+
 function renderStats() {
   const container = document.getElementById('statsContent');
   const empty = document.getElementById('emptyStats');
@@ -2375,6 +2419,8 @@ function renderStats() {
       <div class="summary-card">
         <div class="summary-value">${formatPercent(topWinner.win_rate)}</div>
         <div class="summary-label">Top Win Probability</div>
+        ${topWinner.probability_intervals ? `<span class="sampling-range">95% sampling range:
+          ${formatSamplingRange(topWinner.probability_intervals.win)}</span>` : ''}
       </div>
       <div class="summary-card">
         <div class="summary-value" style="font-size:1.2rem;color:${getTeamStyle(topTeam?.team_key).color}">${escapeHtml(topTeam ? titleFromKey(topTeam.team_key) : '--')}</div>
@@ -2396,6 +2442,7 @@ function renderStats() {
           driver => getTeamStyle(driver.team_key).color,
           value => formatPercent(value)
         )}
+        ${renderProbabilityIntervals(drivers)}
       </div>
 
       <div class="stat-card">
