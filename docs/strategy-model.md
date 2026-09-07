@@ -273,20 +273,27 @@ deterministic rainfall and drying response used in race evolution, assuming
 current rainfall persists. The projection consumes no random draws and does
 not predict changes in weather condition or future race interruptions.
 
-The comparison deliberately favours stopping: each projected lap allows the
-best fresh compound that avoids critical mismatch and maximum traffic relief,
-with negative gains discarded. This optimistic bound does not freeze compound
-eligibility at the current lap, since running later sets can change it.
-It uses the shared lap physics without random
-variation, ages the current set, and applies the SC/VSC running multiplier only to the
-current lap; later laps assume green running. If even these optimistic savings
-cannot pay the current stop cost, the car stays out and re-evaluates next lap.
-If the current set would encounter critical conditions in the projection, the
-cost veto does not apply. An unresolved distinct-compound requirement also
-retains its existing priority. Passing the filter still permits some losing
-stops because the assumed fresh sets and traffic relief may be unavailable.
-This is a conditional cost filter, not an optimal wet-race schedule or a
-guarantee about unpredictable future weather.
+The comparison deliberately favours stopping, but every projected refit now pays
+for lane travel and expected service. The first replacement follows the actual
+fresh-weather crossover: a stop that would fit wets cannot claim the pace of
+fresh intermediates. Later refits may use any noncritical compound, with no
+inventory, stop-budget or compound-use restriction. Each set must run at least
+one lap, ages normally, and cannot continue into a critical mismatch. This
+expanded set of future options gives an optimistic cost for stopping now.
+
+The alternative retains the existing set to the finish. If rivals remain, it
+receives maximum dirty air while replacement sets receive clear air; a lone car
+receives no fictional traffic relief. The calculation uses noise-free lap times,
+including the pace floor. Only this lap receives the current SC/VSC running and
+lane factors; queue delay applies only to the current stop. Future laps and
+stops assume green running. Results are cached with bounded capacity.
+
+If even the optimistic paid-refit plan is slower than retaining the old set,
+the car stays out and re-evaluates next lap. Projected critical old-set conditions
+and unresolved compound-use requirements retain priority. Passing the filter can
+still permit a losing stop because its future options and traffic relief may be
+unavailable. This remains a conditional cost filter, not an optimal wet-race
+schedule or a guarantee about unpredictable weather.
 
 When a clearly dry stop is already committed but has no optimizer proposal,
 the simulator compares eligible fresh slicks over the entire remaining race.
