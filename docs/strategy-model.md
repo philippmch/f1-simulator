@@ -128,6 +128,9 @@ For an ordinary stop on a clearly dry track, the optimizer compares pitting now
 with driving at least one more lap on the current set. It searches remaining
 stint lengths and eligible slick compounds through the finish, allowing unused
 stops to be skipped. Terminal schedules must satisfy the distinct-compound rule.
+An earlier stop may repeat a compound when enough laps and stops remain to run
+a different one later. This matters when a current SC/VSC changes the best
+order of stints; the requirement applies to the completed race, not each stop.
 The projection uses current tyre age and the shared lap model's pace and wear,
 including driver management, circuit stress and the car's degradation factor.
 The selected compound is carried into the actual stop.
@@ -260,9 +263,9 @@ This covers punctures, mandatory stops and returns from rain tyres. The current
 paid stop consumes a budget slot before later stops are considered. Its lane
 and service loss are common to all compound choices; future paid stops are
 included in the comparison. The new set runs the current lap, including any
-SC/VSC running multiplier, before a later stop is allowed. Until the dry-use
-rule is satisfied, this paid change must add an unused slick compound. The
-choice does not sample randomness or alter the race state.
+SC/VSC running multiplier, before a later stop is allowed. A repeated compound
+is eligible only if the remaining projected schedule can still satisfy the
+dry-use rule. The choice does not sample randomness or alter the race state.
 
 For a damp fallback stop whose compound has not already been selected, the
 simulator compares tyre contribution over the
