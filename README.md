@@ -11,6 +11,7 @@ A Formula 1 race simulator that runs **only for the current UTC season**. The ba
 - Runs completed and future current-season venues. Future races use the live event identity plus circuit physics configuration and current-season form.
 - Keeps fetched F1 data in short-lived memory only. It does not create a data cache or silently fall back to an older season.
 - Returns source and fetch-time provenance with calendar, ratings, and simulation responses.
+- Shows individual 95% Monte Carlo sampling ranges for win, podium, and DNF probabilities. These describe sampling noise under the chosen model, not confidence in the real race outcome.
 
 The race engine models circuit-dependent car performance, tyre stress and degradation, wet-weather car/driver performance, race-level safety-car risk, 2026 Active Aero, proximity-gated and energy-limited Overtake Mode, incidents with time/strategy consequences, current-season compound form, reliability, pit strategy, and Monte Carlo uncertainty. Active Aero is available to the field on configured straights rather than being a following aid; Overtake Mode is handled separately and is disabled during neutralisations, wet running, and restart laps. Monaco's 2026 Active Aero exception is represented with no configured zones.
 
@@ -117,6 +118,7 @@ separate capacity domains.
 - No on-disk API cache is created.
 - API responses are marked `no-store`; each endpoint creates an isolated live-data snapshot.
 - Live snapshots have a bounded aggregate fetch budget and fail closed on truncated, repeated, seasonless, ambiguous, or conflicting provider data.
+- Each HTTP response is limited to 8 MiB before parsing. Body reads also check elapsed time between chunks; connection/header handling and individual socket reads still use socket timeouts.
 - Form calibration uses only rounds with near-complete, uniquely identified result and qualifying fields; each row remains attributed to the constructor that entered it.
 - Cancelled/non-championship events and non-current drivers are excluded.
 - If fresh current-season data is unavailable, the request fails clearly instead of using a stale local list.
@@ -137,6 +139,12 @@ browser available. `PLAYWRIGHT_MODULE` can point to an existing Playwright
 installation; `BROWSER_CHANNEL=msedge` selects installed Microsoft Edge.
 The check uses live data for a small run, then tests responsive layouts,
 exports, keyboard navigation, and recovery from simulated connection failures.
+
+Set `F1SIM_OFFLINE=1` to run that browser check without a server or F1 network
+access. It generates deterministic synthetic results using the real simulation
+and serializer, and intercepts all browser requests. `PYTHON` selects the Python
+executable when it is not available as `python`. CI runs this offline check in
+Chromium and runs the Python suite on Linux (3.11 and 3.12) and Windows (3.12).
 
 Project layout:
 
