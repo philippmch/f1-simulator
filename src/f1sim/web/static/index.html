@@ -585,6 +585,16 @@ input:focus-visible {
   text-align: center;
 }
 
+.pit-laps {
+  display: block;
+  margin-top: 3px;
+  padding: 0 2px;
+  font-size: 0.6rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+}
+
 .tire-strategy {
   display: flex;
   gap: 4px;
@@ -2272,6 +2282,11 @@ function renderRace() {
     const isPodium = classified && result.position <= 3;
     const statusText = raceStatusText(result);
     const isFastest = fastestResult && fastestResult.driver_id === result.driver_id;
+    const pitLaps = Array.isArray(result.pit_laps)
+      ? result.pit_laps.filter(lap => Number.isInteger(lap) && lap > 0) : null;
+    const pitLapText = pitLaps?.length ? pitLaps.map(lap => `L${lap}`).join(' · ') : '—';
+    const pitDescription = pitLaps === null ? 'Pit laps unavailable'
+      : pitLaps.length ? `Paid pit stops on laps ${pitLaps.join(', ')}` : 'No paid pit stops';
 
     html += `
       <div class="driver-row ${finished ? '' : 'dnf'} ${isPodium ? 'podium' : ''}" title="${escapeHtml(statusText)}" style="animation-delay:${index * 0.04}s">
@@ -2281,7 +2296,10 @@ function renderRace() {
         <div class="driver-name">${escapeHtml(result.driver_name)}</div>
         <div class="gap">${formatGap(result)}</div>
         <div class="fastest-lap ${isFastest ? 'is-fastest' : ''}">${formatTime(result.fastest_lap)}</div>
-        <div class="pits">${result.pit_stops}</div>
+        <div class="pits" title="${escapeHtml(pitDescription)}">
+          ${toNumber(result.pit_stops)}
+          <span class="pit-laps">${escapeHtml(pitLapText)}</span>
+        </div>
         <div class="tire-strategy">
           ${(result.strategy || []).map(compound => {
             const normalized = TIRE_LABELS[compound] ? compound : 'unknown';

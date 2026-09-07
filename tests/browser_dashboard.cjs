@@ -75,12 +75,17 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     }
     // Explicit classified and unclassified retirements must remain distinct.
     await page.locator('#tab-race').click();
+    for (const row of Object.values(payload.scenarios)[0].sample_race) {
+      assert(Array.isArray(row.pit_laps), 'Current race results must include actual pit laps');
+      assert.equal(row.pit_laps.length, row.pit_stops);
+    }
     await page.evaluate(() => {
       window.savedClassificationSample = getScenarioEntry().data.sample_race;
       getScenarioEntry().data.sample_race = savedClassificationSample.slice(0, 3).map((row, index) => ({
         ...row, position: index + 1, status: index === 0 ? 'finished' : 'dnf',
         classified: index < 2, laps_completed: [60, 54, 53][index],
         fastest_lap: [90, 89, 91][index], dnf_reason: index ? 'Engine failure' : null,
+        pit_stops: [3, 0, 1][index], pit_laps: [[7, 17, 34], [], null][index],
       }));
       renderRace();
     });
@@ -93,10 +98,19 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     const unclassifiedRetirement = page.locator('#raceContent .driver-row').nth(2);
     assert.equal(await unclassifiedRetirement.locator('.pos').innerText(), 'NC');
     assert(!(await unclassifiedRetirement.getAttribute('class')).includes('podium'));
+    assert.equal(await page.locator('#raceContent .pit-laps').first().innerText(), 'L7 · L17 · L34');
+    assert.equal(await classifiedRetirement.locator('.pits').getAttribute('title'), 'No paid pit stops');
+    assert.equal(await unclassifiedRetirement.locator('.pits').getAttribute('title'), 'Pit laps unavailable');
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({width, height: 900});
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
         `Retirement classification overflows at ${width}px`);
+      assert(await page.locator('#raceContent .pit-laps').first().isVisible(),
+        `Pit laps must remain visible at ${width}px`);
+      if (process.env.F1SIM_SCREENSHOT_DIR && [390, 1440].includes(width)) {
+        await page.screenshot({path: path.join(process.env.F1SIM_SCREENSHOT_DIR,
+          `pit-laps-${width}.png`), fullPage: true, animations: 'disabled'});
+      }
     }
     await page.evaluate(() => {
       getScenarioEntry().data.sample_race = savedClassificationSample;
