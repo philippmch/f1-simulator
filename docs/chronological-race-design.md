@@ -41,6 +41,22 @@ and the current neutralization modifier, without predicting future incidents,
 weather changes or stops. Initial laps without an observed pace retain the
 scheduled horizon.
 
+Chronological pit decisions receive an immutable `StrategyTrafficSnapshot`.
+The gap ahead comes from the circular physical predecessor; the space behind
+comes from the successor's pending crossing, including lapped traffic. These
+inputs do not use race rank or old completed-crossing clocks. Production callers
+without a snapshot retain their existing strategy behavior.
+
+The rejoin forecast uses expected service, known team queue delay and the current
+pit-lane factor. It preserves rivals' committed running and pit delays, then
+projects their observed free pace under current control conditions. It prices
+the difference in one lap's dirty air between rejoining and staying out; the
+planner applies the existing weather multiplier. SC/VSC contribute no green
+traffic penalty. Known pit exits can create rejoin traffic, while terminal cars
+are excluded. Forecasting neither mutates live state nor consumes random draws.
+This is a free-running forecast: future stops, incidents, battle delays and
+weather changes remain unknown, and the estimate never determines actual order.
+
 Running physics uses physical gaps for dirty air and Overtake Mode detection.
 The gap is estimated from the preceding on-track car's progress through its
 pending lap, independently of race rank and completed distance. Weather, control,
@@ -68,9 +84,8 @@ describe yielding at the first opportunity, with allowance for the next straight
 The engine has no sector geometry, so it does not model that wait, noncompliance
 or penalties, or add an uncalibrated time loss for yielding.
 
-This is not yet a replacement for the full production model. Strategy traffic
-inputs still need conversion from synchronous crossing gaps to physical progress.
-Red-flag physical grouping and suspension duration, and the finish transition
+This is not yet a replacement for the full production model. Red-flag physical
+grouping and suspension duration, and the finish transition
 described below, also remain before changing the production entry points.
 The existing minor-contact time losses and personal spin/puncture/crash outcomes
 are already reused; a richer damage-severity model would improve both engines
