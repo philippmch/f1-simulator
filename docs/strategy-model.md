@@ -25,8 +25,19 @@ selection, with an additional precautionary intermediate bias for rainy starts.
 Already-fitted rain tyres have wider drying windows before they trigger another
 stop, which avoids repeatedly switching sets near the crossover.
 
-A conservative driver who meets the mid-race traffic trigger switches to the
-balanced profile for subsequent decisions, including later compound choices.
+A conservative driver outside the top six can switch to the balanced profile
+after 40% of the scheduled race when following in modeled dirty air. The default
+traffic window is below two seconds; `conservative_switch_gap` can narrow that
+window and acts as a maximum gap, not a minimum. The switch persists for later
+decisions and compound choices. A large gap to the car ahead does not trigger it.
+
+In the reactive fallback strategy, a non-conservative driver can return to the
+earlier-stop plan when following closely after the actual race midpoint, rather
+than after a fixed lap number. Wet-condition fallback selection retains priority.
+Neither traffic-based profile nor fallback-plan switches are triggered during
+safety-car, virtual-safety-car, red-flag or restart laps: their compressed gaps
+do not by themselves establish a reason for a lasting strategy change. These
+are model heuristics, not forecasts of how long a driver will remain blocked.
 
 For an ordinary stop on a clearly dry track, the optimizer compares pitting now
 with driving at least one more lap on the current set. It searches remaining
