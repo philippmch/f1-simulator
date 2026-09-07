@@ -9,10 +9,11 @@ requires a sampled pass before a faster car can cross a physical predecessor.
 import heapq
 from dataclasses import dataclass, field
 from itertools import count
-from math import ceil
+from math import ceil, isfinite
 
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.events import EventType, RaceEvent
+from f1sim.simulation.neutralization import safety_car_running_time
 from f1sim.simulation.race import DriverRaceState, DriverStatus, RaceResult
 from f1sim.simulation.race_points import points_for_classification
 from f1sim.simulation.race_timing import RaceFinishTimeline
@@ -32,6 +33,17 @@ class _PendingLap:
     generation: int = 0
     mechanical_checked: bool = False
     attempted: set[str] = field(default_factory=set)
+    running_start: float | None = None
+    on_track: bool = True
+    paid_stop: bool = False
+    lap_time_modifier: float = 1.0
+    active_aero_enabled: bool = True
+    mode_allowed: bool = False
+    mode_active: bool = False
+    restart_boost: bool = False
+    detected_gap: float | None = None
+    safety_car: bool = False
+    sc_queue_pace: float | None = None
 
 
 class ChronologicalRace:
@@ -93,6 +105,7 @@ class ChronologicalRace:
             if kind == "exit":
                 self.order.append(driver_id)  # Pit exit is immediately after the line.
                 self.pit_exits.append((driver_id, pending.lap, now))
+                self._begin_running(self.states[driver_id], pending, now)
                 self._enqueue(driver_id, pending.ready, "cross")
                 continue
             if self._resolve_crossing(driver_id, now):
@@ -130,7 +143,9 @@ class ChronologicalRace:
                 flag_time = pending.ready
                 laps_left = max(0, self.timeline.final_lap - pending.lap)
                 if leader_pace is None:
-                    leader_pace = pending.running
+                    leader_pace = pending.running or None
+                if not pending.on_track and leader_pace is not None:
+                    flag_time += leader_pace * pending.lap_time_modifier
             else:
                 flag_time = now
                 laps_left = max(0, self.timeline.final_lap - leader.laps_completed)
@@ -173,19 +188,99 @@ class ChronologicalRace:
                 self.order.remove(driver_id)
         snapshot = self.weather.model_copy(deep=True)
         neutralized = not control.is_active_aero_allowed()
-        free_running = self.simulator.lap_simulator.calculate_lap_time(
-            state.driver, state.car, self.track, state.current_tire, snapshot,
-            lap, self.track.total_laps, gap_to_car_ahead=None,
+        interval = self.control_intervals + 1
+        pending = _PendingLap(
+            lap, now, now + loss, snapshot, neutralized,
+            state.current_tire.model_copy(deep=True), state.tire_laps, 0.0,
+            on_track=not stop, paid_stop=stop,
+            lap_time_modifier=control.get_lap_time_modifier(),
             active_aero_enabled=control.is_active_aero_allowed(),
+            mode_allowed=control.is_overtake_mode_allowed(interval, snapshot),
+            restart_boost=control.is_restart_lap(interval),
+            safety_car=control.safety_car_active,
         )
-        running = free_running * control.get_lap_time_modifier()
-        self.pending[driver_id] = _PendingLap(
-            lap, now, now + loss + running, snapshot, neutralized,
-            state.current_tire.model_copy(deep=True), state.tire_laps,
-            free_running,
+        if pending.safety_car:
+            leader_id = self._queue_leader_id()
+            leader_pending = self.pending.get(leader_id)
+            leader_pace = (leader_pending.running if leader_pending is not None
+                           and leader_pending.running > 0 else self.running_paces.get(leader_id))
+            if leader_pace is not None:
+                pending.sc_queue_pace = leader_pace * pending.lap_time_modifier
+        self.pending[driver_id] = pending
+        state.overtake_mode_active_lap = False
+        if not stop:
+            self._begin_running(state, pending, now)
+        self._enqueue(driver_id, pending.ready, "exit" if stop else "cross")
+
+    def _queue_leader_id(self):
+        """Anchor the on-track SC queue by distance, then circular track order."""
+        racing = [driver_id for driver_id in self.order
+                  if self.states[driver_id].status == DriverStatus.RACING]
+        if not racing:
+            return self.leader_id
+        return min(racing, key=lambda driver_id: -self.states[driver_id].laps_completed)
+
+    def _physical_gap_ahead(self, driver_id, now, reference_pace=None):
+        """Time-equivalent forward distance to the circular physical predecessor.
+
+        Pending running is interpolated at the line/pit-exit snapshot. A car's
+        race lap count and its old crossing clock are irrelevant to this gap.
+        The initial grid leader has no predecessor; after each crossing, the
+        newly starting car is at the circular tail. Cars in the pit lane are
+        absent from that order and cannot impose dirty air or detection.
+        """
+        if driver_id not in self.order or not isfinite(now):
+            return None
+        index = self.order.index(driver_id)
+        if index == 0:
+            return None
+        ahead_id = self.order[index - 1]
+        ahead = self.states[ahead_id]
+        pending = self.pending.get(ahead_id)
+        if (ahead.status != DriverStatus.RACING or pending is None
+                or not pending.on_track or pending.running_start is None):
+            return None
+        duration = pending.ready - pending.running_start
+        elapsed = now - pending.running_start
+        if (not isfinite(duration) or duration <= 0 or not isfinite(elapsed) or elapsed < 0):
+            return None
+        # Whole-lap interpolation includes any already-known delay. Clamping
+        # retains the physical predecessor if its ready crossing awaits a pass.
+        progress = min(1.0, elapsed / duration)
+        own_pending = self.pending.get(driver_id)
+        modifier = own_pending.lap_time_modifier if own_pending is not None else 1.0
+        pace = (reference_pace if reference_pace is not None else
+                self.running_paces.get(driver_id, self.track.base_lap_time) * modifier)
+        return progress * pace if isfinite(pace) and pace > 0 else None
+
+    def _begin_running(self, state, pending, now):
+        """Sample exactly once, using traffic at actual track entry after service."""
+        pending.on_track = True
+        pending.running_start = now
+        gap = self._physical_gap_ahead(state.driver.id, now)
+        pending.detected_gap = gap
+        pending.mode_active = (not pending.paid_stop
+                               and self.simulator._deploy_overtake_mode_if_eligible(
+                                   state, self.track, gap, pending.mode_allowed,
+                               ))
+        state.overtake_mode_active_lap = pending.mode_active
+        free_running = self.simulator.lap_simulator.calculate_lap_time(
+            state.driver, state.car, self.track, pending.tire, pending.weather,
+            pending.lap, self.track.total_laps, gap_to_car_ahead=gap,
+            active_aero_enabled=pending.active_aero_enabled,
+            overtake_mode_active=pending.mode_active,
         )
-        self._enqueue(driver_id, now + loss if stop else now + running,
-                      "exit" if stop else "cross")
+        pending.running = free_running
+        running = free_running * pending.lap_time_modifier
+        if pending.safety_car:
+            if state.driver.id == self._queue_leader_id():
+                # The anchor sets queue pace; it never chases a lapped predecessor.
+                pending.sc_queue_pace = running
+            else:
+                nominal = max(free_running, pending.sc_queue_pace or running)
+                queue_gap = self._physical_gap_ahead(state.driver.id, now, nominal)
+                running = safety_car_running_time(free_running, nominal, queue_gap)
+        pending.ready = now + running
 
     def _retire(self, driver_id, now, reason):
         self.timeline.retire(driver_id, now)
@@ -253,6 +348,10 @@ class ChronologicalRace:
                 )
                 success, incident = self.simulator.overtaking_model.attempt_overtake(
                     state.driver, state.car, defender.driver, defender.car, self.track, 0.0,
+                    overtake_mode_active=(pending.mode_active and pending.detected_gap is not None
+                                          and pending.detected_gap
+                                          <= self.track.overtake_mode_detection_gap),
+                    restart_boost=pending.restart_boost,
                     is_wet=pending.weather.is_wet(), tire_pace_advantage_seconds=advantage,
                 )
             if success:
@@ -291,6 +390,7 @@ class ChronologicalRace:
             self.fastest.get(driver_id, float("inf")), state.last_lap_time,
         )
         self.crossings.append((driver_id, pending.lap, now))
+        self.simulator._recharge_overtake_mode_energy([state], neutralized=pending.neutralized)
         del self.pending[driver_id]
         self.order.remove(driver_id)
         if crossing.finish_time is not None:

@@ -238,7 +238,12 @@ def test_control_snapshots_apply_to_next_started_laps_without_clock_bunching(mon
     monkeypatch.setattr(control, "bunch_field", lambda *args: pytest.fail("clock rewind"))
     control.set_forced_safety_car(1)
     results = run(engine, args)
-    assert [(r.driver_id, r.total_time) for r in results] == [("Fast", 342), ("Slow", 418)]
+    assert [(r.driver_id, r.total_time) for r in results] == [("Fast", 342), ("Slow", 343)]
+    # Catch-up changes future running only. The first crossing remains at 110;
+    # the next lap reaches the free-pace bound before the car joins the queue.
+    assert [(lap, time) for driver, lap, time in engine.crossings if driver == "Slow"] == [
+        (1, 110), (2, 220), (3, 343),
+    ]
     assert len([event for event in control.events if event.event_type == EventType.SAFETY_CAR]) == 1
     crossing_times = [time for _, _, time in engine.crossings]
     assert crossing_times == sorted(crossing_times)
