@@ -53,6 +53,12 @@ replaced again before the restart lap. A distinct free set that can complete
 the requirement by running does not force another paid stop or extend the
 elective stop budget. In a two-lap race, the mandatory change waits until lap
 two so the opening set gets a lap of running.
+The unconditional compound-correction safeguard acts on the final lap, since
+the replacement runs that lap after its stop. Earlier dry stops follow the cost
+comparison, allowing a faster current set to remain on until the last legal
+change when that minimizes total time.
+One-lap simulations retain a single starting stint because this lap-level
+model cannot run two sets within one lap.
 
 Race results expose the actual paid pit laps, shown below each dashboard stop
 count and included as `pit_laps` in the API and downloaded scenario JSON.
