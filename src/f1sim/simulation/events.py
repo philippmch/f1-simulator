@@ -41,6 +41,9 @@ class RaceEvent:
     # remain compatible because both fields are optional.
     time_loss_seconds: float = 0.0
     forces_pit_stop: bool = False
+    # Reporting only: these asymmetric losses were already applied by the
+    # battle resolver and must not be charged again as pending consequences.
+    applied_time_losses: dict[str, float] = field(default_factory=dict)
 
 
 class EventManager:

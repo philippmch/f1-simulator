@@ -260,7 +260,6 @@ class RaceSimulator:
 
         # Track fastest laps
         fastest_laps: dict[str, float] = {}
-        all_events: list[RaceEvent] = []
 
         # Simulate each lap
         for lap in range(1, track.total_laps + 1):
@@ -440,8 +439,6 @@ class RaceSimulator:
             # spend any excess pace waiting, rather than banking a faster
             # cumulative clock for a later lap or the final classification.
             self._reconcile_racing_times(states)
-
-            all_events.extend(lap_events)
 
             # Check if safety car was just deployed - bunch up the field
             sc_deployed_this_lap = any(e.event_type == EventType.SAFETY_CAR for e in lap_events)
@@ -1454,6 +1451,17 @@ class RaceSimulator:
                 defender.total_time += defender_loss
                 attacker.last_lap_time += attacker_loss
                 defender.last_lap_time += defender_loss
+                self.event_manager.events.append(RaceEvent(
+                    event_type=EventType.COLLISION,
+                    # Direct helper calls can omit the lap; zero means unknown.
+                    lap=lap if lap is not None else 0,
+                    drivers_involved=[attacker.driver.id, defender.driver.id],
+                    description="Contact during an overtaking attempt",
+                    applied_time_losses={
+                        attacker.driver.id: attacker_loss,
+                        defender.driver.id: defender_loss,
+                    },
+                ))
                 material_penalty_ids.update((attacker.driver.id, defender.driver.id))
 
         if material_penalty_ids:
