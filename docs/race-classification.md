@@ -27,6 +27,14 @@ Raw ordinal position distributions retain every car, including unclassified
 retirements. Legacy result objects without classification metadata treat only
 finished cars as eligible.
 
+The CLI race table also shows completed laps and `NC`, and labels classified
+retirements explicitly. Race CSV exports append `laps_completed` and `classified`
+after the existing columns. The latter uses `true` or `false`; unknown legacy lap
+counts remain blank. CSV `position` retains the raw ordinal rank for analysis.
+Statistics JSON includes `probability_intervals` with the same 95% Wilson
+sampling ranges and per-driver trial counts as the dashboard. These ranges
+describe Monte Carlo sampling noise, not accuracy against a real race outcome.
+
 ## Limits
 
 This is a synchronous lap simulation: surviving cars complete the scheduled

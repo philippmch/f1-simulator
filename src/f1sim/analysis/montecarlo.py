@@ -128,7 +128,7 @@ class SimulationResults:
 
         Use each driver's observed race count, including DNFs, matching the
         denominators of the existing point estimates. Counts come from the
-        status-aware aggregation, so a classified retirement is not a win.
+        classification-aware aggregation; retirement is counted independently.
         These are individual intervals, not simultaneous bounds across drivers.
         """
         return {
