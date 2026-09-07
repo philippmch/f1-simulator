@@ -462,7 +462,7 @@ class RaceSimulator:
                     states,
                     material_penalty_ids,
                 )
-                self._handle_red_flag_stop(states, current_weather, track, lap)
+                self._handle_red_flag_stop(states, current_weather, track, lap, defer_tire_fit=True)
 
             # Commit fastest laps only after all on-track incidents and race
             # control consequences for this lap have been applied.  In
@@ -505,6 +505,8 @@ class RaceSimulator:
             # Evolve only when another lap will actually consume the result.
             if lap < track.total_laps:
                 current_weather = current_weather.evolve(self.rng)
+                if red_flag_deployed_this_lap:
+                    self._fit_red_flag_tires(states, current_weather, track, lap)
 
         # Mark finished drivers
         for state in states:
@@ -1717,6 +1719,8 @@ class RaceSimulator:
         weather: Weather,
         track: Track,
         current_lap: int,
+        *,
+        defer_tire_fit: bool = False,
     ) -> None:
         """Handle red flag stoppage.
 
@@ -1730,10 +1734,21 @@ class RaceSimulator:
             weather: Current weather conditions
             track: Race distance and tyre physics
             current_lap: Lap completed before suspension
+            defer_tire_fit: Live races fit after the existing restart weather update
         """
         # Bunch the field - gaps are reset on red flag
         self.event_manager.bunch_field(states)
 
+        if not defer_tire_fit:
+            self._fit_red_flag_tires(states, weather, track, current_lap)
+
+        # Keep race-control ordering unchanged; no stopped duration is modeled.
+        self.event_manager.end_red_flag()
+
+    def _fit_red_flag_tires(
+        self, states: list[DriverRaceState], weather: Weather, track: Track, current_lap: int,
+    ) -> None:
+        """Fit free sets using weather at the restart, before next-lap decisions."""
         # All drivers can change tires during red flag (free tire change)
         for state in states:
             if state.status != DriverStatus.RACING or current_lap >= track.total_laps:
@@ -1746,9 +1761,6 @@ class RaceSimulator:
             # set resolves it without charging another stop on the restart.
             state.force_pit_next_lap = False
             state.dry_pit_proposal = None
-
-        # End suspension for the next lap; no stopped-clock duration is modeled.
-        self.event_manager.end_red_flag()
 
     def _choose_red_flag_tire(
         self, state: DriverRaceState, weather: Weather, track: Track, current_lap: int,
