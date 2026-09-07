@@ -35,8 +35,8 @@ def run_race(stress, forced_lap=None, forced_compound=None):
     stops = []
     execute = simulator._execute_pit_stop
 
-    def record(state, track, weather, current_lap):
-        loss = execute(state, track, weather, current_lap)
+    def record(state, track, weather, current_lap, **kwargs):
+        loss = execute(state, track, weather, current_lap, **kwargs)
         stops.append(current_lap)
         return loss
 
