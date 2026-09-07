@@ -1443,6 +1443,9 @@ class RaceSimulator:
             if success:
                 # Swap positions
                 attacker.position, defender.position = defender.position, attacker.position
+                # Later battles must use the new immediate neighbour. Keeping
+                # the old list would let a following car skip the displaced car.
+                racing_states[i - 1], racing_states[i] = attacker, defender
 
             if incident:
                 incidents += 1
