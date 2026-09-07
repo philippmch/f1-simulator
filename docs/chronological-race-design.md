@@ -20,7 +20,8 @@ Monte Carlo entry points still use the production engine.
 The experimental engine schedules individual crossings and pit exits on an
 absolute timeline. A persistent constructor queue accounts for staggered box
 arrivals. A circular physical order constrains crossings: a faster provisional
-clock requires a passing outcome before the car can cross its predecessor.
+clock requires a passing outcome or a compliant blue-flag yield before the car
+can cross its predecessor.
 Race classification separately accounts for completed distance, so a retired
 car can outrank a finisher who completed fewer laps.
 
@@ -57,10 +58,23 @@ join the queue. VSC applies its running-time modifier without this compression.
 These are lap-resolution approximations; changes do not rewrite pending laps'
 starting control snapshots.
 
-This is not yet a replacement for the full production model. A dedicated
-blue-flag yielding model, the complete contact-severity behavior, red-flag
-physical grouping and suspension duration, and the finish transition described
-below remain to be integrated before changing the production entry points.
+When a car catches its physical predecessor on a higher own lap, the predecessor
+yields without sampling a defensive battle. This models compliant blue-flag
+behavior at the scheduler's encounter point. Same-lap attacks and attempts to
+unlap still use the ordinary passing model. Either car's neutralized starting
+snapshot prevents the yield. Pit-lane cars are absent from the on-track order.
+The [2026 FIA driving standards, section K](https://api.fia.com/sites/default/files/2026_f1_driving_standards_guidelines.pdf)
+describe yielding at the first opportunity, with allowance for the next straight.
+The engine has no sector geometry, so it does not model that wait, noncompliance
+or penalties, or add an uncalibrated time loss for yielding.
+
+This is not yet a replacement for the full production model. Strategy traffic
+inputs still need conversion from synchronous crossing gaps to physical progress.
+Red-flag physical grouping and suspension duration, and the finish transition
+described below, also remain before changing the production entry points.
+The existing minor-contact time losses and personal spin/puncture/crash outcomes
+are already reused; a richer damage-severity model would improve both engines
+rather than close a migration gap.
 
 ## Finish boundary
 
