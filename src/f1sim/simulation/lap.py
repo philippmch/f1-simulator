@@ -99,23 +99,7 @@ class LapSimulator:
         fuel_remaining_pct = (total_laps - lap_number + 1) / total_laps
         fuel_delta = fuel_remaining_pct * base_time * 0.02  # ~2% slower at race start
 
-        # Weather effect
-        weather_multiplier = weather.lap_time_multiplier()
-
-        # Adjust for driver wet skill
-        if weather.is_wet():
-            wet_adjustment = 1.0 + (1.0 - driver.wet_skill_modifier) * 0.02
-            weather_multiplier *= wet_adjustment
-
-        # Wet-performance is a car-package property, distinct from the
-        # driver's ability to find grip.  Include rain intensity as a signal
-        # even before wetness crosses the tyre-change threshold.
-        wet_severity = float(
-            np.clip(max(weather.track_wetness, weather.rain_intensity * 0.7), 0.0, 1.0)
-        )
-        if wet_severity > 0.0:
-            car_wet_penalty = (1.0 - car.wet_performance) * wet_severity * 0.06
-            weather_multiplier *= 1.0 + float(np.clip(car_wet_penalty, 0.0, 0.06))
+        weather_multiplier = self.weather_pace_multiplier(driver, car, weather)
 
         # Tire/weather mismatch penalty (catastrophic if wrong tires)
         mismatch_penalty = self._tire_weather_mismatch(tire, weather)
@@ -171,6 +155,38 @@ class LapSimulator:
         # Ensure minimum realistic lap time
         min_lap_time = track.base_lap_time * 0.95
         return max(min_lap_time, lap_time)
+
+    @staticmethod
+    def weather_pace_multiplier(driver: Driver, car: Car, weather: Weather) -> float:
+        """Shared weather scaling for actual laps and tyre-relative pace."""
+        # Weather effect
+        weather_multiplier = weather.lap_time_multiplier()
+
+        # Adjust for driver wet skill
+        if weather.is_wet():
+            wet_adjustment = 1.0 + (1.0 - driver.wet_skill_modifier) * 0.02
+            weather_multiplier *= wet_adjustment
+
+        # Wet-performance is a car-package property, distinct from the
+        # driver's ability to find grip.  Include rain intensity as a signal
+        # even before wetness crosses the tyre-change threshold.
+        wet_severity = float(
+            np.clip(max(weather.track_wetness, weather.rain_intensity * 0.7), 0.0, 1.0)
+        )
+        if wet_severity > 0.0:
+            car_wet_penalty = (1.0 - car.wet_performance) * wet_severity * 0.06
+            weather_multiplier *= 1.0 + float(np.clip(car_wet_penalty, 0.0, 0.06))
+
+        return weather_multiplier
+
+    @classmethod
+    def tire_weather_pace_contribution(
+        cls, driver: Driver, car: Car, track: Track, tire: Tire, tire_age: int, weather: Weather,
+    ) -> float:
+        """Tyre-only seconds: wear/compound scaled by weather plus flat mismatch."""
+        return (cls.tire_pace_contribution(driver, car, track, tire, tire_age)
+                * cls.weather_pace_multiplier(driver, car, weather)
+                + cls._tire_weather_mismatch(tire, weather))
 
     @classmethod
     def tire_pace_contribution(
@@ -368,7 +384,8 @@ class LapSimulator:
 
         return max(track.base_lap_time * 0.93, lap_time)
 
-    def _tire_weather_mismatch(self, tire: Tire, weather: Weather) -> float:
+    @staticmethod
+    def _tire_weather_mismatch(tire: Tire, weather: Weather) -> float:
         """Calculate penalty for wrong tire compound in current conditions.
 
         Args:

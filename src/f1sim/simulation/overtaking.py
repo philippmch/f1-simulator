@@ -120,10 +120,9 @@ class OvertakingModel:
         # Lap timing uses 3% of reference lap time per unit of car pace.
         # Bound tyre influence to one equivalent unit before the sigmoid;
         # even extreme wear must still respect circuit and passing gates.
-        if not is_wet:
-            pace_delta += float(np.clip(
-                tire_pace_advantage_seconds / (track.base_lap_time * 0.03), -1.0, 1.0
-            ))
+        pace_delta += float(np.clip(
+            tire_pace_advantage_seconds / (track.base_lap_time * 0.03), -1.0, 1.0
+        ))
         pace_factor = self._sigmoid(pace_delta * 3, offset=0)  # ~0-1 based on pace diff
 
         # Gap factor (closer = higher chance)

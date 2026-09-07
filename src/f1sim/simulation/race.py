@@ -1407,22 +1407,15 @@ class RaceSimulator:
             ):
                 continue
 
-            tire_advantage = 0.0
-            slicks = (TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD)
-            if (
-                weather.track_wetness < 0.08 and weather.rain_intensity < 0.15
-                and attacker.current_tire.compound in slicks
-                and defender.current_tire.compound in slicks
-            ):
-                # Battles use the set's condition after this lap's running.
-                # The dry tyre term is not a model of wet mismatch grip.
-                tire_advantage = self.lap_simulator.tire_pace_contribution(
-                    defender.driver, defender.car, track,
-                    defender.current_tire, defender.tire_laps,
-                ) - self.lap_simulator.tire_pace_contribution(
-                    attacker.driver, attacker.car, track,
-                    attacker.current_tire, attacker.tire_laps,
-                )
+            # Compare tyre-only seconds at each driver's current weather-scaled
+            # condition after this lap's running, including mismatch grip.
+            tire_advantage = self.lap_simulator.tire_weather_pace_contribution(
+                defender.driver, defender.car, track,
+                defender.current_tire, defender.tire_laps, weather,
+            ) - self.lap_simulator.tire_weather_pace_contribution(
+                attacker.driver, attacker.car, track,
+                attacker.current_tire, attacker.tire_laps, weather,
+            )
 
             # Attempt overtake - boosted probability on restart
             success, incident = self.overtaking_model.attempt_overtake(

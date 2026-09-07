@@ -41,18 +41,28 @@ def test_equal_wear_preserves_default_and_positional_api(battle):
     assert probability(battle, advantage) == legacy
 
 
-def test_direct_wet_probability_ignores_dry_tyre_advantage(battle):
-    model = OvertakingModel(np.random.default_rng(23))
+def test_wet_tyre_advantage_changes_fixed_roll_with_one_draw(battle):
+    model = OvertakingModel()
     baseline = model._calculate_probability(*battle, 0.5, False, True)
-    assert model._calculate_probability(
-        *battle, 0.5, False, True, tire_pace_advantage_seconds=100
-    ) == baseline
-    expected_rng = np.random.default_rng(23)
-    expected_model = OvertakingModel(expected_rng)
+    advantage = model._calculate_probability(
+        *battle, 0.5, False, True, tire_pace_advantage_seconds=1
+    )
+    assert advantage > baseline
+
+    class FixedRoll:
+        draws = 0
+
+        def random(self):
+            self.draws += 1
+            return (baseline + advantage) / 2
+
+    rng = FixedRoll()
+    model = OvertakingModel(rng)
+    assert not model.attempt_overtake(*battle, 0.5, is_wet=True)[0]
     assert model.attempt_overtake(
-        *battle, 0.5, is_wet=True, tire_pace_advantage_seconds=100
-    ) == expected_model.attempt_overtake(*battle, 0.5, is_wet=True)
-    assert model.rng.random() == expected_rng.random()
+        *battle, 0.5, is_wet=True, tire_pace_advantage_seconds=1
+    )[0]
+    assert rng.draws == 2
 
 
 @pytest.mark.parametrize("compound", [TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD])
@@ -97,16 +107,16 @@ def test_fixed_roll_between_chances_flips_pass_with_one_draw(battle):
     assert rng.draws == 2
 
 
-@pytest.mark.parametrize("wetness,rain,compound,enabled", [
-    (0, 0, TireCompound.SOFT, True),
-    (0.079, 0.149, TireCompound.SOFT, True),
-    (0.08, 0, TireCompound.SOFT, False),
-    (0, 0.15, TireCompound.SOFT, False),
-    (0, 0, TireCompound.INTERMEDIATE, False),
-    (0, 0, TireCompound.WET, False),
+@pytest.mark.parametrize("wetness,rain,compound", [
+    (0, 0, TireCompound.SOFT),
+    (0.079, 0.149, TireCompound.SOFT),
+    (0.08, 0, TireCompound.SOFT),
+    (0, 0.15, TireCompound.SOFT),
+    (0, 0, TireCompound.INTERMEDIATE),
+    (0, 0, TireCompound.WET),
 ])
-def test_race_forwards_current_set_condition_only_in_clear_dry(
-    battle, monkeypatch, wetness, rain, compound, enabled,
+def test_race_forwards_current_set_condition_in_all_weather(
+    battle, monkeypatch, wetness, rain, compound,
 ):
     attacker, car, defender, _, track = battle
     attacker_car = car.model_copy(update={"tire_degradation_factor": 1.4})
@@ -124,9 +134,80 @@ def test_race_forwards_current_set_condition_only_in_clear_dry(
     before = repr(simulator.rng.bit_generator.state)
     simulator._process_overtakes(states, track, Weather(track_wetness=wetness, rain_intensity=rain),
                                 lap=20, overtake_mode_allowed=False)
-    expected = tyre_advantage((attacker, attacker_car, defender, car, track),
-                             compound, 24, TireCompound.HARD, 7) if enabled else 0
+    weather = Weather(track_wetness=wetness, rain_intensity=rain)
+    expected = LapSimulator.tire_weather_pace_contribution(
+        defender, car, track, TIRE_COMPOUNDS[TireCompound.HARD], 7, weather
+    ) - LapSimulator.tire_weather_pace_contribution(
+        attacker, attacker_car, track, TIRE_COMPOUNDS[compound], 24, weather
+    )
     assert captured[0]["tire_pace_advantage_seconds"] == pytest.approx(expected)
     assert repr(simulator.rng.bit_generator.state) == before
     assert states[1].tire_laps == 24
     assert states[1].driver.current_tire_laps == 2
+
+
+@pytest.mark.parametrize("wetness,attacking,defending", [
+    (0.21, TireCompound.INTERMEDIATE, TireCompound.SOFT),
+    (0.6, TireCompound.INTERMEDIATE, TireCompound.HARD),
+    (0.9, TireCompound.WET, TireCompound.INTERMEDIATE),
+    (0, TireCompound.SOFT, TireCompound.WET),
+])
+def test_weather_suitable_tyre_advantage_matches_actual_lap_swap(
+    battle, wetness, attacking, defending,
+):
+    driver, car, _, _, track = battle
+    weather = Weather(track_wetness=wetness, rain_intensity=wetness)
+    simulator = LapSimulator()
+
+    def contribution(compound):
+        return simulator.tire_weather_pace_contribution(
+            driver, car, track, TIRE_COMPOUNDS[compound], 4, weather
+        )
+
+    def actual(compound):
+        return simulator.calculate_lap_time(
+            driver.model_copy(update={"current_tire_laps": 4}), car, track,
+            TIRE_COMPOUNDS[compound], weather, 10, track.total_laps, sample_variation=False,
+        )
+
+    advantage = contribution(defending) - contribution(attacking)
+    assert advantage > 0
+    assert contribution(attacking) - contribution(defending) == -advantage
+    assert actual(defending) - actual(attacking) == pytest.approx(advantage)
+
+
+@pytest.mark.parametrize("compound", list(TireCompound))
+def test_shared_weather_term_equal_sets_zero_and_dry_slick_baseline(battle, compound):
+    driver, car, _, _, track = battle
+    tire = TIRE_COMPOUNDS[compound]
+    weather = Weather(track_wetness=0.6)
+    contribution = LapSimulator.tire_weather_pace_contribution
+    assert contribution(driver, car, track, tire, 8, weather) == contribution(
+        driver.model_copy(), car.model_copy(), track, tire, 8, weather
+    )
+    assert contribution(driver, car, track, tire, 25, weather) > contribution(
+        driver, car, track, tire, 1, weather
+    )
+    if compound in (TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD):
+        assert contribution(driver, car, track, tire, 8, Weather()) == (
+            LapSimulator.tire_pace_contribution(driver, car, track, tire, 8)
+        )
+
+
+def test_weather_multiplier_uses_each_driver_and_car_without_base_pace(battle):
+    driver, car, _, _, track = battle
+    weather = Weather(track_wetness=0.7, rain_intensity=0.8)
+    driver = driver.model_copy(update={"wet_skill_modifier": 0.8})
+    car = car.model_copy(update={"wet_performance": 0.6})
+    expected = weather.lap_time_multiplier() * (1 + (1 - 0.8) * 0.02)
+    expected *= 1 + (1 - 0.6) * 0.7 * 0.06
+    assert LapSimulator.weather_pace_multiplier(driver, car, weather) == pytest.approx(expected)
+    tire = TIRE_COMPOUNDS[TireCompound.INTERMEDIATE]
+    contribution = LapSimulator.tire_weather_pace_contribution
+    assert contribution(driver, car, track, tire, 8, weather) == pytest.approx(
+        LapSimulator.tire_pace_contribution(driver, car, track, tire, 8) * expected
+    )
+    assert contribution(driver, car, track, tire, 8, weather) == contribution(
+        driver.model_copy(update={"skill_rating": 0.5}),
+        car.model_copy(update={"base_pace": 0.5}), track, tire, 8, weather,
+    )
