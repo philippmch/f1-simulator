@@ -111,8 +111,9 @@ def test_weather_and_forced_stops_still_queue(monkeypatch, forced):
 def test_mandatory_distinct_compound_stop_cannot_be_deferred_by_queue(monkeypatch):
     sim = RaceSimulator(np.random.default_rng(7))
     a, b = state("A", 1), state("B", 2, 101)
+    a.tire_laps = b.tire_laps = 1  # Both have actually used their first compound.
     monkeypatch.setattr(sim.lap_simulator, "calculate_pit_stop_time", lambda car: 3)
-    pitting = sim._process_pit_stops([a, b], [replace(a), replace(b)], track(), Weather(), 59)
+    pitting = sim._process_pit_stops([a, b], [replace(a), replace(b)], track(), Weather(), 60)
     assert len(pitting) == 2
     assert b.total_time == pytest.approx(128)
     assert all(s.current_tire.compound != TireCompound.MEDIUM for s in [a, b])

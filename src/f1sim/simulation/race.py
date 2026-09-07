@@ -874,10 +874,11 @@ class RaceSimulator:
         if state.pit_stops >= max_stops:
             return False
 
-        # At the final viable dry-race stop, force a stop for a new slick set
-        # even when the driver already made an earlier same-compound stop.
+        # Stops precede running, so the final lap can still use a distinct set.
+        # Let earlier dry decisions compare costs instead of forcing a slower
+        # penultimate-lap correction.
         if (
-            lap >= max(2, track.total_laps - 1)
+            lap >= max(2, track.total_laps)
             and dry_rule_required
         ):
             return True

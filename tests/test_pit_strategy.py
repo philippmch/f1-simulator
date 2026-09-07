@@ -317,15 +317,16 @@ def test_discounted_safety_car_stop_is_worthwhile_in_last_five_laps():
     assert state.dry_pit_proposal is None
 
 
-def test_mandatory_rule_overrides_exhausted_budget_and_expensive_stop():
+@pytest.mark.parametrize("weather", [Weather(), Weather(track_wetness=0.1, rain_intensity=0.1)])
+def test_mandatory_rule_overrides_exhausted_budget_and_expensive_stop(weather):
     state = _state("A", 1, 0.0)
     state.tire_laps = 1  # This fixture represents a set already run.
     state.pit_stops = 5
     track = _track()
     track.pit_lane_delta = 60
     sim = RaceSimulator()
-    assert sim._should_pit(state, [state], track, 59, False, Weather())
-    sim._execute_pit_stop(state, track, Weather(), 59)
+    assert sim._should_pit(state, [state], track, 60, False, weather)
+    sim._execute_pit_stop(state, track, weather, 60)
     assert sim._stay_satisfies_tire_rule(state)
     state.tire_laps = 1  # Credit the replacement only after running it.
     assert len(sim._used_slick_compounds(state)) == 2

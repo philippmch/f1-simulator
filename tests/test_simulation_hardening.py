@@ -308,16 +308,17 @@ def test_wet_tire_history_skips_late_two_dry_compound_stop() -> None:
         state,
         [state],
         track,
-        lap=track.total_laps - 1,
+        lap=track.total_laps,
         pit_window_open=False,
     )
 
     dry_state = _state("DRY")
+    dry_state.tire_laps = 1  # The opening compound has actually run.
     assert simulator._should_pit(
         dry_state,
         [dry_state],
         track,
-        lap=track.total_laps - 1,
+        lap=track.total_laps,
         pit_window_open=False,
         weather=Weather(),
     )
@@ -333,12 +334,12 @@ def test_dry_rule_forces_second_slick_for_no_stop_medium_start() -> None:
         state,
         [state],
         track,
-        lap=track.total_laps - 1,
+        lap=track.total_laps,
         pit_window_open=False,
         weather=Weather(),
     )
     simulator.lap_simulator.calculate_pit_stop_time = lambda car: 2.5  # type: ignore[method-assign]
-    simulator._execute_pit_stop(state, track, Weather(), current_lap=track.total_laps - 1)
+    simulator._execute_pit_stop(state, track, Weather(), current_lap=track.total_laps)
 
     assert state.tire_compound_history[0] == "medium"
     assert state.tire_compound_history[1] in {"soft", "hard"}
@@ -361,12 +362,12 @@ def test_dry_rule_ignores_same_compound_earlier_stop_and_forces_new_slick() -> N
         state,
         [state],
         track,
-        lap=track.total_laps - 1,
+        lap=track.total_laps,
         pit_window_open=False,
         weather=Weather(),
     )
     simulator.lap_simulator.calculate_pit_stop_time = lambda car: 2.5  # type: ignore[method-assign]
-    simulator._execute_pit_stop(state, track, Weather(), current_lap=track.total_laps - 1)
+    simulator._execute_pit_stop(state, track, Weather(), current_lap=track.total_laps)
 
     assert state.tire_compound_history[:2] == ["medium", "medium"]
     assert state.tire_compound_history[2] in {"soft", "hard"}
