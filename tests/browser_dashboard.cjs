@@ -149,6 +149,20 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     assert((await page.locator('#raceContent .race-header').innerText()).includes('5 of'));
     assert((await page.locator('#raceContent .driver-row .status').first().innerText()).includes('19 pts'));
     assert((await page.locator('#raceContent .driver-row .status').nth(2).innerText()).includes('0 pts'));
+    assert.equal(await page.locator('#raceContent .driver-row .gap').nth(1).innerText(), 'DNF');
+    await page.evaluate(() => {
+      getScenarioEntry().data.sample_race.forEach(row => {
+        row.status = 'finished';
+        row.classified = true;
+        row.dnf_reason = null;
+      });
+      renderRace();
+    });
+    assert.equal(await page.locator('#raceContent .driver-row .gap').nth(1).innerText(), '+1 lap');
+    assert.equal(await page.locator('#raceContent .driver-row .gap').nth(2).innerText(), '+2 laps');
+    assert.equal(await page.evaluate(() => formatGap({
+      position: 2, status: 'finished', gap_to_leader: 90,
+    }, 5)), '+90.000');
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({width, height: 900});
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),

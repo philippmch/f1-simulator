@@ -1578,9 +1578,14 @@ function formatSigned(value, digits = 3) {
   return `${safe >= 0 ? '+' : ''}${safe.toFixed(digits)}`;
 }
 
-function formatGap(result) {
+function formatGap(result, leaderLaps = null) {
   if (!result || result.status === 'dnf') return 'DNF';
   if (result.position === 1) return 'LEADER';
+  if (Number.isInteger(leaderLaps) && Number.isInteger(result.laps_completed) &&
+      result.laps_completed >= 0 && leaderLaps > result.laps_completed) {
+    const deficit = leaderLaps - result.laps_completed;
+    return `+${deficit} ${deficit === 1 ? 'lap' : 'laps'}`;
+  }
   return `+${toNumber(result.gap_to_leader).toFixed(3)}`;
 }
 
@@ -2314,7 +2319,7 @@ function renderRace() {
         <div class="team-stripe" style="background:${team.color}"></div>
         <div class="driver-code">${escapeHtml(result.driver_id)}</div>
         <div class="driver-name">${escapeHtml(result.driver_name)}</div>
-        <div class="gap">${formatGap(result)}</div>
+        <div class="gap">${formatGap(result, winnerLaps)}</div>
         <div class="fastest-lap ${isFastest ? 'is-fastest' : ''}">${formatTime(result.fastest_lap)}</div>
         <div class="pits" title="${escapeHtml(pitDescription)}">
           ${toNumber(result.pit_stops)}

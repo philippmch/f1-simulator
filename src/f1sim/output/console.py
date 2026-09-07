@@ -1,7 +1,7 @@
 """Console output formatting."""
 
 from f1sim.analysis.montecarlo import SimulationResults
-from f1sim.output.timing import finite_time
+from f1sim.output.timing import finite_time, format_lap_deficit
 from f1sim.simulation.qualifying import QualifyingResult
 from f1sim.simulation.race import RaceResult, result_is_classified
 from f1sim.simulation.race_points import points_for_result
@@ -63,14 +63,20 @@ class ConsoleOutput:
         print("-" * 70)
 
         leader_time = None
+        leader_laps = None
         for result in sorted(results, key=lambda r: r.position):
             if result.status.value == "finished":
                 if leader_time is None:
                     leader_time = result.total_time
+                    leader_laps = getattr(result, "laps_completed", None)
                     time_str = f"{result.total_time:.3f}s"
                 else:
                     gap = result.total_time - leader_time
-                    if gap < 60:
+                    lap_gap = format_lap_deficit(getattr(result, "laps_completed", None),
+                                                 leader_laps)
+                    if lap_gap is not None:
+                        time_str = lap_gap
+                    elif gap < 60:
                         time_str = f"+{gap:.3f}s"
                     else:
                         mins = int(gap // 60)
