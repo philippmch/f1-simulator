@@ -238,6 +238,8 @@ class RaceSimulator:
                     strategy,
                     track,
                     current_weather,
+                    driver,
+                    car,
                 )
 
             pit_plans = self._plan_pit_lap_options(strategy, track)
@@ -581,6 +583,8 @@ class RaceSimulator:
         strategy: TeamStrategyArchetype,
         track: Track,
         weather: Weather,
+        driver: Driver | None = None,
+        car: Car | None = None,
     ) -> TireCompound:
         """Choose a plausible opening tyre set for the current conditions.
 
@@ -588,7 +592,8 @@ class RaceSimulator:
         qualifying position no longer determines a hidden medium/soft split.
         Wet starts are deterministic because using the wrong tyre is unsafe.
         Dry starts use seeded probabilities shaped by team strategy, tyre
-        stress, race length and overtaking difficulty.
+        stress, race length and overtaking difficulty. With driver/car context,
+        complete-race costs restrict those probabilities to optimal opening sets.
         """
         weather_compound = self._choose_weather_compound(weather)
         if weather_compound is not None:
@@ -629,6 +634,23 @@ class RaceSimulator:
             weights[2] -= 0.01
 
         weights = np.clip(weights, 0.02, None)
+        if (driver is not None and car is not None
+                and weather.track_wetness < 0.08 and weather.rain_intensity < 0.15):
+            costs = []
+            for compound in (TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD):
+                opening = DriverRaceState(
+                    driver, car, 1, current_tire=TIRE_COMPOUNDS[compound],
+                    strategy_archetype=strategy,
+                )
+                costs.append(plan_dry_stop(
+                    driver, car, track, opening.current_tire, 0, track.total_laps,
+                    min(3, max(0, self._dry_stop_budget(opening, track))), {compound},
+                ).wait_cost)
+            best = min(costs)
+            if np.isfinite(best):
+                # Keep seeded style diversity only among equivalent complete
+                # schedules. An opening set is free but must run before a stop.
+                weights *= np.asarray(costs) <= best + 1e-9
         weights /= weights.sum()
         # NumPy converts Enum objects to truncated unicode labels when it
         # builds an object array (for example ``"TireCo"``).  Sample the
