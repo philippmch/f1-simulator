@@ -17,6 +17,8 @@ The race engine models circuit-dependent car performance, tyre stress and degrad
 
 Pit strategy compares remaining dry-race tyre and pit costs and reacts to changing weather; see [the strategy model and its limits](docs/strategy-model.md) for its assumptions and remaining limitations.
 
+Retirements retain completed distance and can still qualify for points under the rounded 90% classification threshold; see [classification conventions and limits](docs/race-classification.md).
+
 The terminology and operating model follow Formula 1's [official 2026 regulations explainer](https://corp.formula1.com/f1-2026-regulations-terminology-update/) and the FIA's [2026 technical overview](https://www.fia.com/news/f1s-new-era-everything-you-need-know-about-how-fia-making-formula-1-more-competitive-more).
 
 ## Requirements
