@@ -69,7 +69,10 @@ The selected compound is carried into the actual stop.
 
 Projected service time includes the execution model's minimum service duration
 and slow-stop probability. Current safety-car or virtual-safety-car discounts
-reduce pit-lane loss; future stops are priced as green stops. A large gap behind
+reduce pit-lane loss. The current lap's tyre costs also use the race timing
+model's active running multiplier, for both staying out and every eligible
+fresh compound. Future running and stops are projected as green; this does not
+predict how long a neutralization will last. A large gap behind
 does not by itself make a stop worthwhile. The initial five-lap guard remains,
 but a beneficial dry stop can occur in the final five laps. Team style can shift
 a near tie by at most 0.1 seconds per decision. This tolerance is a model
