@@ -123,6 +123,10 @@ It uses the same tyre pace and wear model as ordinary dry planning. The free set
 must run at least one lap before another stop; future service and pit-lane time
 are priced as green running. A suspension after lap N leaves `total_laps - N`
 racing laps, starting with lap N+1. Rain-tyre crossover decisions retain priority.
+The race applies its usual between-lap weather update before selecting the free
+set, so that choice uses the conditions in which racing resumes. This avoids
+fitting a set for the completed lap's weather and then paying to replace it on
+the restart. It adds no weather update or modeled suspension duration.
 
 The free change does not consume a paid stop or pit-plan slot. A new distinct
 slick can satisfy the compound-use requirement; repeating a slick remains an
