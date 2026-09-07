@@ -12,6 +12,17 @@ remains available after it is exhausted. Three is a bounded search limit, not
 a requirement to make three stops or a claim that longer races never need more.
 Dry red-flag projections use the same budget.
 
+Automatic starting-compound selection on a clearly dry track also compares the
+full projected race for each driver and car. The opening set is free and must
+run before a later paid stop; future stops include service cost and the
+distinct-compound requirement. Existing strategy weights choose between
+minimum-cost opening compounds, allowing different orders of equally fast
+stints. A numerical tolerance of one billionth of a second treats floating-point
+ties consistently. If no legal projected plan exists, the original weighted
+choice remains available. Explicit starting-tyre overrides and precautionary
+rain starts retain priority. This projection shares the dry optimizer's limits
+on weather, traffic, inventory and future interruptions.
+
 Aggressive, balanced and conservative profiles influence opening slick choices
 and close timing decisions. The fallback weather strategy retains its style-based
 stop budgets and also
