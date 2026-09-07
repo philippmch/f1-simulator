@@ -827,9 +827,16 @@ class RaceSimulator:
             TeamStrategyArchetype.CONSERVATIVE: -0.1,
         }[strategy]
 
-        # Limit to realistic number of pit stops (1-2 for most races)
-        # Weather changes can force extra stops
-        max_stops = self._ordinary_stop_budget(state, track)
+        clearly_dry = weather is None or (
+            weather.track_wetness < 0.08 and weather.rain_intensity < 0.15
+        )
+        dry_planning = clearly_dry and state.current_tire.compound in {
+            TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
+        }
+        # Dry optimization chooses how many stops pay for themselves; style
+        # must not exclude a faster legal schedule before it is evaluated.
+        max_stops = (self._dry_stop_budget(state, track) if dry_planning
+                     else self._ordinary_stop_budget(state, track))
         if weather is not None and weather.track_wetness > 0.3:
             max_stops = max(max_stops, 4)  # Allow more stops in changing conditions
 
@@ -858,12 +865,7 @@ class RaceSimulator:
         if lap <= 1:
             return False
 
-        clearly_dry = weather is None or (
-            weather.track_wetness < 0.08 and weather.rain_intensity < 0.15
-        )
-        if clearly_dry and state.current_tire.compound in {
-            TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
-        }:
+        if dry_planning:
             traffic_cost = 0.0
             if not (
                 self.event_manager.safety_car_active or self.event_manager.vsc_active
@@ -875,7 +877,7 @@ class RaceSimulator:
             decision = plan_dry_stop(
                 state.driver, state.car, track, state.current_tire, state.tire_laps,
                 track.total_laps - lap + 1,
-                max(0, max_stops - state.pit_stops),
+                min(3, max(0, max_stops - state.pit_stops)),
                 self._used_slick_compounds(state), self._has_used_wet_compound(state),
                 self._pit_lane_factor(), additional_current_stop_cost + traffic_cost,
                 current_lap_time_modifier=self.event_manager.get_lap_time_modifier(),
@@ -1039,6 +1041,11 @@ class RaceSimulator:
         return self._rank_stint_compounds(
             state, track, current_lap, available or slick_compounds
         )
+
+    @staticmethod
+    def _dry_stop_budget(state: DriverRaceState, track: Track) -> int:
+        """Maximum elective paid dry stops; the optimizer may use fewer."""
+        return 3
 
     @staticmethod
     def _ordinary_stop_budget(state: DriverRaceState, track: Track) -> int:
@@ -1671,7 +1678,12 @@ class RaceSimulator:
 
         used = self._used_slick_compounds(state)
         wet_exemption = self._has_used_wet_compound(state)
-        remaining_stops = max(0, self._ordinary_stop_budget(state, track) - state.pit_stops)
+        budget_limit = (
+            self._dry_stop_budget(state, track)
+            if weather.track_wetness < 0.08 and weather.rain_intensity < 0.15
+            else self._ordinary_stop_budget(state, track)
+        )
+        remaining_stops = min(3, max(0, budget_limit - state.pit_stops))
 
         def finish_cost(compound: TireCompound) -> float:
             prospective_used = used | {compound}

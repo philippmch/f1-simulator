@@ -52,13 +52,14 @@ def exhaustive_cost(state, track, candidate, laps, paid_budget, wet):
 
 
 @pytest.mark.parametrize("remaining", [1, 2, 5])
-@pytest.mark.parametrize("paid_used,wet", [(0, False), (1, False), (1, True)])
+@pytest.mark.parametrize("paid_used,wet", [(0, False), (1, False), (1, True),
+                                          (2, False), (3, False), (3, True)])
 def test_choice_matches_exhaustive_remaining_race(remaining, paid_used, wet):
     state, track = fixture(stress=1.0)
     state.pit_stops = paid_used
     if wet:
         state.tire_compound_history.insert(0, "intermediate")
-    costs = {c: exhaustive_cost(state, track, c, remaining, 1 - paid_used, wet)
+    costs = {c: exhaustive_cost(state, track, c, remaining, 3 - paid_used, wet)
              for c in SLICKS}
     choice = RaceSimulator()._choose_red_flag_tire(state, Weather(), track,
                                                   track.total_laps - remaining)
@@ -68,7 +69,7 @@ def test_choice_matches_exhaustive_remaining_race(remaining, paid_used, wet):
 def test_horizon_and_wear_change_free_set_choice():
     sim = RaceSimulator()
     state, track = fixture(60, 1.0)
-    state.pit_stops = 2
+    state.pit_stops = 3
     state.tire_compound_history = ["soft", "medium"]
     assert sim._choose_red_flag_tire(state, Weather(), track, 59) == TireCompound.SOFT
     assert sim._choose_red_flag_tire(state, Weather(), track, 10) == TireCompound.HARD
