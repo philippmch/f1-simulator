@@ -38,6 +38,16 @@ properties; an empty sample returns zero. Statistics JSON includes `event_rates`
 whose occurrence rates are fractions from zero to one, and whose `avg_*` values
 are deployment or incident counts per simulated race.
 
+Incident totals include contact during overtaking as well as random collisions,
+spins, punctures and mechanical failures. One contact between two cars counts
+as one incident. The event ledger records both drivers and their separately
+sampled losses in `applied_time_losses`; those losses have already been charged
+by battle resolution and are not applied again. The contact appears before any
+race-control deployment it helps trigger on the same lap. Normal race runs
+record the actual lap; direct internal battle calls without a lap use zero to
+indicate unknown timing. Successful passes and clean failed attempts add no
+incident record.
+
 - Random racing incidents use the existing 22-car grid as the reference
   exposure. After circuit, consistency and weather modifiers, its per-lap
   probability `h22` is bounded between 0.0005 and 0.08. For `N` active cars,
