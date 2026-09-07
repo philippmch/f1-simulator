@@ -63,6 +63,10 @@ Use `--export` only when you explicitly want files for the newly simulated run:
 python examples/simulate_race.py --race Monza --export --output-dir output
 ```
 
+Exported CSV, JSON and HTML files use UTF-8 so international driver, team and
+circuit names are preserved across operating systems. Select UTF-8 when importing
+CSV into a tool that asks for a text encoding.
+
 There is no `--year` option. The current season comes from the backend's UTC date and requests for any other year are rejected. CLI runs use the same 1,000-simulation, 16-worker, and 32-bit-seed safety bounds as the dashboard.
 
 ## API
