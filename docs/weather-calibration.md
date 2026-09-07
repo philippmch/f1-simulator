@@ -83,6 +83,13 @@ incident record.
   and intensity both at least 0.8, or wetness at least 0.95. A new episode requires
   intensity below 0.65 and wetness below 0.8. The 50% prior and thresholds are
   modeling choices; the sparse observed sample does not fit them.
+- Severe-weather decisions also run during SC and VSC periods, including the
+  lap on which their countdown expires. A worsening storm can therefore
+  escalate an existing neutralization to a red flag. Explicit forced red flags
+  also take precedence over SC/VSC. Escalation cancels the old neutralization
+  and uses the existing red-flag restart and free tyre-change procedure.
+  Background interruption draws remain restricted to green laps, and an
+  unchanged storm still receives only one weather decision.
 - Manual flags and independent background incidents remain possible. The race
   engine abstracts suspension duration and does not simulate elapsed waiting
   minutes, race abandonment, or a weather-conditioned restart forecast. One
