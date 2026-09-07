@@ -162,8 +162,18 @@ critical-condition safeguards. The cost veto also leaves an unresolved
 distinct-compound requirement to the existing weather reaction. Earlier weather reactions retain their existing
 policy; this is a finish-line cost check, not a full wet-strategy optimizer.
 
-For a forced or fallback stop whose
-compound has not already been selected, the simulator compares tyre contribution over the
+When a clearly dry stop is already committed but has no optimizer proposal,
+the simulator compares eligible fresh slicks over the entire remaining race.
+This covers punctures, mandatory stops and returns from rain tyres. The current
+paid stop consumes a budget slot before later stops are considered. Its lane
+and service loss are common to all compound choices; future paid stops are
+included in the comparison. The new set runs the current lap, including any
+SC/VSC running multiplier, before a later stop is allowed. Until the dry-use
+rule is satisfied, this paid change must add an unused slick compound. The
+choice does not sample randomness or alter the race state.
+
+For a damp fallback stop whose compound has not already been selected, the
+simulator compares tyre contribution over the
 next stint for each eligible fresh slick. The projection shares the actual lap
 model's compound pace, wear, driver tyre management, circuit stress and car
 degradation factor. When a new distinct slick is required, the comparison is
@@ -171,7 +181,8 @@ restricted to unused compounds. An archetype's preferred compound can override
 the fastest only within 0.05 seconds per projected lap. This tolerance represents
 a bounded strategy preference; it is a model assumption, not an empirical fit.
 
-The current planned stop is consumed before determining the next stint's target.
+In fallback strategy, the current planned stop is consumed before determining
+the next stint's target.
 The horizon ends at the next remaining future plan entry that the ordinary stop
 budget allows, or at the finish when none remains. Pit service occurs before that
 lap's pace calculation, so a final stint includes the lap on which the stop
@@ -188,7 +199,7 @@ to improve strategy realism. Cost tables are bounded in-memory calculations;
 they do not persist provider data or consume simulation random draws.
 
 Run `python examples/check_stint_choices.py` for a deterministic synthetic
-comparison of selected compounds against actual lap calculations over short,
+comparison of fallback stint choices against actual lap calculations over short,
 medium and long stints. The diagnostic makes no network requests and compares
 fresh compounds at the same stop, without traffic or incidents.
 
