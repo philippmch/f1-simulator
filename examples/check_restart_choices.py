@@ -30,6 +30,7 @@ def run_restart(suspension_lap, stop_budget, forced_compound=None, degradation=1
     simulator.lap_simulator.calculate_pit_stop_time = lambda car: expected_stationary_time(car)
     simulator._infer_team_strategy = lambda *args: TeamStrategyArchetype.BALANCED
     simulator._ordinary_stop_budget = lambda *args: stop_budget
+    simulator._dry_stop_budget = lambda *args: stop_budget
     original_should_pit = simulator._should_pit
 
     def should_pit(state, states, track, lap, *args, **kwargs):

@@ -5,8 +5,16 @@ strategy. It optimizes the modeled remaining dry race within the allowed stop
 budget, including a required compound-correction stop; it does not claim to find
 the fastest strategy for a real race.
 
-Aggressive, balanced and conservative profiles influence opening slick choices,
-stop budgets and close timing decisions. The fallback weather strategy also
+All team styles can evaluate up to three paid stops in dry running, using fewer
+when further tyre gains do not cover pit loss. Previous paid stops, including
+weather stops, count toward this budget; a required compound-correction stop
+remains available after it is exhausted. Three is a bounded search limit, not
+a requirement to make three stops or a claim that longer races never need more.
+Dry red-flag projections use the same budget.
+
+Aggressive, balanced and conservative profiles influence opening slick choices
+and close timing decisions. The fallback weather strategy retains its style-based
+stop budgets and also
 responds to traffic, track position, circuit overtaking difficulty and surface
 water. Pit loss includes the circuit's pit-lane
 delta and sampled stationary service time; safety-car and virtual-safety-car
