@@ -104,7 +104,7 @@ def test_conservative_switch_persists_for_future_stint_choices(monkeypatch):
     simulator = RaceSimulator(rng=np.random.default_rng(8))
     state = make_state()
     state.position = 8
-    state.total_time = 95
+    state.total_time = 90.5
     state.strategy_archetype = TeamStrategyArchetype.CONSERVATIVE
     ahead = make_state()
     ahead.position = 7
@@ -112,8 +112,8 @@ def test_conservative_switch_persists_for_future_stint_choices(monkeypatch):
     simulator._should_pit(state, [ahead, state], make_track(), 15, False, Weather())
     assert state.strategy_archetype == TeamStrategyArchetype.BALANCED
 
-    # Even after closing the gap, the next tyre choice uses the balanced profile.
-    state.total_time = 90.5
+    # Even after escaping traffic, the next tyre choice uses the balanced profile.
+    state.total_time = 95
     simulator._should_pit(state, [ahead, state], make_track(), 16, False, Weather())
     profiles_used = []
 

@@ -634,13 +634,29 @@ class RaceSimulator:
         """Decide whether conservative strategy should switch to balanced."""
         if state.strategy_archetype != TeamStrategyArchetype.CONSERVATIVE:
             return False
-        if state.position <= 6 or gap_ahead is None:
+        if state.position <= 6:
             return False
-        if gap_ahead <= self.strategy_tuning["conservative_switch_gap"]:
+        if not self._has_strategy_traffic(
+            gap_ahead, lap, self.strategy_tuning["conservative_switch_gap"],
+        ):
             return False
 
         threshold = self.strategy_tuning["conservative_switch_race_progress"]
         return lap > int(track.total_laps * threshold)
+
+    def _has_strategy_traffic(
+        self, gap_ahead: float | None, lap: int, maximum_gap: float = 2.0,
+    ) -> bool:
+        """Close green-running traffic, excluding temporary restart bunching."""
+        return (
+            gap_ahead is not None
+            and 0.0 <= gap_ahead <= maximum_gap
+            and self.lap_simulator.traffic_pace_contribution(gap_ahead) > 0.0
+            and not self.event_manager.safety_car_active
+            and not self.event_manager.vsc_active
+            and not self.event_manager.red_flag_active
+            and not self.event_manager.is_restart_lap(lap)
+        )
 
     def _plan_pit_lap_options(
         self,
@@ -670,6 +686,8 @@ class RaceSimulator:
         weather: Weather | None,
         lap: int,
         gap_ahead: float | None,
+        *,
+        track: Track,
     ) -> list[int]:
         """Select active pit plan based on race context."""
         if not state.pit_plan_options:
@@ -680,9 +698,8 @@ class RaceSimulator:
             state.active_pit_plan_index = min(1, len(state.pit_plan_options) - 1)
         # If stuck in traffic in race second half, prefer aggressive plan.
         elif (
-            gap_ahead is not None
-            and gap_ahead > 2.0
-            and lap > 20
+            self._has_strategy_traffic(gap_ahead, lap)
+            and lap > track.total_laps / 2
             and state.strategy_archetype != TeamStrategyArchetype.CONSERVATIVE
         ):
             state.active_pit_plan_index = 0
@@ -771,7 +788,7 @@ class RaceSimulator:
         gap_behind = self._get_gap_to_car_behind(state, all_states)
 
         # Mid-race strategy switching trigger (conservative => balanced)
-        # when stuck in traffic far from the lead and outside top positions.
+        # when following closely outside the top positions in green running.
         if self._should_switch_conservative_to_balanced(state, lap, track, gap_ahead):
             strategy = TeamStrategyArchetype.BALANCED
             state.strategy_archetype = strategy
@@ -857,7 +874,7 @@ class RaceSimulator:
                 return True
 
         # Prefer explicit planned pit laps when available for current stint.
-        active_plan = self._select_active_pit_plan(state, weather, lap, gap_ahead)
+        active_plan = self._select_active_pit_plan(state, weather, lap, gap_ahead, track=track)
         state.planned_pit_laps = active_plan
         planned_lap = None
         if state.pit_stops < len(active_plan):

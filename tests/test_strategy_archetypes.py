@@ -73,7 +73,7 @@ def test_conservative_switch_trigger_respects_tuning() -> None:
         state,
         lap=20,
         track=track,
-        gap_ahead=1.5,
+        gap_ahead=0.5,
     )
 
 
@@ -90,7 +90,7 @@ def test_select_active_plan_prefers_fallback_in_wet() -> None:
         pit_plan_options=sim._plan_pit_lap_options(TeamStrategyArchetype.BALANCED, track),
     )
 
-    plan = sim._select_active_pit_plan(state, weather, lap=20, gap_ahead=1.0)
+    plan = sim._select_active_pit_plan(state, weather, lap=20, gap_ahead=1.0, track=track)
     assert state.active_pit_plan_index == 1
     assert plan == state.pit_plan_options[1]
 
