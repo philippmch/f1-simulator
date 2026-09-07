@@ -1,6 +1,6 @@
 # Weather and interruption calibration
 
-Updated 2026-09-06. These checks constrain event frequency and weather behavior;
+Updated 2026-09-07. These checks constrain event frequency and weather behavior;
 they do not estimate a forecast for a particular venue or validate winner odds.
 
 ## Observed reference
@@ -30,6 +30,23 @@ chequered flag, which this diagnostic correctly excludes.
 
 ## Model choices
 
+- Random racing incidents use the existing 22-car grid as the reference
+  exposure. After circuit, consistency and weather modifiers, its per-lap
+  probability `h22` is bounded between 0.0005 and 0.08. For `N` active cars,
+  `hN = 1 - (1 - h22) ** (N / 22)`. Thus retirements reduce combined incident
+  risk instead of concentrating the full-grid risk on the remaining drivers.
+  A single survivor can still spin, suffer a puncture or crash; zero active
+  cars receive no incident draw. The 0.08 defensive ceiling also applies to
+  oversized synthetic fields, but the lower floor is not reapplied after
+  exposure scaling. The 22-car reference and these bounds are model priors.
+- Random-incident severity and driver-selection weights are unchanged.
+  Punctures remain part of this incident channel; there is no separately
+  calibrated tyre-wear failure hazard. Mechanical failures remain per-car
+  events, on-track overtakes retain their own contact model, and the independent
+  background safety-intervention channel is unchanged. Neutralized laps still
+  suppress random racing incidents. At most one such incident is emitted per
+  lap, so this is an aggregate exposure model, not independent incident draws
+  for every car.
 - While rain falls, surface wetness moves 20% of the distance toward normalized
   rainfall intensity each lap. This represents rainfall balanced by drainage:
   sustained intensity 0.35 tends toward wetness 0.35, not a flooded track.
