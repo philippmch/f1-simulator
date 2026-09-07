@@ -36,6 +36,17 @@ driver to react when conditions change after the planned stops are exhausted.
 The dry-compound check counts distinct slick compounds rather than stops; using
 an intermediate or wet compound exempts that driver's modeled dry-use rule.
 
+A fitted set earns compound-use credit when it runs on track in a simulated
+lap. Replacing it before any running does not count an extra compound or grant
+a wet-tyre exemption; unused fittings are removed from stint history. When
+considering staying out, the planner credits the current set's forthcoming lap.
+An immediate replacement must instead use only compounds that have already
+run. This also prevents a free red-flag fitting from granting credit if it is
+replaced again before the restart lap. A distinct free set that can complete
+the requirement by running does not force another paid stop or extend the
+elective stop budget. In a two-lap race, the mandatory change waits until lap
+two so the opening set gets a lap of running.
+
 Race results expose the actual paid pit laps, shown below each dashboard stop
 count and included as `pit_laps` in the API and downloaded scenario JSON.
 The race CSV appends a `pit_laps` column containing a JSON array, such as
@@ -212,7 +223,9 @@ not predict changes in weather condition or future race interruptions.
 
 The comparison deliberately favours stopping: each projected lap allows the
 best fresh compound that avoids critical mismatch and maximum traffic relief,
-with negative gains discarded. It uses the shared lap physics without random
+with negative gains discarded. This optimistic bound does not freeze compound
+eligibility at the current lap, since running later sets can change it.
+It uses the shared lap physics without random
 variation, ages the current set, and applies the SC/VSC running multiplier only to the
 current lap; later laps assume green running. If even these optimistic savings
 cannot pay the current stop cost, the car stays out and re-evaluates next lap.
