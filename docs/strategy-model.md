@@ -25,6 +25,26 @@ selection, with an additional precautionary intermediate bias for rainy starts.
 Already-fitted rain tyres have wider drying windows before they trigger another
 stop, which avoids repeatedly switching sets near the crossover.
 
+During a red-flag suspension, dry tyre selection compares all fresh slicks over
+the remaining race, including any later paid stops that the stop budget permits.
+It uses the same tyre pace and wear model as ordinary dry planning. The free set
+must run at least one lap before another stop; future service and pit-lane time
+are priced as green running. A suspension after lap N leaves `total_laps - N`
+racing laps, starting with lap N+1. Rain-tyre crossover decisions retain priority.
+
+The free change does not consume a paid stop or pit-plan slot. A new distinct
+slick can satisfy the compound-use requirement; repeating a slick remains an
+option when the projected schedule includes a legal later correction. The
+existing mandatory-correction stop exception remains available if needed.
+Fresh tyres resolve the modeled puncture's pending stop, while incident time
+already lost stays on the clock. Retired cars are not serviced. A suspension
+after the final lap adds no tyre stint or compound-use credit.
+
+Changing wheels and tyres during a suspension is permitted by B5.14.4(a)(vii) of
+the [FIA 2026 Sporting Regulations, Issue 08](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_b_sporting_-_iss_08_-_2026-08-05_7.pdf).
+The model assumes a free fresh set is available and does not model the full
+suspension work procedure, tyre inventory, or elapsed suspension duration.
+
 A conservative driver outside the top six can switch to the balanced profile
 after 40% of the scheduled race when following in modeled dirty air. The default
 traffic window is below two seconds; `conservative_switch_gap` can narrow that
@@ -126,6 +146,12 @@ Run `python examples/check_pit_timing.py` to compare the chosen strategy with
 every permitted one-stop lap and unused compound in controlled synthetic
 30-lap full races. This also checks pit execution and tyre ageing, not just
 the optimizer's own cost calculation.
+
+Run `python examples/check_restart_choices.py` to compare selected free restart
+sets with forced soft, medium and hard alternatives in controlled 60-lap races.
+The diagnostic covers a five-lap sprint, a long final stint, and high wear with
+a later paid stop available. Each alternative uses the actual race engine and
+remaining pit strategy with mean pace and expected stationary service.
 
 Sampling ranges in the dashboard measure Monte Carlo noise under these
 assumptions. They do not validate the strategy model against real race outcomes.
