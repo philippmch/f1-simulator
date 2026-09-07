@@ -7,6 +7,7 @@ import numpy as np
 from f1sim.models import Car, Driver, TireCompound, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.lap import LapSimulator
+from f1sim.simulation.validation import validate_unique_ids
 
 
 @dataclass
@@ -55,6 +56,7 @@ class QualifyingSimulator:
         Returns:
             List of QualifyingResult sorted by position
         """
+        validate_unique_ids((driver.id for driver in drivers), "drivers")
         results: dict[str, QualifyingResult] = {}
 
         # Initialize results

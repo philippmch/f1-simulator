@@ -11,6 +11,7 @@ from f1sim.simulation.events import EventManager, EventType, RaceEvent
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.overtaking import OvertakingModel
 from f1sim.simulation.pit_strategy import expected_stationary_time, plan_dry_stop
+from f1sim.simulation.validation import validate_unique_ids
 
 
 class DriverStatus(str, Enum):
@@ -195,6 +196,8 @@ class RaceSimulator:
         Returns:
             List of RaceResult sorted by finishing position
         """
+        validate_unique_ids((driver.id for driver in drivers), "drivers")
+        validate_unique_ids(starting_grid, "starting_grid")
         # Reset mutable driver state as well as event state.  Monte Carlo
         # workers may intentionally reuse model instances between simulations.
         for driver in drivers:

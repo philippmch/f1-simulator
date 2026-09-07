@@ -18,6 +18,7 @@ from f1sim.simulation.race import (
     RaceSimulator,
     result_is_classified,
 )
+from f1sim.simulation.validation import validate_unique_ids
 
 
 def wilson_interval(successes: int, trials: int) -> dict[str, float]:
@@ -432,6 +433,7 @@ class MonteCarloRunner:
             weather: Initial weather conditions
             seed: Random seed for reproducibility
         """
+        validate_unique_ids((driver.id for driver in drivers), "drivers")
         self.drivers = drivers
         self.cars = cars
         self.track = track
@@ -472,6 +474,8 @@ class MonteCarloRunner:
             raise ValueError(msg)
         if max_workers is not None:
             max_workers = int(max_workers)
+
+        validate_unique_ids((driver.id for driver in self.drivers), "drivers")
 
         # Prepare serializable data for multiprocessing
         drivers_data = [d.model_dump() for d in self.drivers]
