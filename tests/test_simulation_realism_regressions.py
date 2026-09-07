@@ -532,7 +532,7 @@ def test_neutralization_preserves_authoritative_overtake_order() -> None:
 
     # Red-flag bunching uses the same authoritative ordering and must not
     # reclassify the cars merely because their cumulative clocks disagree.
-    simulator._handle_red_flag_stop(states, Weather())
+    simulator._handle_red_flag_stop(states, Weather(), _track(), 3)
     assert [state.driver.id for state in sorted(states, key=lambda s: s.position)] == [
         "PASSER",
         "FORMER_LEAD",

@@ -447,7 +447,7 @@ class RaceSimulator:
                     states,
                     material_penalty_ids,
                 )
-                self._handle_red_flag_stop(states, current_weather)
+                self._handle_red_flag_stop(states, current_weather, track, lap)
 
             # Commit fastest laps only after all on-track incidents and race
             # control consequences for this lap have been applied.  In
@@ -1570,6 +1570,8 @@ class RaceSimulator:
         self,
         states: list[DriverRaceState],
         weather: Weather,
+        track: Track,
+        current_lap: int,
     ) -> None:
         """Handle red flag stoppage.
 
@@ -1581,50 +1583,65 @@ class RaceSimulator:
         Args:
             states: Driver race states
             weather: Current weather conditions
+            track: Race distance and tyre physics
+            current_lap: Lap completed before suspension
         """
         # Bunch the field - gaps are reset on red flag
         self.event_manager.bunch_field(states)
 
         # All drivers can change tires during red flag (free tire change)
         for state in states:
-            if state.status != DriverStatus.RACING:
+            if state.status != DriverStatus.RACING or current_lap >= track.total_laps:
                 continue
 
             # Choose optimal tire for current conditions
-            new_compound = self._choose_red_flag_tire(weather)
+            new_compound = self._choose_red_flag_tire(state, weather, track, current_lap)
             state.current_tire = TIRE_COMPOUNDS[new_compound].model_copy(deep=True)
             state.tire_laps = 0  # Fresh tires
             state.driver.current_tire_laps = 0
+            # The sole modeled forced-stop cause is a puncture. A free fresh
+            # set resolves it without charging another stop on the restart.
+            state.force_pit_next_lap = False
+            state.dry_pit_proposal = None
             # A red-flag tyre change also starts a new physical stint and is
             # therefore represented even when the compound repeats.
             state.tire_compound_history.append(new_compound.value)
 
-        # Simulate red flag suspension (2-5 laps worth of time)
-        # The race is stopped so we just end the red flag for restart
+        # End suspension for the next lap; no stopped-clock duration is modeled.
         self.event_manager.end_red_flag()
 
-    def _choose_red_flag_tire(self, weather: Weather) -> TireCompound:
-        """Choose optimal tire compound during red flag stop.
-
-        Args:
-            weather: Current weather conditions
-
-        Returns:
-            Optimal tire compound for conditions
-        """
+    def _choose_red_flag_tire(
+        self, state: DriverRaceState, weather: Weather, track: Track, current_lap: int,
+    ) -> TireCompound:
+        """Price a free set from the next lap, including future paid dry stops."""
+        remaining_laps = track.total_laps - current_lap
+        if remaining_laps <= 0:
+            return state.current_tire.compound
         weather_compound = self._choose_weather_compound(weather)
         if weather_compound is not None:
             return weather_compound
-        else:
-            # Dry conditions - strategic choice
-            # Most teams will choose softs for grip at restart
-            roll = self.rng.random()
-            if roll < 0.6:
-                return TireCompound.SOFT
-            elif roll < 0.9:
-                return TireCompound.MEDIUM
-            else:
-                return TireCompound.HARD
+
+        used = self._used_slick_compounds(state)
+        wet_exemption = self._has_used_wet_compound(state)
+        remaining_stops = max(0, self._ordinary_stop_budget(state, track) - state.pit_stops)
+
+        def finish_cost(compound: TireCompound) -> float:
+            prospective_used = used | {compound}
+            budget = remaining_stops
+            if not wet_exemption and len(prospective_used) < 2:
+                # As in ordinary planning, retain a correction stop if all
+                # paid stops repeated a compound. A distinct free set can
+                # satisfy that rule without consuming a paid-stop slot.
+                budget = max(budget, 1)
+            return plan_dry_stop(
+                state.driver, state.car, track, TIRE_COMPOUNDS[compound], 0,
+                remaining_laps, budget, prospective_used, wet_exemption,
+            ).wait_cost
+
+        return min(
+            (TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD),
+            key=finish_cost,
+        )
 
     @staticmethod
     def _choose_weather_compound(weather: Weather) -> TireCompound | None:

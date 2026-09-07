@@ -64,7 +64,7 @@ def test_all_fresh_tyre_choices_fit_crossover_conditions(wetness, rain, expected
     simulator._execute_pit_stop(state, make_track(), weather, 10)
     assert state.current_tire.compound == expected
     assert simulator._check_tire_weather_mismatch(state.current_tire, weather) == "ok"
-    assert simulator._choose_red_flag_tire(weather) == expected
+    assert simulator._choose_red_flag_tire(state, weather, make_track(), 10) == expected
     assert simulator._choose_starting_compound(
         TeamStrategyArchetype.BALANCED, make_track(), weather,
     ) == expected
