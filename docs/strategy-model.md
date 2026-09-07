@@ -58,6 +58,29 @@ execution uses sampled service, so the decision does not know a future slow-stop
 outcome. Reservations reset each lap and race. This is a same-lap box model,
 not a simulation of pit-lane congestion, crew setup time or unsafe releases.
 
+After the pit batch, dirty-air pace uses one frozen view of the field with
+actual pit losses applied. A car can emerge into traffic, and a following car
+can gain clean air when the car ahead stops. Strategy decisions and Overtake
+Mode detection retain their pre-stop information. Final position changes still
+use the completed lap clocks, including actual service and on-track running.
+
+During clearly dry green running, the optimizer also compares the first lap's
+dirty-air cost when stopping with that when staying out. It projects the driver's
+expected lane, service and queue loss into the current field, assuming other
+cars stay out. The shared lap model contributes between zero and 0.5 seconds,
+depending on a gap below two seconds; this can move a close timing decision in
+either direction. It does not predict a queue of slower cars over multiple laps,
+passing opportunities, or rivals' stop decisions. The correction is disabled
+under neutralisation. Expected gaps approximate a nonlinear cost at the mean
+service time; they are not an average over every possible service outcome.
+
+Clean air's relevance to an undercut is described in Formula 1's
+[pit-strategy analysis](https://www.formula1.com/en/latest/article/jolyon-palmers-analysis-singapore-and-the-art-of-undercutting.1NgVyVsZnHTDEA9wi0s5lW).
+The simulator's two-second range and half-second maximum are existing model
+parameters, not values calibrated from that source. Because pit service occurs
+before lap pace in this engine, the post-stop gap represents the running lap;
+there is no separate in-lap/out-lap sector simulation.
+
 Weather and damage stops retain priority. For a forced or fallback stop whose
 compound has not already been selected, the simulator compares tyre contribution over the
 next stint for each eligible fresh slick. The projection shares the actual lap
@@ -78,7 +101,7 @@ race with the actual tyre age, compound history and stops remaining.
 The fallback compound comparison assumes the stop has already been chosen;
 the dry optimizer additionally includes pit loss. Both omit common fuel and
 car pace terms that cancel between the compared dry schedules. Neither forecasts
-future weather or incidents, prices future traffic, limits the inventory of
+future weather or incidents, prices traffic beyond the immediate rejoin lap, limits the inventory of
 tyre sets, or jointly schedules both teammates' future stops. Those remain separate opportunities
 to improve strategy realism. Cost tables are bounded in-memory calculations;
 they do not persist provider data or consume simulation random draws.
