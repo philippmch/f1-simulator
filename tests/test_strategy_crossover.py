@@ -27,8 +27,8 @@ def test_stable_damp_race_does_not_repeat_mismatch_stops(monkeypatch):
     stops = []
     execute = simulator._execute_pit_stop
 
-    def record_stop(state, track, weather, current_lap):
-        loss = execute(state, track, weather, current_lap)
+    def record_stop(state, track, weather, current_lap, **kwargs):
+        loss = execute(state, track, weather, current_lap, **kwargs)
         stops.append((current_lap, state.current_tire.compound))
         assert simulator._check_tire_weather_mismatch(state.current_tire, weather) == "ok"
         return loss

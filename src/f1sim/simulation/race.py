@@ -10,7 +10,7 @@ from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.events import EventManager, EventType, RaceEvent
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.overtaking import OvertakingModel
-from f1sim.simulation.pit_strategy import plan_dry_stop
+from f1sim.simulation.pit_strategy import expected_stationary_time, plan_dry_stop
 
 
 class DriverStatus(str, Enum):
@@ -261,6 +261,10 @@ class RaceSimulator:
             # lap for every driver. Shallow copies freeze these scalar fields
             # while the live states accumulate this lap's running and pit loss.
             lap_start_states = [replace(state) for state in states]
+            lap_start_gaps = {
+                state.driver.id: self._get_gap_to_car_ahead(state, lap_start_states)
+                for state in lap_start_states if state.status == DriverStatus.RACING
+            }
 
             # Simulate lap for each driver
             lap_times: dict[str, float] = {}
@@ -268,36 +272,18 @@ class RaceSimulator:
             drivers_pitting: list[DriverRaceState] = []
             material_penalty_ids: set[str] = set()
 
-            # Phase 1: Determine who pits and calculate lap times
+            # Decide every stop before sampling service or running laps. Both
+            # pit-box queues use frozen lap-start clocks as arrival proxies.
+            drivers_pitting = self._process_pit_stops(
+                states, lap_start_states, track, current_weather, lap,
+            )
+            pitting_ids = {state.driver.id for state in drivers_pitting}
             for state in states:
                 if state.status != DriverStatus.RACING:
                     continue
                 state.overtake_mode_active_lap = False
-                gap_ahead = self._get_gap_to_car_ahead(state, lap_start_states)
-
-                # Check for pit stop decision
-                forced_pit = state.force_pit_next_lap
-                should_pit = forced_pit or self._should_pit(
-                    state,
-                    lap_start_states,
-                    track,
-                    lap,
-                    self.event_manager.is_pit_window_open(),
-                    weather=current_weather,
-                )
-
-                if should_pit:
-                    pit_time = self._execute_pit_stop(
-                        state,
-                        track,
-                        current_weather,
-                        current_lap=lap,
-                    )
-                    state.total_time += pit_time
-                    state.pit_stops += 1
-                    state.pit_laps.append(lap)
-                    drivers_pitting.append(state)
-                    state.force_pit_next_lap = False
+                gap_ahead = lap_start_gaps[state.driver.id]
+                should_pit = state.driver.id in pitting_ids
 
                 # Calculate lap time
                 if not should_pit:
@@ -657,6 +643,54 @@ class RaceSimulator:
         )
         return state.pit_plan_options[state.active_pit_plan_index]
 
+    def _process_pit_stops(
+        self,
+        states: list[DriverRaceState],
+        lap_start_states: list[DriverRaceState],
+        track: Track,
+        weather: Weather,
+        lap: int,
+    ) -> list[DriverRaceState]:
+        """Reserve then serve each constructor's box in frozen arrival order.
+
+        A lap-start race clock approximates arrival at the shared box. Lane
+        transit is outside box occupancy. Reservations use expected service;
+        random service is sampled only after all decisions are committed.
+        Local queues cannot leak across laps or simulator reuse, including
+        race-control clock compression and free suspension tyre changes.
+        """
+        arrivals = {state.driver.id: (state.total_time, state.position)
+                    for state in lap_start_states}
+        ordered = sorted(
+            (state for state in states if state.status == DriverStatus.RACING),
+            key=lambda state: (*arrivals[state.driver.id], state.driver.id),
+        )
+        expected_releases: dict[str, float] = {}
+        pitting = []
+        for state in ordered:
+            arrival = arrivals[state.driver.id][0]
+            team = state.car.team_id
+            delay = max(0.0, expected_releases.get(team, arrival) - arrival)
+            if state.force_pit_next_lap or self._should_pit(
+                state, lap_start_states, track, lap,
+                self.event_manager.is_pit_window_open(), weather=weather,
+                additional_current_stop_cost=delay,
+            ):
+                pitting.append(state)
+                expected_releases[team] = arrival + delay + expected_stationary_time(state.car)
+
+        actual_releases: dict[str, float] = {}
+        for state in pitting:
+            state.total_time += self._execute_pit_stop(
+                state, track, weather, current_lap=lap,
+                pit_box_releases=actual_releases,
+                arrival_time=arrivals[state.driver.id][0],
+            )
+            state.pit_stops += 1
+            state.pit_laps.append(lap)
+            state.force_pit_next_lap = False
+        return pitting
+
     def _should_pit(
         self,
         state: DriverRaceState,
@@ -665,6 +699,7 @@ class RaceSimulator:
         lap: int,
         pit_window_open: bool,
         weather: Weather | None = None,
+        additional_current_stop_cost: float = 0.0,
     ) -> bool:
         """Decide if driver should pit this lap."""
         state.dry_pit_proposal = None
@@ -738,7 +773,7 @@ class RaceSimulator:
                 track.total_laps - lap + 1,
                 max(0, max_stops - state.pit_stops),
                 self._used_slick_compounds(state), self._has_used_wet_compound(state),
-                self._pit_lane_factor(),
+                self._pit_lane_factor(), additional_current_stop_cost,
             )
             timing_bias = {
                 TeamStrategyArchetype.AGGRESSIVE: 0.1,
@@ -987,6 +1022,9 @@ class RaceSimulator:
         track: Track,
         weather: Weather,
         current_lap: int,
+        *,
+        pit_box_releases: dict[str, float] | None = None,
+        arrival_time: float | None = None,
     ) -> float:
         """Execute pit stop and return total time lost.
 
@@ -1004,6 +1042,12 @@ class RaceSimulator:
         # service remains unchanged and is still sampled per team/car.
         pit_lane_time = track.pit_lane_delta * self._pit_lane_factor()
         stationary_time = self.lap_simulator.calculate_pit_stop_time(state.car)
+        queue_time = 0.0
+        if pit_box_releases is not None:
+            arrival = state.total_time if arrival_time is None else arrival_time
+            team = state.car.team_id
+            queue_time = max(0.0, pit_box_releases.get(team, arrival) - arrival)
+            pit_box_releases[team] = arrival + queue_time + stationary_time
 
         # Choose new tire compound
         weather_compound = self._choose_weather_compound(weather)
@@ -1040,7 +1084,7 @@ class RaceSimulator:
         # fitted again (e.g. a wet-weather stop or a repeated medium stint).
         state.tire_compound_history.append(new_compound.value)
 
-        return pit_lane_time + stationary_time
+        return pit_lane_time + stationary_time + queue_time
 
     def _get_gap_to_car_ahead(
         self,

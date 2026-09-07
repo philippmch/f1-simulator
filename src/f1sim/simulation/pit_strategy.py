@@ -116,7 +116,8 @@ class DryPitDecision:
 def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
                   tire_age: int, remaining_laps: int, remaining_stops: int,
                   used_compounds: set[TireCompound], wet_exemption: bool = False,
-                  pit_lane_factor: float = 1.0) -> DryPitDecision:
+                  pit_lane_factor: float = 1.0,
+                  additional_current_stop_cost: float = 0.0) -> DryPitDecision:
     """Compare a stop now with every legal plan driving at least one old-set lap."""
     if remaining_laps < 1 or remaining_stops < 0 or remaining_stops > 3:
         raise ValueError("Positive remaining laps and zero to three stops are required")
@@ -141,5 +142,6 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
         )))
     c = int(compounds[remaining_stops, mask, remaining_laps])
     pit_now_cost = float(costs[remaining_stops, mask, remaining_laps])
-    pit_now_cost += track.pit_lane_delta * (pit_lane_factor - 1)
+    # A committed teammate affects only this stop, never cached future plans.
+    pit_now_cost += track.pit_lane_delta * (pit_lane_factor - 1) + additional_current_stop_cost
     return DryPitDecision(pit_now_cost, wait_cost, SLICKS[c] if c >= 0 else None)
