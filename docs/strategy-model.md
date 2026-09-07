@@ -143,7 +143,18 @@ affect the maneuver, and a tyre advantage cannot bypass the gap restriction.
 Wet/damp laps and comparisons involving rain tyres retain their existing passing
 model until a separate wet-grip interaction is calibrated.
 
-Weather and damage stops retain priority. For a forced or fallback stop whose
+Critical weather and damage stops retain priority. On the final lap, a
+noncritical weather mismatch does not by itself justify a stop. Before the
+existing reaction-probability draw, the simulator compares an optimistic fresh
+tyre lap against staying out using the lap model with random variation disabled.
+If even that saving cannot cover expected pit-lane, stationary and queue loss,
+it stays out. The comparison includes the current SC/VSC running multiplier
+and allows for traffic relief. It neither forecasts another lap nor relaxes
+critical-condition safeguards. The cost veto also leaves an unresolved
+distinct-compound requirement to the existing weather reaction. Earlier weather reactions retain their existing
+policy; this is a finish-line cost check, not a full wet-strategy optimizer.
+
+For a forced or fallback stop whose
 compound has not already been selected, the simulator compares tyre contribution over the
 next stint for each eligible fresh slick. The projection shares the actual lap
 model's compound pace, wear, driver tyre management, circuit stress and car
