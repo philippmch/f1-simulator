@@ -68,15 +68,6 @@ class LapSimulator:
         # Base lap time from track
         base_time = track.base_lap_time
 
-        # Fresh-compound pace is separate from degradation.  At age zero the
-        # degradation curve has no effect, but the compound still must: soft
-        # < medium < hard on a dry track is a core race-strategy signal.
-        compound_delta = self._compound_pace_delta(
-            tire,
-            base_time,
-            tire_age=driver.current_tire_laps,
-        )
-
         # Car performance delta.  ``base_pace`` describes the package as a
         # whole, while the aero/top-speed terms below let the circuit profile
         # decide where that pace is useful.  Keeping the specialised terms to
@@ -93,19 +84,8 @@ class LapSimulator:
         variation_std = driver.lap_time_variation_std(base_std=0.25)
         random_variation = self.rng.normal(0, variation_std)
 
-        # Tire degradation effect
-        tire_delta = tire.time_penalty_per_lap(
-            driver.current_tire_laps,
-            base_time,
-            driver.tire_management,
-        )
-        # A stressed circuit and a car that is hard on its tyres both amplify
-        # the same underlying compound degradation curve.  The bounded range
-        # keeps defaults neutral (1.0) while preventing an accidental rating
-        # outlier from dominating the race.
-        tire_stress_multiplier = 0.75 + 0.5 * float(np.clip(track.tire_stress, 0.0, 1.0))
-        tire_delta *= float(
-            np.clip(car.tire_degradation_factor * tire_stress_multiplier, 0.5, 1.75)
+        tire_delta = self.tire_pace_contribution(
+            driver, car, track, tire, driver.current_tire_laps
         )
 
         # Fuel effect (lighter = faster, ~0.03s per lap of fuel burned)
@@ -173,7 +153,6 @@ class LapSimulator:
             base_time
             + car_delta
             + skill_delta
-            + compound_delta
             + random_variation
         )
         lap_time += (
@@ -189,6 +168,30 @@ class LapSimulator:
         # Ensure minimum realistic lap time
         min_lap_time = track.base_lap_time * 0.95
         return max(min_lap_time, lap_time)
+
+    @classmethod
+    def tire_pace_contribution(
+        cls, driver: Driver, car: Car, track: Track, tire: Tire, tire_age: int
+    ) -> float:
+        """Deterministic tyre seconds before weather, shared with stint planning."""
+        degradation = tire.time_penalty_per_lap(
+            tire_age, track.base_lap_time, driver.tire_management
+        )
+        stress = 0.75 + 0.5 * min(1.0, max(0.0, track.tire_stress))
+        degradation *= min(1.75, max(0.5, car.tire_degradation_factor * stress))
+        return cls._compound_pace_delta(tire, track.base_lap_time, tire_age) + degradation
+
+    @classmethod
+    def projected_tire_stint_cost(
+        cls, driver: Driver, car: Car, track: Track, tire: Tire, laps: int
+    ) -> float:
+        """Sum fresh-set tyre seconds over a dry stint without drawing randomness.
+
+        Common fuel, car, traffic and driver pace terms cancel between sets.
+        This projects the existing pace model, not future weather or stop timing.
+        """
+        return sum(cls.tire_pace_contribution(driver, car, track, tire, age)
+                   for age in range(laps))
 
     @classmethod
     def _compound_pace_delta(
