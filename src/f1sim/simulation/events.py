@@ -224,13 +224,20 @@ class EventManager:
         # Check for forced red flag
         if (
             lap in self.forced_red_flag_laps
-            and not self._lap_started_neutralized
             and not self.red_flag_active
         ):
             red_flag_event = self.deploy_red_flag(lap, "Manual trigger")
             lap_events.append(red_flag_event)
             self.events.extend(lap_events)
             return lap_events
+
+        # Neutralization suppresses fresh incident/SC hazards, but a newly
+        # severe storm can still require suspension. Include countdown expiry:
+        # the lap that just ran was neutralized, so it must not redraw an SC.
+        if self._lap_started_neutralized:
+            red_flag_event = self._check_severe_weather_red_flag(lap, weather)
+            if red_flag_event:
+                lap_events.append(red_flag_event)
 
         # Check for forced safety car
         if (
@@ -609,6 +616,22 @@ class EventManager:
         does not imply that the next simulated lap has physically dried out.
         """
         self._update_weather_episode(weather)
+        red_flag_event = self._check_severe_weather_red_flag(lap, weather)
+        if red_flag_event:
+            return red_flag_event
+
+        probability = self._race_probability_to_lap_hazard(
+            BACKGROUND_RED_FLAG_RACE_PROBABILITY, total_laps
+        )
+        if self.rng.random() < probability:
+            return self.deploy_red_flag(lap, "Major incident or track obstruction")
+
+        return None
+
+    def _check_severe_weather_red_flag(
+        self, lap: int, weather: Weather | None,
+    ) -> RaceEvent | None:
+        """Decide once per severe episode, including laps under SC or VSC."""
         if weather is not None:
             severe = weather.track_wetness >= 0.95 or (
                 weather.track_wetness >= 0.8 and weather.rain_intensity >= 0.8
@@ -617,12 +640,6 @@ class EventManager:
                 self._severe_weather_episode_decided = True
                 if self.rng.random() < SEVERE_WEATHER_RED_FLAG_EPISODE_PROBABILITY:
                     return self.deploy_red_flag(lap, "Severe weather")
-
-        probability = self._race_probability_to_lap_hazard(
-            BACKGROUND_RED_FLAG_RACE_PROBABILITY, total_laps
-        )
-        if self.rng.random() < probability:
-            return self.deploy_red_flag(lap, "Major incident or track obstruction")
 
         return None
 
@@ -652,6 +669,12 @@ class EventManager:
         self.safety_car_laps_remaining = 0
         self.vsc_active = False
         self.vsc_laps_remaining = 0
+        self.sc_just_ended = False
+        self.sc_restart_lap = False
+        self.sc_restart_lap_number = None
+        self.red_flag_just_ended = False
+        self.red_flag_restart_lap = False
+        self.red_flag_restart_lap_number = None
 
         return RaceEvent(
             event_type=EventType.RED_FLAG,
