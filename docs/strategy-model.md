@@ -157,6 +157,12 @@ window, so an eligible restart attempt between 1.5 and two seconds can succeed.
 The outer gate still rejects larger gaps. These windows are model parameters;
 the wider passing opportunity does not override Overtake Mode eligibility.
 
+Battles are resolved from the front toward the back of the physical queue.
+After a successful pass, the next attacker faces its new immediate neighbour;
+it cannot skip a car by using the pre-pass order. Passing changes positions,
+while the existing clock reconciliation charges blocked running without
+removing elapsed race time.
+
 Critical weather and damage stops retain priority. On the final lap, a
 noncritical weather mismatch does not by itself justify a stop. Before the
 existing reaction-probability draw, the simulator compares an optimistic fresh
