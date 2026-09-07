@@ -13,7 +13,7 @@ from f1sim.simulation.opening_strategy import opening_policy_costs
 from f1sim.simulation.overtaking import OvertakingModel
 from f1sim.simulation.pit_strategy import expected_stationary_time, plan_dry_stop
 from f1sim.simulation.race_points import points_for_classification
-from f1sim.simulation.race_timing import announced_final_lap
+from f1sim.simulation.race_timing import RaceFinishClock
 from f1sim.simulation.validation import validate_unique_ids
 from f1sim.simulation.weather_strategy import weather_stop_costs
 
@@ -270,7 +270,8 @@ class RaceSimulator:
         fastest_laps: dict[str, float] = {}
 
         # Simulate each lap
-        final_lap = track.total_laps
+        finish_clock = RaceFinishClock(track.total_laps)
+        final_lap = finish_clock.final_lap
         consecutive_green_laps = 0
         has_two_green_laps = False
         for lap in range(1, track.total_laps + 1):
@@ -529,7 +530,7 @@ class RaceSimulator:
 
             leader = min((state for state in states if state.status == DriverStatus.RACING),
                          key=lambda state: state.position)
-            final_lap = announced_final_lap(final_lap, lap, leader.total_time)
+            final_lap = finish_clock.observe_leader_crossing(lap, leader.total_time)
             if lap >= final_lap:
                 break
 

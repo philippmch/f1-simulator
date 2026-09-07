@@ -9,7 +9,7 @@ import numpy as np
 
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
-from f1sim.simulation.race_timing import announced_final_lap
+from f1sim.simulation.race_timing import RaceFinishClock
 
 REACTION_SEEDS = tuple(range(8))
 OPENING_CANDIDATES = (TireCompound.INTERMEDIATE, TireCompound.SOFT,
@@ -81,7 +81,8 @@ def _policy_path_outcome(driver, car, track, weather, strategy, tuning, profiles
                             strategy_archetype=strategy, planned_pit_laps=plans[0],
                             pit_plan_options=plans)
     projected = weather.model_copy(deep=True)
-    final_lap = track.total_laps
+    finish_clock = RaceFinishClock(track.total_laps)
+    final_lap = finish_clock.final_lap
     for lap in range(1, track.total_laps + 1):
         planning_track = (track if final_lap == track.total_laps else
                           track.model_copy(update={"total_laps": final_lap}))
@@ -107,7 +108,7 @@ def _policy_path_outcome(driver, car, track, weather, strategy, tuning, profiles
         state.driver.current_tire_laps = state.tire_laps
         state.laps_completed += 1
         state.last_crossing_position = 1
-        final_lap = announced_final_lap(final_lap, lap, state.total_time)
+        final_lap = finish_clock.observe_leader_crossing(lap, state.total_time)
         if lap >= final_lap:
             break
         projected = projected.project_surface()
