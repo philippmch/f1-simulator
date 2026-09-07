@@ -60,6 +60,13 @@ change when that minimizes total time.
 One-lap simulations retain a single starting stint because this lap-level
 model cannot run two sets within one lap.
 
+The dashboard Statistics view summarizes paid pit stops across all observed
+races for each driver: the average and the shares with zero, one, two, or at
+least three stops. Retirements remain in these observations, so early failures
+can lower the average. Free red-flag changes are excluded. The API and statistics
+JSON export include the observed race count, mean, and exact stop-count
+frequencies; drivers without race observations have no inferred stop statistics.
+
 Race results expose the actual paid pit laps, shown below each dashboard stop
 count and included as `pit_laps` in the API and downloaded scenario JSON.
 The race CSV appends a `pit_laps` column containing a JSON array, such as
