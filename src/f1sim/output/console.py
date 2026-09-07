@@ -1,6 +1,7 @@
 """Console output formatting."""
 
 from f1sim.analysis.montecarlo import SimulationResults
+from f1sim.output.timing import finite_time
 from f1sim.simulation.qualifying import QualifyingResult
 from f1sim.simulation.race import RaceResult, result_is_classified
 
@@ -21,12 +22,15 @@ class ConsoleOutput:
         print(f"{'Pos':<4} {'Driver':<20} {'Team':<15} {'Time':<12} {'Gap':<10}")
         print("-" * 60)
 
-        pole_time = results[0].best_time if results else 0
+        ordered = sorted(results, key=lambda r: r.position)
+        pole_time = finite_time(ordered[0].best_time) if ordered else None
 
-        for result in sorted(results, key=lambda r: r.position):
+        for result in ordered:
+            time = finite_time(result.best_time)
+            time_text = f"{time:.3f}s" if time is not None else "No time"
             gap = ""
-            if result.position > 1:
-                gap_secs = result.best_time - pole_time
+            if result.position > 1 and time is not None and pole_time is not None:
+                gap_secs = time - pole_time
                 gap = f"+{gap_secs:.3f}"
 
             eliminated = f" (out in {result.eliminated_in})" if result.eliminated_in else ""
@@ -35,7 +39,7 @@ class ConsoleOutput:
                 f"{result.position:<4} "
                 f"{result.driver_name:<20} "
                 f"{'':<15} "
-                f"{result.best_time:.3f}s "
+                f"{time_text} "
                 f"{gap:<10}"
                 f"{eliminated}"
             )

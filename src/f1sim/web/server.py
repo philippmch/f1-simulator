@@ -13,6 +13,7 @@ from typing import Any
 from f1sim.analysis import MonteCarloRunner, parse_scenario_labels, scenario_weather_from_label
 from f1sim.data import CurrentSeasonDataError, CurrentSeasonDataLoader
 from f1sim.models import Weather, WeatherCondition
+from f1sim.output.timing import finite_time
 from f1sim.simulation.race import result_is_classified
 from f1sim.web.capacity import RunCapacity
 
@@ -161,10 +162,10 @@ def _serialize_quali_result(result: Any) -> dict[str, Any]:
         "driver_id": result.driver_id,
         "driver_name": result.driver_name,
         "position": result.position,
-        "best_time": result.best_time,
-        "q1_time": result.q1_time,
-        "q2_time": result.q2_time,
-        "q3_time": result.q3_time,
+        "best_time": finite_time(result.best_time),
+        "q1_time": finite_time(result.q1_time),
+        "q2_time": finite_time(result.q2_time),
+        "q3_time": finite_time(result.q3_time),
         "eliminated_in": result.eliminated_in,
     }
 

@@ -9,6 +9,7 @@ from typing import Any
 from urllib.parse import quote
 
 from f1sim.analysis.montecarlo import SimulationResults
+from f1sim.output.timing import csv_time
 from f1sim.simulation.race import result_is_classified
 
 
@@ -208,10 +209,10 @@ class Exporter:
                         result.position,
                         result.driver_id,
                         result.driver_name,
-                        f"{result.best_time:.3f}",
-                        f"{result.q1_time:.3f}" if result.q1_time else "",
-                        f"{result.q2_time:.3f}" if result.q2_time else "",
-                        f"{result.q3_time:.3f}" if result.q3_time else "",
+                        csv_time(result.best_time),
+                        csv_time(result.q1_time),
+                        csv_time(result.q2_time),
+                        csv_time(result.q3_time),
                         result.eliminated_in or "",
                     ])
 

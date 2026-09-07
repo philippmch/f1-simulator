@@ -117,6 +117,28 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       delete window.savedClassificationSample;
       renderRace();
     });
+    await page.locator('#tab-qualifying').click();
+    await page.evaluate(() => {
+      window.savedQualifyingSample = getScenarioEntry().data.sample_qualifying;
+      getScenarioEntry().data.sample_qualifying = [...savedQualifyingSample, {
+        driver_id: 'MISSING', driver_name: 'Missing car', team: 'Unknown',
+        position: savedQualifyingSample.length + 1, best_time: null,
+        q1_time: null, q2_time: null, q3_time: null, eliminated_in: 'Q1',
+      }];
+      renderQualifying();
+    });
+    const missingQualifying = page.locator('#qualiContent .quali-row').filter({
+      has: page.locator('.driver-code', {hasText: /^MISSING$/}),
+    });
+    assert.deepEqual((await missingQualifying.locator('.quali-time').allTextContents())
+      .map(text => text.trim()), ['--', '--', '--']);
+    assert((await missingQualifying.getAttribute('class')).includes('eliminated'));
+    assert.equal(await missingQualifying.locator('.best').count(), 0);
+    await page.evaluate(() => {
+      getScenarioEntry().data.sample_qualifying = savedQualifyingSample;
+      delete window.savedQualifyingSample;
+      renderQualifying();
+    });
     await page.locator('#tab-stats').click();
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({ width, height: 900 });
