@@ -15,9 +15,11 @@ from math import ceil, isfinite
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.events import EventType, RaceEvent
 from f1sim.simulation.neutralization import safety_car_running_time
+from f1sim.simulation.pit_strategy import expected_stationary_time
 from f1sim.simulation.race import DriverRaceState, DriverStatus, RaceResult
 from f1sim.simulation.race_points import points_for_classification
 from f1sim.simulation.race_timing import RaceFinishTimeline
+from f1sim.simulation.strategy_traffic import StrategyTrafficSnapshot
 from f1sim.simulation.validation import validate_unique_ids
 
 
@@ -175,6 +177,7 @@ class ChronologicalRace:
         stop = state.force_pit_next_lap or self.simulator._should_pit(
             state, active, planning, lap, control.is_pit_window_open(), self.weather,
             additional_current_stop_cost=delay, physical_total_laps=self.track.total_laps,
+            traffic_snapshot=self._strategy_traffic(state, now, delay),
         )
         loss = 0.0
         if stop:
@@ -220,6 +223,81 @@ class ChronologicalRace:
         if not racing:
             return self.leader_id
         return min(racing, key=lambda driver_id: -self.states[driver_id].laps_completed)
+
+    def _projected_progress(self, driver_id, when, exit_lap):
+        """Forecast a rival's fractional position without simulating new events.
+
+        Keep committed running/pit delay, then extrapolate observed free pace.
+        Future tyre/weather changes, stops and battle delays are unknown. This
+        projection prices one rejoin; it never changes actual crossing order.
+        """
+        pending = self.pending.get(driver_id)
+        if pending is None or self.states[driver_id].status != DriverStatus.RACING:
+            return None
+        free_pace = (pending.running
+                     or self.running_paces.get(driver_id, self.track.base_lap_time))
+        pace = free_pace * self.simulator.event_manager.get_lap_time_modifier()
+        first_pace = free_pace * pending.lap_time_modifier
+        if not isfinite(pace) or pace <= 0 or not isfinite(first_pace) or first_pace <= 0:
+            return None
+        if pending.on_track:
+            start, ready = pending.running_start, pending.ready
+        else:
+            start, ready = pending.ready, pending.ready + first_pace
+            if when == start and pending.lap < exit_lap:
+                return None  # Our higher-distance exit has priority at this tie.
+        if start is None or when < start or ready <= start:
+            return None
+        if when < ready:
+            return (when - start) / (ready - start)
+        if when == ready and pending.lap < exit_lap:
+            return 1.0  # Our exit precedes this lower-distance crossing.
+        # A car already under the chequered flag exits at its next crossing;
+        # never project it back into traffic for another lap.
+        if self.timeline.chequered_time is not None:
+            return None
+        elapsed = when - ready
+        completed = pending.lap + int(elapsed // pace)
+        progress = (elapsed % pace) / pace
+        if (elapsed > 0 and progress == 0 and completed <= exit_lap
+                and completed <= self.timeline.final_lap):
+            # Future crossings are enqueued after this candidate pit exit;
+            # its serial priority also wins when their lap distances tie.
+            return 1.0
+        if completed >= self.timeline.final_lap:
+            return None
+        return progress
+
+    def _strategy_traffic(self, state, now, queue_delay):
+        """Snapshot physical gaps and expected rejoin cost at this own-lap start.
+
+        The circular successor supplies the space behind, including lapped
+        traffic. Race rank and old completed-crossing clocks are not positions.
+        Service is expected, existing queue delay is known, and no RNG is used.
+        """
+        driver_id = state.driver.id
+        modifier = self.simulator.event_manager.get_lap_time_modifier()
+        pace = self.running_paces.get(driver_id, self.track.base_lap_time) * modifier
+        ahead = self._physical_gap_ahead(driver_id, now, pace)
+        behind = None
+        if driver_id in self.order and len(self.order) > 1:
+            index = self.order.index(driver_id)
+            follower_id = self.order[(index + 1) % len(self.order)]
+            follower = self.pending.get(follower_id)
+            if follower is not None and follower.on_track:
+                behind = max(0.0, follower.ready - now)
+        cost = 0.0
+        if self.simulator.event_manager.is_active_aero_allowed():
+            exit_time = (now + self.track.pit_lane_delta * self.simulator._pit_lane_factor()
+                         + expected_stationary_time(state.car) + queue_delay)
+            progress = [value for other_id in self.pending if other_id != driver_id
+                        and (value := self._projected_progress(
+                            other_id, exit_time, state.laps_completed + 1,
+                        )) is not None]
+            rejoin_gap = min(progress) * pace if progress else None
+            traffic = self.simulator.lap_simulator.traffic_pace_contribution
+            cost = traffic(rejoin_gap) - traffic(ahead)
+        return StrategyTrafficSnapshot(ahead, behind, cost)
 
     def _physical_gap_ahead(self, driver_id, now, reference_pace=None):
         """Time-equivalent forward distance to the circular physical predecessor.
