@@ -145,6 +145,7 @@ class Exporter:
                 "simulation", "position", "driver_id", "driver_name", "team",
                 "total_time", "gap_to_leader", "pit_stops", "fastest_lap",
                 "status", "dnf_reason", "strategy", "laps_completed", "classified",
+                "pit_laps",
             ])
 
             for sim_idx, race_results in enumerate(results.race_results, 1):
@@ -164,6 +165,8 @@ class Exporter:
                         ",".join(result.strategy),
                         getattr(result, "laps_completed", None),
                         str(result_is_classified(result)).lower(),
+                        json.dumps(result.pit_laps)
+                        if getattr(result, "pit_laps", None) is not None else "",
                     ])
 
         return filepath

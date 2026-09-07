@@ -85,6 +85,7 @@ class RaceResult:
     strategy: list[str] = field(default_factory=list)  # List of compounds used
     laps_completed: int | None = None
     classified: bool | None = None
+    pit_laps: list[int] | None = None
 
 
 def result_is_classified(result: RaceResult) -> bool:
@@ -548,6 +549,7 @@ class RaceSimulator:
                     dnf_reason=state.dnf_reason,
                     strategy=strategy,
                     laps_completed=state.laps_completed,
+                    pit_laps=list(state.pit_laps),
                     classified=(
                         classification_minimum is not None
                         and state.laps_completed > 0

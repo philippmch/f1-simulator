@@ -144,6 +144,8 @@ def _serialize_race_result(result: Any) -> dict[str, Any]:
         "total_time": result.total_time,
         "gap_to_leader": result.gap_to_leader,
         "pit_stops": result.pit_stops,
+        "pit_laps": (list(result.pit_laps)
+                     if getattr(result, "pit_laps", None) is not None else None),
         "fastest_lap": result.fastest_lap,
         "status": result.status.value,
         "laps_completed": getattr(result, "laps_completed", None),
