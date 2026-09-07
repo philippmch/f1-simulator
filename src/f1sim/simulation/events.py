@@ -11,6 +11,8 @@ from f1sim.models import Car, Driver, Track, Weather
 # Background interruptions cover unmodelled major crashes/track blockages.
 BACKGROUND_RED_FLAG_RACE_PROBABILITY = 0.10
 SEVERE_WEATHER_RED_FLAG_EPISODE_PROBABILITY = 0.50
+# The existing incident prior describes a full current-era grid, not one car.
+INCIDENT_REFERENCE_FIELD_SIZE = 22
 
 
 class EventType(str, Enum):
@@ -355,9 +357,9 @@ class EventManager:
         track: Track,
         weather: Weather,
     ) -> float:
-        """Estimate per-lap probability of a notable incident."""
+        """Estimate the remaining field's per-lap random-incident probability."""
         active_drivers = [d for d in drivers if not d.dnf]
-        if len(active_drivers) < 2:
+        if not active_drivers:
             return 0.0
 
         # Derive lap-level incident risk from the same race-level safety-car
@@ -382,8 +384,13 @@ class EventManager:
         if weather.requires_wet_tires():
             base_prob *= 1.6
 
-        # Clamp to avoid unrealistic extreme rates.
-        return float(np.clip(base_prob, 0.0005, 0.08))
+        # Preserve the calibrated full-grid prior, then scale its survival
+        # probability by active-car exposure. Retirements reduce field risk
+        # rather than concentrating the whole prior on the last few cars.
+        # A lone car can still spin, puncture a tyre, or hit a barrier.
+        full_field_probability = float(np.clip(base_prob, 0.0005, 0.08))
+        exposure = len(active_drivers) / INCIDENT_REFERENCE_FIELD_SIZE
+        return min(0.08, float(-np.expm1(np.log1p(-full_field_probability) * exposure)))
 
     @staticmethod
     def _race_probability_to_lap_hazard(
@@ -414,7 +421,7 @@ class EventManager:
     ) -> RaceEvent | None:
         """Check for random racing incidents."""
         active_drivers = [d for d in drivers if not d.dnf]
-        if len(active_drivers) < 2:
+        if not active_drivers:
             return None
 
         incident_prob = self._incident_probability(active_drivers, track, weather)
