@@ -118,11 +118,15 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
                   used_compounds: set[TireCompound], wet_exemption: bool = False,
                   pit_lane_factor: float = 1.0,
                   additional_current_stop_cost: float = 0.0,
-                  current_lap_time_modifier: float = 1.0) -> DryPitDecision:
+                  current_lap_time_modifier: float = 1.0,
+                  tire_pace_multiplier: float = 1.0) -> DryPitDecision:
     """Compare legal stop/wait plans, neutralizing only this lap's running cost."""
     if remaining_laps < 1 or remaining_stops < 0 or remaining_stops > 3:
         raise ValueError("Positive remaining laps and zero to three stops are required")
-    physics = (track.base_lap_time, driver.tire_management,
+    # Both compound pace and degradation are linear in reference lap time.
+    # Scale only the private tyre-physics key, never the actual track or pit
+    # costs. This also isolates differently scaled curves in existing caches.
+    physics = (track.base_lap_time * tire_pace_multiplier, driver.tire_management,
                car.tire_degradation_factor, track.tire_stress)
     horizon = max(track.total_laps, remaining_laps)
     tire_keys = tuple(_tire_key(TIRE_COMPOUNDS[c]) for c in SLICKS)

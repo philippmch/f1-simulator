@@ -32,10 +32,10 @@ def test_forced_dry_compound_matches_full_race_alternatives():
                 return lap in (2, 10)
             return original_should_pit(state, states, track, lap, *args, **kwargs)
 
-        def choose(state, track, lap):
+        def choose(state, track, lap, weather=None):
             if lap == 2:
                 return TireCompound.HARD
-            choice = forced_compound or original_choose(state, track, lap)
+            choice = forced_compound or original_choose(state, track, lap, weather)
             if lap == 10:
                 choices.append(choice)
             return choice

@@ -645,6 +645,9 @@ class RaceSimulator:
                 costs.append(plan_dry_stop(
                     driver, car, track, opening.current_tire, 0, track.total_laps,
                     min(3, max(0, self._dry_stop_budget(opening, track))), {compound},
+                    tire_pace_multiplier=self.lap_simulator.weather_pace_multiplier(
+                        driver, car, weather,
+                    ),
                 ).wait_cost)
             best = min(costs)
             if np.isfinite(best):
@@ -886,6 +889,9 @@ class RaceSimulator:
             return False
 
         if dry_planning:
+            tire_multiplier = (self.lap_simulator.weather_pace_multiplier(
+                state.driver, state.car, weather,
+            ) if weather is not None else 1.0)
             traffic_cost = 0.0
             if not (
                 self.event_manager.safety_car_active or self.event_manager.vsc_active
@@ -893,7 +899,7 @@ class RaceSimulator:
             ):
                 traffic_cost = self._pit_rejoin_traffic_cost(
                     state, all_states, track, additional_current_stop_cost,
-                )
+                ) * tire_multiplier
             decision = plan_dry_stop(
                 state.driver, state.car, track, state.current_tire, state.tire_laps,
                 track.total_laps - lap + 1,
@@ -901,6 +907,7 @@ class RaceSimulator:
                 self._used_slick_compounds(state), self._has_used_wet_compound(state),
                 self._pit_lane_factor(), additional_current_stop_cost + traffic_cost,
                 current_lap_time_modifier=self.event_manager.get_lap_time_modifier(),
+                tire_pace_multiplier=tire_multiplier,
             )
             timing_bias = {
                 TeamStrategyArchetype.AGGRESSIVE: 0.1,
@@ -1167,6 +1174,7 @@ class RaceSimulator:
 
     def _choose_committed_dry_compound(
         self, state: DriverRaceState, track: Track, current_lap: int,
+        weather: Weather | None = None,
     ) -> TireCompound:
         """Price a chosen paid stop's fresh set and all remaining dry stints.
 
@@ -1187,6 +1195,9 @@ class RaceSimulator:
                 track.total_laps - current_lap + 1, future_budget,
                 used | {compound}, wet_exemption,
                 current_lap_time_modifier=self.event_manager.get_lap_time_modifier(),
+                tire_pace_multiplier=(self.lap_simulator.weather_pace_multiplier(
+                    state.driver, state.car, weather,
+                ) if weather is not None else 1.0),
             ).wait_cost
 
         return min(candidates, key=remaining_cost)
@@ -1236,7 +1247,7 @@ class RaceSimulator:
         ):
             new_compound = proposal[1]
         elif weather.track_wetness < 0.08 and weather.rain_intensity < 0.15:
-            new_compound = self._choose_committed_dry_compound(state, track, current_lap)
+            new_compound = self._choose_committed_dry_compound(state, track, current_lap, weather)
         elif len(self._used_slick_compounds(state)) < 2 and not self._has_used_wet_compound(state):
             # A dry stop must add a new slick compound until the two-compound
             # requirement is satisfied.  In particular, do not let a
@@ -1758,6 +1769,9 @@ class RaceSimulator:
             return plan_dry_stop(
                 state.driver, state.car, track, TIRE_COMPOUNDS[compound], 0,
                 remaining_laps, budget, prospective_used, wet_exemption,
+                tire_pace_multiplier=self.lap_simulator.weather_pace_multiplier(
+                    state.driver, state.car, weather,
+                ),
             ).wait_cost
 
         return min(
