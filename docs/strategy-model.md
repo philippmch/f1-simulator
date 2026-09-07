@@ -151,6 +151,12 @@ affect the maneuver, and a tyre advantage cannot bypass the gap restriction.
 Wet/damp laps and comparisons involving rain tyres retain their existing passing
 model until a separate wet-grip interaction is calibrated.
 
+Restart passing uses a two-second attempt window, compared with 1.5 seconds
+in normal running. The proximity factor decreases across the corresponding
+window, so an eligible restart attempt between 1.5 and two seconds can succeed.
+The outer gate still rejects larger gaps. These windows are model parameters;
+the wider passing opportunity does not override Overtake Mode eligibility.
+
 Critical weather and damage stops retain priority. On the final lap, a
 noncritical weather mismatch does not by itself justify a stop. Before the
 existing reaction-probability draw, the simulator compares an optimistic fresh
