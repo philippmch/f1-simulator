@@ -83,15 +83,16 @@ def test_large_gap_does_not_make_an_unnecessary_stop_free() -> None:
     assert should_pit is False
 
 
-def _plan(state, track, remaining, stops=1, factor=1.0):
+def _plan(state, track, remaining, stops=1, factor=1.0, modifier=1.0):
     return plan_dry_stop(
         state.driver, state.car, track, state.current_tire, state.tire_laps,
         remaining, stops, RaceSimulator._used_slick_compounds(state),
         RaceSimulator._has_used_wet_compound(state), factor,
+        current_lap_time_modifier=modifier,
     )
 
 
-def _enumerated_actions(state, track, laps, budget, factor):
+def _enumerated_actions(state, track, laps, budget, factor, modifier=1.0):
     """Independent oracle: enumerate complete schedules and compound paths."""
     result = {True: (inf, set()), False: (inf, set())}
     for stops in range(budget + 1):
@@ -111,7 +112,7 @@ def _enumerated_actions(state, track, laps, budget, factor):
                         cost += track.pit_lane_delta * (factor if lap == 0 else 1)
                     cost += LapSimulator.tire_pace_contribution(
                         state.driver, state.car, track, tire, age
-                    )
+                    ) * (modifier if lap == 0 else 1.0)
                     age += 1
                 if not valid or len(used) < 2:
                     continue
@@ -156,6 +157,70 @@ def test_optional_stop_declined_when_pit_cost_exceeds_tyre_gain():
     sim = RaceSimulator(np.random.default_rng(3))
     assert not sim._should_pit(state, [state], _track(), 42, False, Weather())
     assert _plan(state, _track(), 19).pit_now_cost > _plan(state, _track(), 19).wait_cost
+
+
+@pytest.mark.parametrize("modifier,factor", [(1.4, 0.55), (1.2, 0.75)])
+@pytest.mark.parametrize("budget", [0, 1, 2, 3])
+@pytest.mark.parametrize("compliant", [False, True])
+def test_neutralized_current_lap_matches_exhaustive_green_future(
+    modifier, factor, budget, compliant,
+):
+    state = _state("A", 1, 0)
+    state.tire_laps = 25
+    state.current_tire.degradation_rate = 0.037
+    if compliant:
+        state.tire_compound_history = ["medium", "hard"]
+    track = _track()
+    track.total_laps = 5
+    track.pit_lane_delta = 0.5
+    green_before = _plan(state, track, 5, budget)
+    actual = _plan(state, track, 5, budget, factor, modifier)
+    expected = _enumerated_actions(state, track, 5, budget, factor, modifier)
+    assert actual.pit_now_cost == pytest.approx(expected[True][0])
+    assert actual.wait_cost == pytest.approx(expected[False][0])
+    if actual.compound is not None:
+        assert actual.compound in expected[True][1]
+    assert _plan(state, track, 5, budget) == green_before
+
+
+def test_current_lap_modifier_reranks_first_compound_before_selection():
+    state = _state("A", 1, 0)
+    state.tire_laps = 20
+    state.tire_compound_history = ["medium", "hard"]
+    track = _track()
+    track.tire_stress = 0.3
+    green = _plan(state, track, 22)
+    neutralized = _plan(state, track, 22, modifier=1.4)
+    expected = _enumerated_actions(state, track, 22, 1, 1.0, 1.4)
+    assert green.compound == TireCompound.MEDIUM
+    assert neutralized.compound == TireCompound.SOFT
+    assert neutralized.compound in expected[True][1]
+    assert neutralized.pit_now_cost == pytest.approx(expected[True][0])
+    assert neutralized.wait_cost == pytest.approx(expected[False][0])
+
+
+@pytest.mark.parametrize("flag,modifier", [(None, 1.0), ("safety_car_active", 1.4),
+                                          ("vsc_active", 1.2)])
+def test_race_forwards_running_modifier_without_randomness(monkeypatch, flag, modifier):
+    import f1sim.simulation.race as race_module
+
+    simulator = RaceSimulator(np.random.default_rng(42))
+    state = _state("A", 1, 0)
+    state.tire_laps = 20
+    state.tire_compound_history = ["medium", "hard"]
+    if flag:
+        setattr(simulator.event_manager, flag, True)
+    forwarded = []
+
+    def capture(*args, **kwargs):
+        forwarded.append(kwargs["current_lap_time_modifier"])
+        return plan_dry_stop(*args, **kwargs)
+
+    monkeypatch.setattr(race_module, "plan_dry_stop", capture)
+    before = copy.deepcopy(simulator.rng.bit_generator.state)
+    simulator._should_pit(state, [state], _track(), 30, bool(flag), Weather())
+    assert forwarded == [modifier]
+    assert simulator.rng.bit_generator.state == before
 
 
 def test_discounted_safety_car_stop_is_worthwhile_in_last_five_laps():

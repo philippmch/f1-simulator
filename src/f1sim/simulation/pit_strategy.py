@@ -117,8 +117,9 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
                   tire_age: int, remaining_laps: int, remaining_stops: int,
                   used_compounds: set[TireCompound], wet_exemption: bool = False,
                   pit_lane_factor: float = 1.0,
-                  additional_current_stop_cost: float = 0.0) -> DryPitDecision:
-    """Compare a stop now with every legal plan driving at least one old-set lap."""
+                  additional_current_stop_cost: float = 0.0,
+                  current_lap_time_modifier: float = 1.0) -> DryPitDecision:
+    """Compare legal stop/wait plans, neutralizing only this lap's running cost."""
     if remaining_laps < 1 or remaining_stops < 0 or remaining_stops > 3:
         raise ValueError("Positive remaining laps and zero to three stops are required")
     physics = (track.base_lap_time, driver.tire_management,
@@ -142,6 +143,28 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
         )))
     c = int(compounds[remaining_stops, mask, remaining_laps])
     pit_now_cost = float(costs[remaining_stops, mask, remaining_laps])
+    if current_lap_time_modifier != 1.0:
+        # Every wait path drives this same old-set lap before green futures.
+        wait_cost += (current_lap_time_modifier - 1) * current_curve[tire_age]
+        # Re-rank each possible first set before selecting it: the best green
+        # compound need not remain best when only its first lap is slowed.
+        pit_now_cost, c = inf, -1
+        if remaining_stops:
+            for candidate, key in enumerate(tire_keys):
+                if mask.bit_count() < 2 and mask & (1 << candidate):
+                    continue
+                next_mask = mask | (1 << candidate)
+                curve = _pace_curve(*physics, key, horizon)
+                prefix = np.cumsum(curve[:remaining_laps])
+                best = float(prefix[-1]) if next_mask.bit_count() >= 2 else inf
+                if remaining_stops > 1 and remaining_laps > 1:
+                    best = min(best, float(np.min(
+                        prefix[:-1]
+                        + costs[remaining_stops - 1, next_mask, remaining_laps - 1:0:-1]
+                    )))
+                adjusted = green_cost + best + (current_lap_time_modifier - 1) * curve[0]
+                if adjusted < pit_now_cost:
+                    pit_now_cost, c = adjusted, candidate
     # A committed teammate affects only this stop, never cached future plans.
     pit_now_cost += track.pit_lane_delta * (pit_lane_factor - 1) + additional_current_stop_cost
     return DryPitDecision(pit_now_cost, wait_cost, SLICKS[c] if c >= 0 else None)

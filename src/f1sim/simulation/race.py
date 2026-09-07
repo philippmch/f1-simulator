@@ -866,6 +866,7 @@ class RaceSimulator:
                 max(0, max_stops - state.pit_stops),
                 self._used_slick_compounds(state), self._has_used_wet_compound(state),
                 self._pit_lane_factor(), additional_current_stop_cost + traffic_cost,
+                current_lap_time_modifier=self.event_manager.get_lap_time_modifier(),
             )
             timing_bias = {
                 TeamStrategyArchetype.AGGRESSIVE: 0.1,

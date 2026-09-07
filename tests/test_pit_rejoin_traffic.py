@@ -88,7 +88,7 @@ def test_expected_traffic_can_change_near_tie_without_rng_or_state_mutation(monk
     rng_before = copy.deepcopy(sim.rng.bit_generator.state)
     observed = []
 
-    def plan(*args):
+    def plan(*args, **kwargs):
         observed.append(args[-1])
         return DryPitDecision(10 + args[-1], 10, TireCompound.HARD)
 
@@ -109,7 +109,7 @@ def test_neutralized_planner_excludes_traffic_and_preserves_queue_cost(monkeypat
     def unexpected(*args):
         raise AssertionError("No green traffic projection under neutralisation")
 
-    def plan(*args):
+    def plan(*args, **kwargs):
         observed.append(args[-1])
         return DryPitDecision(10, 11, TireCompound.HARD)
 
