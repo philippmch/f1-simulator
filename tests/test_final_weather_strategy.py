@@ -62,13 +62,59 @@ def test_missing_distinct_compound_preserves_existing_weather_reaction(setup):
                                 Weather(track_wetness=0.21), 1000)
 
 
-def test_penultimate_lap_retains_existing_probability(setup):
+def test_profitable_long_wet_stint_retains_existing_probability(setup):
     simulator, state, track = setup
-    assert simulator._should_pit(state, [state], track, 29, False,
-                                Weather(track_wetness=0.21), 1000)
+    assert simulator._should_pit(state, [state], track, 10, False,
+                                Weather(track_wetness=0.3, rain_intensity=0.3))
     expected_rng = np.random.default_rng(2)
     expected_rng.random()
     assert simulator.rng.random() == expected_rng.random()
+
+
+def test_projected_critical_mismatch_prevents_cost_veto(setup):
+    simulator, state, track = setup
+    weather = Weather(track_wetness=0.34, rain_intensity=0.7)
+    assert simulator._check_tire_weather_mismatch(state.current_tire, weather) == "suboptimal"
+    assert simulator._weather_stop_can_pay(state, track, weather, 29, 10000)
+
+
+def test_drying_projection_uses_shared_surface_updates_without_mutation(setup, monkeypatch):
+    simulator, state, track = setup
+    weather = Weather(track_wetness=0.21, rain_intensity=0, change_probability=0)
+    captured = []
+
+    def lap_time(*args, **kwargs):
+        captured.append((args[4].track_wetness, args[3].compound, args[0].current_tire_laps))
+        return 90
+
+    monkeypatch.setattr(simulator.lap_simulator, "calculate_lap_time", lap_time)
+    assert not simulator._weather_stop_can_pay(state, track, weather, 28)
+    assert sorted(set(w for w, _, _ in captured)) == pytest.approx([0.15, 0.18, 0.21])
+    assert any(w == 0.21 and c == TireCompound.INTERMEDIATE and age == 0
+               for w, c, age in captured)
+    assert any(w < 0.2 and c == TireCompound.SOFT for w, c, _ in captured)
+    assert weather.track_wetness == 0.21
+    projected = weather.project_surface()
+    evolved = weather.evolve(np.random.default_rng(2))
+    assert projected == evolved
+
+
+def test_only_current_running_gain_is_neutralized_and_future_gains_are_nonnegative(
+    setup, monkeypatch,
+):
+    simulator, state, track = setup
+    simulator.event_manager.safety_car_active = True
+    track.pit_lane_delta = 1
+
+    def lap_time(*args, **kwargs):
+        # Old set gains 10s on first and last lap, loses 10s on middle lap.
+        return 90 if args[0].current_tire_laps == 0 else (80 if args[5] == 29 else 100)
+
+    monkeypatch.setattr(simulator.lap_simulator, "calculate_lap_time", lap_time)
+    threshold = 24 - 0.55 - expected_stationary_time(state.car)
+    weather = Weather(track_wetness=0.3, rain_intensity=0.3)
+    assert simulator._weather_stop_can_pay(state, track, weather, 28, threshold - 0.01)
+    assert not simulator._weather_stop_can_pay(state, track, weather, 28, threshold + 0.01)
 
 
 @pytest.mark.parametrize("flag,factor,modifier", [
@@ -90,12 +136,47 @@ def test_running_modifier_and_lane_discount_do_not_scale_queue(
     monkeypatch.setattr(simulator.lap_simulator, "calculate_lap_time", lap_time)
     threshold = 10 * modifier - factor - expected_stationary_time(state.car)
     weather = Weather(track_wetness=0.3)
-    assert simulator._final_weather_stop_can_pay(state, track, weather, threshold - 0.01)
-    assert not simulator._final_weather_stop_can_pay(state, track, weather, threshold + 0.01)
-    assert [age for age, _ in calls] == [8, 0, 8, 0]
+    assert simulator._weather_stop_can_pay(state, track, weather, 30, threshold - 0.01)
+    assert not simulator._weather_stop_can_pay(state, track, weather, 30, threshold + 0.01)
+    assert sum(age == 8 for age, _ in calls) == 2
+    assert all(age in (8, 0) for age, _ in calls)
     assert all(not kwargs["sample_variation"] for _, kwargs in calls)
-    assert calls[0][1]["gap_to_car_ahead"] == 0
-    assert calls[1][1]["gap_to_car_ahead"] is None
+    assert all(kwargs["gap_to_car_ahead"] == (0 if age else None)
+               for age, kwargs in calls)
+
+
+def test_intermediate_retention_window_is_included_in_optimistic_bound(setup):
+    simulator, state, track = setup
+    state.current_tire = TIRE_COMPOUNDS[TireCompound.WET]
+    state.tire_laps = 60
+    state.car.tire_degradation_factor = 1.5
+    track.tire_stress = 1.0
+    state.tire_compound_history = ["wet"]
+    weather = Weather(track_wetness=0.75, rain_intensity=0.75)
+    assert simulator._choose_weather_compound(weather) == TireCompound.WET
+    assert simulator._check_tire_weather_mismatch(
+        TIRE_COMPOUNDS[TireCompound.INTERMEDIATE], weather
+    ) != "critical"
+
+    def pace(compound, age, gap):
+        driver = state.driver.model_copy(update={"current_tire_laps": age})
+        return simulator.lap_simulator.calculate_lap_time(
+            driver, state.car, track, TIRE_COMPOUNDS[compound], weather, 30, 30,
+            gap_to_car_ahead=gap, sample_variation=False,
+        )
+
+    old = pace(TireCompound.WET, 60, 0)
+    wet = pace(TireCompound.WET, 0, None)
+    inter = pace(TireCompound.INTERMEDIATE, 0, None)
+    assert inter < wet
+    midpoint_gain = old - (wet + inter) / 2
+    # Choose a stop cost between the wet-only and intermediate-aware gains.
+    track.pit_lane_delta = 0.1
+    state.car.pit_stop_avg = 1.8
+    state.car.pit_stop_std = 0
+    queue = midpoint_gain - track.pit_lane_delta - expected_stationary_time(state.car)
+    assert queue >= 0
+    assert simulator._weather_stop_can_pay(state, track, weather, 30, queue)
 
 
 def test_noise_free_lap_matches_zero_variation_and_preserves_default_sampling(setup):

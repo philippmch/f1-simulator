@@ -802,9 +802,9 @@ class RaceSimulator:
                     self._used_slick_compounds(state)
                 ) >= 2
                 if (
-                    lap == track.total_laps and dry_rule_satisfied
-                    and not self._final_weather_stop_can_pay(
-                        state, track, weather, additional_current_stop_cost,
+                    dry_rule_satisfied
+                    and not self._weather_stop_can_pay(
+                        state, track, weather, lap, additional_current_stop_cost,
                     )
                 ):
                     return False
@@ -1739,40 +1739,57 @@ class RaceSimulator:
             key=finish_cost,
         )
 
-    def _final_weather_stop_can_pay(
-        self, state: DriverRaceState, track: Track, weather: Weather,
+    def _weather_stop_can_pay(
+        self, state: DriverRaceState, track: Track, weather: Weather, current_lap: int,
         additional_current_stop_cost: float = 0.0,
     ) -> bool:
-        """Reject only stops whose optimistic final-lap gain cannot pay their cost.
+        """Veto only losses under an optimistic constant-rain surface projection.
 
-        Compare noise-free actual lap physics, allowing maximum dirty air on
-        the old set and clean air on the replacement. This bounds unknown
-        rejoin traffic in favour of stopping, without sampling future timing.
+        The replacement gets a free fresh noncritical set and clean air each lap,
+        versus an aging old set in maximum dirty air. Count only positive gains.
+        This is an upper bound under unchanged rain, not a weather forecast or
+        executable strategy. Any projected critical old-set mismatch bypasses
+        the veto. Future running is green, and only today's stop is charged.
         """
-        replacement = self._choose_weather_compound(weather)
-        if replacement is not None:
-            candidates = [replacement]
-        else:
-            candidates = [TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD]
-            used = self._used_slick_compounds(state)
-            if len(used) < 2 and not self._has_used_wet_compound(state):
-                candidates = [compound for compound in candidates if compound not in used]
+        projected = weather.model_copy(deep=True)
+        used = self._used_slick_compounds(state)
+        wet_exemption = self._has_used_wet_compound(state)
 
-        def running_time(tire: Tire, age: int, gap: float | None) -> float:
+        def running_time(tire: Tire, age: int, gap: float | None, lap: int) -> float:
             driver = state.driver.model_copy(update={"current_tire_laps": age})
             return self.lap_simulator.calculate_lap_time(
-                driver, state.car, track, tire, weather,
-                track.total_laps, track.total_laps,
+                driver, state.car, track, tire, projected, lap, track.total_laps,
                 gap_to_car_ahead=gap,
-                active_aero_enabled=self.event_manager.is_active_aero_allowed(),
+                active_aero_enabled=(self.event_manager.is_active_aero_allowed()
+                                     if lap == current_lap else True),
                 sample_variation=False,
             )
 
-        old_time = running_time(state.current_tire, state.tire_laps, 0.0)
-        fresh_time = min(running_time(TIRE_COMPOUNDS[c], 0, None) for c in candidates)
-        gain = (old_time - fresh_time) * self.event_manager.get_lap_time_modifier()
         cost = (track.pit_lane_delta * self._pit_lane_factor()
                 + expected_stationary_time(state.car) + additional_current_stop_cost)
+        gain = 0.0
+        for lap in range(current_lap, track.total_laps + 1):
+            if self._check_tire_weather_mismatch(state.current_tire, projected) == "critical":
+                return True
+            # Include survivable retention windows, not only the compound a
+            # fresh execution would select. An already-fitted intermediate
+            # can remain quicker after the fresh-set chooser prefers wets.
+            candidates = [
+                compound for compound in TireCompound
+                if self._check_tire_weather_mismatch(TIRE_COMPOUNDS[compound], projected)
+                != "critical"
+                and (
+                    compound in (TireCompound.INTERMEDIATE, TireCompound.WET)
+                    or wet_exemption or len(used) >= 2 or compound not in used
+                )
+            ]
+            old_time = running_time(state.current_tire, state.tire_laps + lap - current_lap, 0, lap)
+            fresh_time = min(running_time(TIRE_COMPOUNDS[c], 0, None, lap) for c in candidates)
+            modifier = self.event_manager.get_lap_time_modifier() if lap == current_lap else 1.0
+            gain += max(0.0, old_time - fresh_time) * modifier
+            if gain > cost:
+                return True
+            projected = projected.project_surface()
         return gain > cost
 
     @staticmethod

@@ -85,6 +85,17 @@ class Weather(BaseModel):
         """Check if full wet tires are needed."""
         return self.track_wetness > 0.7
 
+    def project_surface(self) -> "Weather":
+        """Advance one lap of drainage under unchanged rainfall, without randomness."""
+        projected = self.model_copy(deep=True)
+        if self.rain_intensity > 0:
+            projected.track_wetness += WETNESS_RESPONSE_PER_LAP * (
+                self.rain_intensity - self.track_wetness
+            )
+        else:
+            projected.track_wetness = max(0.0, self.track_wetness - 0.03)
+        return projected
+
     def evolve(self, rng: np.random.Generator) -> "Weather":
         """Generate next lap's weather based on current conditions.
 
@@ -94,17 +105,7 @@ class Weather(BaseModel):
         Returns:
             New Weather instance for next lap
         """
-        new_weather = self.model_copy(deep=True)
-
-        # Track wetness changes even without condition change
-        if new_weather.rain_intensity > 0:
-            # Light rain approaches a damp equilibrium instead of flooding.
-            new_weather.track_wetness += WETNESS_RESPONSE_PER_LAP * (
-                new_weather.rain_intensity - self.track_wetness
-            )
-        else:
-            # Track dries slowly (up to 34 laps from fully flooded)
-            new_weather.track_wetness = max(0.0, self.track_wetness - 0.03)
+        new_weather = self.project_surface()
 
         if rng.random() >= self.change_probability:
             # No condition change, but wetness already updated
