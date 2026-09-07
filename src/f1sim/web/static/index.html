@@ -788,6 +788,14 @@ input:focus-visible {
   grid-column: 1 / -1;
 }
 
+.pit-summary-card {
+  grid-column: 1 / -1;
+}
+
+.pit-summary-card table {
+  min-width: 34rem;
+}
+
 .heatmap {
   display: grid;
   gap: 2px;
@@ -2410,6 +2418,34 @@ function renderProbabilityIntervals(drivers) {
     </details>`;
 }
 
+function renderPitStopStatistics(statistics) {
+  const rows = Object.entries(statistics || {})
+    .filter(([, stats]) => Number.isInteger(stats.races) && stats.races > 0
+      && Number.isFinite(stats.average_stops))
+    .sort(([a], [b]) => a.localeCompare(b));
+  if (!rows.length) return '<div class="inline-note">No aggregate pit-stop observations are available for this run.</div>';
+  return `
+    <p class="inline-note">Paid stops across all observed races, including retirements.
+      Free red-flag tyre changes are excluded. Stop-count columns show the share of races.</p>
+    <div class="stats-table-wrap" tabindex="0" role="region" aria-label="Pit stops across simulations">
+      <table class="metrics-table" id="pitStopStatistics">
+        <thead><tr><th scope="col">Driver</th><th scope="col">Races</th>
+          <th scope="col">Avg stops</th><th scope="col">0 stops</th><th scope="col">1 stop</th>
+          <th scope="col">2 stops</th><th scope="col">3+ stops</th></tr></thead>
+        <tbody>${rows.map(([id, stats]) => {
+          const counts = stats.stop_count_distribution || {};
+          const threePlus = Object.entries(counts).reduce((sum, [stops, count]) =>
+            sum + (Number(stops) >= 3 ? toNumber(count) : 0), 0);
+          const shares = [counts[0], counts[1], counts[2], threePlus]
+            .map(count => formatPercent(toNumber(count) / stats.races * 100));
+          return `<tr><th scope="row">${escapeHtml(id)}</th><td>${stats.races}</td>
+            <td>${stats.average_stops.toFixed(2)}</td>
+            ${shares.map(share => `<td>${share}</td>`).join('')}</tr>`;
+        }).join('')}</tbody>
+      </table>
+    </div>`;
+}
+
 function renderStats() {
   const container = document.getElementById('statsContent');
   const empty = document.getElementById('emptyStats');
@@ -2540,6 +2576,11 @@ function renderStats() {
           <div class="detail-row"><span>Fetched</span><span>${escapeHtml(simResults.provenance?.fetched_at || ratings.fetched_at || 'This run')}</span></div>
           <div class="detail-row"><span>Active drivers</span><span>${(ratings.drivers || []).length}</span></div>
         </div>
+      </div>
+
+      <div class="stat-card pit-summary-card">
+        <div class="stat-card-title">Pit stops across simulations</div>
+        ${renderPitStopStatistics(scenario.pit_stop_statistics)}
       </div>
 
       <div class="stat-card heatmap-container">

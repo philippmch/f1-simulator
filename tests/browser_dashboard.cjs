@@ -75,6 +75,39 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         `${interval.lower.toFixed(1)}–${interval.upper.toFixed(1)}%`));
       if (stats.win_rate === 0) assert(interval.upper > 0);
     }
+    const pitStatistics = Object.values(payload.scenarios)[0].pit_stop_statistics;
+    assert.equal(await page.locator('#pitStopStatistics tbody tr').count(),
+      Object.keys(pitStatistics).length);
+    for (const [id, stats] of Object.entries(pitStatistics)) {
+      const row = page.locator('#pitStopStatistics tbody tr').filter({
+        has: page.locator('th', {hasText: new RegExp(`^${id}$`)}),
+      });
+      assert.equal(await row.locator('td').nth(0).innerText(), String(stats.races));
+      assert.equal(await row.locator('td').nth(1).innerText(), stats.average_stops.toFixed(2));
+    }
+    // Group high-stop outcomes and preserve a real zero; escape driver labels.
+    await page.evaluate(() => {
+      window.savedPitStatistics = getScenarioEntry().data.pit_stop_statistics;
+      getScenarioEntry().data.pit_stop_statistics = {'<img src=x>': {
+        races: 4, average_stops: 2.25, stop_count_distribution: {0: 1, 1: 1, 3: 1, 5: 1},
+      }};
+      renderStats();
+    });
+    assert.equal(await page.locator('#pitStopStatistics img').count(), 0);
+    assert.equal(await page.locator('#pitStopStatistics tbody th').textContent(), '<img src=x>');
+    assert.deepEqual(await page.locator('#pitStopStatistics tbody td').allTextContents(),
+      ['4', '2.25', '25.0%', '25.0%', '0.0%', '50.0%']);
+    await page.evaluate(() => {
+      getScenarioEntry().data.pit_stop_statistics = {};
+      renderStats();
+    });
+    assert.equal(await page.locator('#pitStopStatistics').count(), 0);
+    assert((await page.locator('.pit-summary-card').innerText()).includes('No aggregate pit-stop observations'));
+    await page.evaluate(() => {
+      getScenarioEntry().data.pit_stop_statistics = savedPitStatistics;
+      delete window.savedPitStatistics;
+      renderStats();
+    });
     // Explicit classified and unclassified retirements must remain distinct.
     await page.locator('#tab-race').click();
     for (const row of Object.values(payload.scenarios)[0].sample_race) {
@@ -148,6 +181,14 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         await page.locator(`#tab-${tab}`).click();
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
           `${tab} overflows at ${width}px`);
+        if (tab === 'stats' && process.env.F1SIM_SCREENSHOTS && [390, 1440].includes(width)) {
+          if (width === 1440) await page.setViewportSize({width, height: 1300});
+          await page.locator('.pit-summary-card').evaluate(card => card.scrollIntoView({block: 'center'}));
+          await page.locator('.pit-summary-card').screenshot({
+            path: path.join(process.env.F1SIM_SCREENSHOTS, `pit-stops-${width}.png`),
+          });
+          if (width === 1440) await page.setViewportSize({width, height: 900});
+        }
         if (tab === 'race' || tab === 'qualifying') {
           assert(await page.locator('.tab-panel.active .team-stripe').first().evaluate(stripe =>
             stripe.getBoundingClientRect().right <= stripe.nextElementSibling.getBoundingClientRect().left),
