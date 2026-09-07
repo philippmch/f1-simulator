@@ -40,12 +40,27 @@ and the current neutralization modifier, without predicting future incidents,
 weather changes or stops. Initial laps without an observed pace retain the
 scheduled horizon.
 
-This is not yet a replacement for the full production model. Running currently
-uses clean-air pace; dirty-air gaps, Overtake Mode energy and detection snapshots,
-restart passing boosts and a dedicated blue-flag yielding model remain to be
-integrated. Safety-car bunching is also pending: current control snapshots apply
-to newly started laps without moving or rewinding already running cars. These
-are migration requirements, not intentional simplifications of the final app.
+Running physics uses physical gaps for dirty air and Overtake Mode detection.
+The gap is estimated from the preceding on-track car's progress through its
+pending lap, independently of race rank and completed distance. Weather, control,
+mode eligibility and restart conditions are captured for each started lap.
+A paid stop samples running physics once at its actual pit exit, using the
+rejoin gap; it cannot deploy Overtake Mode on that lap. Passing retains the
+original detection decision, and energy recharges once per completed own lap.
+
+Full safety-car catch-up closes gaps through future running time, preserving
+every previous crossing and pit exit. Followers use the queue leader's neutralized
+pace and approach a one-second gap, bounded below by their own free-running pace.
+The target is the mean of the existing 0.8–1.2-second bunching model, not an
+empirically calibrated value. A slower follower cannot exceed its free pace to
+join the queue. VSC applies its running-time modifier without this compression.
+These are lap-resolution approximations; changes do not rewrite pending laps'
+starting control snapshots.
+
+This is not yet a replacement for the full production model. A dedicated
+blue-flag yielding model, the complete contact-severity behavior, red-flag
+physical grouping and suspension duration, and the finish transition described
+below remain to be integrated before changing the production entry points.
 
 ## Finish boundary
 
@@ -85,10 +100,11 @@ reconstructed by trimming final results. The production loop's shallow
 speculative transactions.
 
 Elapsed crossing time must be monotonic and distinct from relative racing gaps.
-The current safety-car bunching code replaces trailing cars' `total_time` values
-to close gaps. Pit merges and blocked-car reconciliation also assume equal lap
-counts. These operations need explicit physical ordering and lap deficits before
-they can be used with asynchronous crossings.
+The production safety-car bunching code replaces trailing cars' `total_time`
+values to close gaps. The experimental engine instead uses the bounded future
+catch-up described above. Its pit merges and blocked-car reconciliation use
+physical ordering independently of completed distance; production migration
+must retain those distinctions.
 
 Pit arrivals require a persistent per-team service queue on the absolute
 timeline. Decisions use expected service; execution samples service once.
