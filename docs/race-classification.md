@@ -33,6 +33,9 @@ This is a synchronous lap simulation: surviving cars complete the scheduled
 distance. It does not yet model lapped-car finishing, time-limit endings,
 abandonment classification, or shortened-race points and green-lap requirements.
 If every car retires, there is no modeled winner and no classification or points.
+The simulation records the final retirement lap and stops; subsequent scheduled
+laps do not evolve weather or generate race-control events. An empty usable grid
+likewise produces no laps or events, after resetting state from the previous run.
 Zero-lap retirements are always unclassified. These conventions must not be
 interpreted as a complete implementation of FIA race-ending regulations.
 
