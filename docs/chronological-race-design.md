@@ -10,6 +10,43 @@ Its tenth lap must never start.
 This document tracks the engine change needed to remove that limitation.
 It is not a claim that the production engine already supports lapping.
 
+## Experimental execution
+
+`simulation/chronological_race.py` provides `ChronologicalRace(simulator).run(...)`
+and `simulate_chronological_race(...)` for explicit Python experiments. They use
+the existing models and return `RaceResult` objects. The normal CLI, web and
+Monte Carlo entry points still use the production engine.
+
+The experimental engine schedules individual crossings and pit exits on an
+absolute timeline. A persistent constructor queue accounts for staggered box
+arrivals. A circular physical order constrains crossings: a faster provisional
+clock requires a passing outcome before the car can cross its predecessor.
+Race classification separately accounts for completed distance, so a retired
+car can outrank a finisher who completed fewer laps.
+
+Independent constant-pace tests cover two- and four-car fields, equal clocks,
+and lapped cars tied with the winner's flag. With 90/110/150/200-second cars in a
+ten-lap race, free-running results are 900/990/900/1000 seconds over 10/9/6/5 laps.
+Those tests also count actual lap calls, original fuel denominators and tyre age.
+The display adapters render known lap deficits as `+1 lap` or `+2 laps`; unknown
+legacy distances retain time gaps.
+
+Pit planning estimates the flag time from the leading pending crossing and
+stored free-running pace, then maps that time to the car's own remaining laps.
+Committed pit delay affects the pending crossing; past service and blocked time
+do not become the forecast's recurring lap pace. The forecast uses no random
+draws and does not alter the actual finish boundary. It assumes continued pace
+and the current neutralization modifier, without predicting future incidents,
+weather changes or stops. Initial laps without an observed pace retain the
+scheduled horizon.
+
+This is not yet a replacement for the full production model. Running currently
+uses clean-air pace; dirty-air gaps, Overtake Mode energy and detection snapshots,
+restart passing boosts and a dedicated blue-flag yielding model remain to be
+integrated. Safety-car bunching is also pending: current control snapshots apply
+to newly started laps without moving or rewinding already running cars. These
+are migration requirements, not intentional simplifications of the final app.
+
 ## Finish boundary
 
 `RaceFinishClock` in `simulation/race_timing.py` owns the original scheduled
@@ -26,7 +63,7 @@ accepts chronological observations; the caller resolves exact timestamp ties
 with the leader first. Once the winner takes the flag, other cars remain racing
 until their own next crossing or retirement. A car cannot start another lap
 after its own finish. Retirement must not manufacture a crossing or a winner.
-This layer is tested independently but is not yet the production lap scheduler.
+This layer is used by the experimental scheduler but not the production loop.
 
 One experimental transition remains deliberately unsupported: a same-distance
 or lapped successor taking over after a two-hour final-lap announcement. The
@@ -39,12 +76,13 @@ The current synchronous production loop cannot encounter this distance reset.
 
 ## Remaining integration
 
-The next engine layer must schedule actual crossings, with one pending lap per
-car. It must distinguish a lap's immutable starting conditions from consequences
-committed during that lap. Tyre history, service draws, energy, incidents and
-fastest laps cannot be reconstructed by trimming final results. The current
-shallow `replace(state)` snapshots share mutable driver state and cannot serve
-as speculative transactions.
+The experimental scheduler distinguishes a lap's immutable starting conditions
+from consequences committed during that lap. Production migration still needs
+the complete strategy, race-control and battle behavior on this timeline.
+Tyre history, service draws, energy, incidents and fastest laps cannot be
+reconstructed by trimming final results. The production loop's shallow
+`replace(state)` snapshots share mutable driver state and cannot serve as
+speculative transactions.
 
 Elapsed crossing time must be monotonic and distinct from relative racing gaps.
 The current safety-car bunching code replaces trailing cars' `total_time` values
