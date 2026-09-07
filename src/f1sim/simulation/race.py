@@ -532,11 +532,11 @@ class RaceSimulator:
         Dry starts use seeded probabilities shaped by team strategy, tyre
         stress, race length and overtaking difficulty.
         """
-        if weather.requires_wet_tires():
-            return TireCompound.WET
+        weather_compound = self._choose_weather_compound(weather)
+        if weather_compound is not None:
+            return weather_compound
         if (
-            weather.is_wet()
-            or weather.rain_intensity >= 0.2
+            weather.rain_intensity >= 0.2
             or weather.condition in {
                 WeatherCondition.LIGHT_RAIN,
                 WeatherCondition.HEAVY_RAIN,
@@ -681,6 +681,7 @@ class RaceSimulator:
         # when stuck in traffic far from the lead and outside top positions.
         if self._should_switch_conservative_to_balanced(state, lap, track, gap_ahead):
             strategy = TeamStrategyArchetype.BALANCED
+            state.strategy_archetype = strategy
 
         strategy_bias = {
             TeamStrategyArchetype.AGGRESSIVE: 0.12,
@@ -947,10 +948,9 @@ class RaceSimulator:
         stationary_time = self.lap_simulator.calculate_pit_stop_time(state.car)
 
         # Choose new tire compound
-        if weather.requires_wet_tires():
-            new_compound = TireCompound.WET
-        elif weather.is_wet():
-            new_compound = TireCompound.INTERMEDIATE
+        weather_compound = self._choose_weather_compound(weather)
+        if weather_compound is not None:
+            new_compound = weather_compound
         elif len(self._used_slick_compounds(state)) < 2 and not self._has_used_wet_compound(state):
             # A dry stop must add a new slick compound until the two-compound
             # requirement is satisfied.  In particular, do not let a
@@ -1387,10 +1387,9 @@ class RaceSimulator:
         Returns:
             Optimal tire compound for conditions
         """
-        if weather.requires_wet_tires():
-            return TireCompound.WET
-        elif weather.is_wet():
-            return TireCompound.INTERMEDIATE
+        weather_compound = self._choose_weather_compound(weather)
+        if weather_compound is not None:
+            return weather_compound
         else:
             # Dry conditions - strategic choice
             # Most teams will choose softs for grip at restart
@@ -1401,6 +1400,21 @@ class RaceSimulator:
                 return TireCompound.MEDIUM
             else:
                 return TireCompound.HARD
+
+    @staticmethod
+    def _choose_weather_compound(weather: Weather) -> TireCompound | None:
+        """Choose a fresh rain tyre, or leave slick choice to the stint strategy.
+
+        Use the slick mismatch crossover for fresh sets so a weather stop
+        cannot immediately fit another unsuitable slick. Existing rain tyres
+        retain their wider drying windows in the mismatch check, avoiding
+        unnecessary stops when conditions hover around a crossover.
+        """
+        if weather.requires_wet_tires():
+            return TireCompound.WET
+        if weather.track_wetness > 0.2 or weather.rain_intensity > 0.4:
+            return TireCompound.INTERMEDIATE
+        return None
 
     def _check_tire_weather_mismatch(self, tire: Tire, weather: Weather) -> str:
         """Check if tires match current weather conditions.
@@ -1423,7 +1437,7 @@ class RaceSimulator:
         if is_slick and (track_wetness > 0.45 or (track_wetness > 0.35 and rain > 0.6)):
             return "critical"
 
-        if is_slick and (track_wetness > 0.2 or rain > 0.4):
+        if is_slick and self._choose_weather_compound(weather) is not None:
             return "suboptimal"
 
         # Inters struggle once standing water builds.
