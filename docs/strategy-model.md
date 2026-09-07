@@ -171,16 +171,26 @@ it cannot skip a car by using the pre-pass order. Passing changes positions,
 while the existing clock reconciliation charges blocked running without
 removing elapsed race time.
 
-Critical weather and damage stops retain priority. On the final lap, a
-noncritical weather mismatch does not by itself justify a stop. Before the
-existing reaction-probability draw, the simulator compares an optimistic fresh
-tyre lap against staying out using the lap model with random variation disabled.
-If even that saving cannot cover expected pit-lane, stationary and queue loss,
-it stays out. The comparison includes the current SC/VSC running multiplier
-and allows for traffic relief. It neither forecasts another lap nor relaxes
-critical-condition safeguards. The cost veto also leaves an unresolved
-distinct-compound requirement to the existing weather reaction. Earlier weather reactions retain their existing
-policy; this is a finish-line cost check, not a full wet-strategy optimizer.
+Critical weather and damage stops retain priority. A noncritical weather
+mismatch does not by itself justify a stop. Before the existing reaction draw,
+the simulator estimates whether tyre gains over the remaining race can cover
+expected pit-lane, stationary and queue loss. Surface wetness follows the same
+deterministic rainfall and drying response used in race evolution, assuming
+current rainfall persists. The projection consumes no random draws and does
+not predict changes in weather condition or future race interruptions.
+
+The comparison deliberately favours stopping: each projected lap allows the
+best fresh compound that avoids critical mismatch and maximum traffic relief,
+with negative gains discarded. It uses the shared lap physics without random
+variation, ages the current set, and applies the SC/VSC running multiplier only to the
+current lap; later laps assume green running. If even these optimistic savings
+cannot pay the current stop cost, the car stays out and re-evaluates next lap.
+If the current set would encounter critical conditions in the projection, the
+cost veto does not apply. An unresolved distinct-compound requirement also
+retains its existing priority. Passing the filter still permits some losing
+stops because the assumed fresh sets and traffic relief may be unavailable.
+This is a conditional cost filter, not an optimal wet-race schedule or a
+guarantee about unpredictable future weather.
 
 When a clearly dry stop is already committed but has no optimizer proposal,
 the simulator compares eligible fresh slicks over the entire remaining race.
