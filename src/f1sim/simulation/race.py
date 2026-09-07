@@ -10,6 +10,7 @@ from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.events import EventManager, EventType, RaceEvent
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.overtaking import OvertakingModel
+from f1sim.simulation.pit_strategy import plan_dry_stop
 
 
 class DriverStatus(str, Enum):
@@ -51,6 +52,8 @@ class DriverRaceState:
     # the race rather than a post-hoc strategy guess.
     tire_compound_history: list[str] = field(default_factory=list)
     force_pit_next_lap: bool = False
+    # One-lap proposal; execution rechecks weather before honoring it.
+    dry_pit_proposal: tuple[int, TireCompound] | None = None
     # 2026 Overtake Mode energy store.  The store is bounded and deliberately
     # kept on each race state so a driver cannot deploy on every lap forever.
     overtake_mode_energy: float = 1.0
@@ -664,6 +667,7 @@ class RaceSimulator:
         weather: Weather | None = None,
     ) -> bool:
         """Decide if driver should pit this lap."""
+        state.dry_pit_proposal = None
         # CRITICAL: Force pit if tires are completely wrong for conditions
         if weather is not None:
             tire_mismatch = self._check_tire_weather_mismatch(state.current_tire, weather)
@@ -671,6 +675,10 @@ class RaceSimulator:
                 return True  # Must pit immediately
             elif tire_mismatch == "suboptimal" and self.rng.random() < 0.7:
                 return True  # Should pit soon
+
+        if self.event_manager.red_flag_active:
+            # Suspension tyre changes are handled separately without a lane loss.
+            return False
 
         strategy = state.strategy_archetype
 
@@ -715,8 +723,35 @@ class RaceSimulator:
         ):
             return True
 
-        # Don't pit on first 5 laps or last 5 laps
-        if lap <= 5 or lap >= track.total_laps - 5:
+        # Protect the opening stint, except weather and mandatory safeguards.
+        if lap <= 5:
+            return False
+
+        clearly_dry = weather is None or (
+            weather.track_wetness < 0.08 and weather.rain_intensity < 0.15
+        )
+        if clearly_dry and state.current_tire.compound in {
+            TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
+        }:
+            decision = plan_dry_stop(
+                state.driver, state.car, track, state.current_tire, state.tire_laps,
+                track.total_laps - lap + 1,
+                max(0, max_stops - state.pit_stops),
+                self._used_slick_compounds(state), self._has_used_wet_compound(state),
+                self._pit_lane_factor(),
+            )
+            timing_bias = {
+                TeamStrategyArchetype.AGGRESSIVE: 0.1,
+                TeamStrategyArchetype.BALANCED: 0.0,
+                TeamStrategyArchetype.CONSERVATIVE: -0.1,
+            }[strategy]
+            if decision.should_pit(timing_bias):
+                state.dry_pit_proposal = (lap, decision.compound)
+                return True
+            return False
+
+        # Wet/damp strategies retain their existing reactive windows.
+        if lap >= track.total_laps - 5:
             return False
 
         # Pit window opportunity (under SC/VSC) - usually strong strategic value.
@@ -938,6 +973,14 @@ class RaceSimulator:
             return TireCompound.SOFT
         return TireCompound.SOFT if self.rng.random() < sprint_soft_prob else TireCompound.MEDIUM
 
+    def _pit_lane_factor(self) -> float:
+        """Relative lane loss shared by execution and current-stop planning."""
+        if self.event_manager.safety_car_active:
+            return 0.55
+        if self.event_manager.vsc_active:
+            return 0.75
+        return 1.0
+
     def _execute_pit_stop(
         self,
         state: DriverRaceState,
@@ -959,18 +1002,20 @@ class RaceSimulator:
         # is travelling much more slowly, so the relative pit-lane loss is
         # materially smaller; VSC provides a moderate reduction.  Stationary
         # service remains unchanged and is still sampled per team/car.
-        pit_lane_factor = 1.0
-        if self.event_manager.safety_car_active:
-            pit_lane_factor = 0.55
-        elif self.event_manager.vsc_active:
-            pit_lane_factor = 0.75
-        pit_lane_time = track.pit_lane_delta * pit_lane_factor
+        pit_lane_time = track.pit_lane_delta * self._pit_lane_factor()
         stationary_time = self.lap_simulator.calculate_pit_stop_time(state.car)
 
         # Choose new tire compound
         weather_compound = self._choose_weather_compound(weather)
+        proposal = state.dry_pit_proposal
+        state.dry_pit_proposal = None
         if weather_compound is not None:
             new_compound = weather_compound
+        elif (
+            proposal is not None and proposal[0] == current_lap
+            and weather.track_wetness < 0.08 and weather.rain_intensity < 0.15
+        ):
+            new_compound = proposal[1]
         elif len(self._used_slick_compounds(state)) < 2 and not self._has_used_wet_compound(state):
             # A dry stop must add a new slick compound until the two-compound
             # requirement is satisfied.  In particular, do not let a
