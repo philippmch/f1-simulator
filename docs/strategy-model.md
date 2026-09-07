@@ -12,6 +12,13 @@ remains available after it is exhausted. Three is a bounded search limit, not
 a requirement to make three stops or a claim that longer races never need more.
 Dry red-flag projections use the same budget.
 
+Dry planning scales tyre costs with the same current weather multiplier as
+simulated laps, including cloudy conditions and the car's wet-performance
+contribution. It holds that multiplier constant over the projected stint;
+this is not a forecast of future weather. Expected service and pit-lane loss
+are not weather-scaled. A current SC/VSC running multiplier applies in addition
+to weather scaling for this lap only, with later laps assumed green.
+
 Automatic starting-compound selection on a clearly dry track also compares the
 full projected race for each driver and car. The opening set is free and must
 run before a later paid stop; future stops include service cost and the
