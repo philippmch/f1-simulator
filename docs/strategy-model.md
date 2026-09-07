@@ -44,6 +44,20 @@ but a beneficial dry stop can occur in the final five laps. Team style can shift
 a near tie by at most 0.1 seconds per decision. This tolerance is a model
 assumption, not an empirical fit.
 
+Teammates share one modeled pit box. For stops on the same lap, service follows
+arrival order and a car waits only while that constructor's box is occupied.
+The wait is added once to pit loss; safety-car discounts affect pit-lane loss,
+not stationary service or queue time. Different constructors have independent
+boxes. This represents the consecutive service described in F1's
+[double-stack glossary entry](https://www.formula1.com/en/latest/article/f1-glossary-a-e.1MFONigMlQSbSQtpP7YCy2).
+
+Lap-start race clocks approximate relative pit-box arrivals. Before committing
+to a dry stop, a driver is charged the expected queue from an earlier-arriving
+teammate already committed on that lap. Planning uses expected service; actual
+execution uses sampled service, so the decision does not know a future slow-stop
+outcome. Reservations reset each lap and race. This is a same-lap box model,
+not a simulation of pit-lane congestion, crew setup time or unsafe releases.
+
 Weather and damage stops retain priority. For a forced or fallback stop whose
 compound has not already been selected, the simulator compares tyre contribution over the
 next stint for each eligible fresh slick. The projection shares the actual lap
@@ -65,7 +79,7 @@ The fallback compound comparison assumes the stop has already been chosen;
 the dry optimizer additionally includes pit loss. Both omit common fuel and
 car pace terms that cancel between the compared dry schedules. Neither forecasts
 future weather or incidents, prices future traffic, limits the inventory of
-tyre sets, or coordinates team pit stops. Those remain separate opportunities
+tyre sets, or jointly schedules both teammates' future stops. Those remain separate opportunities
 to improve strategy realism. Cost tables are bounded in-memory calculations;
 they do not persist provider data or consume simulation random draws.
 
