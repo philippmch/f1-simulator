@@ -598,14 +598,19 @@ class RaceSimulator:
         if weather_compound is not None:
             return weather_compound
         if (
-            weather.rain_intensity >= 0.2
-            or weather.condition in {
-                WeatherCondition.LIGHT_RAIN,
-                WeatherCondition.HEAVY_RAIN,
-            }
+            (weather.rain_intensity >= 0.2
+             or weather.condition in {
+                 WeatherCondition.LIGHT_RAIN,
+                 WeatherCondition.HEAVY_RAIN,
+             })
+            and self._check_tire_weather_mismatch(
+                TIRE_COMPOUNDS[TireCompound.INTERMEDIATE], weather,
+            ) != "critical"
         ):
             return TireCompound.INTERMEDIATE
 
+        # A condition label alone must not fit a set that our own mismatch
+        # rule would immediately replace at a paid stop before lap one.
         # Weights represent realistic dry-grid variation rather than a
         # position-based assignment.  Aggressive teams bias toward a short
         # soft opening stint; conservative teams protect the long race.
