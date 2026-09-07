@@ -817,9 +817,7 @@ class RaceSimulator:
             if tire_mismatch == "critical":
                 return True  # Must pit immediately
             elif tire_mismatch == "suboptimal":
-                dry_rule_satisfied = self._has_used_wet_compound(state) or len(
-                    self._used_slick_compounds(state)
-                ) >= 2
+                dry_rule_satisfied = self._stay_satisfies_tire_rule(state)
                 if (
                     dry_rule_satisfied
                     and not self._weather_stop_can_pay(
@@ -868,9 +866,7 @@ class RaceSimulator:
         # not simply a stop count.  Keep one additional stop available when
         # an earlier stop repeated the same compound, so a short race cannot
         # exhaust its ordinary stop budget before satisfying the rule.
-        dry_rule_required = not self._has_used_wet_compound(state) and len(
-            self._used_slick_compounds(state)
-        ) < 2
+        dry_rule_required = not self._stay_satisfies_tire_rule(state)
         if dry_rule_required:
             max_stops = max(max_stops, state.pit_stops + 1)
         if state.pit_stops >= max_stops:
@@ -879,7 +875,7 @@ class RaceSimulator:
         # At the final viable dry-race stop, force a stop for a new slick set
         # even when the driver already made an earlier same-compound stop.
         if (
-            lap == track.total_laps - 1
+            lap >= max(2, track.total_laps - 1)
             and dry_rule_required
         ):
             return True
@@ -1016,36 +1012,53 @@ class RaceSimulator:
         return False
 
     @staticmethod
-    def _has_used_wet_compound(state: DriverRaceState) -> bool:
-        """Return whether a state has used an intermediate or full wet tyre."""
-        wet_compounds = {TireCompound.INTERMEDIATE.value, TireCompound.WET.value}
-        return (
-            state.current_tire.compound in {TireCompound.INTERMEDIATE, TireCompound.WET}
-            or any(compound in wet_compounds for compound in state.tire_compound_history)
-        )
-
-    @staticmethod
-    def _used_slick_compounds(state: DriverRaceState) -> set[TireCompound]:
-        """Return distinct slick compounds used by a driver so far."""
-        slick_compounds = {
-            TireCompound.SOFT,
-            TireCompound.MEDIUM,
-            TireCompound.HARD,
-        }
-        used: set[TireCompound] = set()
-        for compound in state.tire_compound_history:
+    def _actually_used_compounds(state: DriverRaceState) -> set[TireCompound]:
+        """Exclude only the current unrun fitted set, preserving earlier stints."""
+        history = state.tire_compound_history
+        if (state.tire_laps == 0 and history
+                and history[-1] == state.current_tire.compound.value):
+            history = history[:-1]
+        used = set()
+        for compound in history:
             try:
-                parsed = TireCompound(compound)
+                used.add(TireCompound(compound))
             except (TypeError, ValueError):
                 continue
-            if parsed in slick_compounds:
-                used.add(parsed)
-
-        # Keep manually constructed or externally restored states truthful
-        # even if their history predates the current stint.
-        if state.current_tire.compound in slick_compounds:
+        if state.tire_laps > 0:
             used.add(state.current_tire.compound)
         return used
+
+    @classmethod
+    def _has_used_wet_compound(cls, state: DriverRaceState) -> bool:
+        return bool(cls._actually_used_compounds(state) & {
+            TireCompound.INTERMEDIATE, TireCompound.WET,
+        })
+
+    @classmethod
+    def _used_slick_compounds(cls, state: DriverRaceState) -> set[TireCompound]:
+        return cls._actually_used_compounds(state) & {
+            TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
+        }
+
+    @classmethod
+    def _stay_satisfies_tire_rule(cls, state: DriverRaceState) -> bool:
+        """A stay-out decision will run the fitted set on the upcoming lap."""
+        prospective = cls._actually_used_compounds(state) | {state.current_tire.compound}
+        return bool(prospective & {TireCompound.INTERMEDIATE, TireCompound.WET}) or len(
+            prospective & {TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD}
+        ) >= 2
+
+    @staticmethod
+    def _fit_tire(state: DriverRaceState, compound: TireCompound) -> None:
+        """Replace an unrun fitting instead of recording a fictitious stint."""
+        if (state.tire_laps == 0 and state.tire_compound_history
+                and state.tire_compound_history[-1] == state.current_tire.compound.value):
+            state.tire_compound_history[-1] = compound.value
+        else:
+            state.tire_compound_history.append(compound.value)
+        state.current_tire = TIRE_COMPOUNDS[compound].model_copy(deep=True)
+        state.tire_laps = 0
+        state.driver.current_tire_laps = 0
 
     def _choose_distinct_dry_compound(
         self,
@@ -1241,12 +1254,7 @@ class RaceSimulator:
                 current_lap,
             )
 
-        state.current_tire = TIRE_COMPOUNDS[new_compound].model_copy(deep=True)
-        state.tire_laps = 0
-        state.driver.current_tire_laps = 0
-        # Every stop creates a new tyre stint, even when the same compound is
-        # fitted again (e.g. a wet-weather stop or a repeated medium stint).
-        state.tire_compound_history.append(new_compound.value)
+        self._fit_tire(state, new_compound)
 
         return pit_lane_time + stationary_time + queue_time
 
@@ -1710,16 +1718,11 @@ class RaceSimulator:
 
             # Choose optimal tire for current conditions
             new_compound = self._choose_red_flag_tire(state, weather, track, current_lap)
-            state.current_tire = TIRE_COMPOUNDS[new_compound].model_copy(deep=True)
-            state.tire_laps = 0  # Fresh tires
-            state.driver.current_tire_laps = 0
+            self._fit_tire(state, new_compound)
             # The sole modeled forced-stop cause is a puncture. A free fresh
             # set resolves it without charging another stop on the restart.
             state.force_pit_next_lap = False
             state.dry_pit_proposal = None
-            # A red-flag tyre change also starts a new physical stint and is
-            # therefore represented even when the compound repeats.
-            state.tire_compound_history.append(new_compound.value)
 
         # End suspension for the next lap; no stopped-clock duration is modeled.
         self.event_manager.end_red_flag()
@@ -1775,9 +1778,6 @@ class RaceSimulator:
         the veto. Future running is green, and only today's stop is charged.
         """
         projected = weather.model_copy(deep=True)
-        used = self._used_slick_compounds(state)
-        wet_exemption = self._has_used_wet_compound(state)
-
         def running_time(tire: Tire, age: int, gap: float | None, lap: int) -> float:
             driver = state.driver.model_copy(update={"current_tire_laps": age})
             return self.lap_simulator.calculate_lap_time(
@@ -1797,14 +1797,13 @@ class RaceSimulator:
             # Include survivable retention windows, not only the compound a
             # fresh execution would select. An already-fitted intermediate
             # can remain quicker after the fresh-set chooser prefers wets.
+            # Do not restrict future slicks to today's actual-used mask:
+            # running the fitted or projected rain set can grant compliance.
+            # This deliberately optimistic bound is not an executable plan.
             candidates = [
                 compound for compound in TireCompound
                 if self._check_tire_weather_mismatch(TIRE_COMPOUNDS[compound], projected)
                 != "critical"
-                and (
-                    compound in (TireCompound.INTERMEDIATE, TireCompound.WET)
-                    or wet_exemption or len(used) >= 2 or compound not in used
-                )
             ]
             old_time = running_time(state.current_tire, state.tire_laps + lap - current_lap, 0, lap)
             fresh_time = min(running_time(TIRE_COMPOUNDS[c], 0, None, lap) for c in candidates)

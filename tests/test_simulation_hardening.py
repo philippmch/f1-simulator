@@ -327,6 +327,7 @@ def test_dry_rule_forces_second_slick_for_no_stop_medium_start() -> None:
     simulator = RaceSimulator(rng=np.random.default_rng(35))
     track = _track(total_laps=50)
     state = _state()
+    state.tire_laps = 1  # This fixture represents a set already run.
 
     assert simulator._should_pit(
         state,
@@ -341,6 +342,8 @@ def test_dry_rule_forces_second_slick_for_no_stop_medium_start() -> None:
 
     assert state.tire_compound_history[0] == "medium"
     assert state.tire_compound_history[1] in {"soft", "hard"}
+    assert simulator._stay_satisfies_tire_rule(state)
+    state.tire_laps = 1  # The replacement gains credit only after running.
     assert len(simulator._used_slick_compounds(state)) == 2
 
 
@@ -348,6 +351,7 @@ def test_dry_rule_ignores_same_compound_earlier_stop_and_forces_new_slick() -> N
     simulator = RaceSimulator(rng=np.random.default_rng(36))
     track = _track(total_laps=50)
     state = _state()
+    state.tire_laps = 1  # This fixture represents a set already run.
     state.pit_stops = 1
     state.tire_compound_history = ["medium", "medium"]
 
@@ -366,6 +370,8 @@ def test_dry_rule_ignores_same_compound_earlier_stop_and_forces_new_slick() -> N
 
     assert state.tire_compound_history[:2] == ["medium", "medium"]
     assert state.tire_compound_history[2] in {"soft", "hard"}
+    assert simulator._stay_satisfies_tire_rule(state)
+    state.tire_laps = 1  # The replacement gains credit only after running.
     assert len(simulator._used_slick_compounds(state)) == 2
 
 

@@ -131,15 +131,19 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
     # each stop, rather than evicting other drivers with separate budget keys.
     costs, compounds = _fresh_tables(physics, tire_keys, horizon, green_cost)
     mask = 7 if wet_exemption else sum(1 << i for i, c in enumerate(SLICKS)
-                                     if c in used_compounds or c == current_tire.compound)
+                                     if c in used_compounds
+                                     or (tire_age > 0 and c == current_tire.compound))
+    wait_mask = mask
+    if current_tire.compound in SLICKS:
+        wait_mask |= 1 << SLICKS.index(current_tire.compound)
     # Preserve custom current sets; fresh replacements use the configured sets.
     current_curve = _pace_curve(*physics, _tire_key(current_tire),
                                 max(horizon, tire_age + remaining_laps))
     old_cost = np.cumsum(current_curve[tire_age:tire_age + remaining_laps])
-    wait_cost = float(old_cost[-1]) if mask.bit_count() >= 2 else inf
+    wait_cost = float(old_cost[-1]) if wait_mask.bit_count() >= 2 else inf
     if remaining_laps > 1 and remaining_stops:
         wait_cost = min(wait_cost, float(np.min(
-            old_cost[:-1] + costs[remaining_stops, mask, remaining_laps - 1:0:-1]
+            old_cost[:-1] + costs[remaining_stops, wait_mask, remaining_laps - 1:0:-1]
         )))
     c = int(compounds[remaining_stops, mask, remaining_laps])
     pit_now_cost = float(costs[remaining_stops, mask, remaining_laps])

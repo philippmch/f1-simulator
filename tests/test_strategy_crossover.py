@@ -44,7 +44,7 @@ def test_stable_damp_race_does_not_repeat_mismatch_stops(monkeypatch):
 
     assert stops == [(1, TireCompound.INTERMEDIATE)]
     assert results[0].pit_stops == 1
-    assert results[0].strategy == ["medium", "intermediate"]
+    assert results[0].strategy == ["intermediate"]  # Starting slicks never ran.
 
 
 @pytest.mark.parametrize("wetness,rain,expected", [

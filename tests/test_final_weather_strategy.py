@@ -179,6 +179,32 @@ def test_intermediate_retention_window_is_included_in_optimistic_bound(setup):
     assert simulator._weather_stop_can_pay(state, track, weather, 30, queue)
 
 
+def test_drying_projection_does_not_freeze_today_slick_eligibility(setup, monkeypatch):
+    simulator, state, track = setup
+    state.current_tire = TIRE_COMPOUNDS[TireCompound.MEDIUM]
+    state.tire_laps = 0
+    state.tire_compound_history = ["soft", "medium"]
+    assert simulator._used_slick_compounds(state) == {TireCompound.SOFT}
+    assert simulator._stay_satisfies_tire_rule(state)
+    weather = Weather(track_wetness=0.21, rain_intensity=0)
+    track.pit_lane_delta = 1
+
+    def pace(*args, **kwargs):
+        tire, projected = args[3], args[4]
+        if kwargs["gap_to_car_ahead"] == 0:  # Original set's projected path.
+            return 100
+        if projected.track_wetness > 0.2:
+            return 99 if tire.compound == TireCompound.INTERMEDIATE else 101
+        return 90 if tire.compound == TireCompound.SOFT else 100
+
+    monkeypatch.setattr(simulator.lap_simulator, "calculate_lap_time", pace)
+    # First lap's rain set gains1s, then legal fresh soft gains10s as it dries.
+    # A fixed actual-used restriction wrongly excluded soft and saw only1s.
+    queue = 6 - track.pit_lane_delta - expected_stationary_time(state.car)
+    assert queue > 0
+    assert simulator._weather_stop_can_pay(state, track, weather, 29, queue)
+
+
 def test_noise_free_lap_matches_zero_variation_and_preserves_default_sampling(setup):
     _, state, track = setup
     rng = np.random.default_rng(19)

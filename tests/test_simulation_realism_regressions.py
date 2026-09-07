@@ -646,6 +646,7 @@ def test_driver_state_tire_history_tracks_actual_stop_compound() -> None:
             cliff_multiplier=3.0,
         ),
     )
+    state.tire_laps = 19
     simulator._choose_committed_dry_compound = lambda *args: TireCompound.HARD  # type: ignore[method-assign]
     simulator._execute_pit_stop(state, _track(), Weather(), current_lap=20)
     assert state.tire_compound_history == ["medium", "hard"]

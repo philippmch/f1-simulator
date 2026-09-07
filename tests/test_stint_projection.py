@@ -59,6 +59,7 @@ def test_short_high_stress_stint_still_prefers_soft():
 
 def test_unused_compounds_are_ranked_before_selection():
     state, track = setup_state()
+    state.tire_laps = 1  # This fixture represents a set already run.
     state.current_tire = TIRE_COMPOUNDS[TireCompound.SOFT]
     state.tire_compound_history = [TireCompound.SOFT.value]
     state.planned_pit_laps = [21, 26]

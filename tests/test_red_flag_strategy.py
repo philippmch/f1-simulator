@@ -56,6 +56,7 @@ def exhaustive_cost(state, track, candidate, laps, paid_budget, wet):
                                           (2, False), (3, False), (3, True)])
 def test_choice_matches_exhaustive_remaining_race(remaining, paid_used, wet):
     state, track = fixture(stress=1.0)
+    state.tire_laps = 1  # The oracle credits the completed current stint.
     state.pit_stops = paid_used
     if wet:
         state.tire_compound_history.insert(0, "intermediate")
@@ -69,6 +70,7 @@ def test_choice_matches_exhaustive_remaining_race(remaining, paid_used, wet):
 def test_horizon_and_wear_change_free_set_choice():
     sim = RaceSimulator()
     state, track = fixture(60, 1.0)
+    state.tire_laps = 1  # This fixture represents a set already run.
     state.pit_stops = 3
     state.tire_compound_history = ["soft", "medium"]
     assert sim._choose_red_flag_tire(state, Weather(), track, 59) == TireCompound.SOFT

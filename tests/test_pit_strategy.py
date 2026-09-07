@@ -319,12 +319,15 @@ def test_discounted_safety_car_stop_is_worthwhile_in_last_five_laps():
 
 def test_mandatory_rule_overrides_exhausted_budget_and_expensive_stop():
     state = _state("A", 1, 0.0)
+    state.tire_laps = 1  # This fixture represents a set already run.
     state.pit_stops = 5
     track = _track()
     track.pit_lane_delta = 60
     sim = RaceSimulator()
     assert sim._should_pit(state, [state], track, 59, False, Weather())
     sim._execute_pit_stop(state, track, Weather(), 59)
+    assert sim._stay_satisfies_tire_rule(state)
+    state.tire_laps = 1  # Credit the replacement only after running it.
     assert len(sim._used_slick_compounds(state)) == 2
 
 
@@ -352,6 +355,8 @@ def test_mandatory_extra_stop_is_optimized_before_the_final_safeguard():
     sim = RaceSimulator()
     assert sim._should_pit(state, [state], track, 16, False, Weather())
     sim._execute_pit_stop(state, track, Weather(), 16)
+    assert sim._stay_satisfies_tire_rule(state)
+    state.tire_laps = 1  # Credit the replacement only after running it.
     assert len(sim._used_slick_compounds(state)) == 2
 
 
@@ -421,6 +426,7 @@ def test_fresh_table_cache_is_reused_after_stops_and_tracks_physics(monkeypatch)
 
     _fresh_tables.cache_clear()
     state = _state("A", 1, 0.0)
+    state.tire_laps = 1  # This fixture represents a set already run.
     track = _track()
     decision = _plan(state, track, 25, 3)
     _plan(state, track, 24, 2)
