@@ -131,6 +131,27 @@ class SimulationResults:
     parallel: bool = True
     max_workers: int | None = None
 
+    def get_pit_stop_statistics(self) -> dict[str, dict]:
+        """Paid stops per observed race row, including retired entrants.
+
+        Missing observations are not zero-stop races. Free tyre changes do
+        not enter RaceResult.pit_stops and therefore do not affect this count.
+        """
+        distributions: dict[str, dict[int, int]] = {}
+        for race in self.race_results:
+            for result in race:
+                counts = distributions.setdefault(result.driver_id, {})
+                counts[result.pit_stops] = counts.get(result.pit_stops, 0) + 1
+        return {
+            driver_id: {
+                "races": sum(counts.values()),
+                "average_stops": sum(stops * count for stops, count in counts.items())
+                / sum(counts.values()),
+                "stop_count_distribution": dict(sorted(counts.items())),
+            }
+            for driver_id, counts in distributions.items()
+        }
+
     def get_probability_intervals(self) -> dict[str, dict]:
         """95% sampling intervals for win, podium and DNF rates, in percent.
 

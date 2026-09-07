@@ -246,6 +246,7 @@ class Exporter:
             "win_probabilities": results.get_win_probabilities(),
             "probability_intervals": results.get_probability_intervals(),
             "event_rates": results.get_event_rates(),
+            "pit_stop_statistics": results.get_pit_stop_statistics(),
             "top_3_finish_probabilities": results.get_top_n_finish_probabilities(3),
             "top_10_finish_probabilities": results.get_top_n_finish_probabilities(10),
             "championship_projection": results.get_championship_projection(),
