@@ -14,6 +14,7 @@ from f1sim.simulation.overtaking import OvertakingModel
 from f1sim.simulation.pit_strategy import expected_stationary_time, plan_dry_stop
 from f1sim.simulation.race_points import points_for_classification
 from f1sim.simulation.race_timing import RaceFinishClock
+from f1sim.simulation.strategy_traffic import StrategyTrafficSnapshot
 from f1sim.simulation.validation import validate_unique_ids
 from f1sim.simulation.weather_strategy import weather_stop_costs
 
@@ -869,6 +870,7 @@ class RaceSimulator:
         weather: Weather | None = None,
         additional_current_stop_cost: float = 0.0,
         physical_total_laps: int | None = None,
+        traffic_snapshot: StrategyTrafficSnapshot | None = None,
     ) -> bool:
         """Decide if driver should pit this lap."""
         state.dry_pit_proposal = None
@@ -901,8 +903,10 @@ class RaceSimulator:
 
         strategy = state.strategy_archetype
 
-        gap_ahead = self._get_gap_to_car_ahead(state, all_states)
-        gap_behind = self._get_gap_to_car_behind(state, all_states)
+        gap_ahead = (self._get_gap_to_car_ahead(state, all_states)
+                     if traffic_snapshot is None else traffic_snapshot.gap_ahead)
+        gap_behind = (self._get_gap_to_car_behind(state, all_states)
+                      if traffic_snapshot is None else traffic_snapshot.gap_behind)
 
         # Mid-race strategy switching trigger (conservative => balanced)
         # when following closely outside the top positions in green running.
@@ -962,8 +966,10 @@ class RaceSimulator:
                 self.event_manager.safety_car_active or self.event_manager.vsc_active
                 or self.event_manager.red_flag_active
             ):
-                traffic_cost = self._pit_rejoin_traffic_cost(
-                    state, all_states, track, additional_current_stop_cost,
+                traffic_cost = (
+                    self._pit_rejoin_traffic_cost(
+                        state, all_states, track, additional_current_stop_cost,
+                    ) if traffic_snapshot is None else traffic_snapshot.rejoin_traffic_cost
                 ) * tire_multiplier
             decision = plan_dry_stop(
                 state.driver, state.car, track, state.current_tire, state.tire_laps,
