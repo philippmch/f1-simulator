@@ -181,12 +181,23 @@ class QualifyingSimulator:
         """
         best_times: dict[str, float] = {}
 
-        tire = TIRE_COMPOUNDS[weather.fresh_rain_compound() or TireCompound.SOFT]
-
         for driver in drivers:
             car = cars.get(driver.team_id)
             if car is None:
                 continue
+
+            # Session weather is fixed. Rank fresh sets by the same lap model
+            # as the attempts; enum order gives deterministic ties, without
+            # consuming any variation or mistake draws during selection.
+            compound = min(
+                TireCompound,
+                key=lambda compound: self.lap_simulator.calculate_qualifying_lap(
+                    driver=driver, car=car, track=track,
+                    tire=TIRE_COMPOUNDS[compound], weather=weather,
+                    sample_variation=False,
+                ),
+            )
+            tire = TIRE_COMPOUNDS[compound]
 
             driver_best = float("inf")
 

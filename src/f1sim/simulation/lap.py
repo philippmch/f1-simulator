@@ -327,6 +327,7 @@ class LapSimulator:
         tire: Tire,
         weather: Weather,
         push_level: float = 1.0,
+        sample_variation: bool = True,
     ) -> float:
         """Calculate a qualifying lap time.
 
@@ -337,6 +338,7 @@ class LapSimulator:
             tire: Current tire set (usually soft)
             weather: Current weather conditions
             push_level: How hard the driver is pushing (0-1)
+            sample_variation: Sample variation/mistakes, or return noise-free pace
 
         Returns:
             Lap time in seconds
@@ -354,13 +356,13 @@ class LapSimulator:
         # Push level variation (higher push = more risk of mistakes)
         risk_factor = push_level * 0.3
         variation_std = driver.lap_time_variation_std(base_std=0.15)
-        random_variation = self.rng.normal(0, variation_std)
+        random_variation = self.rng.normal(0, variation_std) if sample_variation else 0.0
 
         # Mistake chance increases with push
-        if self.rng.random() < risk_factor * 0.1:
+        if sample_variation and self.rng.random() < risk_factor * 0.1:
             # Small mistake
             random_variation += self.rng.uniform(0.2, 1.0)
-        elif self.rng.random() < risk_factor * 0.02:
+        elif sample_variation and self.rng.random() < risk_factor * 0.02:
             # Big mistake (ruined lap)
             random_variation += self.rng.uniform(3.0, 10.0)
 

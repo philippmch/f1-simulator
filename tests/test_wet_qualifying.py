@@ -25,16 +25,68 @@ def fixture():
     (0.20001, 0, TireCompound.INTERMEDIATE), (0, 0.40001, TireCompound.INTERMEDIATE),
     (0.7, 0, TireCompound.INTERMEDIATE), (0.70001, 0, TireCompound.WET),
 ])
-def test_qualifying_and_race_share_fresh_rain_boundaries(monkeypatch, wetness, rain, expected):
+def test_race_fresh_rain_boundaries_remain_unchanged(wetness, rain, expected):
+    weather = Weather(track_wetness=wetness, rain_intensity=rain)
+    assert (RaceSimulator._choose_weather_compound(weather) or TireCompound.SOFT) == expected
+
+
+@pytest.mark.parametrize("wetness,rain", [(0, 0), (0, 0.5), (0.21, 0.3), (0.75, 0.8), (0.9, 0.9)])
+def test_session_selects_fastest_fresh_set_under_fixed_weather(monkeypatch, wetness, rain):
     driver, car, track = fixture()
     weather = Weather(track_wetness=wetness, rain_intensity=rain)
-    simulator = QualifyingSimulator()
-    observed = []
+
+    class MeanPace:
+        def normal(self, mean, std):
+            return mean
+
+        def random(self):
+            return 1.0  # No mistake in the independent measured lap.
+
+    measured = {compound: LapSimulator(MeanPace()).calculate_qualifying_lap(
+        driver, car, track, tire, weather,
+    ) for compound, tire in TIRE_COMPOUNDS.items()}
+    simulator = QualifyingSimulator(np.random.default_rng(42))
+    original = simulator.lap_simulator.calculate_qualifying_lap
+    attempts, projections = [], []
+
+    def capture(**kwargs):
+        (attempts if kwargs.get("sample_variation", True) else projections).append(
+            kwargs["tire"].compound
+        )
+        return original(**kwargs)
+
+    monkeypatch.setattr(simulator.lap_simulator, "calculate_qualifying_lap", capture)
+    simulator._simulate_session([driver], {"A": car}, track, weather)
+    assert attempts == [min(measured, key=measured.get)] * 2
+    assert projections == list(TireCompound)
+
+
+def test_projection_is_rng_free_and_default_positional_calls_unchanged():
+    driver, car, track = fixture()
+    driver.current_tire_laps = 20
+    weather = Weather(track_wetness=0.75)
+    simulator = LapSimulator(np.random.default_rng(42))
+    before = copy.deepcopy((driver, car, weather, simulator.rng.bit_generator.state))
+    args = (driver, car, track, TIRE_COMPOUNDS[TireCompound.WET], weather, 0.9)
+    simulator.calculate_qualifying_lap(*args, sample_variation=False)
+    assert (driver, car, weather, simulator.rng.bit_generator.state) == before
+    legacy = LapSimulator(np.random.default_rng(42))
+    assert simulator.calculate_qualifying_lap(*args) == legacy.calculate_qualifying_lap(
+        *args, sample_variation=True
+    )
+    assert simulator.rng.random() == legacy.rng.random()
+
+
+def test_missing_car_does_not_project_or_draw(monkeypatch):
+    driver, _, track = fixture()
+    simulator = QualifyingSimulator(np.random.default_rng(42))
+    before = copy.deepcopy(simulator.rng.bit_generator.state)
     monkeypatch.setattr(simulator.lap_simulator, "calculate_qualifying_lap",
-                        lambda **kw: observed.append(kw["tire"].compound) or 90)
-    simulator.simulate_qualifying([driver], {"A": car}, track, weather)
-    assert observed and set(observed) == {expected}
-    assert (RaceSimulator._choose_weather_compound(weather) or TireCompound.SOFT) == expected
+                        lambda **kwargs: pytest.fail("Missing-car entrant timed"))
+    result, = simulator.simulate_qualifying([driver], {}, track, Weather())
+    assert result.eliminated_in == "Q1"
+    assert math.isinf(result.best_time)
+    assert simulator.rng.bit_generator.state == before
 
 
 @pytest.mark.parametrize("wetness,correct,wrong", [
