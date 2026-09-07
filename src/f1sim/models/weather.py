@@ -5,6 +5,8 @@ from enum import Enum
 import numpy as np
 from pydantic import BaseModel, Field
 
+from f1sim.models.tire import TireCompound
+
 # Normalized surface response: drainage balances rainfall at the intensity target.
 WETNESS_RESPONSE_PER_LAP = 0.2
 
@@ -84,6 +86,14 @@ class Weather(BaseModel):
     def requires_wet_tires(self) -> bool:
         """Check if full wet tires are needed."""
         return self.track_wetness > 0.7
+
+    def fresh_rain_compound(self) -> TireCompound | None:
+        """Choose a fresh rain set, or leave dry compound selection to strategy."""
+        if self.requires_wet_tires():
+            return TireCompound.WET
+        if self.track_wetness > 0.2 or self.rain_intensity > 0.4:
+            return TireCompound.INTERMEDIATE
+        return None
 
     def project_surface(self) -> "Weather":
         """Advance one lap of drainage under unchanged rainfall, without randomness."""

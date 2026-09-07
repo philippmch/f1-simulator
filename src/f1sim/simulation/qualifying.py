@@ -181,8 +181,7 @@ class QualifyingSimulator:
         """
         best_times: dict[str, float] = {}
 
-        # Use soft tires for qualifying
-        soft_tire = TIRE_COMPOUNDS[TireCompound.SOFT]
+        tire = TIRE_COMPOUNDS[weather.fresh_rain_compound() or TireCompound.SOFT]
 
         for driver in drivers:
             car = cars.get(driver.team_id)
@@ -199,7 +198,7 @@ class QualifyingSimulator:
                     driver=driver,
                     car=car,
                     track=track,
-                    tire=soft_tire,
+                    tire=tire,
                     weather=weather,
                     push_level=push_level,
                 )

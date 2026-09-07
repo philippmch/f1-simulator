@@ -364,23 +364,15 @@ class LapSimulator:
             # Big mistake (ruined lap)
             random_variation += self.rng.uniform(3.0, 10.0)
 
-        # Tire grip (fresh soft tires in qualifying)
+        # Fresh-set grip, including rain compounds when required.
         tire_bonus = (tire.initial_grip - 1.0) * 0.5  # Bonus from soft tire grip
 
-        # Weather effect.  Qualifying still benefits from a car's wet package
-        # when the session is not fully dry.
-        weather_multiplier = weather.lap_time_multiplier()
-        wet_severity = float(
-            np.clip(max(weather.track_wetness, weather.rain_intensity * 0.7), 0.0, 1.0)
-        )
-        if wet_severity > 0.0:
-            weather_multiplier *= 1.0 + float(
-                np.clip((1.0 - car.wet_performance) * wet_severity * 0.06, 0.0, 0.06)
-            )
+        weather_multiplier = self.weather_pace_multiplier(driver, car, weather)
 
         lap_time = (
             base_time + car_delta + skill_delta + random_variation - tire_bonus
         ) * weather_multiplier
+        lap_time += self._tire_weather_mismatch(tire, weather)
 
         return max(track.base_lap_time * 0.93, lap_time)
 

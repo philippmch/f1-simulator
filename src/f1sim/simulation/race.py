@@ -1802,11 +1802,7 @@ class RaceSimulator:
         retain their wider drying windows in the mismatch check, avoiding
         unnecessary stops when conditions hover around a crossover.
         """
-        if weather.requires_wet_tires():
-            return TireCompound.WET
-        if weather.track_wetness > 0.2 or weather.rain_intensity > 0.4:
-            return TireCompound.INTERMEDIATE
-        return None
+        return weather.fresh_rain_compound()
 
     def _check_tire_weather_mismatch(self, tire: Tire, weather: Weather) -> str:
         """Check if tires match current weather conditions.
