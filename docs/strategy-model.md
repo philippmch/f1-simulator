@@ -41,6 +41,15 @@ selection, with an additional precautionary intermediate bias for rainy starts.
 Already-fitted rain tyres have wider drying windows before they trigger another
 stop, which avoids repeatedly switching sets near the crossover.
 
+Qualifying uses the same fresh rain-tyre crossovers, with soft slicks as the dry
+choice. Its lap model applies the same driver/car weather multiplier and flat
+tyre-weather mismatch penalty as race laps, while retaining qualifying's own
+base pace, fresh-tyre grip and push-level variation. A driver with stronger wet
+skill can therefore improve a wet qualifying lap, and slicks no longer escape
+their mismatch penalty on a wet surface. Each attempt assumes a fresh set;
+weather remains fixed across Q1, Q2 and Q3. Qualifying does not model tyre
+inventory, track evolution, traffic or a changing-weather session strategy.
+
 During a red-flag suspension, dry tyre selection compares all fresh slicks over
 the remaining race, including any later paid stops that the stop budget permits.
 It uses the same tyre pace and wear model as ordinary dry planning. The free set
