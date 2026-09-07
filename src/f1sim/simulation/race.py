@@ -842,8 +842,9 @@ class RaceSimulator:
         ):
             return True
 
-        # Protect the opening stint, except weather and mandatory safeguards.
-        if lap <= 5:
+        # Elective stops need at least one lap on the starting set. Weather
+        # and mandatory safeguards above still take priority.
+        if lap <= 1:
             return False
 
         clearly_dry = weather is None or (
@@ -879,7 +880,7 @@ class RaceSimulator:
             return False
 
         # Wet/damp strategies retain their existing reactive windows.
-        if lap >= track.total_laps - 5:
+        if lap <= 5 or lap >= track.total_laps - 5:
             return False
 
         # Pit window opportunity (under SC/VSC) - usually strong strategic value.

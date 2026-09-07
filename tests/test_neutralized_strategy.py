@@ -10,7 +10,10 @@ from f1sim.simulation.race import RaceSimulator, TeamStrategyArchetype
 
 @pytest.mark.parametrize("neutralization", ["safety_car_active", "vsc_active"])
 @pytest.mark.parametrize("stress", [0.3, 0.9])
-def test_current_neutralization_matches_remaining_one_stop_alternatives(neutralization, stress):
+@pytest.mark.parametrize("decision_lap", [2, 5, 21])
+def test_current_neutralization_matches_remaining_one_stop_alternatives(
+    neutralization, stress, decision_lap,
+):
     class MeanPace:
         def normal(self, mean, _std):
             return mean
@@ -25,17 +28,17 @@ def test_current_neutralization_matches_remaining_one_stop_alternatives(neutrali
         simulator.lap_simulator.calculate_pit_stop_time = lambda car: expected_stationary_time(car)
         simulator._infer_team_strategy = lambda *args: TeamStrategyArchetype.BALANCED
 
-        # All alternatives reach the same lap-21 decision with the original
+        # All alternatives reach the same decision lap with the original
         # medium set. Only that lap is neutralized; future running is green.
         def events(lap, **kwargs):
-            setattr(simulator.event_manager, neutralization, lap == 20)
+            setattr(simulator.event_manager, neutralization, lap == decision_lap - 1)
             return []
 
         simulator.event_manager.process_lap = events
         should_pit = simulator._should_pit
 
         def choose(state, states, track, lap, *args, **kwargs):
-            if lap < 21:
+            if lap < decision_lap:
                 return False
             if forced_lap is not None:
                 return lap == forced_lap
@@ -50,7 +53,7 @@ def test_current_neutralization_matches_remaining_one_stop_alternatives(neutrali
         )[0]
 
     selected = run()
-    alternatives = [run(lap, compound).total_time for lap in range(21, 31)
+    alternatives = [run(lap, compound).total_time for lap in range(decision_lap, 31)
                     for compound in (TireCompound.SOFT, TireCompound.HARD)]
     assert selected.total_time == pytest.approx(min(alternatives), abs=1e-8)
     assert selected.pit_stops == 1

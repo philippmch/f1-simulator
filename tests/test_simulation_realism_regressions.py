@@ -196,6 +196,9 @@ def test_safety_car_restart_and_red_flag_overtake_mode_timeline() -> None:
 
 def test_vsc_end_has_one_consistent_active_aero_and_overtake_timeline() -> None:
     simulator = RaceSimulator(rng=np.random.default_rng(31))
+    # Keep the controlled passing gap stable while checking race-control
+    # eligibility; early pit decisions are covered by strategy tests.
+    simulator._should_pit = lambda *args, **kwargs: False  # type: ignore[method-assign]
     driver_a = _driver("A", team_id="a")
     driver_b = _driver("B", team_id="b")
     cars = {

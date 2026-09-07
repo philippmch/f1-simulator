@@ -159,6 +159,76 @@ def test_optional_stop_declined_when_pit_cost_exceeds_tyre_gain():
     assert _plan(state, _track(), 19).pit_now_cost > _plan(state, _track(), 19).wait_cost
 
 
+@pytest.mark.parametrize("flag,factor,modifier", [
+    ("safety_car_active", 0.55, 1.4), ("vsc_active", 0.75, 1.2),
+])
+def test_early_neutralized_stop_can_capture_real_cost_saving(flag, factor, modifier):
+    state = _state("A", 1, 0, TireCompound.SOFT)
+    state.tire_laps = 4
+    track = _track()
+    track.total_laps = 20
+    track.tire_stress = 0.3
+    simulator = RaceSimulator()
+    setattr(simulator.event_manager, flag, True)
+    decision = _plan(state, track, 16, factor=factor, modifier=modifier)
+    assert decision.pit_now_cost < decision.wait_cost
+    assert simulator._should_pit(state, [state], track, 5, True, Weather())
+    assert state.dry_pit_proposal == (5, decision.compound)
+
+
+def test_early_green_stop_is_allowed_for_exhausted_custom_starting_set():
+    state = _state("A", 1, 0, TireCompound.SOFT)
+    state.tire_laps = 4
+    state.current_tire.degradation_rate = 0.1
+    state.current_tire.cliff_threshold = 1
+    state.current_tire.cliff_multiplier = 10
+    track = _track()
+    track.total_laps = 20
+    track.pit_lane_delta = 0.1
+    assert _plan(state, track, 16).should_pit()
+    assert RaceSimulator()._should_pit(state, [state], track, 5, False, Weather())
+
+
+@pytest.mark.parametrize("lap", [2, 5])
+@pytest.mark.parametrize("flag", [None, "safety_car_active", "vsc_active"])
+def test_early_unnecessary_stop_is_still_rejected(lap, flag):
+    state = _state("A", 1, 0, TireCompound.HARD)
+    state.tire_laps = lap - 1
+    state.tire_compound_history = ["medium", "hard"]
+    simulator = RaceSimulator()
+    if flag:
+        setattr(simulator.event_manager, flag, True)
+    assert not simulator._should_pit(state, [state], _track(), lap, bool(flag), Weather())
+    assert state.dry_pit_proposal is None
+
+
+def test_lap_one_elective_guard_and_weather_priority(monkeypatch):
+    import f1sim.simulation.race as race_module
+
+    state = _state("A", 1, 0, TireCompound.SOFT)
+    simulator = RaceSimulator()
+    simulator.event_manager.safety_car_active = True
+
+    def unexpected_planning(*args, **kwargs):
+        pytest.fail("Elective planning ran before the starting stint")
+
+    monkeypatch.setattr(race_module, "plan_dry_stop", unexpected_planning)
+    assert not simulator._should_pit(state, [state], _track(), 1, True, Weather())
+    storm = Weather(condition=WeatherCondition.HEAVY_RAIN, track_wetness=0.9,
+                    rain_intensity=0.9)
+    assert simulator._should_pit(state, [state], _track(), 1, True, storm)
+
+
+def test_damp_fallback_retains_opening_guard():
+    state = _state("A", 1, 0)
+    state.tire_laps = 15
+    simulator = RaceSimulator()
+    simulator.event_manager.safety_car_active = True
+    assert not simulator._should_pit(
+        state, [state], _track(), 5, True, Weather(track_wetness=0.1)
+    )
+
+
 @pytest.mark.parametrize("modifier,factor", [(1.4, 0.55), (1.2, 0.75)])
 @pytest.mark.parametrize("budget", [0, 1, 2, 3])
 @pytest.mark.parametrize("compliant", [False, True])
@@ -339,7 +409,7 @@ def test_full_race_matches_best_exhaustive_legal_one_stop(stress):
         )[0]
 
     selected = run()
-    alternatives = [run(lap, compound).total_time for lap in range(6, 31)
+    alternatives = [run(lap, compound).total_time for lap in range(2, 31)
                     for compound in (TireCompound.SOFT, TireCompound.HARD)]
     assert selected.total_time == pytest.approx(min(alternatives), abs=1e-8)
     assert selected == run()
