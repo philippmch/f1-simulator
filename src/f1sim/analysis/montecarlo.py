@@ -12,7 +12,12 @@ import numpy as np
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.simulation.events import EventType
 from f1sim.simulation.qualifying import QualifyingResult, QualifyingSimulator
-from f1sim.simulation.race import DriverStatus, RaceResult, RaceSimulator
+from f1sim.simulation.race import (
+    DriverStatus,
+    RaceResult,
+    RaceSimulator,
+    result_is_classified,
+)
 
 
 def wilson_interval(successes: int, trials: int) -> dict[str, float]:
@@ -174,17 +179,17 @@ class SimulationResults:
         return {pos: count / len(positions) * 100 for pos, count in sorted(counts.items())}
 
     def get_top_n_finish_probabilities(self, n: int = 10) -> dict[str, float]:
-        """Get probability of finishing in top N for each driver."""
+        """Get probability of a classified top-N result for each driver."""
         if n <= 0:
             msg = "n must be greater than 0"
             raise ValueError(msg)
 
-        # Classified positions also include retired cars. When full race
-        # results are available, count only actual finishes in the top N.
+        # Raw ordinal positions include unclassified retirements. Full race
+        # results let us distinguish them from eligible late retirements.
         finish_counts: dict[str, int] = defaultdict(int)
         for race in self.race_results:
             for result in race:
-                if result.status == DriverStatus.FINISHED and result.position <= n:
+                if result_is_classified(result) and result.position <= n:
                     finish_counts[result.driver_id] += 1
 
         probs: dict[str, float] = {}
@@ -538,12 +543,9 @@ class MonteCarloRunner:
                 driver_stat.positions.append(result.position)
                 is_dnf = getattr(result.status, "value", result.status) == DriverStatus.DNF.value
 
-                # Race positions can be populated for retired cars so their
-                # distribution and best/worst records remain truthful.  A
-                # DNF, however, is never a win, podium, or points finish even
-                # if an upstream classifier temporarily reports a top-ten
-                # position before applying retirement ordering.
-                if not is_dnf:
+                # Classification and operational retirement are independent:
+                # a sufficiently late retirement can still score points.
+                if result_is_classified(result):
                     if result.position == 1:
                         driver_stat.wins += 1
                     if result.position <= 3:

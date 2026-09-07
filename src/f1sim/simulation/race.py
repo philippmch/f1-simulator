@@ -59,6 +59,8 @@ class DriverRaceState:
     overtake_mode_energy: float = 1.0
     overtake_mode_deployments: int = 0
     overtake_mode_active_lap: bool = False
+    laps_completed: int = 0
+    last_crossing_position: int | None = None
 
     def __post_init__(self) -> None:
         """Seed tyre history from the driver's actual starting set."""
@@ -81,6 +83,16 @@ class RaceResult:
     status: DriverStatus
     dnf_reason: str | None = None
     strategy: list[str] = field(default_factory=list)  # List of compounds used
+    laps_completed: int | None = None
+    classified: bool | None = None
+
+
+def result_is_classified(result: RaceResult) -> bool:
+    """Classification eligibility, preserving legacy finished-result callers."""
+    classified = getattr(result, "classified", None)
+    if isinstance(classified, bool):
+        return classified
+    return getattr(result.status, "value", result.status) == DriverStatus.FINISHED.value
 
 
 @dataclass
@@ -361,9 +373,9 @@ class RaceSimulator:
                         if state.driver.id != driver_id:
                             continue
 
-                        # Incidents are detected after the lap has been
-                        # completed.  Apply their explicit consequence to the
-                        # race clock rather than leaving them as log entries.
+                        # Events are sampled after pace calculation but describe
+                        # incidents during this lap. Survivors carry their time
+                        # loss; a retirement does not complete this crossing.
                         if event.time_loss_seconds > 0.0:
                             state.total_time += event.time_loss_seconds
                             state.last_lap_time += event.time_loss_seconds
@@ -375,6 +387,13 @@ class RaceSimulator:
                         if state.driver.dnf:
                             state.status = DriverStatus.DNF
                             state.dnf_reason = state.driver.dnf_reason
+
+            # Restore a retired car's last completed crossing. Neither the
+            # sampled failure lap nor its service/incident time is race distance.
+            for state, before in zip(states, lap_start_states):
+                if state.status == DriverStatus.DNF and before.status == DriverStatus.RACING:
+                    state.total_time = before.total_time
+                    state.last_lap_time = before.last_lap_time
 
             # A post-lap incident can make the car that was physically ahead
             # slower on elapsed time than a car behind it.  Reclassify only
@@ -421,7 +440,7 @@ class RaceSimulator:
             # particular, an incident lap cannot retain the clean pre-penalty
             # value that was measured before the event was detected.
             for state in states:
-                if state.driver.id in lap_times:
+                if state.driver.id in lap_times and state.status == DriverStatus.RACING:
                     fastest_laps[state.driver.id] = min(
                         fastest_laps_before_lap.get(state.driver.id, float("inf")),
                         state.last_lap_time,
@@ -429,6 +448,10 @@ class RaceSimulator:
 
             # Update positions
             self._update_positions(states)
+            for state in states:
+                if state.status == DriverStatus.RACING:
+                    state.laps_completed += 1
+                    state.last_crossing_position = state.position
 
             # Overtake Mode is unavailable while neutralized, but the store
             # can recharge.  Include a lap that started under neutralization
@@ -465,6 +488,13 @@ class RaceSimulator:
             else 0
         )
 
+        winner_laps = (
+            sorted_states[0].laps_completed
+            if sorted_states and sorted_states[0].status == DriverStatus.FINISHED
+            else None
+        )
+        # Integer arithmetic implements the 90% threshold rounded down.
+        classification_minimum = winner_laps * 9 // 10 if winner_laps is not None else None
         results = []
         for state in sorted_states:
             # Emit the compounds actually used by this state, including
@@ -486,6 +516,12 @@ class RaceSimulator:
                     status=state.status,
                     dnf_reason=state.dnf_reason,
                     strategy=strategy,
+                    laps_completed=state.laps_completed,
+                    classified=(
+                        classification_minimum is not None
+                        and state.laps_completed > 0
+                        and state.laps_completed >= classification_minimum
+                    ),
                 )
             )
 
@@ -1351,7 +1387,12 @@ class RaceSimulator:
         )
         dnf = sorted(
             (state for state in states if state.status == DriverStatus.DNF),
-            key=order_key,
+            key=lambda state: (
+                -state.laps_completed,
+                state.last_crossing_position
+                if state.last_crossing_position is not None else order_key(state)[0],
+                order_key(state)[1],
+            ),
         )
         for position, state in enumerate(racing, 1):
             state.position = position
