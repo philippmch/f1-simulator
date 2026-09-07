@@ -13,6 +13,7 @@ from f1sim.simulation.opening_strategy import opening_policy_costs
 from f1sim.simulation.overtaking import OvertakingModel
 from f1sim.simulation.pit_strategy import expected_stationary_time, plan_dry_stop
 from f1sim.simulation.validation import validate_unique_ids
+from f1sim.simulation.weather_strategy import weather_stop_costs
 
 
 class DriverStatus(str, Enum):
@@ -838,6 +839,10 @@ class RaceSimulator:
                     dry_rule_satisfied
                     and not self._weather_stop_can_pay(
                         state, track, weather, lap, additional_current_stop_cost,
+                        traffic_possible=any(
+                            other.status == DriverStatus.RACING
+                            and other.driver.id != state.driver.id for other in all_states
+                        ),
                     )
                 ):
                     return False
@@ -1805,52 +1810,19 @@ class RaceSimulator:
 
     def _weather_stop_can_pay(
         self, state: DriverRaceState, track: Track, weather: Weather, current_lap: int,
-        additional_current_stop_cost: float = 0.0,
+        additional_current_stop_cost: float = 0.0, *, traffic_possible: bool = True,
     ) -> bool:
-        """Veto only losses under an optimistic constant-rain surface projection.
-
-        The replacement gets a free fresh noncritical set and clean air each lap,
-        versus an aging old set in maximum dirty air. Count only positive gains.
-        This is an upper bound under unchanged rain, not a weather forecast or
-        executable strategy. Any projected critical old-set mismatch bypasses
-        the veto. Future running is green, and only today's stop is charged.
-        """
-        projected = weather.model_copy(deep=True)
-        def running_time(tire: Tire, age: int, gap: float | None, lap: int) -> float:
-            driver = state.driver.model_copy(update={"current_tire_laps": age})
-            return self.lap_simulator.calculate_lap_time(
-                driver, state.car, track, tire, projected, lap, track.total_laps,
-                gap_to_car_ahead=gap,
-                active_aero_enabled=(self.event_manager.is_active_aero_allowed()
-                                     if lap == current_lap else True),
-                sample_variation=False,
-            )
-
-        cost = (track.pit_lane_delta * self._pit_lane_factor()
-                + expected_stationary_time(state.car) + additional_current_stop_cost)
-        gain = 0.0
-        for lap in range(current_lap, track.total_laps + 1):
-            if self._check_tire_weather_mismatch(state.current_tire, projected) == "critical":
-                return True
-            # Include survivable retention windows, not only the compound a
-            # fresh execution would select. An already-fitted intermediate
-            # can remain quicker after the fresh-set chooser prefers wets.
-            # Do not restrict future slicks to today's actual-used mask:
-            # running the fitted or projected rain set can grant compliance.
-            # This deliberately optimistic bound is not an executable plan.
-            candidates = [
-                compound for compound in TireCompound
-                if self._check_tire_weather_mismatch(TIRE_COMPOUNDS[compound], projected)
-                != "critical"
-            ]
-            old_time = running_time(state.current_tire, state.tire_laps + lap - current_lap, 0, lap)
-            fresh_time = min(running_time(TIRE_COMPOUNDS[c], 0, None, lap) for c in candidates)
-            modifier = self.event_manager.get_lap_time_modifier() if lap == current_lap else 1.0
-            gain += max(0.0, old_time - fresh_time) * modifier
-            if gain > cost:
-                return True
-            projected = projected.project_surface()
-        return gain > cost
+        """Compare an optimistic paid-refit plan with retaining the current set."""
+        costs = weather_stop_costs(
+            state.driver, state.car, track, weather, state.current_tire,
+            state.tire_laps, current_lap,
+            pit_lane_factor=self._pit_lane_factor(),
+            additional_current_stop_cost=additional_current_stop_cost,
+            current_lap_time_modifier=self.event_manager.get_lap_time_modifier(),
+            active_aero_enabled=self.event_manager.is_active_aero_allowed(),
+            traffic_possible=traffic_possible,
+        )
+        return costs.pit_now_cost < costs.stay_cost
 
     @staticmethod
     def _choose_weather_compound(weather: Weather) -> TireCompound | None:
@@ -1871,35 +1843,4 @@ class RaceSimulator:
             "suboptimal" - tires are wrong but survivable
             "critical" - must pit immediately
         """
-        compound = tire.compound
-        is_slick = compound in (TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD)
-        is_inter = compound == TireCompound.INTERMEDIATE
-        is_wet = compound == TireCompound.WET
-
-        track_wetness = weather.track_wetness
-
-        rain = weather.rain_intensity
-
-        # Slick crossover window tightens in heavy active rain.
-        if is_slick and (track_wetness > 0.45 or (track_wetness > 0.35 and rain > 0.6)):
-            return "critical"
-
-        if is_slick and self._choose_weather_compound(weather) is not None:
-            return "suboptimal"
-
-        # Inters struggle once standing water builds.
-        if is_inter and track_wetness > 0.72:
-            return "suboptimal"
-
-        # Full wets overheat quickly on drying track.
-        if is_wet and track_wetness < 0.2 and rain < 0.3:
-            return "critical"
-
-        if is_wet and track_wetness < 0.42:
-            return "suboptimal"
-
-        # Inters are poor once the track is mostly dry and rain has eased.
-        if is_inter and track_wetness < 0.08 and rain < 0.15:
-            return "critical"
-
-        return "ok"
+        return weather.tire_mismatch(tire.compound)
