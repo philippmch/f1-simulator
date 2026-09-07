@@ -1185,8 +1185,6 @@ class RaceSimulator:
         used = self._used_slick_compounds(state)
         wet_exemption = self._has_used_wet_compound(state)
         candidates = [TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD]
-        if len(used) < 2 and not wet_exemption:
-            candidates = [compound for compound in candidates if compound not in used]
         future_budget = min(3, max(0, self._dry_stop_budget(state, track) - state.pit_stops - 1))
 
         def remaining_cost(compound: TireCompound) -> float:

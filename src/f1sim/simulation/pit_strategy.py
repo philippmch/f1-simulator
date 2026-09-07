@@ -70,7 +70,8 @@ def _fresh_tables(physics: tuple, tire_keys: tuple, horizon: int,
     """Cost/compound when buying a fresh set now, indexed stops, used mask, laps.
 
     A mask with two bits satisfies the dry rule. Mask 7 also represents a
-    weather exemption. Until compliance, every dry stop adds an unused set.
+    weather exemption. Intermediate repeats are legal if the eventual finish
+    uses two compounds; terminal feasibility enforces that requirement.
     The cache is bounded and its keys contain every used tyre/pace parameter.
     No simulation RNG is consulted.
     """
@@ -82,8 +83,6 @@ def _fresh_tables(physics: tuple, tire_keys: tuple, horizon: int,
     for stops in range(1, max_stops + 1):
         for mask in range(8):
             for c in range(3):
-                if mask.bit_count() < 2 and mask & (1 << c):
-                    continue
                 next_mask = mask | (1 << c)
                 for laps in range(1, horizon + 1):
                     best = prefix[c, laps] if next_mask.bit_count() >= 2 else inf
@@ -159,8 +158,6 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
         pit_now_cost, c = inf, -1
         if remaining_stops:
             for candidate, key in enumerate(tire_keys):
-                if mask.bit_count() < 2 and mask & (1 << candidate):
-                    continue
                 next_mask = mask | (1 << candidate)
                 curve = _pace_curve(*physics, key, horizon)
                 prefix = np.cumsum(curve[:remaining_laps])

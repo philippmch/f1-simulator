@@ -29,7 +29,7 @@ def fixture():
     (["medium", "soft"], set(SLICKS)),
     (["wet", "medium"], set(SLICKS)),
 ])
-def test_current_paid_stop_consumes_budget_and_restricts_first_set(
+def test_current_paid_stop_consumes_budget_and_requires_legal_finish(
     monkeypatch, stops, budget, history, candidates,
 ):
     import f1sim.simulation.race as race_module
@@ -49,8 +49,8 @@ def test_current_paid_stop_consumes_budget_and_restricts_first_set(
     before = copy.deepcopy(state)
     rng_before = copy.deepcopy(simulator.rng.bit_generator.state)
     chosen = simulator._choose_committed_dry_compound(state, track, 26)
-    assert chosen in candidates
-    assert {args[3].compound for args, _ in observed} == candidates
+    assert chosen in (candidates if budget == 0 else set(SLICKS))
+    assert {args[3].compound for args, _ in observed} == set(SLICKS)
     for args, kwargs in observed:
         assert args[4:7] == (0, 5, budget)
         assert args[3].compound in args[7]
@@ -68,11 +68,13 @@ def test_committed_choice_matches_exhaustive_future_stints(flag, modifier):
     if flag:
         setattr(simulator.event_manager, flag, True)
     costs = {}
-    for first in (TireCompound.SOFT, TireCompound.HARD):
+    for first in SLICKS:
         alternatives = []
         for stops in range(3):
             for schedule in combinations(range(1, 5), stops):
                 for path in product(SLICKS, repeat=stops):
+                    if len({TireCompound.MEDIUM, first, *path}) < 2:
+                        continue
                     tire, age, cost = TIRE_COMPOUNDS[first], 0, 0
                     for lap in range(5):
                         if lap in schedule:

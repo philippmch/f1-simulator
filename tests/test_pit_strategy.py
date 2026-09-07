@@ -99,22 +99,19 @@ def _enumerated_actions(state, track, laps, budget, factor, modifier=1.0):
         for schedule in combinations(range(laps), stops):
             for path in product(SLICKS, repeat=stops):
                 used = RaceSimulator._used_slick_compounds(state).copy()
-                tire, age, cost, valid = state.current_tire, state.tire_laps, 0.0, True
+                tire, age, cost = state.current_tire, state.tire_laps, 0.0
                 for lap in range(laps):
                     if lap in schedule:
                         compound = path[schedule.index(lap)]
-                        if len(used) < 2 and compound in used:
-                            valid = False
-                            break
-                        used.add(compound)
                         tire, age = TIRE_COMPOUNDS[compound], 0
                         cost += expected_stationary_time(state.car)
                         cost += track.pit_lane_delta * (factor if lap == 0 else 1)
                     cost += LapSimulator.tire_pace_contribution(
                         state.driver, state.car, track, tire, age
                     ) * (modifier if lap == 0 else 1.0)
+                    used.add(tire.compound)
                     age += 1
-                if not valid or len(used) < 2:
+                if len(used) < 2:
                     continue
                 now = bool(schedule and schedule[0] == 0)
                 compound = path[0] if now else None
