@@ -52,6 +52,7 @@ class LapSimulator:
         gap_to_car_ahead: float | None = None,
         active_aero_enabled: bool = True,
         overtake_mode_active: bool = False,
+        sample_variation: bool = True,
     ) -> float:
         """Calculate a single lap time with all factors.
 
@@ -66,6 +67,7 @@ class LapSimulator:
             gap_to_car_ahead: Gap in seconds to car ahead (None if leading)
             active_aero_enabled: Whether Straight Mode is available this lap
             overtake_mode_active: Whether this car deployed Overtake Mode
+            sample_variation: Sample driver variation, or project a noise-free lap
 
         Returns:
             Lap time in seconds
@@ -87,7 +89,7 @@ class LapSimulator:
 
         # Random variation based on driver consistency
         variation_std = driver.lap_time_variation_std(base_std=0.25)
-        random_variation = self.rng.normal(0, variation_std)
+        random_variation = self.rng.normal(0, variation_std) if sample_variation else 0.0
 
         tire_delta = self.tire_pace_contribution(
             driver, car, track, tire, driver.current_tire_laps
