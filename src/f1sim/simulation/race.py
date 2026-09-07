@@ -12,6 +12,8 @@ from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.opening_strategy import opening_policy_costs
 from f1sim.simulation.overtaking import OvertakingModel
 from f1sim.simulation.pit_strategy import expected_stationary_time, plan_dry_stop
+from f1sim.simulation.race_points import points_for_classification
+from f1sim.simulation.race_timing import announced_final_lap
 from f1sim.simulation.validation import validate_unique_ids
 from f1sim.simulation.weather_strategy import weather_stop_costs
 
@@ -89,6 +91,8 @@ class RaceResult:
     laps_completed: int | None = None
     classified: bool | None = None
     pit_laps: list[int] | None = None
+    race_time_limited: bool = False
+    points_awarded: int | None = None
 
 
 def result_is_classified(result: RaceResult) -> bool:
@@ -266,7 +270,12 @@ class RaceSimulator:
         fastest_laps: dict[str, float] = {}
 
         # Simulate each lap
+        final_lap = track.total_laps
+        consecutive_green_laps = 0
+        has_two_green_laps = False
         for lap in range(1, track.total_laps + 1):
+            planning_track = (track if final_lap == track.total_laps else
+                              track.model_copy(update={"total_laps": final_lap}))
             # Snapshot race-control state once.  SC/VSC/red-flag transitions
             # are resolved after this lap's running; using immutable values
             # prevents a neutralization ending during process_lap from
@@ -299,7 +308,9 @@ class RaceSimulator:
             # Decide every stop before sampling service or running laps. Both
             # pit-box queues use frozen lap-start clocks as arrival proxies.
             drivers_pitting = self._process_pit_stops(
-                states, lap_start_states, track, current_weather, lap,
+                states, lap_start_states, planning_track, current_weather, lap,
+                **({"physical_total_laps": track.total_laps}
+                   if final_lap < track.total_laps else {}),
             )
             pitting_ids = {state.driver.id for state in drivers_pitting}
             pit_lap_losses = {
@@ -502,12 +513,34 @@ class RaceSimulator:
             if not any(state.status == DriverStatus.RACING for state in states):
                 break
 
+            # A deployment during the lap disqualifies the whole lap, even
+            # when the flag has already ended by this point (notably red flags).
+            lap_was_neutralized = (
+                lap_started_neutralized
+                or self.event_manager.safety_car_active
+                or self.event_manager.vsc_active
+                or self.event_manager.red_flag_active
+                or any(event.event_type in (
+                    EventType.SAFETY_CAR, EventType.VIRTUAL_SAFETY_CAR, EventType.RED_FLAG,
+                ) for event in lap_events)
+            )
+            consecutive_green_laps = 0 if lap_was_neutralized else consecutive_green_laps + 1
+            has_two_green_laps |= consecutive_green_laps >= 2
+
+            leader = min((state for state in states if state.status == DriverStatus.RACING),
+                         key=lambda state: state.position)
+            final_lap = announced_final_lap(final_lap, lap, leader.total_time)
+            if lap >= final_lap:
+                break
+
             # The initial weather snapshot was used unchanged on lap one.
             # Evolve only when another lap will actually consume the result.
-            if lap < track.total_laps:
+            if lap < final_lap:
                 current_weather = current_weather.evolve(self.rng)
                 if red_flag_deployed_this_lap:
-                    self._fit_red_flag_tires(states, current_weather, track, lap)
+                    restart_track = (track if final_lap == track.total_laps else
+                                     track.model_copy(update={"total_laps": final_lap}))
+                    self._fit_red_flag_tires(states, current_weather, restart_track, lap)
 
         # Mark finished drivers
         for state in states:
@@ -537,6 +570,11 @@ class RaceSimulator:
             # Emit the compounds actually used by this state, including
             # weather/red-flag changes and incident-forced stops.
             strategy = list(state.tire_compound_history)
+            classified = (
+                classification_minimum is not None
+                and state.laps_completed > 0
+                and state.laps_completed >= classification_minimum
+            )
 
             results.append(
                 RaceResult(
@@ -555,10 +593,11 @@ class RaceSimulator:
                     strategy=strategy,
                     laps_completed=state.laps_completed,
                     pit_laps=list(state.pit_laps),
-                    classified=(
-                        classification_minimum is not None
-                        and state.laps_completed > 0
-                        and state.laps_completed >= classification_minimum
+                    race_time_limited=winner_laps is not None and final_lap < track.total_laps,
+                    classified=classified,
+                    points_awarded=points_for_classification(
+                        state.position, classified, winner_laps or 0, track.total_laps,
+                        has_two_green_laps,
                     ),
                 )
             )
@@ -775,6 +814,7 @@ class RaceSimulator:
         track: Track,
         weather: Weather,
         lap: int,
+        physical_total_laps: int | None = None,
     ) -> list[DriverRaceState]:
         """Reserve then serve each constructor's box in frozen arrival order.
 
@@ -800,6 +840,8 @@ class RaceSimulator:
                 state, lap_start_states, track, lap,
                 self.event_manager.is_pit_window_open(), weather=weather,
                 additional_current_stop_cost=delay,
+                **({"physical_total_laps": physical_total_laps}
+                   if physical_total_laps is not None else {}),
             ):
                 pitting.append(state)
                 expected_releases[team] = arrival + delay + expected_stationary_time(state.car)
@@ -825,6 +867,7 @@ class RaceSimulator:
         pit_window_open: bool,
         weather: Weather | None = None,
         additional_current_stop_cost: float = 0.0,
+        physical_total_laps: int | None = None,
     ) -> bool:
         """Decide if driver should pit this lap."""
         state.dry_pit_proposal = None
@@ -843,6 +886,8 @@ class RaceSimulator:
                             other.status == DriverStatus.RACING
                             and other.driver.id != state.driver.id for other in all_states
                         ),
+                        **({"physical_total_laps": physical_total_laps}
+                           if physical_total_laps is not None else {}),
                     )
                 ):
                     return False
@@ -1811,6 +1856,7 @@ class RaceSimulator:
     def _weather_stop_can_pay(
         self, state: DriverRaceState, track: Track, weather: Weather, current_lap: int,
         additional_current_stop_cost: float = 0.0, *, traffic_possible: bool = True,
+        physical_total_laps: int | None = None,
     ) -> bool:
         """Compare an optimistic paid-refit plan with retaining the current set."""
         costs = weather_stop_costs(
@@ -1821,6 +1867,7 @@ class RaceSimulator:
             current_lap_time_modifier=self.event_manager.get_lap_time_modifier(),
             active_aero_enabled=self.event_manager.is_active_aero_allowed(),
             traffic_possible=traffic_possible,
+            physical_total_laps=physical_total_laps,
         )
         return costs.pit_now_cost < costs.stay_cost
 

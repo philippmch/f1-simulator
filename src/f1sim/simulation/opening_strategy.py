@@ -1,6 +1,7 @@
 """Conditional opening-policy comparisons under fixed rainfall, without race RNG."""
 
 import json
+from dataclasses import dataclass
 from functools import lru_cache
 from math import inf
 
@@ -8,14 +9,23 @@ import numpy as np
 
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
+from f1sim.simulation.race_timing import announced_final_lap
 
 REACTION_SEEDS = tuple(range(8))
 OPENING_CANDIDATES = (TireCompound.INTERMEDIATE, TireCompound.SOFT,
                       TireCompound.MEDIUM, TireCompound.HARD)
 
 
+@dataclass(frozen=True, order=True)
+class OpeningPolicyScore:
+    """Prefer greater mean race distance, then less elapsed time at that distance."""
+
+    negative_mean_laps: float
+    mean_time: float
+
+
 def opening_policy_costs(driver, car, track, weather, strategy, tuning, profiles):
-    """Return immutable mean costs; normalize transient driver state for caching."""
+    """Return immutable distance/time scores; normalize transient state for caching."""
     clean_driver = driver.model_copy(deep=True)
     clean_driver.reset_race_state()
     snapshots = [clean_driver.model_dump(), car.model_dump(), track.model_dump(),
@@ -37,13 +47,28 @@ def _cached_policy_costs(driver_json, car_json, track_json, weather_json,
     track = Track.model_validate_json(track_json)
     weather = Weather.model_validate_json(weather_json)
     tuning, profiles = json.loads(tuning_json), json.loads(profiles_json)
-    return tuple((compound, sum(_policy_path_cost(
-        driver, car, track, weather, TeamStrategyArchetype(strategy), tuning, profiles,
-        compound, seed,
-    ) for seed in REACTION_SEEDS) / len(REACTION_SEEDS)) for compound in OPENING_CANDIDATES)
+    scores = []
+    for compound in OPENING_CANDIDATES:
+        outcomes = [_policy_path_outcome(
+            driver, car, track, weather, TeamStrategyArchetype(strategy), tuning, profiles,
+            compound, seed,
+        ) for seed in REACTION_SEEDS]
+        mean_time = sum(time for _, time in outcomes) / len(outcomes)
+        # A policy that cannot finish legally must not win by running farther.
+        negative_mean_laps = (-sum(laps for laps, _ in outcomes) / len(outcomes)
+                              if mean_time != inf else inf)
+        scores.append((compound, OpeningPolicyScore(negative_mean_laps, mean_time)))
+    return tuple(scores)
 
 
 def _policy_path_cost(driver, car, track, weather, strategy, tuning, profiles, compound, seed):
+    """Return elapsed time for direct comparisons with an isolated actual race."""
+    return _policy_path_outcome(
+        driver, car, track, weather, strategy, tuning, profiles, compound, seed,
+    )[1]
+
+
+def _policy_path_outcome(driver, car, track, weather, strategy, tuning, profiles, compound, seed):
     """Run one isolated existing pit policy with deterministic pace and mean service."""
     from f1sim.simulation.race import DriverRaceState, RaceSimulator
 
@@ -56,10 +81,18 @@ def _policy_path_cost(driver, car, track, weather, strategy, tuning, profiles, c
                             strategy_archetype=strategy, planned_pit_laps=plans[0],
                             pit_plan_options=plans)
     projected = weather.model_copy(deep=True)
+    final_lap = track.total_laps
     for lap in range(1, track.total_laps + 1):
+        planning_track = (track if final_lap == track.total_laps else
+                          track.model_copy(update={"total_laps": final_lap}))
         loss = 0.0
-        if simulator._should_pit(state, [state], track, lap, False, projected):
-            loss = simulator._execute_pit_stop(state, track, projected, lap, sample_service=False)
+        if simulator._should_pit(
+            state, [state], planning_track, lap, False, projected,
+            **({"physical_total_laps": track.total_laps} if final_lap < track.total_laps else {}),
+        ):
+            loss = simulator._execute_pit_stop(
+                state, planning_track, projected, lap, sample_service=False,
+            )
             state.total_time += loss
             state.pit_stops += 1
             state.pit_laps.append(lap)
@@ -74,8 +107,11 @@ def _policy_path_cost(driver, car, track, weather, strategy, tuning, profiles, c
         state.driver.current_tire_laps = state.tire_laps
         state.laps_completed += 1
         state.last_crossing_position = 1
+        final_lap = announced_final_lap(final_lap, lap, state.total_time)
+        if lap >= final_lap:
+            break
         projected = projected.project_surface()
-    if track.total_laps > 1 and not (simulator._has_used_wet_compound(state)
+    if state.laps_completed > 1 and not (simulator._has_used_wet_compound(state)
                                     or len(simulator._used_slick_compounds(state)) >= 2):
-        return inf
-    return state.total_time
+        return state.laps_completed, inf
+    return state.laps_completed, state.total_time

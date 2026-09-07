@@ -44,7 +44,10 @@ def test_high_wear_two_stop_beats_every_legal_one_stop_full_race():
     assert selected == run(50)
 
 
-def test_long_high_wear_race_benefits_from_third_stop():
+def test_long_high_wear_fixed_distance_benefits_from_third_stop(monkeypatch):
+    # This diagnostic isolates the optimizer's fixed 78-lap horizon.
+    # Actual time-limited race behavior has separate integration coverage.
+    monkeypatch.setattr("f1sim.simulation.race_timing.RACING_TIME_LIMIT_SECONDS", float("inf"))
     selected, restricted = run(78), run(78, budget=2)
     assert selected.pit_stops == 3
     assert restricted.pit_stops == 2

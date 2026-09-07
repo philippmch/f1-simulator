@@ -10,6 +10,7 @@ from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.opening_strategy import (
     OPENING_CANDIDATES,
     REACTION_SEEDS,
+    OpeningPolicyScore,
     _cached_policy_costs,
     _policy_path_cost,
     opening_policy_costs,
@@ -60,10 +61,10 @@ def test_average_costs_and_cache_preserve_state_and_actual_rng(monkeypatch):
     before = copy.deepcopy((driver, car, track, weather, simulator.rng.bit_generator.state))
     costs = opening_policy_costs(*args)
     assert _cached_policy_costs.cache_info().misses == 1
-    assert costs == tuple((compound, sum(_policy_path_cost(
+    assert costs == tuple((compound, OpeningPolicyScore(-track.total_laps, sum(_policy_path_cost(
         driver, car, track, weather, style, simulator.strategy_tuning, simulator.strategy_profiles,
         compound, seed,
-    ) for seed in REACTION_SEEDS) / 8) for compound in OPENING_CANDIDATES)
+    ) for seed in REACTION_SEEDS) / 8)) for compound in OPENING_CANDIDATES)
     assert opening_policy_costs(*args) is costs
     assert _cached_policy_costs.cache_info().hits == 1
     driver.current_tire_laps = 99
@@ -110,3 +111,55 @@ def test_mean_service_is_opt_in_and_default_rng_is_unchanged():
     mean = simulators[2]._execute_pit_stop(states[2], track, weather, 5, sample_service=False)
     assert mean == track.pit_lane_delta + expected_stationary_time(car)
     assert simulators[2].rng.bit_generator.state == before
+
+
+def test_timed_opening_ranking_prefers_more_completed_laps(monkeypatch):
+    from f1sim.simulation.lap import LapSimulator
+
+    driver, car, track, weather = fixture(10)
+    simulator = RaceSimulator(np.random.default_rng(42))
+    pace_by_driver = {}
+
+    def running(self, driver, car, track, tire, weather, lap, total_laps, **kwargs):
+        if lap == 1:
+            pace_by_driver[id(driver)] = 1600 if tire.compound == TireCompound.SOFT else 1800
+        return pace_by_driver[id(driver)]
+
+    def refit(self, state, *args, **kwargs):
+        self._fit_tire(state, TireCompound.INTERMEDIATE)
+        return 0
+
+    monkeypatch.setattr(LapSimulator, "calculate_lap_time", running)
+    monkeypatch.setattr(RaceSimulator, "_should_pit", lambda self, state, states, track, lap,
+                        *args, **kwargs: lap == 2)
+    monkeypatch.setattr(RaceSimulator, "_execute_pit_stop", refit)
+    _cached_policy_costs.cache_clear()
+    scores = dict(opening_policy_costs(driver, car, track, weather,
+                                      TeamStrategyArchetype.BALANCED,
+                                      simulator.strategy_tuning, simulator.strategy_profiles))
+    assert scores[TireCompound.SOFT] == OpeningPolicyScore(-6, 9600)
+    assert scores[TireCompound.INTERMEDIATE] == OpeningPolicyScore(-5, 9000)
+    assert simulator._choose_starting_compound(TeamStrategyArchetype.BALANCED, track,
+                                              weather, driver, car) == TireCompound.SOFT
+    _cached_policy_costs.cache_clear()
+
+
+def test_opening_score_averages_both_distance_and_time_over_all_reaction_seeds(monkeypatch):
+    import f1sim.simulation.opening_strategy as opening
+
+    driver, car, track, weather = fixture()
+    simulator = RaceSimulator(np.random.default_rng(1))
+    calls = []
+
+    def outcome(*args):
+        compound, seed = args[-2:]
+        calls.append((compound, seed))
+        return 5 + seed % 2, 8000 + seed * 10
+
+    monkeypatch.setattr(opening, "_policy_path_outcome", outcome)
+    _cached_policy_costs.cache_clear()
+    scores = opening_policy_costs(driver, car, track, weather, TeamStrategyArchetype.BALANCED,
+                                  simulator.strategy_tuning, simulator.strategy_profiles)
+    assert all(score == OpeningPolicyScore(-5.5, 8035) for _, score in scores)
+    assert calls == [(compound, seed) for compound in OPENING_CANDIDATES for seed in REACTION_SEEDS]
+    _cached_policy_costs.cache_clear()

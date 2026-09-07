@@ -33,17 +33,19 @@ def _old_set_becomes_critical(weather_json: str, compound: TireCompound, horizon
                for surface in _surface_path(weather, horizon))
 
 
-def _running(simulator, driver, car, track, tire, weather, lap, age, *, gap=None, aero=True):
+def _running(simulator, driver, car, track, tire, weather, lap, age, *, gap=None, aero=True,
+             physical_total_laps=None):
     driver.current_tire_laps = age  # Projection owns this isolated driver.
+    total_laps = track.total_laps if physical_total_laps is None else physical_total_laps
     return simulator.calculate_lap_time(
-        driver, car, track, tire, weather, lap, track.total_laps,
+        driver, car, track, tire, weather, lap, total_laps,
         gap_to_car_ahead=gap, active_aero_enabled=aero, sample_variation=False,
     )
 
 
 @lru_cache(maxsize=4096)
 def _fresh_plan_costs(driver_json: str, car_json: str, track_json: str,
-                      weather_json: str, tires_json: str, current_lap: int
+                      weather_json: str, tires_json: str, current_lap: int, physical_total_laps: int
                       ) -> tuple[tuple[TireCompound, float, float], ...]:
     """Immutable first-set costs and first-lap times; cached futures assume green."""
     driver = Driver.model_validate_json(driver_json)
@@ -65,7 +67,7 @@ def _fresh_plan_costs(driver_json: str, car_json: str, track_json: str,
         suffix = _fresh_plan_costs(
             driver_json, car_json, track_json,
             json.dumps(surfaces[offset].model_dump(), sort_keys=True),
-            tires_json, current_lap + offset,
+            tires_json, current_lap + offset, physical_total_laps,
         )
         future[offset] = service + min(cost for _, cost, _ in suffix)
     first = []
@@ -75,7 +77,8 @@ def _fresh_plan_costs(driver_json: str, car_json: str, track_json: str,
             if surface.tire_mismatch(compound) == "critical":
                 break
             running = _running(simulator, driver, car, track, tire, surface,
-                               current_lap + offset, offset)
+                               current_lap + offset, offset,
+                               physical_total_laps=physical_total_laps)
             if offset == 0:
                 first_lap = running
             stint += running
@@ -86,7 +89,7 @@ def _fresh_plan_costs(driver_json: str, car_json: str, track_json: str,
 
 @lru_cache(maxsize=4096)
 def _retained_costs(driver_json, car_json, track_json, weather_json, tire_json,
-                    tire_age, current_lap, traffic_possible):
+                    tire_age, current_lap, traffic_possible, physical_total_laps):
     """Separate current-set cache; fresh schedule keys contain no current wear."""
     driver = Driver.model_validate_json(driver_json)
     car = Car.model_construct(**json.loads(car_json))
@@ -98,7 +101,8 @@ def _retained_costs(driver_json, car_json, track_json, weather_json, tire_json,
     for offset, surface in enumerate(_surface_path(weather, track.total_laps - current_lap + 1)):
         running = _running(simulator, driver, car, track, tire, surface,
                            current_lap + offset, tire_age + offset,
-                           gap=0.0 if traffic_possible else None)
+                           gap=0.0 if traffic_possible else None,
+                           physical_total_laps=physical_total_laps)
         if offset == 0:
             first = running
         total += running
@@ -110,6 +114,7 @@ def weather_stop_costs(
     tire_age: int, current_lap: int, *, pit_lane_factor: float = 1.0,
     additional_current_stop_cost: float = 0.0, current_lap_time_modifier: float = 1.0,
     active_aero_enabled: bool = True, traffic_possible: bool = True,
+    physical_total_laps: int | None = None,
 ) -> WeatherStopCosts:
     """Compare retain-to-finish with an optimistic schedule of paid refits.
 
@@ -117,7 +122,10 @@ def weather_stop_costs(
     refits may use any noncritical fresh set without budget or compound-rule
     constraints, but pay the full expected stop cost. A future critical old
     set bypasses the veto. This comparison is a lower bound, not a forecast.
+    The track bounds the planning horizon; physical_total_laps preserves the
+    original fuel schedule when a time limit shortens that horizon.
     """
+    physical_total_laps = track.total_laps if physical_total_laps is None else physical_total_laps
     horizon = track.total_laps - current_lap + 1
     if horizon <= 0:
         raise ValueError("current_lap must not exceed the race distance")
@@ -133,18 +141,19 @@ def weather_stop_costs(
     )
     fresh = _fresh_plan_costs(
         driver_json, car_json, track_json, weather_json,
-        tires_json, current_lap,
+        tires_json, current_lap, physical_total_laps,
     )
     simulator = LapSimulator(np.random.default_rng(0))
     stay, stay_first = _retained_costs(
         driver_json, car_json, track_json, weather_json,
         json.dumps(current_tire.model_dump(), sort_keys=True), tire_age, current_lap,
-        traffic_possible,
+        traffic_possible, physical_total_laps,
     )
     if current_lap_time_modifier != 1.0 or not active_aero_enabled:
         actual_stay_first = _running(
             simulator, clean, car, track, current_tire, weather, current_lap, tire_age,
             gap=0.0 if traffic_possible else None, aero=active_aero_enabled,
+            physical_total_laps=physical_total_laps,
         )
         stay += actual_stay_first * current_lap_time_modifier - stay_first
     required = weather.fresh_rain_compound()
@@ -157,7 +166,7 @@ def weather_stop_costs(
             continue
         actual_first = baseline_first if active_aero_enabled else _running(
             simulator, clean, car, track, TIRE_COMPOUNDS[compound],
-            weather, current_lap, 0, aero=False,
+            weather, current_lap, 0, aero=False, physical_total_laps=physical_total_laps,
         )
         pit = min(pit, cost - baseline_first + actual_first * current_lap_time_modifier)
     pit += (track.pit_lane_delta * pit_lane_factor + expected_stationary_time(car)

@@ -18,6 +18,8 @@ from f1sim.simulation.race import (
     RaceSimulator,
     result_is_classified,
 )
+from f1sim.simulation.race_points import POINTS_SYSTEM as POINTS_SYSTEM
+from f1sim.simulation.race_points import points_for_result
 from f1sim.simulation.validation import validate_unique_ids
 
 
@@ -235,6 +237,15 @@ class SimulationResults:
 
         return dict(sorted(probs.items(), key=lambda x: x[1], reverse=True))
 
+    def get_points_finish_probabilities(self) -> dict[str, float]:
+        """Get the probability of earning points, including reduced awards."""
+        probabilities = {
+            driver_id: stats.points_finishes / len(stats.positions) * 100
+            if stats.positions else 0.0
+            for driver_id, stats in self.driver_stats.items()
+        }
+        return dict(sorted(probabilities.items(), key=lambda item: item[1], reverse=True))
+
     def get_position_percentiles(
         self,
         driver_id: str,
@@ -348,21 +359,6 @@ class SimulationResults:
             adjustments[component] = adjustment
 
         return adjustments
-
-
-# F1 points system
-POINTS_SYSTEM = {
-    1: 25,
-    2: 18,
-    3: 15,
-    4: 12,
-    5: 10,
-    6: 8,
-    7: 6,
-    8: 4,
-    9: 2,
-    10: 1,
-}
 
 
 def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[QualifyingResult], dict]:
@@ -582,9 +578,11 @@ class MonteCarloRunner:
                         driver_stat.wins += 1
                     if result.position <= 3:
                         driver_stat.podiums += 1
-                    if result.position <= 10:
-                        driver_stat.points_finishes += 1
-                        driver_stat.total_points += POINTS_SYSTEM.get(result.position, 0)
+
+                points = points_for_result(result)
+                if points > 0:
+                    driver_stat.points_finishes += 1
+                driver_stat.total_points += points
 
                 if is_dnf:
                     driver_stat.dnfs += 1
