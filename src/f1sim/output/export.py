@@ -11,6 +11,7 @@ from urllib.parse import quote
 from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.output.timing import csv_time
 from f1sim.simulation.race import result_is_classified
+from f1sim.simulation.race_points import points_for_result
 
 
 class Exporter:
@@ -153,7 +154,7 @@ class Exporter:
                 "simulation", "position", "driver_id", "driver_name", "team",
                 "total_time", "gap_to_leader", "pit_stops", "fastest_lap",
                 "status", "dnf_reason", "strategy", "laps_completed", "classified",
-                "pit_laps",
+                "pit_laps", "race_time_limited", "points_awarded",
             ])
 
             for sim_idx, race_results in enumerate(results.race_results, 1):
@@ -175,6 +176,8 @@ class Exporter:
                         str(result_is_classified(result)).lower(),
                         json.dumps(result.pit_laps)
                         if getattr(result, "pit_laps", None) is not None else "",
+                        str(getattr(result, "race_time_limited", False)).lower(),
+                        points_for_result(result),
                     ])
 
         return filepath

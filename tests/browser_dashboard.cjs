@@ -136,6 +136,19 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     assert.equal(await page.locator('#raceContent .pit-laps').first().innerText(), 'L7 · L17 · L34');
     assert.equal(await classifiedRetirement.locator('.pits').getAttribute('title'), 'No paid pit stops');
     assert.equal(await unclassifiedRetirement.locator('.pits').getAttribute('title'), 'Pit laps unavailable');
+    assert.equal(await page.locator('#raceContent .time-limit-note').count(), 0);
+    await page.evaluate(() => {
+      getScenarioEntry().data.sample_race.forEach((row, index) => {
+        row.race_time_limited = true;
+        row.laps_completed = [5, 4, 3][index];
+        row.points_awarded = [19, 12, 0][index];
+      });
+      renderRace();
+    });
+    assert((await page.locator('#raceContent .time-limit-note').innerText()).includes('two-hour limit'));
+    assert((await page.locator('#raceContent .race-header').innerText()).includes('5 of'));
+    assert((await page.locator('#raceContent .driver-row .status').first().innerText()).includes('19 pts'));
+    assert((await page.locator('#raceContent .driver-row .status').nth(2).innerText()).includes('0 pts'));
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({width, height: 900});
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),

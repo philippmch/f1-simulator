@@ -34,7 +34,9 @@ def test_csv_and_console_agree_on_classification(
         reader = csv.DictReader(handle)
         row = next(reader)
         # New columns append to the original layout; raw ordinal rank remains available.
-        assert reader.fieldnames[-3:] == ["laps_completed", "classified", "pit_laps"]
+        assert reader.fieldnames[-5:] == [
+            "laps_completed", "classified", "pit_laps", "race_time_limited", "points_awarded",
+        ]
     assert row["position"] == "3"
     assert row["status"] == status.value
     assert row["classified"] == str(eligible).lower()

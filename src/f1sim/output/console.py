@@ -4,6 +4,7 @@ from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.output.timing import finite_time
 from f1sim.simulation.qualifying import QualifyingResult
 from f1sim.simulation.race import RaceResult, result_is_classified
+from f1sim.simulation.race_points import points_for_result
 
 
 class ConsoleOutput:
@@ -54,9 +55,11 @@ class ConsoleOutput:
         """
         print("\n" + "=" * 70)
         print("RACE RESULTS")
+        if any(getattr(result, "race_time_limited", False) for result in results):
+            print("Race shortened by the two-hour limit.")
         print("=" * 70)
         print(f"{'Pos':<4} {'Driver':<20} {'Team':<18} {'Time/Gap':<15} "
-              f"{'Pits':<5} {'Laps':<5} {'Status'}")
+              f"{'Pits':<5} {'Laps':<5} {'Status':<25} {'Points'}")
         print("-" * 70)
 
         leader_time = None
@@ -91,7 +94,7 @@ class ConsoleOutput:
                 f"{time_str:<15} "
                 f"{result.pit_stops:<5} "
                 f"{laps:<5} "
-                f"{status_str:<10}"
+                f"{status_str:<25} {points_for_result(result)}"
             )
 
         print("=" * 70)

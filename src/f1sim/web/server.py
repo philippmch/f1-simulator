@@ -15,6 +15,7 @@ from f1sim.data import CurrentSeasonDataError, CurrentSeasonDataLoader
 from f1sim.models import Weather, WeatherCondition
 from f1sim.output.timing import finite_time
 from f1sim.simulation.race import result_is_classified
+from f1sim.simulation.race_points import points_for_result
 from f1sim.web.capacity import RunCapacity
 
 _LOGGER = logging.getLogger(__name__)
@@ -151,6 +152,8 @@ def _serialize_race_result(result: Any) -> dict[str, Any]:
         "status": result.status.value,
         "laps_completed": getattr(result, "laps_completed", None),
         "classified": result_is_classified(result),
+        "race_time_limited": getattr(result, "race_time_limited", False),
+        "points_awarded": points_for_result(result),
         "dnf_reason": result.dnf_reason,
         "strategy": list(result.strategy),
     }

@@ -1082,6 +1082,12 @@ input:focus-visible {
   font-size: 0.8rem;
 }
 
+.time-limit-note {
+  margin-bottom: 1rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
 /* ── Empty State ── */
 .empty-state {
   display: flex;
@@ -2239,6 +2245,11 @@ function renderRace() {
   const { name, data: scenario } = scenarioEntry;
   const race = scenario.sample_race || [];
   const track = getTrackDetails();
+  const timeLimited = race.some(row => row.race_time_limited === true);
+  const winnerLaps = race.find(row => row.position === 1 && row.status === 'finished')?.laps_completed;
+  const lapLabel = timeLimited && Number.isInteger(winnerLaps)
+    ? `${winnerLaps} of ${track.total_laps || '--'} scheduled laps`
+    : `${track.total_laps || '--'} laps`;
   const weather = scenario.weather || {};
   const topTeam = Object.entries(scenario.team_projection || {})[0];
   const fastestResult = race
@@ -2266,7 +2277,7 @@ function renderRace() {
     <div class="race-header">
       <div>
         <div class="race-title">${escapeHtml(simResults.track)}</div>
-        <div class="race-meta">${track.total_laps || '--'} laps &middot; ${scenario.num_simulations} simulations &middot; seed ${scenario.seed}</div>
+        <div class="race-meta">${escapeHtml(lapLabel)} &middot; ${scenario.num_simulations} simulations &middot; seed ${scenario.seed}</div>
         <div class="race-meta">${escapeHtml(track.country || 'Unknown country')} &middot; Scenario ${escapeHtml(titleFromKey(name))}${topTeam ? ` &middot; Top constructor ${escapeHtml(topTeam[0])}` : ''}</div>
         <div class="meta-pills">${pills.map(pill => `<div class="meta-pill">${escapeHtml(pill)}</div>`).join('')}</div>
       </div>
@@ -2275,6 +2286,7 @@ function renderRace() {
         ${escapeHtml(WEATHER_LABELS[weather.condition] || titleFromKey(weather.condition || 'dry'))}
       </div>
     </div>
+    ${timeLimited ? '<div class="inline-note time-limit-note" role="note">Race shortened by the two-hour limit. Points reflect completed distance and green running.</div>' : ''}
     <div class="results-table" tabindex="0" role="region" aria-label="Race classification">
     <div class="timing-header">
       <span>POS</span><span></span><span></span><span>DRIVER</span>
@@ -2318,6 +2330,7 @@ function renderRace() {
           ${finished ? 'Finished' : 'Retired'}
           ${finished && classified ? '' : `<span class="classification-note">${classified ? 'Classified' : 'Not classified'}</span>`}
           ${Number.isInteger(result.laps_completed) ? `<span class="classification-note">${result.laps_completed} laps</span>` : ''}
+          ${Number.isFinite(result.points_awarded) ? `<span class="classification-note">${result.points_awarded} pts</span>` : ''}
         </div>
       </div>
     `;
