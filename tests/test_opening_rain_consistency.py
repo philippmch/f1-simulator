@@ -30,14 +30,14 @@ def test_automatic_start_does_not_choose_critical_intermediates(condition, wetne
 
 
 @pytest.mark.parametrize("wetness,rain", [(0.08, 0), (0, 0.15), (0, 0.2)])
-def test_usable_precautionary_intermediates_remain_available(wetness, rain):
+def test_usable_precautionary_intermediates_remain_available_without_context(wetness, rain):
     driver, car, track = fixture()
     simulator = RaceSimulator(np.random.default_rng(42))
     weather = Weather(condition=WeatherCondition.LIGHT_RAIN,
                       track_wetness=wetness, rain_intensity=rain)
     before = simulator.rng.bit_generator.state
     assert simulator._choose_starting_compound(
-        TeamStrategyArchetype.BALANCED, track, weather, driver, car,
+        TeamStrategyArchetype.BALANCED, track, weather,
     ) == TireCompound.INTERMEDIATE
     assert simulator.rng.bit_generator.state == before
 

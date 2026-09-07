@@ -9,6 +9,7 @@ from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather, Weathe
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.events import EventManager, EventType, RaceEvent
 from f1sim.simulation.lap import LapSimulator
+from f1sim.simulation.opening_strategy import opening_policy_costs
 from f1sim.simulation.overtaking import OvertakingModel
 from f1sim.simulation.pit_strategy import expected_stationary_time, plan_dry_stop
 from f1sim.simulation.validation import validate_unique_ids
@@ -607,6 +608,12 @@ class RaceSimulator:
                 TIRE_COMPOUNDS[TireCompound.INTERMEDIATE], weather,
             ) != "critical"
         ):
+            if driver is not None and car is not None:
+                costs = opening_policy_costs(
+                    driver, car, track, weather, strategy,
+                    self.strategy_tuning, self.strategy_profiles,
+                )
+                return min(costs, key=lambda candidate: candidate[1])[0]
             return TireCompound.INTERMEDIATE
 
         # A condition label alone must not fit a set that our own mismatch
@@ -1214,6 +1221,7 @@ class RaceSimulator:
         *,
         pit_box_releases: dict[str, float] | None = None,
         arrival_time: float | None = None,
+        sample_service: bool = True,
     ) -> float:
         """Execute pit stop and return total time lost.
 
@@ -1228,9 +1236,10 @@ class RaceSimulator:
         # Pit lane time + stationary time.  Under a full safety car the field
         # is travelling much more slowly, so the relative pit-lane loss is
         # materially smaller; VSC provides a moderate reduction.  Stationary
-        # service remains unchanged and is still sampled per team/car.
+        # service remains unchanged and is sampled per team/car in actual races.
         pit_lane_time = track.pit_lane_delta * self._pit_lane_factor()
-        stationary_time = self.lap_simulator.calculate_pit_stop_time(state.car)
+        stationary_time = (self.lap_simulator.calculate_pit_stop_time(state.car)
+                           if sample_service else expected_stationary_time(state.car))
         queue_time = 0.0
         if pit_box_releases is not None:
             arrival = state.total_time if arrival_time is None else arrival_time
