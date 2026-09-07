@@ -35,6 +35,11 @@ class LapSimulator:
         """
         self.rng = rng if rng is not None else np.random.default_rng()
 
+    @staticmethod
+    def traffic_pace_contribution(gap: float | None) -> float:
+        """Dirty-air seconds for a frozen gap, bounded between zero and 0.5."""
+        return 0.0 if gap is None else 0.5 * max(0.0, min(1.0, 1.0 - gap / 2.0))
+
     def calculate_lap_time(
         self,
         driver: Driver,
@@ -114,11 +119,7 @@ class LapSimulator:
         mismatch_penalty = self._tire_weather_mismatch(tire, weather)
 
         # Traffic/dirty air effect
-        traffic_delta = 0.0
-        if gap_to_car_ahead is not None and gap_to_car_ahead < 2.0:
-            # Dirty air effect (worse when closer, up to 0.5s loss)
-            dirty_air_factor = max(0, 1.0 - gap_to_car_ahead / 2.0)
-            traffic_delta = dirty_air_factor * 0.5
+        traffic_delta = self.traffic_pace_contribution(gap_to_car_ahead)
 
         # Active Aero Straight Mode is common to every green-running car on
         # the configured sections.  Unlike Overtake Mode, it is deliberately

@@ -486,7 +486,7 @@ def test_race_lap_gaps_use_completed_lap_times(
     assert results[1].gap_to_leader == pytest.approx(40.0)
 
 
-def test_pit_decisions_and_lap_gaps_share_pre_stop_timing(
+def test_pit_decisions_keep_pre_stop_timing_and_laps_use_rejoin_gaps(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     simulator = RaceSimulator(rng=np.random.default_rng(33))
@@ -528,7 +528,8 @@ def test_pit_decisions_and_lap_gaps_share_pre_stop_timing(
     assert strategy_gaps[2, "B"] == (10.0, 10.0)
     assert strategy_gaps[2, "C"] == (10.0, None)
     assert lap_gaps[2, "B"] == 10.0
-    assert lap_gaps[2, "C"] == 10.0
+    assert lap_gaps[2, "A"] == 5.0
+    assert lap_gaps[2, "C"] is None
     assert {result.driver_id: result.pit_stops for result in results} == {
         "A": 1, "B": 1, "C": 0,
     }

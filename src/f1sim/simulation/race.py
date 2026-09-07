@@ -290,6 +290,20 @@ class RaceSimulator:
                 states, lap_start_states, track, current_weather, lap,
             )
             pitting_ids = {state.driver.id for state in drivers_pitting}
+            traffic_gaps = lap_start_gaps
+            if pitting_ids:
+                # Merge only copies: every car sees the same rejoin traffic,
+                # while detection and the actual completed-lap merge retain
+                # their existing timing. This also frees followers of pitters.
+                traffic_states = [replace(state) for state in states]
+                self._handle_pit_batch_position_changes(
+                    [state for state in traffic_states if state.driver.id in pitting_ids],
+                    traffic_states,
+                )
+                traffic_gaps = {
+                    state.driver.id: self._get_gap_to_car_ahead(state, traffic_states)
+                    for state in traffic_states if state.status == DriverStatus.RACING
+                }
             for state in states:
                 if state.status != DriverStatus.RACING:
                     continue
@@ -316,7 +330,7 @@ class RaceSimulator:
                     weather=current_weather,
                     lap_number=lap,
                     total_laps=track.total_laps,
-                    gap_to_car_ahead=gap_ahead,
+                    gap_to_car_ahead=traffic_gaps[state.driver.id],
                     active_aero_enabled=lap_active_aero_enabled,
                     overtake_mode_active=state.overtake_mode_active_lap,
                 )
@@ -804,12 +818,20 @@ class RaceSimulator:
         if clearly_dry and state.current_tire.compound in {
             TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
         }:
+            traffic_cost = 0.0
+            if not (
+                self.event_manager.safety_car_active or self.event_manager.vsc_active
+                or self.event_manager.red_flag_active
+            ):
+                traffic_cost = self._pit_rejoin_traffic_cost(
+                    state, all_states, track, additional_current_stop_cost,
+                )
             decision = plan_dry_stop(
                 state.driver, state.car, track, state.current_tire, state.tire_laps,
                 track.total_laps - lap + 1,
                 max(0, max_stops - state.pit_stops),
                 self._used_slick_compounds(state), self._has_used_wet_compound(state),
-                self._pit_lane_factor(), additional_current_stop_cost,
+                self._pit_lane_factor(), additional_current_stop_cost + traffic_cost,
             )
             timing_bias = {
                 TeamStrategyArchetype.AGGRESSIVE: 0.1,
@@ -1121,6 +1143,42 @@ class RaceSimulator:
         state.tire_compound_history.append(new_compound.value)
 
         return pit_lane_time + stationary_time + queue_time
+
+    def _pit_rejoin_traffic_cost(
+        self, state: DriverRaceState, all_states: list[DriverRaceState],
+        track: Track, queue_delay: float = 0.0,
+    ) -> float:
+        """One green lap's expected dirty-air difference versus staying out.
+
+        Use frozen clocks and expected own service only. Other cars are assumed
+        to stay out; this is not a prediction of future traffic or their stops.
+        """
+        own = next(other for other in all_states if other.driver.id == state.driver.id)
+        stay_gap = self._get_gap_to_car_ahead(own, all_states)
+        rejoin_clock = (
+            own.total_time + track.pit_lane_delta
+            + expected_stationary_time(state.car) + queue_delay
+        )
+        rejoin_key = (rejoin_clock, own.position)
+        # Match the batch merge's insertion before the first physical car
+        # with a larger clock key, without copying whole driver states for
+        # every candidate stop. Two scalar scans are independent of list order.
+        rivals = [other for other in all_states
+                  if other.status == DriverStatus.RACING and other.driver.id != own.driver.id]
+        insertion_position = min(
+            (other.position for other in rivals
+             if rejoin_key < (other.total_time, other.position)),
+            default=float("inf"),
+        )
+        ahead = max(
+            (other for other in rivals if other.position < insertion_position),
+            key=lambda other: other.position, default=None,
+        )
+        rejoin_gap = None if ahead is None else max(0.0, rejoin_clock - ahead.total_time)
+        return (
+            self.lap_simulator.traffic_pace_contribution(rejoin_gap)
+            - self.lap_simulator.traffic_pace_contribution(stay_gap)
+        )
 
     def _get_gap_to_car_ahead(
         self,
