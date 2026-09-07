@@ -150,6 +150,12 @@ and serializer, and intercepts all browser requests. `PYTHON` selects the Python
 executable when it is not available as `python`. CI runs this offline check in
 Chromium and runs the Python suite on Linux (3.11 and 3.12) and Windows (3.12).
 
+`node tests/browser_html_exports.cjs` also runs offline and is included in CI.
+It opens real report and history exports with markup-like names, checks local
+filename links and verifies that chart data stays intact without executing
+injected markup. Plotly calls are captured by a test stub; this check covers the
+generated HTML and data embedding, not Plotly's chart rendering.
+
 Project layout:
 
 ```text

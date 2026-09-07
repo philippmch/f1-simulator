@@ -62,3 +62,7 @@ jobs:
           F1SIM_OFFLINE: "1"
           NODE_PATH: ${{ github.workspace }}/output/browser-deps/node_modules
         run: node tests/browser_dashboard.cjs
+      - name: Offline HTML export checks
+        env:
+          NODE_PATH: ${{ github.workspace }}/output/browser-deps/node_modules
+        run: node tests/browser_html_exports.cjs
