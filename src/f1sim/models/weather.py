@@ -106,6 +106,25 @@ class Weather(BaseModel):
             projected.track_wetness = max(0.0, self.track_wetness - 0.03)
         return projected
 
+    def tire_mismatch(self, compound: TireCompound) -> str:
+        """Shared survivability thresholds for fitted tyres and strategy projections."""
+        slick = compound in (TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD)
+        if slick and (self.track_wetness > 0.45
+                      or (self.track_wetness > 0.35 and self.rain_intensity > 0.6)):
+            return "critical"
+        if slick and self.fresh_rain_compound() is not None:
+            return "suboptimal"
+        if compound == TireCompound.INTERMEDIATE and self.track_wetness > 0.72:
+            return "suboptimal"
+        if compound == TireCompound.WET and self.track_wetness < 0.2 and self.rain_intensity < 0.3:
+            return "critical"
+        if compound == TireCompound.WET and self.track_wetness < 0.42:
+            return "suboptimal"
+        if (compound == TireCompound.INTERMEDIATE
+                and self.track_wetness < 0.08 and self.rain_intensity < 0.15):
+            return "critical"
+        return "ok"
+
     def evolve(self, rng: np.random.Generator) -> "Weather":
         """Generate next lap's weather based on current conditions.
 
