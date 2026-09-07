@@ -691,9 +691,7 @@ class RaceSimulator:
 
         # Limit to realistic number of pit stops (1-2 for most races)
         # Weather changes can force extra stops
-        max_stops = 2 if track.total_laps > 50 else 1
-        if strategy == TeamStrategyArchetype.AGGRESSIVE:
-            max_stops += 1
+        max_stops = self._ordinary_stop_budget(state, track)
         if weather is not None and weather.track_wetness > 0.3:
             max_stops = max(max_stops, 4)  # Allow more stops in changing conditions
 
@@ -863,48 +861,70 @@ class RaceSimulator:
         used = self._used_slick_compounds(state)
         available = [compound for compound in slick_compounds if compound not in used]
 
-        # Prefer the normal strategy choice when it is a genuinely new set.
-        preferred = self._choose_compound_for_next_stint(state, track, current_lap)
-        if preferred in available:
-            return preferred
+        return self._rank_stint_compounds(
+            state, track, current_lap, available or slick_compounds
+        )
 
-        if available:
-            # Preserve a deterministic seeded choice when multiple unused
-            # slicks are plausible, without ever selecting a used compound.
-            return available[int(self.rng.integers(0, len(available)))]
+    @staticmethod
+    def _ordinary_stop_budget(state: DriverRaceState, track: Track) -> int:
+        return (2 if track.total_laps > 50 else 1) + (
+            1 if state.strategy_archetype == TeamStrategyArchetype.AGGRESSIVE else 0
+        )
 
-        # This branch is defensive for malformed/restored states that report
-        # fewer than two compounds but have exhausted all three slick names.
-        alternatives = [
-            compound for compound in slick_compounds if compound != state.current_tire.compound
-        ]
-        return alternatives[int(self.rng.integers(0, len(alternatives)))]
+    @classmethod
+    def _next_stint_laps(cls, state: DriverRaceState, track: Track, current_lap: int) -> int:
+        """Fresh tyres run this lap; the current stop consumes its plan slot.
+
+        Weather stops consume the same slot as any other stop. Ignore expired
+        entries after that slot, including when a scheduled stop happened late.
+        """
+        laps_to_finish = max(1, track.total_laps - current_lap + 1)
+        if state.pit_stops + 1 >= cls._ordinary_stop_budget(state, track):
+            return laps_to_finish
+        for pit_lap in state.planned_pit_laps[state.pit_stops + 1:]:
+            if current_lap < pit_lap <= track.total_laps:
+                return pit_lap - current_lap
+        return laps_to_finish
 
     def _choose_compound_for_next_stint(
-        self,
-        state: DriverRaceState,
-        track: Track,
-        current_lap: int,
+        self, state: DriverRaceState, track: Track, current_lap: int
     ) -> TireCompound:
-        """Choose next compound using active pit plan and stint length target."""
+        """Rank fresh slicks using the same tyre pace as the actual race."""
+        return self._rank_stint_compounds(
+            state, track, current_lap,
+            [TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD],
+        )
+
+    def _rank_stint_compounds(
+        self, state: DriverRaceState, track: Track, current_lap: int,
+        available: list[TireCompound],
+    ) -> TireCompound:
+        target_stint = self._next_stint_laps(state, track, current_lap)
+        costs = {
+            compound: self.lap_simulator.projected_tire_stint_cost(
+                state.driver, state.car, track, TIRE_COMPOUNDS[compound], target_stint
+            ) for compound in available
+        }
+        fastest = min(available, key=costs.__getitem__)
+        preferred = self._preferred_stint_compound(state, target_stint)
+        # Model tolerance: team style may sacrifice at most 0.05 seconds per
+        # projected lap. Materially slower sets cannot win by random fallback.
+        if preferred in costs and costs[preferred] <= costs[fastest] + 0.05 * target_stint:
+            return preferred
+        return fastest
+
+    def _preferred_stint_compound(
+        self, state: DriverRaceState, target_stint: int
+    ) -> TireCompound:
+        """Team style proposes a set, subject to the projected pace bound."""
         current = state.current_tire.compound
-        laps_remaining = max(track.total_laps - current_lap, 0)
-
-        next_pit_lap = None
-        if state.pit_stops < len(state.planned_pit_laps):
-            next_pit_lap = state.planned_pit_laps[state.pit_stops]
-
-        target_stint = laps_remaining
-        if next_pit_lap is not None:
-            target_stint = max(next_pit_lap - current_lap, 1)
-
         profile = self.strategy_profiles[state.strategy_archetype]
         long_stint_threshold = int(profile["long_stint_threshold"])
         medium_prob = float(profile["medium_prob"])
         sprint_soft_prob = float(profile["sprint_soft_prob"])
 
         # Long stint => harder compounds.
-        if target_stint >= long_stint_threshold or track.tire_stress > 0.75:
+        if target_stint >= long_stint_threshold:
             return TireCompound.HARD if current != TireCompound.HARD else TireCompound.MEDIUM
 
         # Medium stint => medium baseline.

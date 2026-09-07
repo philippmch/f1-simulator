@@ -176,7 +176,7 @@ def test_strategy_profiles_change_compound_decision() -> None:
         rng=np.random.default_rng(15),
         strategy_profiles={
             "balanced": {
-                "long_stint_threshold": 25,
+                "long_stint_threshold": 100,
                 "medium_prob": 1.0,
                 "sprint_soft_prob": 0.5,
             },
@@ -194,7 +194,7 @@ def test_strategy_profiles_change_compound_decision() -> None:
         car=Car(team_id="a", team_name="A", reliability=0.95),
         position=3,
         current_tire=TIRE_COMPOUNDS[TireCompound.SOFT].model_copy(deep=True),
-        planned_pit_laps=[39],
+        planned_pit_laps=[20, 55],
         pit_stops=0,
         strategy_archetype=TeamStrategyArchetype.AGGRESSIVE,
     )
@@ -203,12 +203,13 @@ def test_strategy_profiles_change_compound_decision() -> None:
         car=Car(team_id="b", team_name="B", reliability=0.95),
         position=3,
         current_tire=TIRE_COMPOUNDS[TireCompound.SOFT].model_copy(deep=True),
-        planned_pit_laps=[39],
+        planned_pit_laps=[20, 55],
         pit_stops=0,
         strategy_archetype=TeamStrategyArchetype.BALANCED,
     )
 
-    # Same target stint length (~19 laps): aggressive profile goes hard earlier.
+    # A 35-lap stint makes hard and medium near-competitive in this pace model.
+    # Profile preference may decide within the explicit 0.05-second/lap bound.
     aggressive_compound = sim._choose_compound_for_next_stint(
         aggressive_state,
         track,
