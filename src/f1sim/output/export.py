@@ -146,7 +146,7 @@ class Exporter:
         """
         filepath = self.output_dir / filename
 
-        with open(filepath, "w", newline="") as f:
+        with open(filepath, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow([
                 "simulation", "position", "driver_id", "driver_name", "team",
@@ -194,7 +194,7 @@ class Exporter:
         """
         filepath = self.output_dir / filename
 
-        with open(filepath, "w", newline="") as f:
+        with open(filepath, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow([
                 "simulation", "position", "driver_id", "driver_name",
@@ -299,7 +299,7 @@ class Exporter:
                 "top_10_finish_probability": top_10.get(driver_id, 0.0),
             }
 
-        with open(filepath, "w") as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             json.dump(stats_dict, f, indent=2)
 
         return filepath
@@ -321,7 +321,7 @@ class Exporter:
                 "team_championship_projection": results.get_team_championship_projection(),
             }
 
-        with open(filepath, "w") as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2)
 
         return filepath
