@@ -97,16 +97,23 @@ class RaceEventStatistics:
     races_with_safety_car: int = 0
     races_with_red_flag: int = 0
     mechanical_failure_breakdown: dict[str, int] = field(default_factory=dict)
+    num_simulations: int = 0
 
     @property
     def safety_car_rate(self) -> float:
         """Percentage of races with at least one safety car."""
-        return 0.0  # Will be calculated after aggregation
+        return (
+            self.races_with_safety_car / self.num_simulations * 100
+            if self.num_simulations else 0.0
+        )
 
     @property
     def red_flag_rate(self) -> float:
         """Percentage of races with at least one red flag."""
-        return 0.0  # Will be calculated after aggregation
+        return (
+            self.races_with_red_flag / self.num_simulations * 100
+            if self.num_simulations else 0.0
+        )
 
 
 @dataclass
@@ -588,7 +595,7 @@ class MonteCarloRunner:
         event_counts: list[dict],
     ) -> RaceEventStatistics:
         """Aggregate event statistics from all simulations."""
-        stats = RaceEventStatistics()
+        stats = RaceEventStatistics(num_simulations=len(event_counts))
 
         breakdown: dict[str, int] = defaultdict(int)
 
