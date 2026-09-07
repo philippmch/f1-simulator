@@ -3,7 +3,8 @@
 Each car owns one pending lap. Whole-lap physics freezes weather/control when
 that lap starts; interventions affect subsequently started laps. No suspension
 wall time or mid-lap sector redistribution is invented. Circular crossing order
-requires a sampled pass before a faster car can cross a physical predecessor.
+requires a sampled pass or compliant blue-flag yield before a faster car can
+cross a physical predecessor.
 """
 
 import heapq
@@ -333,6 +334,14 @@ class ChronologicalRace:
             defender = self.states[defender_id]
             defender_lap = self.pending[defender_id]
             success = incident = False
+            if (not pending.neutralized and not defender_lap.neutralized
+                    and pending.lap > defender_lap.lap):
+                # This encounter puts the physical predecessor another lap
+                # down. Model compliant yielding at the lap-level catch point;
+                # no defensive battle or extra passing/incident draw is needed.
+                # A same-lap attack or unlapping attempt still needs a pass.
+                self.order[index - 1], self.order[index] = driver_id, defender_id
+                continue
             if (not pending.neutralized and not defender_lap.neutralized
                     and defender_id not in pending.attempted):
                 pending.attempted.add(defender_id)

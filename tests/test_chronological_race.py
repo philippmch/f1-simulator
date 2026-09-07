@@ -73,8 +73,8 @@ def test_equal_clock_ties_flag_both_without_extra_lap(monkeypatch):
     assert len(calls) == 20
 
 
-def test_failed_lapping_pass_cannot_sort_through_physical_predecessor(monkeypatch):
-    engine, args, _, _, _, _ = fixture(monkeypatch)
+def test_failed_same_lap_pass_cannot_sort_through_physical_predecessor(monkeypatch):
+    engine, args, _, _, _, _ = fixture(monkeypatch, {"Slow": 110, "Fast": 90}, laps=3)
     attempts = []
 
     def fail(*args, **kwargs):
@@ -84,8 +84,9 @@ def test_failed_lapping_pass_cannot_sort_through_physical_predecessor(monkeypatc
     monkeypatch.setattr(engine.simulator.overtaking_model, "attempt_overtake", fail)
     results = run(engine, args)
     assert attempts
-    assert results[0].total_time > 900
-    assert any(driver == "Fast" and lap == 6 and time >= 550
+    assert results[0].driver_id == "Slow"
+    assert results[1].total_time > 330
+    assert any(driver == "Fast" and lap == 1 and time > 110
                for driver, lap, time in engine.crossings)
 
 
