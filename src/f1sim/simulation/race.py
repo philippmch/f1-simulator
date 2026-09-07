@@ -373,7 +373,6 @@ class RaceSimulator:
                 not self.event_manager.safety_car_active
                 and not self.event_manager.vsc_active
                 and not self.event_manager.red_flag_active
-                and (track.overtake_difficulty < 0.9 or lap_restart)
             ):
                 overtake_incidents = self._process_overtakes(
                     states,
