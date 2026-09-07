@@ -203,6 +203,11 @@ Equal tyre contributions preserve the old probability. This is a bounded
 heuristic, not a fitted relationship between lap-time advantage and passing
 success. Circuit difficulty, proximity, driver skill and Overtake Mode still
 affect the maneuver, and a tyre advantage cannot bypass the gap restriction.
+Green-running opportunities use this probability curve on every circuit;
+there is no separate difficulty cutoff that disables attempts. At the maximum
+difficulty of one, the existing unboosted success probability is zero, while
+contact and mode/restart effects still follow their normal rules. These are
+model limits rather than calibrated circuit-specific passing rates.
 The wet passing difficulty multiplier and wet Overtake Mode restriction remain
 in effect. This extends the existing lap-time heuristic to rain tyres; it does
 not model aquaplaning, a racing line that dries separately, or measured wet-grip
