@@ -73,8 +73,13 @@ reduce pit-lane loss. The current lap's tyre costs also use the race timing
 model's active running multiplier, for both staying out and every eligible
 fresh compound. Future running and stops are projected as green; this does not
 predict how long a neutralization will last. A large gap behind
-does not by itself make a stop worthwhile. The initial five-lap guard remains,
-but a beneficial dry stop can occur in the final five laps. Team style can shift
+does not by itself make a stop worthwhile. From lap two onward, the dry optimizer
+can choose an early stop, including during an early SC/VSC, when its projected
+benefit justifies the cost. Elective dry stops before the first racing lap are
+suppressed because stops occur at the start of a modeled lap; urgent weather
+changes and mandatory safeguards retain priority. Damp/wet fallback heuristics
+retain their opening five-lap guard. Beneficial dry stops can also occur in the
+final five laps. Team style can shift
 a near tie by at most 0.1 seconds per decision. This tolerance is a model
 assumption, not an empirical fit.
 

@@ -2,7 +2,7 @@
 
 Synthetic 30-lap races, one permitted stop, a medium start, no incidents,
 mean lap variation and fixed 2.75-second stationary service. Every permitted
-stop lap from 6 through 30 and both unused slick compounds are simulated.
+stop lap from 2 through 30 and both unused slick compounds are simulated.
 This is an offline model check, not validation against observed race strategy.
 """
 
@@ -53,7 +53,7 @@ def compare_pit_timing():
     for stress in (0.3, 0.9):
         selected = run_race(stress)
         alternatives = [run_race(stress, lap, compound)
-                        for lap in range(6, 31)
+                        for lap in range(2, 31)
                         for compound in (TireCompound.SOFT, TireCompound.HARD)]
         best = min(alternatives, key=lambda result: result["total_seconds"])
         rows.append({
