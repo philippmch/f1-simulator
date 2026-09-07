@@ -13,6 +13,7 @@ from typing import Any
 from f1sim.analysis import MonteCarloRunner, parse_scenario_labels, scenario_weather_from_label
 from f1sim.data import CurrentSeasonDataError, CurrentSeasonDataLoader
 from f1sim.models import Weather, WeatherCondition
+from f1sim.simulation.race import result_is_classified
 from f1sim.web.capacity import RunCapacity
 
 _LOGGER = logging.getLogger(__name__)
@@ -145,6 +146,8 @@ def _serialize_race_result(result: Any) -> dict[str, Any]:
         "pit_stops": result.pit_stops,
         "fastest_lap": result.fastest_lap,
         "status": result.status.value,
+        "laps_completed": getattr(result, "laps_completed", None),
+        "classified": result_is_classified(result),
         "dnf_reason": result.dnf_reason,
         "strategy": list(result.strategy),
     }

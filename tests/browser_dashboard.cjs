@@ -73,6 +73,37 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         `${interval.lower.toFixed(1)}–${interval.upper.toFixed(1)}%`));
       if (stats.win_rate === 0) assert(interval.upper > 0);
     }
+    // Explicit classified and unclassified retirements must remain distinct.
+    await page.locator('#tab-race').click();
+    await page.evaluate(() => {
+      window.savedClassificationSample = getScenarioEntry().data.sample_race;
+      getScenarioEntry().data.sample_race = savedClassificationSample.slice(0, 3).map((row, index) => ({
+        ...row, position: index + 1, status: index === 0 ? 'finished' : 'dnf',
+        classified: index < 2, laps_completed: [60, 54, 53][index],
+        fastest_lap: [90, 89, 91][index], dnf_reason: index ? 'Engine failure' : null,
+      }));
+      renderRace();
+    });
+    const classifiedRetirement = page.locator('#raceContent .driver-row').nth(1);
+    assert.equal(await classifiedRetirement.locator('.pos').innerText(), '2');
+    assert((await classifiedRetirement.locator('.status').getAttribute('aria-label'))
+      .includes('Retired · Classified · 54 laps · Engine failure'));
+    assert((await classifiedRetirement.getAttribute('class')).includes('podium'));
+    assert.equal(await classifiedRetirement.locator('.is-fastest').count(), 1);
+    const unclassifiedRetirement = page.locator('#raceContent .driver-row').nth(2);
+    assert.equal(await unclassifiedRetirement.locator('.pos').innerText(), 'NC');
+    assert(!(await unclassifiedRetirement.getAttribute('class')).includes('podium'));
+    for (const width of [320, 390, 768, 1440]) {
+      await page.setViewportSize({width, height: 900});
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+        `Retirement classification overflows at ${width}px`);
+    }
+    await page.evaluate(() => {
+      getScenarioEntry().data.sample_race = savedClassificationSample;
+      delete window.savedClassificationSample;
+      renderRace();
+    });
+    await page.locator('#tab-stats').click();
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       for (const tab of ['race', 'qualifying', 'stats', 'scenarios']) {

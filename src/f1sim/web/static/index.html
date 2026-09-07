@@ -621,6 +621,7 @@ input:focus-visible {
 
 .status.finished { color: var(--accent-green); }
 .status.dnf-status { color: var(--f1-red); }
+.classification-note { display: block; color: var(--text-secondary); font-size: 0.6rem; }
 
 /* ── Column Headers ── */
 .timing-header {
@@ -1609,6 +1610,18 @@ function populateTrackSelect(events, preferredRace = '') {
   return { matched: Boolean(matched), selectedRace: selector.value, eventCount: options.length };
 }
 
+function isClassifiedResult(result) {
+  return typeof result?.classified === 'boolean' ? result.classified : result?.status !== 'dnf';
+}
+
+function raceStatusText(result) {
+  const retired = result.status === 'dnf';
+  const classification = isClassifiedResult(result) ? 'Classified' : 'Not classified';
+  const laps = Number.isInteger(result.laps_completed) ? ` · ${result.laps_completed} laps` : '';
+  const reason = retired && result.dnf_reason ? ` · ${result.dnf_reason}` : '';
+  return `${retired ? 'Retired' : 'Finished'} · ${classification}${laps}${reason}`;
+}
+
 async function fetchCalendar(year, preferredRace = '') {
   try {
     const response = await fetch(apiUrl(`/api/calendar?year=${year}`));
@@ -2211,7 +2224,7 @@ function renderRace() {
   const weather = scenario.weather || {};
   const topTeam = Object.entries(scenario.team_projection || {})[0];
   const fastestResult = race
-    .filter(row => row.status !== 'dnf' && toNumber(row.fastest_lap, 0) > 0)
+    .filter(row => toNumber(row.fastest_lap, 0) > 0)
     .sort((a, b) => toNumber(a.fastest_lap) - toNumber(b.fastest_lap))[0];
 
   empty.style.display = 'none';
@@ -2255,12 +2268,14 @@ function renderRace() {
   race.forEach((result, index) => {
     const team = getTeamStyle(result.team_key || result.team);
     const finished = result.status !== 'dnf';
-    const isPodium = finished && result.position <= 3;
+    const classified = isClassifiedResult(result);
+    const isPodium = classified && result.position <= 3;
+    const statusText = raceStatusText(result);
     const isFastest = fastestResult && fastestResult.driver_id === result.driver_id;
 
     html += `
-      <div class="driver-row ${finished ? '' : 'dnf'} ${isPodium ? 'podium' : ''}" style="animation-delay:${index * 0.04}s">
-        <div class="pos">${result.position}</div>
+      <div class="driver-row ${finished ? '' : 'dnf'} ${isPodium ? 'podium' : ''}" title="${escapeHtml(statusText)}" style="animation-delay:${index * 0.04}s">
+        <div class="pos">${classified ? result.position : 'NC'}</div>
         <div class="team-stripe" style="background:${team.color}"></div>
         <div class="driver-code">${escapeHtml(result.driver_id)}</div>
         <div class="driver-name">${escapeHtml(result.driver_name)}</div>
@@ -2273,7 +2288,11 @@ function renderRace() {
             return `<div class="tire-dot ${normalized}">${escapeHtml(TIRE_LABELS[compound] || String(compound).slice(0, 1).toUpperCase())}</div>`;
           }).join('')}
         </div>
-        <div class="status ${finished ? 'finished' : 'dnf-status'}">${escapeHtml(finished ? 'Finished' : (result.dnf_reason || 'DNF'))}</div>
+        <div class="status ${finished ? 'finished' : 'dnf-status'}" aria-label="${escapeHtml(statusText)}">
+          ${finished ? 'Finished' : 'Retired'}
+          ${finished && classified ? '' : `<span class="classification-note">${classified ? 'Classified' : 'Not classified'}</span>`}
+          ${Number.isInteger(result.laps_completed) ? `<span class="classification-note">${result.laps_completed} laps</span>` : ''}
+        </div>
       </div>
     `;
   });
