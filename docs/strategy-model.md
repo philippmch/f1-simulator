@@ -89,6 +89,13 @@ execution uses sampled service, so the decision does not know a future slow-stop
 outcome. Reservations reset each lap and race. This is a same-lap box model,
 not a simulation of pit-lane congestion, crew setup time or unsafe releases.
 
+The recorded time for a stop lap includes the actual pit-lane, stationary and
+queue losses, so its clean running pace alone cannot earn a fastest lap. Those
+losses enter total race time only once. SC/VSC modifiers slow the running portion
+of the lap; stationary service and queue time are not multiplied by them. The
+model attributes the entire stop loss to the lap on which service occurs, rather
+than splitting pit entry and exit across sector timing lines.
+
 After the pit batch, dirty-air pace uses one frozen view of the field with
 actual pit losses applied. A car can emerge into traffic, and a following car
 can gain clean air when the car ahead stops. Strategy decisions and Overtake
