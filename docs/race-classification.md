@@ -85,6 +85,8 @@ count. It does not yet model lapped-car finishing, abandoned-race classification
 or elapsed suspension duration and the three-hour wall-clock cap. Pit planning
 reacts to the announced final lap; it does not predict a future time-limit finish
 before the racing clock reaches two hours.
+The [chronological crossing design](chronological-race-design.md) describes the
+finish-controller foundation and the remaining scheduler integration.
 If every car retires, there is no modeled winner and no classification or points.
 The simulation records the final retirement lap and stops; subsequent scheduled
 laps do not evolve weather or generate race-control events. An empty usable grid
