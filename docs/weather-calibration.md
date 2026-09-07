@@ -30,6 +30,14 @@ chequered flag, which this diagnostic correctly excludes.
 
 ## Model choices
 
+Aggregated `RaceEventStatistics` records `num_simulations`, including races with
+no events. Its `safety_car_rate` and `red_flag_rate` properties are percentages
+of races with at least one deployment; several flags in one race count once.
+Directly constructed statistics must supply the denominator to compute these
+properties; an empty sample returns zero. Statistics JSON includes `event_rates`,
+whose occurrence rates are fractions from zero to one, and whose `avg_*` values
+are deployment or incident counts per simulated race.
+
 - Random racing incidents use the existing 22-car grid as the reference
   exposure. After circuit, consistency and weather modifiers, its per-lap
   probability `h22` is bounded between 0.0005 and 0.08. For `N` active cars,
