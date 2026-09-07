@@ -29,6 +29,10 @@ ties consistently. If no legal projected plan exists, the original weighted
 choice remains available. Explicit starting-tyre overrides and precautionary
 rain starts retain priority. This projection shares the dry optimizer's limits
 on weather, traffic, inventory and future interruptions.
+Precautionary intermediates must also pass the same mismatch check used during
+the race. A rainy condition label with a sufficiently dry surface and low
+rainfall does not fit intermediates that would immediately require a paid
+replacement before lap one. Explicit starting-tyre overrides remain available.
 
 Aggressive, balanced and conservative profiles influence opening slick choices
 and close timing decisions. The fallback weather strategy retains its style-based
