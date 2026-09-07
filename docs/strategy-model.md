@@ -40,8 +40,9 @@ policy. These runs cover the full race, use mean lap pace and expected service
 time, and advance surface wetness after each lap under constant rainfall and
 weather condition. They include later paid stops and the compound-use rule.
 Each candidate uses the same eight fixed private reaction seeds; the selector
-compares their average total time and favours the existing intermediate choice
-in a tie. The real race's random generator and input objects are untouched.
+compares their average completed distance first and average total time second,
+so a slower, shorter time-limited race cannot win merely by ending sooner.
+It favours the existing intermediate choice in a tie. The real race's random generator and input objects are untouched.
 
 This is an approximate comparison of the current policy under sustained
 conditions, not a global wet-strategy optimizer or a forecast of changing rain,

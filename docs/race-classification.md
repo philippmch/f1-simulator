@@ -54,11 +54,37 @@ Statistics JSON includes `probability_intervals` with the same 95% Wilson
 sampling ranges and per-driver trial counts as the dashboard. These ranges
 describe Monte Carlo sampling noise, not accuracy against a real race outcome.
 
+## Time-limited finishes and points
+
+The leader's modeled racing clock is checked after each completed lap. Once it
+reaches two hours, the following lap becomes the final lap, capped by the
+scheduled distance. This follows B2.5.3(a) of the [2026 Sporting Regulations,
+Issue 08](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_b_sporting_-_iss_08_-_2026-08-05_7.pdf).
+Pit decisions and free restart tyre choices use the announced shorter horizon;
+actual laps and weather-strategy forecasts retain the original scheduled fuel
+distance. No further
+weather update, tyre fitting or incident is generated after the finish.
+
+Results expose `race_time_limited` and `points_awarded`. The dashboard and CLI
+identify a time-limited finish and show actual points; CSV appends both fields.
+Classification uses the winner's completed distance. Points use the original
+scheduled distance, with reduced schedules below 25%, 50% and 75%, and require
+two consecutive complete green laps, following A2.2.1 of the [2026 General
+Provisions, Issue 03](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_a_general_provisions_-_iss_03_-_2026-06-25.pdf).
+In this lap model, a lap starting or ending under neutralization, or containing
+a new SC, VSC or red flag, breaks that consecutive-lap sequence. Earlier valid
+pairs remain valid. A classified retirement can earn points, while a scoring
+finish probability counts positive awards rather than merely a top-ten place.
+Legacy result objects without an explicit points award retain the previous
+classification-based full-points fallback.
+
 ## Limits
 
-This is a synchronous lap simulation: surviving cars complete the scheduled
-distance. It does not yet model lapped-car finishing, time-limit endings,
-abandonment classification, or shortened-race points and green-lap requirements.
+This is a synchronous lap simulation: surviving cars complete the same lap
+count. It does not yet model lapped-car finishing, abandoned-race classification,
+or elapsed suspension duration and the three-hour wall-clock cap. Pit planning
+reacts to the announced final lap; it does not predict a future time-limit finish
+before the racing clock reaches two hours.
 If every car retires, there is no modeled winner and no classification or points.
 The simulation records the final retirement lap and stops; subsequent scheduled
 laps do not evolve weather or generate race-control events. An empty usable grid
