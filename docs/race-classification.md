@@ -17,6 +17,12 @@ blank in CSV exports and shown as "No time" in console output. Nonfinite times
 from legacy result objects receive the same treatment. This keeps incomplete
 fields serializable without dropping entrants or inventing a lap time.
 
+The console qualifying table displays Q1, Q2 and Q3 separately. Its `Best`
+column is the fastest lap across all sessions, not the lap that determines
+every grid position. There is no cross-session gap to pole: an eliminated
+driver can have a faster earlier-session lap while correctly starting behind
+drivers who advanced further.
+
 The distance threshold follows B2.5.5 of the [FIA 2026 Sporting Regulations,
 Issue 08, 5 August 2026](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_b_sporting_-_iss_08_-_2026-08-05_7.pdf):
 cars below 90% of the winner's completed laps, rounded down to whole laps, are
