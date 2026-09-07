@@ -277,6 +277,7 @@ class RaceSimulator:
             # lap for every driver. Shallow copies freeze these scalar fields
             # while the live states accumulate this lap's running and pit loss.
             lap_start_states = [replace(state) for state in states]
+            lap_start_times = {state.driver.id: state.total_time for state in lap_start_states}
             lap_start_gaps = {
                 state.driver.id: self._get_gap_to_car_ahead(state, lap_start_states)
                 for state in lap_start_states if state.status == DriverStatus.RACING
@@ -294,6 +295,10 @@ class RaceSimulator:
                 states, lap_start_states, track, current_weather, lap,
             )
             pitting_ids = {state.driver.id for state in drivers_pitting}
+            pit_lap_losses = {
+                state.driver.id: state.total_time - lap_start_times[state.driver.id]
+                for state in drivers_pitting
+            }
             traffic_gaps = lap_start_gaps
             if pitting_ids:
                 # Merge only copies: every car sees the same rejoin traffic,
@@ -343,7 +348,10 @@ class RaceSimulator:
                 lap_time *= self.event_manager.get_lap_time_modifier()
 
                 state.total_time += lap_time
-                state.last_lap_time = lap_time
+                # Pit loss already entered total_time before running this lap.
+                # Include it in the recorded lap too, without charging it twice
+                # or multiplying stationary/queue time by the SC lap modifier.
+                state.last_lap_time = lap_time + pit_lap_losses.get(state.driver.id, 0.0)
                 state.tire_laps += 1
                 state.driver.current_tire_laps = state.tire_laps
 
