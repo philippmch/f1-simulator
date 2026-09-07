@@ -250,6 +250,10 @@ class RaceSimulator:
                 )
             )
 
+        # An empty or unusable grid has no racing laps or race-control events.
+        if not states:
+            return []
+
         # Track fastest laps
         fastest_laps: dict[str, float] = {}
         all_events: list[RaceEvent] = []
@@ -480,6 +484,11 @@ class RaceSimulator:
                     or red_flag_deployed_this_lap
                 ),
             )
+
+            # Preserve the final retirement lap's consequences, then stop.
+            # Later scheduled laps cannot produce events with no running cars.
+            if not any(state.status == DriverStatus.RACING for state in states):
+                break
 
             # The initial weather snapshot was used unchanged on lap one.
             # Evolve only when another lap will actually consume the result.
