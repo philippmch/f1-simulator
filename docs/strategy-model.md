@@ -329,6 +329,27 @@ happens. Weather stops still consume stop budgets and fallback plan slots. On
 returning to clearly dry slick running, the optimizer reassesses the remaining
 race with the actual tyre age, compound history and stops remaining.
 
+The current tyre model uses an absolute grip floor of 0.5, capped at the set's
+initial grip. A custom set starting below 0.5 therefore cannot gain grip or
+receive a negative wear penalty from the floor. Default compounds start above
+that floor. At driver tyre-management rating 0.8, their unscaled curves reach it
+at these completed tyre ages:
+
+| Compound | Age at grip floor | Configured cliff age |
+|---|---:|---:|
+| Soft | 19 | 20 |
+| Medium | 28 | 30 |
+| Hard | 46 | 45 |
+| Intermediate | 17 | 35 |
+| Wet | 20 | 40 |
+
+For most defaults, the floor is reached before the nominal cliff, so additional
+age no longer increases the unscaled wear contribution. This helps explain the
+rain planner's no-stop choices in the equal-performance diagnostic. It is a
+model limitation, not observed tyre durability. Changing the curve or its floor
+requires an explicit modeling/calibration decision; the low-initial-grip bound
+fix does not change default tyre curves.
+
 When the current rain compound remains the fresh-set choice throughout the
 projected remaining surface conditions, rain strategy compares stopping now
 with waiting at least one lap and making optimal later same-compound stops.
