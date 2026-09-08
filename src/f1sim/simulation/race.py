@@ -1007,8 +1007,16 @@ class RaceSimulator:
         active_plan = self._select_active_pit_plan(state, weather, lap, gap_ahead, track=track)
         state.planned_pit_laps = active_plan
         planned_lap = None
-        if state.pit_stops < len(active_plan):
+        if active_plan:
+            if state.pit_stops >= len(active_plan):
+                return False
             planned_lap = active_plan[state.pit_stops]
+        elif state.pit_stops >= min(2, max_stops):
+            # The generic schedule has at most two windows. A larger wet
+            # stop allowance permits reactive stops, not repeated visits
+            # to the already consumed second window. Weather and SC/VSC
+            # opportunities have been evaluated above.
+            return False
 
         # Calculate optimal pit windows for 1-stop or 2-stop strategy
         if planned_lap is not None:
