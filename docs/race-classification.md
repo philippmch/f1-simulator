@@ -60,7 +60,9 @@ The leader's modeled racing clock is checked after each completed lap. Once it
 reaches two hours, the following lap becomes the final lap, capped by the
 scheduled distance. This follows B2.5.3(a) of the [2026 Sporting Regulations,
 Issue 08](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_b_sporting_-_iss_08_-_2026-08-05_7.pdf).
-Pit decisions and free restart tyre choices use the announced shorter horizon;
+Pit decisions and free restart tyre choices anticipate a shorter horizon from
+the leader's elapsed clock and observed running pace, then obey the actual
+final-lap announcement once it occurs. This estimate never declares the finish;
 actual laps and weather-strategy forecasts retain the original scheduled fuel
 distance. No further
 weather update, tyre fitting or incident is generated after the finish.
@@ -83,8 +85,9 @@ classification-based full-points fallback.
 This is a synchronous lap simulation: surviving cars complete the same lap
 count. It does not yet model lapped-car finishing, abandoned-race classification,
 or elapsed suspension duration and the three-hour wall-clock cap. Pit planning
-reacts to the announced final lap; it does not predict a future time-limit finish
-before the racing clock reaches two hours.
+assumes observed pace continues, with current control on the upcoming lap and
+green running thereafter. Future stops, traffic changes, incidents and weather
+can make its estimated finish distance wrong; it is recalculated each lap.
 The [chronological crossing design](chronological-race-design.md) describes the
 finish-controller foundation and the remaining scheduler integration.
 If every car retires, there is no modeled winner and no classification or points.

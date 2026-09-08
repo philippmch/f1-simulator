@@ -19,6 +19,22 @@ this is not a forecast of future weather. Expected service and pit-lane loss
 are not weather-scaled. A current SC/VSC running multiplier applies in addition
 to weather scaling for this lap only, with later laps assumed green.
 
+Before a timed finish is announced, in-race strategy estimates its distance
+from the leader's elapsed time and most recent running pace. Pit service,
+incident loss and time spent waiting behind another car are excluded from the
+recurring pace estimate. Current control affects the upcoming lap, with later
+laps assumed green. The estimate includes the lap following clock expiry and
+never exceeds the scheduled distance. Without a pace observation it retains
+that schedule. Both engines use this estimate for pit decisions and free tyre
+choices; chronological races also map the leader's estimated finish time to
+each car's own remaining laps and include completed suspension extensions.
+
+The forecast is recalculated as the race develops. It does not change the
+actual finish controller, predict future stops or weather, or guarantee a
+globally optimal timed strategy. After a timed announcement, the next leading
+crossing remains authoritative even if a lapped driver inherits the lead.
+Original scheduled fuel distance remains separate from all strategy horizons.
+
 Automatic starting-compound selection on a clearly dry track compares isolated
 runs of the existing pit policy for each slick, using noise-free lap pace and
 expected service time. These runs follow the race clock, retain the original

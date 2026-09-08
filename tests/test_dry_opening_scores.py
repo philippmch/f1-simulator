@@ -33,8 +33,8 @@ def test_scores_match_direct_completed_policy_and_preserve_inputs(laps, base):
             assert distance == 65
     assert (args, simulator.rng.bit_generator.state) == before
     if laps == 90:
-        assert min(scores, key=lambda item: item[1])[0] == TireCompound.HARD
-        assert dict(scores)[TireCompound.MEDIUM].mean_time == pytest.approx(7424.44058160)
+        assert dict(scores)[TireCompound.HARD].mean_time == pytest.approx(7414.57358160)
+        assert dict(scores)[TireCompound.MEDIUM].mean_time == pytest.approx(7414.57358160)
 
 
 @pytest.mark.parametrize("rain,wetness,seeds", [(0, 0, (0,)), (0, .079, (0,)),

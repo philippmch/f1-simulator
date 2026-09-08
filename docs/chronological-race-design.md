@@ -38,13 +38,15 @@ Those tests also count actual lap calls, original fuel denominators and tyre age
 The display adapters render known lap deficits as `+1 lap` or `+2 laps`; unknown
 legacy distances retain time gaps.
 
-Pit planning estimates the flag time from the leading pending crossing and
-stored free-running pace, then maps that time to the car's own remaining laps.
+Pit planning estimates the flag time from the leading pending crossing, stored
+free-running pace and the time-limit deadline, then maps that time to the car's
+own remaining laps. Completed suspension time extends the deadline up to the
+existing one-hour cap. The estimate includes the lap following clock expiry.
 Committed pit delay affects the pending crossing; past service and blocked time
 do not become the forecast's recurring lap pace. The forecast uses no random
 draws and does not alter the actual finish boundary. It assumes continued pace
-and the current neutralization modifier, without predicting future incidents,
-weather changes or stops. Initial laps without an observed pace retain the
+with current control on the upcoming lap and green running thereafter, without
+predicting future incidents, weather changes or stops. Initial laps without an observed pace retain the
 scheduled horizon.
 
 Chronological pit decisions receive an immutable `StrategyTrafficSnapshot`.
@@ -217,6 +219,6 @@ winner's actual distance and the original scheduled distance respectively.
 - Passing uses physical adjacency rather than confusing race rank with track
   position; a lapped car does not gain a race position by unlapping itself.
 - Fuel uses each car's own lap count and the original fuel schedule; time-limited
-  strategy planning uses the announced finish horizon.
+  strategy planning forecasts clock expiry and obeys the announced finish.
 - Repeated races reset all crossing, finish and queue state. Existing strategy,
   neutralization, retirement and output contracts remain covered by tests.

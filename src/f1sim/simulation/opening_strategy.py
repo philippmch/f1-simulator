@@ -9,7 +9,7 @@ import numpy as np
 
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
-from f1sim.simulation.race_timing import RaceFinishClock
+from f1sim.simulation.race_timing import RaceFinishClock, forecast_final_lap
 
 REACTION_SEEDS = tuple(range(8))
 OPENING_CANDIDATES = (TireCompound.INTERMEDIATE, TireCompound.SOFT,
@@ -134,18 +134,24 @@ def _policy_path_outcome(driver, car, track, weather, strategy, tuning, profiles
     projected = weather.model_copy(deep=True)
     finish_clock = RaceFinishClock(track.total_laps)
     final_lap = finish_clock.final_lap
+    observed_running_pace = None
     for lap in range(1, track.total_laps + 1):
-        planning_track = (track if final_lap == track.total_laps else
-                          track.model_copy(update={"total_laps": final_lap}))
+        planning_final_lap = forecast_final_lap(
+            final_lap, lap - 1, state.total_time, observed_running_pace,
+            finish_clock.time_limit_seconds,
+        )
+        planning_track = (track if planning_final_lap == track.total_laps else
+                          track.model_copy(update={"total_laps": planning_final_lap}))
         loss = 0.0
         if simulator._should_pit(
             state, [state], planning_track, lap, False, projected,
-            **({"physical_total_laps": track.total_laps} if final_lap < track.total_laps else {}),
+            **({"physical_total_laps": track.total_laps}
+               if planning_final_lap < track.total_laps else {}),
         ):
             loss = simulator._execute_pit_stop(
                 state, planning_track, projected, lap, sample_service=False,
                 **({"physical_total_laps": track.total_laps}
-                   if final_lap < track.total_laps else {}),
+                   if planning_final_lap < track.total_laps else {}),
             )
             state.total_time += loss
             state.pit_stops += 1
@@ -155,6 +161,7 @@ def _policy_path_outcome(driver, car, track, weather, strategy, tuning, profiles
             state.driver, state.car, track, state.current_tire, projected, lap, track.total_laps,
             sample_variation=False,
         )
+        observed_running_pace = running
         state.total_time += running
         state.last_lap_time = running + loss
         state.tire_laps += 1

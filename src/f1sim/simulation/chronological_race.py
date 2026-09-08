@@ -19,7 +19,7 @@ from f1sim.simulation.neutralization import safety_car_running_time
 from f1sim.simulation.pit_strategy import expected_stationary_time
 from f1sim.simulation.race import DriverRaceState, DriverStatus, RaceResult
 from f1sim.simulation.race_points import points_for_classification
-from f1sim.simulation.race_timing import RaceFinishTimeline
+from f1sim.simulation.race_timing import RaceFinishTimeline, forecast_final_lap
 from f1sim.simulation.strategy_traffic import StrategyTrafficSnapshot
 from f1sim.simulation.validation import validate_unique_ids
 
@@ -211,9 +211,10 @@ class ChronologicalRace:
         """Forecast an own-lap finish horizon without altering the actual flag.
 
         Use observed free running pace (excluding stops, incidents and blocking),
-        adjusted for the current control multiplier. The leading pending lap's
-        absolute readiness anchors the forecast. Future weather, interruptions
-        and elective stops are unknown; this is a strategy estimate only.
+        with the current control multiplier on the upcoming lap. The leading
+        pending lap's absolute readiness anchors the forecast. The deadline
+        includes elapsed suspension time; later laps assume green running.
+        Future weather, interruptions and elective stops are unknown.
         """
         horizon = self.timeline.final_lap
         own_pace = self.running_paces.get(state.driver.id)
@@ -227,19 +228,33 @@ class ChronologicalRace:
             modifier = self.simulator.event_manager.get_lap_time_modifier()
             if pending is not None:
                 flag_time = pending.ready
-                laps_left = (0 if self.timeline.time_limit_announced else
-                             max(0, self.timeline.final_lap - pending.lap))
                 if leader_pace is None:
                     leader_pace = pending.running or None
                 if not pending.on_track and leader_pace is not None:
                     flag_time += leader_pace * pending.lap_time_modifier
+                anchor_lap = pending.lap
+                next_modifier = 1.0
             else:
                 flag_time = now
-                laps_left = (1 if self.timeline.time_limit_announced else
-                             max(0, self.timeline.final_lap - leader.laps_completed))
+                anchor_lap = leader.laps_completed
+                next_modifier = modifier
             if leader_pace is not None:
-                flag_time += laps_left * leader_pace * modifier
-                remaining = max(1, ceil((flag_time - now) / (own_pace * modifier) - 1e-12))
+                if self.timeline.time_limit_announced:
+                    # A lapped successor can receive the flag below the old
+                    # leader's announced lap number. Its next crossing wins.
+                    laps_left = 0 if pending is not None else 1
+                else:
+                    projected_final = forecast_final_lap(
+                        self.timeline.final_lap, anchor_lap, flag_time, leader_pace,
+                        self.timeline.time_limit_seconds, next_modifier,
+                    )
+                    laps_left = max(0, projected_final - anchor_lap)
+                flag_time += laps_left * leader_pace
+                if laps_left:
+                    flag_time += leader_pace * (next_modifier - 1)
+                remaining = max(1, 1 + ceil(
+                    (flag_time - now - own_pace * modifier) / own_pace - 1e-12,
+                ))
                 horizon = min(self.timeline.final_lap, state.laps_completed + remaining)
         return self.track.model_copy(update={"total_laps": horizon})
 

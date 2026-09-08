@@ -40,10 +40,13 @@ def test_timed_dry_opening_matches_best_executed_alternative(monkeypatch, engine
 
     alternatives = {compound: run(compound) for compound in SLICKS}
     selected = run()
-    assert selected.strategy[0] == TireCompound.HARD.value
+    assert selected.strategy[0] in {TireCompound.MEDIUM.value, TireCompound.HARD.value}
     assert selected.laps_completed == 65 and selected.race_time_limited
     assert all(result.laps_completed == 65 for result in alternatives.values())
     assert selected.total_time == pytest.approx(
         min(result.total_time for result in alternatives.values()), abs=1e-8,
     )
-    assert alternatives[TireCompound.MEDIUM].total_time - selected.total_time > 9.8
+    # Anticipating the clock during the race now also makes a medium start
+    # competitive with hard, instead of forcing its former late extra stop.
+    assert alternatives[TireCompound.MEDIUM].total_time == pytest.approx(selected.total_time)
+    assert selected.total_time == pytest.approx(7414.57358160)

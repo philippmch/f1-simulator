@@ -81,7 +81,7 @@ def test_original_fuel_denominator_is_part_of_both_cache_keys():
 
 
 @pytest.mark.parametrize("projection", [False, True])
-def test_live_and_opening_policy_forward_original_distance_only_after_announcement(
+def test_live_and_opening_policy_forward_original_distance_when_forecast_shortens(
     monkeypatch, projection,
 ):
     from f1sim.simulation.opening_strategy import _policy_path_cost
@@ -106,4 +106,4 @@ def test_live_and_opening_policy_forward_original_distance_only_after_announceme
         monkeypatch.setattr(Weather, "evolve", lambda self, rng: self.project_surface())
         simulator.simulate_race([driver], {"A": car}, track, weather, ["A"],
                                 starting_tires={"A": TireCompound.INTERMEDIATE})
-    assert calls == [(lap, 10, None) for lap in range(1, 5)] + [(5, 5, 10)]
+    assert calls == [(1, 10, None)] + [(lap, 5, 10) for lap in range(2, 6)]

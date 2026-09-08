@@ -13,7 +13,7 @@ from f1sim.simulation.opening_strategy import dry_opening_policy_costs, opening_
 from f1sim.simulation.overtaking import OvertakingModel
 from f1sim.simulation.pit_strategy import expected_stationary_time, plan_dry_stop
 from f1sim.simulation.race_points import points_for_classification
-from f1sim.simulation.race_timing import RaceFinishClock
+from f1sim.simulation.race_timing import RaceFinishClock, forecast_final_lap
 from f1sim.simulation.rain_strategy import plan_rain_stop
 from f1sim.simulation.strategy_traffic import StrategyTrafficSnapshot
 from f1sim.simulation.validation import validate_unique_ids
@@ -274,11 +274,19 @@ class RaceSimulator:
         # Simulate each lap
         finish_clock = RaceFinishClock(track.total_laps)
         final_lap = finish_clock.final_lap
+        observed_running_pace: dict[str, float] = {}
         consecutive_green_laps = 0
         has_two_green_laps = False
         for lap in range(1, track.total_laps + 1):
-            planning_track = (track if final_lap == track.total_laps else
-                              track.model_copy(update={"total_laps": final_lap}))
+            leader = min((state for state in states if state.status == DriverStatus.RACING),
+                         key=lambda state: state.position)
+            planning_final_lap = forecast_final_lap(
+                final_lap, lap - 1, leader.total_time,
+                observed_running_pace.get(leader.driver.id), finish_clock.time_limit_seconds,
+                self.event_manager.get_lap_time_modifier(),
+            )
+            planning_track = (track if planning_final_lap == track.total_laps else
+                              track.model_copy(update={"total_laps": planning_final_lap}))
             # Snapshot race-control state once.  SC/VSC/red-flag transitions
             # are resolved after this lap's running; using immutable values
             # prevents a neutralization ending during process_lap from
@@ -313,7 +321,7 @@ class RaceSimulator:
             drivers_pitting = self._process_pit_stops(
                 states, lap_start_states, planning_track, current_weather, lap,
                 **({"physical_total_laps": track.total_laps}
-                   if final_lap < track.total_laps else {}),
+                   if planning_final_lap < track.total_laps else {}),
             )
             pitting_ids = {state.driver.id for state in drivers_pitting}
             pit_lap_losses = {
@@ -364,6 +372,8 @@ class RaceSimulator:
                     active_aero_enabled=lap_active_aero_enabled,
                     overtake_mode_active=state.overtake_mode_active_lap,
                 )
+
+                observed_running_pace[state.driver.id] = lap_time
 
                 # Apply safety car modifier
                 lap_time *= self.event_manager.get_lap_time_modifier()
@@ -541,12 +551,17 @@ class RaceSimulator:
             if lap < final_lap:
                 current_weather = current_weather.evolve(self.rng)
                 if red_flag_deployed_this_lap:
-                    restart_track = (track if final_lap == track.total_laps else
-                                     track.model_copy(update={"total_laps": final_lap}))
+                    restart_final_lap = forecast_final_lap(
+                        final_lap, lap, leader.total_time,
+                        observed_running_pace.get(leader.driver.id),
+                        finish_clock.time_limit_seconds,
+                    )
+                    restart_track = (track if restart_final_lap == track.total_laps else
+                                     track.model_copy(update={"total_laps": restart_final_lap}))
                     self._fit_red_flag_tires(
                         states, current_weather, restart_track, lap,
                         **({"physical_total_laps": track.total_laps}
-                           if final_lap < track.total_laps else {}),
+                           if restart_final_lap < track.total_laps else {}),
                     )
 
         # Mark finished drivers

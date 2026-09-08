@@ -91,7 +91,8 @@ def test_time_limit_threshold_and_scheduled_cap(monkeypatch, pace, scheduled, co
     assert track.total_laps == scheduled
     if limited:
         assert planning[-1] == (completed, completed)
-        assert planning[-2][1] == scheduled
+        assert planning[0] == (1, scheduled)  # No observed pace before lap one.
+        assert all(horizon == completed for _, horizon in planning[1:])
     expected_rng = np.random.default_rng(42)
     expected_rng.random(completed - 1)
     assert simulator.rng.random() == expected_rng.random()

@@ -1,12 +1,39 @@
 """Chronological finish deadline with bounded suspension-time extensions."""
 
 from dataclasses import dataclass, replace
-from math import isfinite
+from math import ceil, isfinite
 from numbers import Integral, Real
 from types import MappingProxyType
 from typing import Iterable, Mapping
 
 RACING_TIME_LIMIT_SECONDS = 7200.0
+
+
+def forecast_final_lap(
+    scheduled_final_lap: int,
+    completed_lap: int,
+    crossing_time: float,
+    running_pace: float | None,
+    time_limit_seconds: float,
+    current_lap_time_modifier: float = 1.0,
+) -> int:
+    """Estimate strategy distance without announcing or changing the finish.
+
+    The upcoming lap uses current race control; subsequent laps assume green.
+    Observed running pace excludes pit service and other elapsed-time losses.
+    Without a usable observation, retain the scheduled strategy horizon.
+    """
+    values = (crossing_time, running_pace, time_limit_seconds, current_lap_time_modifier)
+    if any(isinstance(value, bool) or not isinstance(value, Real)
+           or not isfinite(value) for value in values):
+        return scheduled_final_lap
+    if running_pace <= 0 or current_lap_time_modifier <= 0 or crossing_time < 0:
+        return scheduled_final_lap
+    if crossing_time >= time_limit_seconds:
+        return min(scheduled_final_lap, completed_lap + 1)
+    next_crossing = crossing_time + running_pace * current_lap_time_modifier
+    additional = max(0, ceil((time_limit_seconds - next_crossing) / running_pace))
+    return min(scheduled_final_lap, completed_lap + 2 + additional)
 
 
 def announced_final_lap(current_final_lap: int, completed_lap: int, leader_time: float) -> int:
