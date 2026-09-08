@@ -48,6 +48,20 @@ cases without a legal projected finish retain the original weighted choice.
 Explicit starting-tyre overrides and rain sets selected by the surface/rainfall
 crossover retain priority.
 
+The dashboard's Statistics tab and saved HTML reports show recorded tyre
+sequence frequencies for each driver across the full run. Expand a driver to
+see every sequence, its count and share, and the finished and retired counts.
+JSON statistics, scenario comparisons and dashboard downloads retain the same
+`strategy_statistics` data. Shares use that driver's observed races with a
+recorded sequence, with missing records counted separately; the requested
+simulation count is not used as a substitute for observations.
+
+Sequences preserve fitting order and repeated compounds, including free
+red-flag changes. A retirement can truncate a sequence, and a fitted set may
+not complete a lap. Sequence length is therefore not the paid-stop count.
+These are descriptive frequencies from the simulated policy, not controlled
+comparisons of which strategy is fastest.
+
 With no rainfall, the dry policy projection is deterministic and needs one
 private run per slick. With sustained rainfall that could change the surface,
 it averages the same eight private reaction seeds used below. Cached scores

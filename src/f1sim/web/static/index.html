@@ -788,12 +788,22 @@ input:focus-visible {
   grid-column: 1 / -1;
 }
 
-.pit-summary-card {
+.pit-summary-card, .strategy-summary-card {
   grid-column: 1 / -1;
 }
 
-.pit-summary-card table {
+.pit-summary-card table, .strategy-summary-card table {
   min-width: 34rem;
+}
+
+.strategy-sequence { margin: 12px 0; }
+.strategy-sequence summary { cursor: pointer; line-height: 1.5; }
+.strategy-sequence table { font-size: 0.8rem; }
+.strategy-sequence tbody th {
+  text-transform: none;
+  font-size: inherit;
+  letter-spacing: normal;
+  color: inherit;
 }
 
 .heatmap {
@@ -2474,6 +2484,34 @@ function renderPitStopStatistics(statistics) {
     </div>`;
 }
 
+function renderStrategyStatistics(statistics) {
+  const drivers = Object.entries(statistics || {})
+    .filter(([, stats]) => stats && Number.isInteger(stats.races) && stats.races > 0)
+    .sort(([a], [b]) => a.localeCompare(b));
+  if (!drivers.length) return '<div class="inline-note">No tyre sequences were recorded for this run.</div>';
+  return `<p class="inline-note">Open a driver to see every sequence. Counts include retirements
+    and free tyre changes; sequence length is not the paid-stop count. Shares use races with a
+    recorded sequence. Frequency does not establish which strategy is fastest.</p>
+    ${drivers.map(([id, stats]) => {
+      const strategies = Array.isArray(stats.strategies) ? stats.strategies : [];
+      const known = toNumber(stats.races_with_recorded_strategy);
+      return `<details class="strategy-sequence">
+        <summary>${escapeHtml(id)}: ${known} recorded of ${stats.races} observed ${stats.races === 1 ? 'race' : 'races'}</summary>
+        <p class="inline-note">Missing tyre sequences: ${toNumber(stats.missing_strategy_races)}</p>
+        ${strategies.length ? `<div class="stats-table-wrap" tabindex="0" role="region"
+          aria-label="${escapeHtml(id)} tyre sequences"><table class="metrics-table">
+          <thead><tr><th scope="col">Tyre sequence</th><th scope="col">Races (% of recorded)</th>
+            <th scope="col">Finished</th><th scope="col">Retired</th></tr></thead>
+          <tbody>${strategies.map(strategy => `<tr>
+            <th scope="row">${escapeHtml((strategy.compounds || []).join(' → '))}</th>
+            <td>${toNumber(strategy.races)} (${formatPercent(toNumber(strategy.share) * 100)})</td>
+            <td>${toNumber(strategy.finished_races)}</td><td>${toNumber(strategy.dnf_races)}</td>
+          </tr>`).join('')}</tbody></table></div>`
+          : '<p class="inline-note">No tyre sequences were recorded.</p>'}
+      </details>`;
+    }).join('')}`;
+}
+
 function renderRaceDistanceStatistics(stats) {
   if (!stats || !Number.isInteger(stats.recorded_races) || stats.recorded_races <= 0) {
     return '<div class="inline-note">Race distance was not recorded for this run.</div>';
@@ -2632,6 +2670,11 @@ function renderStats() {
       <div class="stat-card pit-summary-card">
         <div class="stat-card-title">Pit stops across simulations</div>
         ${renderPitStopStatistics(scenario.pit_stop_statistics)}
+      </div>
+
+      <div class="stat-card strategy-summary-card" id="strategyStatistics">
+        <div class="stat-card-title">Recorded tyre sequences</div>
+        ${renderStrategyStatistics(scenario.strategy_statistics)}
       </div>
 
       <div class="stat-card heatmap-container">

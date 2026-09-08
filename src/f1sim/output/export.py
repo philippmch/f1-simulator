@@ -260,6 +260,7 @@ class Exporter:
             "probability_intervals": results.get_probability_intervals(),
             "event_rates": results.get_event_rates(),
             "pit_stop_statistics": results.get_pit_stop_statistics(),
+            "strategy_statistics": results.get_strategy_statistics(),
             "race_distance_statistics": results.get_race_distance_statistics(),
             "top_3_finish_probabilities": results.get_top_n_finish_probabilities(3),
             "top_10_finish_probabilities": results.get_top_n_finish_probabilities(10),
@@ -336,6 +337,7 @@ class Exporter:
                 "race_engine": results.race_engine,
                 "win_probabilities": results.get_win_probabilities(),
                 "race_distance_statistics": results.get_race_distance_statistics(),
+                "strategy_statistics": results.get_strategy_statistics(),
                 "simulation_inputs": results.input_snapshot,
                 "team_championship_projection": results.get_team_championship_projection(),
             }
@@ -387,6 +389,26 @@ class Exporter:
                  f'({distance["time_limited_race_rate"] * 100:.1f}%)')
         no_winner = ("Not recorded" if not recorded else
                      f'{distance["races_without_winner"]} of {recorded_text}')
+        strategy_sections = []
+        for driver_id, summary in results.get_strategy_statistics().items():
+            known = summary["races_with_recorded_strategy"]
+            rows = "".join(
+                "<tr><td>" + escape(" → ".join(strategy["compounds"])) + "</td>"
+                f'<td>{strategy["races"]} ({strategy["share"] * 100:.1f}%)</td>'
+                f'<td>{strategy["finished_races"]}</td><td>{strategy["dnf_races"]}</td></tr>'
+                for strategy in summary["strategies"]
+            )
+            strategy_sections.append(
+                f'<details><summary>{escape(str(driver_id))}: {known} recorded of '
+                f'{summary["races"]} observed '
+                f'{"race" if summary["races"] == 1 else "races"}</summary>'
+                f'<p>Missing tyre sequences: {summary["missing_strategy_races"]}</p>'
+                + ('<div class="table-wrap"><table><thead><tr><th>Tyre sequence</th>'
+                   '<th>Races (% of recorded)</th><th>Finished</th><th>Retired</th>'
+                   f'</tr></thead><tbody>{rows}</tbody></table></div>' if rows else
+                   '<p>No tyre sequences were recorded.</p>') + '</details>'
+            )
+        strategy_html = "".join(strategy_sections) or "<p>No tyre sequences were recorded.</p>"
 
         html = f"""<!doctype html>
 <html lang=\"en\">
@@ -406,6 +428,11 @@ class Exporter:
     .card {{ background: #181c30; border: 1px solid #2a3156; border-radius: 12px; padding: 16px; }}
     h1, h2 {{ margin: 0 0 12px; }}
     .meta {{ color: #b6c0ff; margin-bottom: 16px; }}
+    details {{ margin: 12px 0; }}
+    summary {{ cursor: pointer; }}
+    .table-wrap {{ overflow-x: auto; }}
+    table {{ width: 100%; border-collapse: collapse; text-align: left; }}
+    th, td {{ padding: 8px; border-bottom: 1px solid #2a3156; }}
   </style>
 </head>
 <body>
@@ -420,6 +447,12 @@ class Exporter:
       <p>Lapped finishers: {escape(lapped)}</p>
       <p>Time-limited races: {escape(timed)}</p>
       <p>Races without a winner: {escape(no_winner)}</p>
+    </div>
+    <div class=\"card\" id=\"strategy-statistics\"><h2>Recorded tyre sequences</h2>
+      <p>Open a driver to see every sequence. Counts include retirements and free tyre
+      changes; sequence length is not the paid-stop count. Shares use races with a
+      recorded sequence. Frequency does not establish which strategy is fastest.</p>
+      {strategy_html}
     </div>
     <div class=\"card\"><h2>Top 10 Win Probabilities</h2><div id=\"wins\"></div></div>
     <div class=\"card\"><h2>Team Points Projection (per race)</h2><div id=\"teams\"></div></div>

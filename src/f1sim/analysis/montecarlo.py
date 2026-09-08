@@ -12,6 +12,7 @@ import numpy as np
 
 from f1sim.analysis.provenance import simulation_runtime
 from f1sim.models import Car, Driver, Track, Weather
+from f1sim.models.tire import TireCompound
 from f1sim.simulation.chronological_race import ChronologicalRace
 from f1sim.simulation.events import EventType
 from f1sim.simulation.execution import validate_race_engine
@@ -189,6 +190,53 @@ class SimulationResults:
             "lapped_finishers": lapped,
             "lapped_finisher_rate": lapped / comparable if comparable else None,
         }
+
+    def get_strategy_statistics(self) -> dict[str, dict]:
+        """Count recorded tyre sequences per observed driver race row.
+
+        Shares are fractions of rows with a valid recorded sequence, including
+        DNFs whose sequences can be truncated. Fittings can include free red
+        flag changes, so sequence length is not a paid pit-stop count. Missing
+        or malformed legacy sequences stay unknown. These frequencies describe
+        observed strategies, not their causal effect on race outcomes.
+        """
+        observations: dict[str, int] = defaultdict(int)
+        variants: dict[str, dict[tuple[str, ...], dict[str, int]]] = defaultdict(dict)
+        for race in self.race_results:
+            for result in race:
+                driver_id = result.driver_id
+                observations[driver_id] += 1
+                sequence = getattr(result, "strategy", None)
+                if not isinstance(sequence, (list, tuple)) or not sequence:
+                    continue
+                if not all(isinstance(compound, str) and compound for compound in sequence):
+                    continue
+                key = tuple(
+                    compound.value if isinstance(compound, TireCompound) else str(compound)
+                    for compound in sequence
+                )
+                counts = variants[driver_id].setdefault(
+                    key, {"races": 0, "finished_races": 0, "dnf_races": 0}
+                )
+                counts["races"] += 1
+                counts["finished_races"] += int(result.status == DriverStatus.FINISHED)
+                counts["dnf_races"] += int(result.status == DriverStatus.DNF)
+
+        summaries = {}
+        for driver_id, races in sorted(observations.items()):
+            recorded = sum(counts["races"] for counts in variants[driver_id].values())
+            summaries[driver_id] = {
+                "races": races,
+                "races_with_recorded_strategy": recorded,
+                "missing_strategy_races": races - recorded,
+                "strategies": [
+                    {"compounds": list(sequence), **counts, "share": counts["races"] / recorded}
+                    for sequence, counts in sorted(
+                        variants[driver_id].items(), key=lambda item: (-item[1]["races"], item[0])
+                    )
+                ],
+            }
+        return summaries
 
     def get_pit_stop_statistics(self) -> dict[str, dict]:
         """Paid stops per observed race row, including retired entrants.

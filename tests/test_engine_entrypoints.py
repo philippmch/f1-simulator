@@ -58,6 +58,11 @@ def test_dashboard_real_runner_propagates_engine_to_each_scenario(monkeypatch, t
         assert scenario["race_engine"] == engine
         assert scenario["seed"] == 7 + index * 1000
         assert scenario["sample_race"]
+        strategies = scenario["strategy_statistics"]
+        assert strategies
+        for stats in strategies.values():
+            assert stats["races"] == stats["races_with_recorded_strategy"] == 10
+            assert sum(item["races"] for item in stats["strategies"]) == 10
         distance = scenario["race_distance_statistics"]
         assert distance["recorded_races"] == 10
         assert distance["mean_winner_laps"] == 3

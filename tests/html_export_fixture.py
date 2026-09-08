@@ -5,6 +5,7 @@ from tempfile import TemporaryDirectory
 
 from f1sim.analysis.montecarlo import DriverStatistics, SimulationResults
 from f1sim.output.export import Exporter
+from f1sim.simulation.race import DriverStatus, RaceResult
 
 
 def build_fixture():
@@ -15,7 +16,9 @@ def build_fixture():
     filename = "Montréal & report's.html"
     stats_name = "javascript:globalThis.exportInjected=true"
     results = SimulationResults(
-        num_simulations=1, track_name=track, seed=42, race_results=[], qualifying_results=[],
+        num_simulations=1, track_name=track, seed=42,
+        race_results=[[RaceResult(driver, driver, team, 1, 100, 0, 0, 90, DriverStatus.DNF,
+                                  strategy=["soft", script, "soft"])]], qualifying_results=[],
         driver_stats={"A": DriverStatistics(driver_id="A", driver_name=driver, team=team,
                                             wins=1, positions=[1], total_points=25)},
     )

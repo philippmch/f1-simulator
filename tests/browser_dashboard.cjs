@@ -88,6 +88,39 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       if (stats.win_rate === 0) assert(interval.upper > 0);
     }
     const pitStatistics = Object.values(payload.scenarios)[0].pit_stop_statistics;
+    const strategyStatistics = Object.values(payload.scenarios)[0].strategy_statistics;
+    assert.equal(await page.locator('#strategyStatistics details').count(),
+      Object.keys(strategyStatistics).length);
+    const [sequenceId, sequenceStats] = Object.entries(strategyStatistics).sort(([a], [b]) => a.localeCompare(b))[0];
+    const sequenceDetails = page.locator('#strategyStatistics details').first();
+    await sequenceDetails.locator('summary').click();
+    assert((await sequenceDetails.innerText()).includes(`${sequenceId}: ${sequenceStats.races_with_recorded_strategy} recorded of ${sequenceStats.races}`));
+    assert.equal(await sequenceDetails.locator('tbody tr').count(), sequenceStats.strategies.length);
+    assert.equal(await sequenceDetails.locator('tbody th').first().innerText(),
+      sequenceStats.strategies[0].compounds.join(' → '));
+    await page.evaluate(() => {
+      window.savedStrategyStatistics = getScenarioEntry().data.strategy_statistics;
+      getScenarioEntry().data.strategy_statistics = {'<img src=x>': {
+        races: 3, races_with_recorded_strategy: 2, missing_strategy_races: 1,
+        strategies: [{compounds: ['soft', '<svg onload=alert(1)>', 'soft'], races: 2,
+          share: 1, finished_races: 1, dnf_races: 1}],
+      }};
+      renderStats();
+    });
+    await page.locator('#strategyStatistics summary').click();
+    assert.equal(await page.locator('#strategyStatistics img, #strategyStatistics svg').count(), 0);
+    assert((await page.locator('#strategyStatistics').innerText()).includes('Missing tyre sequences: 1'));
+    assert.equal(await page.locator('#strategyStatistics tbody th').innerText(),
+      'soft → <svg onload=alert(1)> → soft');
+    assert.deepEqual(await page.locator('#strategyStatistics tbody td').allTextContents(),
+      ['2 (100.0%)', '1', '1']);
+    await page.evaluate(() => { delete getScenarioEntry().data.strategy_statistics; renderStats(); });
+    assert((await page.locator('#strategyStatistics').innerText()).includes('No tyre sequences were recorded'));
+    await page.evaluate(() => {
+      getScenarioEntry().data.strategy_statistics = savedStrategyStatistics;
+      delete window.savedStrategyStatistics;
+      renderStats();
+    });
     assert.equal(await page.locator('#pitStopStatistics tbody tr').count(),
       Object.keys(pitStatistics).length);
     for (const [id, stats] of Object.entries(pitStatistics)) {
@@ -233,6 +266,11 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
           `${tab} overflows at ${width}px`);
         if (tab === 'stats' && process.env.F1SIM_SCREENSHOTS && [390, 1440].includes(width)) {
+          if (width === 1440) await page.setViewportSize({width, height: 1600});
+          await page.locator('#strategyStatistics details').first().evaluate(node => { node.open = true; });
+          await page.locator('#strategyStatistics').screenshot({
+            path: path.join(process.env.F1SIM_SCREENSHOTS, `tyre-sequences-${width}.png`),
+          });
           if (width === 1440) await page.setViewportSize({width, height: 1300});
           await page.locator('.pit-summary-card').evaluate(card => card.scrollIntoView({block: 'center'}));
           await page.locator('.pit-summary-card').screenshot({
@@ -261,6 +299,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         const saved = JSON.parse(readFileSync(await download.path(), 'utf8'));
         for (const [name, scenario] of Object.entries(saved.scenarios)) {
           assert.deepEqual(scenario.simulation_inputs, payload.scenarios[name].simulation_inputs);
+          assert.deepEqual(scenario.strategy_statistics, payload.scenarios[name].strategy_statistics);
           assert.equal(scenario.simulation_inputs.schema_version, 1);
         }
       }
