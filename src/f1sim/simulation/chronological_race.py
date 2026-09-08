@@ -1,8 +1,8 @@
 """Experimental chronological race execution; production still uses RaceSimulator.
 
 Each car owns one pending lap. Whole-lap physics freezes weather/control when
-that lap starts; interventions affect subsequently started laps. No suspension
-wall time or mid-lap sector redistribution is invented. Circular crossing order
+that lap starts; red flags collect the field before a shared restart. There is
+no mid-lap sector redistribution. Circular crossing order
 requires a sampled pass or compliant blue-flag yield before a faster car can
 cross a physical predecessor.
 """
@@ -11,6 +11,7 @@ import heapq
 from dataclasses import dataclass, field
 from itertools import count
 from math import ceil, isfinite
+from numbers import Real
 
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.events import EventType, RaceEvent
@@ -52,10 +53,16 @@ class _PendingLap:
 class ChronologicalRace:
     """Runnable opt-in engine with absolute crossings, stops, and per-car flags."""
 
-    def __init__(self, simulator):
+    def __init__(self, simulator, *, red_flag_pause_seconds=600.0):
+        if (isinstance(red_flag_pause_seconds, bool)
+                or not isinstance(red_flag_pause_seconds, Real)
+                or not isfinite(red_flag_pause_seconds) or red_flag_pause_seconds < 0):
+            raise ValueError("red_flag_pause_seconds must be finite and nonnegative")
         self.simulator = simulator
+        self.red_flag_pause_seconds = float(red_flag_pause_seconds)
         self.crossings: list[tuple[str, int, float]] = []
         self.pit_exits: list[tuple[str, int, float]] = []
+        self.suspensions: list[tuple[float, float, tuple[str, ...]]] = []
 
     def run(self, drivers, cars, track, weather, starting_grid, *, starting_tires=None):
         validate_unique_ids([driver.id for driver in drivers], "driver")
@@ -91,6 +98,10 @@ class ChronologicalRace:
         self.fastest = {}
         self.running_paces = {}
         self.free_refits = set()
+        self.regrouping = False
+        self.red_waiting = set()
+        self.resumption_order = []
+        self.red_flag_start = None
         self.leader_id = None
         self.incidents = 0
         self.control_intervals = 0
@@ -98,6 +109,7 @@ class ChronologicalRace:
         self.has_two_green = False
         self.crossings.clear()
         self.pit_exits.clear()
+        self.suspensions.clear()
         for state in self.states.values():
             self._start_lap(state, 0.0)
         while self.queue:
@@ -106,16 +118,86 @@ class ChronologicalRace:
             if pending is None or generation != pending.generation:
                 continue
             if kind == "exit":
-                self.order.append(driver_id)  # Pit exit is immediately after the line.
-                self.pit_exits.append((driver_id, pending.lap, now))
-                self._begin_running(self.states[driver_id], pending, now)
-                self._enqueue(driver_id, pending.ready, "cross")
-                continue
-            if self._resolve_crossing(driver_id, now):
+                if self.regrouping:
+                    self.red_waiting.add(driver_id)  # Pit exit remains closed.
+                else:
+                    self.order.append(driver_id)  # Pit exit is immediately after the line.
+                    self.pit_exits.append((driver_id, pending.lap, now))
+                    self._begin_running(self.states[driver_id], pending, now)
+                    self._enqueue(driver_id, pending.ready, "cross")
+            elif self._resolve_crossing(driver_id, now):
                 state = self.states[driver_id]
                 if self.timeline.can_start_next_lap(driver_id):
-                    self._start_lap(state, now)
+                    if self.regrouping:
+                        self.red_waiting.add(driver_id)
+                        self.order.remove(driver_id)
+                    else:
+                        self._start_lap(state, now)
+            if self.regrouping:
+                self._resume_if_collected(now)
         return self._results()
+
+    def _fit_red_flag_set(self, state, planning):
+        compound = self.simulator._choose_red_flag_tire(
+            state, self.weather, planning, state.laps_completed,
+        )
+        self.simulator._fit_tire(state, compound)
+        state.force_pit_next_lap = False
+        state.dry_pit_proposal = None
+        self.free_refits.remove(state.driver.id)
+
+    def _red_flag_order(self):
+        """Freeze known on-track order without undoing a completed passing move.
+
+        Cars in service retain their last recorded rank slots; among on-track
+        cars, completed distance and circular order supersede old line clocks.
+        """
+        ranked = sorted((state for state in self.states.values()
+                         if state.status == DriverStatus.RACING), key=lambda state: state.position)
+        physical = {driver_id: index for index, driver_id in enumerate(self.order)}
+        on_track = iter(sorted(
+            (state for state in ranked if state.driver.id in physical),
+            key=lambda state: (-state.laps_completed, physical[state.driver.id]),
+        ))
+        return [next(on_track).driver.id if state.driver.id in physical else state.driver.id
+                for state in ranked]
+
+    def _resume_if_collected(self, now):
+        active = {key for key, state in self.states.items() if state.status == DriverStatus.RACING}
+        if not active <= self.red_waiting:
+            return
+        resume = now + self.red_flag_pause_seconds
+        self.timeline.end_suspension(resume)
+        self.simulator.event_manager.end_red_flag()
+        self.regrouping = False
+        self.order = [key for key in self.resumption_order if key in active]
+        self.suspensions.append((self.red_flag_start, resume, tuple(self.order)))
+        self.red_waiting.clear()
+        for driver_id in list(self.order):
+            state = self.states[driver_id]
+            pending = self.pending.get(driver_id)
+            if pending is None:
+                self._start_lap(state, resume)
+                continue
+            # This paid stop completed service while the exit was closed. Its
+            # running has never been sampled. Fit the shared restart set and
+            # release the existing lap without charging/sampling another stop.
+            self._fit_red_flag_set(state, self._planning_track(state, resume))
+            control = self.simulator.event_manager
+            pending.weather = self.weather.model_copy(deep=True)
+            pending.tire = state.current_tire.model_copy(deep=True)
+            pending.tire_age = state.tire_laps
+            pending.neutralized = False
+            pending.lap_time_modifier = control.get_lap_time_modifier()
+            pending.active_aero_enabled = control.is_active_aero_allowed()
+            pending.mode_allowed = False
+            pending.restart_boost = control.is_restart_lap(self.control_intervals + 1)
+            pending.safety_car = False
+            pending.sc_queue_pace = None
+            pending.generation += 1
+            self.pit_exits.append((driver_id, pending.lap, resume))
+            self._begin_running(state, pending, resume)
+            self._enqueue(driver_id, pending.ready, "cross")
 
     def _enqueue(self, driver_id, time, kind):
         # At an exact-time crossing tie the leading distance receives the
@@ -166,12 +248,7 @@ class ChronologicalRace:
         control = self.simulator.event_manager
         planning = self._planning_track(state, now)
         if driver_id in self.free_refits:
-            compound = self.simulator._choose_red_flag_tire(
-                state, self.weather, planning, state.laps_completed,
-            )
-            self.simulator._fit_tire(state, compound)
-            state.force_pit_next_lap = False
-            self.free_refits.remove(driver_id)
+            self._fit_red_flag_set(state, planning)
         delay = max(0.0, self.box_releases.get(state.car.team_id, now) - now)
         active = [other for other in self.states.values() if other.status == DriverStatus.RACING]
         stop = state.force_pit_next_lap or self.simulator._should_pit(
@@ -194,7 +271,7 @@ class ChronologicalRace:
         neutralized = not control.is_active_aero_allowed()
         interval = self.control_intervals + 1
         pending = _PendingLap(
-            lap, now, now + loss, snapshot, neutralized,
+            lap, state.total_time, now + loss, snapshot, neutralized,
             state.current_tire.model_copy(deep=True), state.tire_laps, 0.0,
             on_track=not stop, paid_stop=stop,
             lap_time_modifier=control.get_lap_time_modifier(),
@@ -369,6 +446,8 @@ class ChronologicalRace:
         state.driver.dnf = True
         state.driver.dnf_reason = reason
         self.pending.pop(driver_id, None)
+        self.free_refits.discard(driver_id)
+        self.red_waiting.discard(driver_id)
         if driver_id in self.order:
             self.order.remove(driver_id)
 
@@ -412,7 +491,7 @@ class ChronologicalRace:
             defender = self.states[defender_id]
             defender_lap = self.pending[defender_id]
             success = incident = False
-            if (not pending.neutralized and not defender_lap.neutralized
+            if (not self.regrouping and not pending.neutralized and not defender_lap.neutralized
                     and pending.lap > defender_lap.lap):
                 # This encounter puts the physical predecessor another lap
                 # down. Model compliant yielding at the lap-level catch point;
@@ -420,7 +499,7 @@ class ChronologicalRace:
                 # A same-lap attack or unlapping attempt still needs a pass.
                 self.order[index - 1], self.order[index] = driver_id, defender_id
                 continue
-            if (not pending.neutralized and not defender_lap.neutralized
+            if (not self.regrouping and not pending.neutralized and not defender_lap.neutralized
                     and defender_id not in pending.attempted):
                 pending.attempted.add(defender_id)
                 # Earlier unconstrained readiness means the car has caught its
@@ -511,10 +590,14 @@ class ChronologicalRace:
         self.green_streak = 0 if neutral else self.green_streak + 1
         self.has_two_green |= self.green_streak >= 2
         red = any(event.event_type == EventType.RED_FLAG for event in events)
-        if red:
-            self.free_refits.update(state.driver.id for state in self.states.values()
-                                    if state.status == DriverStatus.RACING)
-            control.end_red_flag()  # No invented wall-time pause or clock rewind.
+        if red and self.timeline.chequered_time is None:
+            self.timeline.begin_suspension(now)
+            self.regrouping = True
+            self.red_flag_start = now
+            self.resumption_order = self._red_flag_order()
+            self.free_refits.update(self.resumption_order)
+        elif red:
+            control.end_red_flag()  # A completed race has no restart.
         if (self.timeline.chequered_time is None
                 and any(state.status == DriverStatus.RACING for state in self.states.values())):
             self.weather = self.weather.evolve(self.simulator.rng)
@@ -548,7 +631,8 @@ class ChronologicalRace:
 
 
 def simulate_chronological_race(simulator, drivers, cars, track, weather, starting_grid,
-                                *, starting_tires=None):
+                                *, starting_tires=None, red_flag_pause_seconds=600.0):
     """Run the experimental engine explicitly; production dispatch is unchanged."""
-    return ChronologicalRace(simulator).run(drivers, cars, track, weather, starting_grid,
-                                             starting_tires=starting_tires)
+    return ChronologicalRace(simulator, red_flag_pause_seconds=red_flag_pause_seconds).run(
+        drivers, cars, track, weather, starting_grid, starting_tires=starting_tires,
+    )
