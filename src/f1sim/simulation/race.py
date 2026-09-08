@@ -1921,7 +1921,7 @@ class RaceSimulator:
         additional_current_stop_cost: float = 0.0, *, traffic_possible: bool = True,
         physical_total_laps: int | None = None,
     ) -> bool:
-        """Compare an optimistic paid-refit plan with retaining the current set."""
+        """Compare an optimistic paid-refit plan with retaining while safe."""
         costs = weather_stop_costs(
             state.driver, state.car, track, weather, state.current_tire,
             state.tire_laps, current_lap,

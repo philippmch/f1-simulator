@@ -82,6 +82,8 @@ def test_weather_scales_only_green_traffic_and_queue_cost_is_preserved(monkeypat
 def test_wet_free_stop_window_uses_snapshot_gap(monkeypatch, behind, expected):
     sim, own, track, weather = fixture(wet=True)
     reject_old_gaps(monkeypatch, sim)
+    # Isolate the traffic trigger; a separate cost check can reject its stop.
+    monkeypatch.setattr(sim, "_weather_stop_can_pay", lambda *a, **k: True)
     monkeypatch.setattr(sim, "rng", type("NoRandomStop", (), {"random": lambda self: 1})())
     monkeypatch.setattr(sim, "_select_active_pit_plan", lambda *a, **k: [30])
     assert sim._should_pit(
@@ -94,12 +96,23 @@ def test_wet_free_stop_window_uses_snapshot_gap(monkeypatch, behind, expected):
 def test_wet_undercut_uses_snapshot_gap(monkeypatch, ahead, expected):
     sim, own, track, weather = fixture(wet=True)
     reject_old_gaps(monkeypatch, sim)
+    monkeypatch.setattr(sim, "_weather_stop_can_pay", lambda *a, **k: True)
     monkeypatch.setattr(sim, "rng", type("Threshold", (), {"random": lambda self: 0.3})())
     monkeypatch.setattr(sim, "_select_active_pit_plan", lambda *a, **k: [20])
     assert sim._should_pit(
         own, [own], track, 17, False, weather,
         traffic_snapshot=StrategyTrafficSnapshot(ahead, None, 0),
     ) is expected
+
+
+def test_drying_track_rejects_costly_rain_refit_despite_large_gap(monkeypatch):
+    sim, own, track, weather = fixture(wet=True)
+    reject_old_gaps(monkeypatch, sim)
+    monkeypatch.setattr(sim, "_select_active_pit_plan", lambda *a, **k: [30])
+    assert not sim._should_pit(
+        own, [own], track, 15, True, weather,
+        traffic_snapshot=StrategyTrafficSnapshot(None, 30, 0),
+    )
 
 
 def test_default_matches_explicit_legacy_observations_and_rng():

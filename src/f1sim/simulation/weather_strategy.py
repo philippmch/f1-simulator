@@ -26,13 +26,6 @@ def _surface_path(weather: Weather, laps: int) -> list[Weather]:
     return path
 
 
-@lru_cache(maxsize=4096)
-def _old_set_becomes_critical(weather_json: str, compound: TireCompound, horizon: int) -> bool:
-    weather = Weather.model_validate_json(weather_json)
-    return any(surface.tire_mismatch(compound) == "critical"
-               for surface in _surface_path(weather, horizon))
-
-
 def _running(simulator, driver, car, track, tire, weather, lap, age, *, gap=None, aero=True,
              physical_total_laps=None):
     driver.current_tire_laps = age  # Projection owns this isolated driver.
@@ -89,8 +82,12 @@ def _fresh_plan_costs(driver_json: str, car_json: str, track_json: str,
 
 @lru_cache(maxsize=4096)
 def _retained_costs(driver_json, car_json, track_json, weather_json, tire_json,
-                    tire_age, current_lap, traffic_possible, physical_total_laps):
-    """Separate current-set cache; fresh schedule keys contain no current wear."""
+                    tire_age, current_lap, traffic_possible, physical_total_laps, tires_json):
+    """Retain while safe, paying for required future changes before running.
+
+    This is a feasible waiting policy, not an optimal delayed-stop plan. Its
+    future stops receive no current queue or neutralization discount.
+    """
     driver = Driver.model_validate_json(driver_json)
     car = Car.model_construct(**json.loads(car_json))
     track = Track.model_validate_json(track_json)
@@ -99,6 +96,26 @@ def _retained_costs(driver_json, car_json, track_json, weather_json, tire_json,
     simulator = LapSimulator(np.random.default_rng(0))
     total, first = 0.0, 0.0
     for offset, surface in enumerate(_surface_path(weather, track.total_laps - current_lap + 1)):
+        if surface.tire_mismatch(tire.compound) == "critical":
+            # A currently critical set is handled before this projection.
+            # Each recursive replacement is noncritical, so its next stop
+            # must occur at a strictly later lap.
+            required = surface.fresh_rain_compound()
+            candidates = {required} if required is not None else {
+                TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
+            }
+            fresh = {TireCompound(key): value for key, value in json.loads(tires_json).items()}
+            suffix = min((
+                _retained_costs(
+                    driver_json, car_json, track_json,
+                    json.dumps(surface.model_dump(), sort_keys=True),
+                    json.dumps(fresh[compound], sort_keys=True), 0, current_lap + offset,
+                    traffic_possible, physical_total_laps, tires_json,
+                )[0] for compound in candidates
+                if surface.tire_mismatch(compound) != "critical"
+            ), default=inf)
+            total += track.pit_lane_delta + expected_stationary_time(car) + suffix
+            break
         running = _running(simulator, driver, car, track, tire, surface,
                            current_lap + offset, tire_age + offset,
                            gap=0.0 if traffic_possible else None,
@@ -116,12 +133,14 @@ def weather_stop_costs(
     active_aero_enabled: bool = True, traffic_possible: bool = True,
     physical_total_laps: int | None = None,
 ) -> WeatherStopCosts:
-    """Compare retain-to-finish with an optimistic schedule of paid refits.
+    """Compare retaining while safe with an optimistic schedule of paid refits.
 
     Rainfall/condition stay fixed while the shared surface model evolves. Later
     refits may use any noncritical fresh set without budget or compound-rule
-    constraints, but pay the full expected stop cost. A future critical old
-    set bypasses the veto. This comparison is a lower bound, not a forecast.
+    constraints, but pay the full expected stop cost. The waiting alternative
+    retains each set until it becomes critical, then pays for an appropriate
+    fresh set before running that lap. Only a currently critical set bypasses
+    the veto. This is a cost bound under projected weather, not a forecast.
     The track bounds the planning horizon; physical_total_laps preserves the
     original fuel schedule when a time limit shortens that horizon.
     """
@@ -130,7 +149,7 @@ def weather_stop_costs(
     if horizon <= 0:
         raise ValueError("current_lap must not exceed the race distance")
     weather_json = json.dumps(weather.model_dump(), sort_keys=True)
-    if _old_set_becomes_critical(weather_json, current_tire.compound, horizon):
+    if weather.tire_mismatch(current_tire.compound) == "critical":
         return WeatherStopCosts(0.0, inf)
     clean = driver.model_copy(deep=True)
     clean.reset_race_state()
@@ -147,7 +166,7 @@ def weather_stop_costs(
     stay, stay_first = _retained_costs(
         driver_json, car_json, track_json, weather_json,
         json.dumps(current_tire.model_dump(), sort_keys=True), tire_age, current_lap,
-        traffic_possible, physical_total_laps,
+        traffic_possible, physical_total_laps, tires_json,
     )
     if current_lap_time_modifier != 1.0 or not active_aero_enabled:
         actual_stay_first = _running(

@@ -80,11 +80,51 @@ def test_lone_car_rejects_losing_wet_stop_in_retention_window():
     )
 
 
-def test_projected_critical_old_set_bypasses_veto():
+def test_currently_critical_old_set_bypasses_veto():
     driver, car, track, _ = fixture()
-    result = weather_stop_costs(driver, car, track, Weather(track_wetness=0.34, rain_intensity=0.9),
+    result = weather_stop_costs(driver, car, track, Weather(track_wetness=0.6, rain_intensity=0.9),
                                 TIRE_COMPOUNDS[TireCompound.SOFT], 5, 1)
     assert result.pit_now_cost == 0 and result.stay_cost == inf
+
+
+@pytest.mark.parametrize("compound,wetness,rain", [
+    (TireCompound.SOFT, .34, .9), (TireCompound.WET, .25, 0),
+])
+@pytest.mark.parametrize("modifier,lane,traffic", [(1, 1, False), (1.4, .55, True)])
+def test_wait_cost_prices_actual_safe_laps_and_required_future_services(
+    compound, wetness, rain, modifier, lane, traffic,
+):
+    driver, car, track, _ = fixture(6)
+    weather = Weather(track_wetness=wetness, rain_intensity=rain)
+    tire = TIRE_COMPOUNDS[compound]
+    actual = weather_stop_costs(driver, car, track, weather, tire, 4, 2,
+                               pit_lane_factor=lane, additional_current_stop_cost=10000,
+                               current_lap_time_modifier=modifier, active_aero_enabled=False,
+                               traffic_possible=traffic, physical_total_laps=50)
+    simulator = LapSimulator(np.random.default_rng(0))
+
+    # Independent recursive execution of the specific waiting policy: run
+    # each set until unsafe; only then buy an appropriate set before running.
+    def execute(surface, fitted, age, lap):
+        if lap > track.total_laps:
+            return 0.0
+        if surface.tire_mismatch(fitted.compound) == "critical":
+            required = surface.fresh_rain_compound()
+            choices = [required] if required is not None else [
+                TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
+            ]
+            return track.pit_lane_delta + expected_stationary_time(car) + min(
+                execute(surface, TIRE_COMPOUNDS[choice], 0, lap) for choice in choices
+            )
+        running = simulator.calculate_lap_time(
+            driver.model_copy(update={"current_tire_laps": age}), car, track, fitted,
+            surface, lap, 50, gap_to_car_ahead=0 if traffic else None,
+            active_aero_enabled=lap != 2, sample_variation=False,
+        ) * (modifier if lap == 2 else 1)
+        return running + execute(surface.project_surface(), fitted, age + 1, lap + 1)
+
+    assert actual.stay_cost == pytest.approx(execute(weather, tire, 4, 2))
+    assert actual.pit_now_cost > actual.stay_cost
 
 
 def test_cache_config_and_current_adjustments_are_isolated_and_inputs_unchanged(monkeypatch):

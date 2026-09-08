@@ -76,11 +76,14 @@ def test_profitable_long_wet_stint_retains_existing_probability(setup):
     assert simulator.rng.random() == expected_rng.random()
 
 
-def test_projected_critical_mismatch_prevents_cost_veto(setup):
+def test_future_critical_mismatch_still_prices_current_queue(setup):
     simulator, state, track = setup
     weather = Weather(track_wetness=0.34, rain_intensity=0.7)
     assert simulator._check_tire_weather_mismatch(state.current_tire, weather) == "suboptimal"
-    assert simulator._weather_stop_can_pay(state, track, weather, 29, 10000)
+    assert not simulator._weather_stop_can_pay(state, track, weather, 29, 10000)
+    # Once the set is unsafe, today's queue cannot defer the safety stop.
+    future = weather.project_surface()
+    assert simulator._should_pit(state, [state], track, 30, False, future, 10000)
 
 
 def test_drying_projection_uses_shared_surface_updates_without_mutation(setup, monkeypatch):
