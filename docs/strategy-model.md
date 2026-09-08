@@ -287,16 +287,23 @@ inventory, stop-budget or compound-use restriction. Each set must run at least
 one lap, ages normally, and cannot continue into a critical mismatch. This
 expanded set of future options gives an optimistic cost for stopping now.
 
-The alternative retains the existing set to the finish. If rivals remain, it
-receives maximum dirty air while replacement sets receive clear air; a lone car
-receives no fictional traffic relief. The calculation uses noise-free lap times,
+The alternative retains the existing set while it is noncritical. If it would
+become critical before the finish, this waiting policy pays full lane and
+expected service loss to fit an appropriate fresh set before that lap, repeating
+only when another change becomes necessary. At a slick transition it chooses
+the cheapest such safe-retention policy among the three slick compounds. This
+provides a feasible waiting alternative without claiming optimal stop timing.
+If rivals remain, the waiting policy receives maximum dirty air throughout,
+while the optimistic stop-now plan receives clear air; a lone car receives no
+fictional traffic relief. The calculation uses noise-free lap times,
 including the pace floor. Only this lap receives the current SC/VSC running and
 lane factors; queue delay applies only to the current stop. Future laps and
 stops assume green running. Results are cached with bounded capacity.
 
-If even the optimistic paid-refit plan is slower than retaining the old set,
-the car stays out and re-evaluates next lap. Projected critical old-set conditions
-and unresolved compound-use requirements retain priority. Passing the filter can
+If even the optimistic paid-refit plan is slower than this waiting policy,
+the car stays out and re-evaluates next lap. A currently critical set and
+unresolved compound-use requirements retain priority. A forecast need to change
+tyres later no longer bypasses today's cost comparison. Passing the filter can
 still permit a losing stop because its future options and traffic relief may be
 unavailable. This remains a conditional cost filter, not an optimal wet-race
 schedule or a guarantee about unpredictable weather.
