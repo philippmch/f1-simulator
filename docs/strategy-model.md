@@ -386,10 +386,14 @@ is eligible only if the remaining projected schedule can still satisfy the
 dry-use rule. The choice does not sample randomness or alter the race state.
 
 For a damp fallback stop whose compound has not already been selected, the
-simulator compares tyre contribution over the
-next stint for each eligible fresh slick. The projection shares the actual lap
-model's compound pace, wear, driver tyre management, circuit stress and car
-degradation factor. When a new distinct slick is required, the comparison is
+simulator compares noise-free lap costs over the next stint for each eligible
+fresh slick. The projection shares the actual lap model's compound pace, wear,
+driver tyre management, circuit stress, car performance and degradation factor,
+including its lap-time floor. Fuel uses the original scheduled race distance
+even when the planning horizon is shorter. Surface conditions evolve from the
+current weather without forecasting random weather changes; current race-control
+and aero restrictions apply to the first lap, with future laps assuming green
+running. When a new distinct slick is required, the comparison is
 restricted to unused compounds. An archetype's preferred compound can override
 the fastest only within 0.05 seconds per projected lap. This tolerance represents
 a bounded strategy preference; it is a model assumption, not an empirical fit.
@@ -467,8 +471,8 @@ Current aero eligibility and SC/VSC running factors apply only to the current
 lap; future laps assume green running. Cached costs in this path are absolute
 lap times, whereas the ordinary fast path reports tyre-relative costs. Costs
 from those two bases should not be compared across different model inputs.
-The fallback stint comparison still omits common fuel and car pace. Neither forecasts
-future weather or incidents, prices traffic beyond the immediate rejoin lap, limits the inventory of
+Neither planner forecasts random future weather changes or incidents, prices
+traffic beyond the immediate rejoin lap, limits the inventory of
 tyre sets, or jointly schedules both teammates' future stops. Those remain separate opportunities
 to improve strategy realism. Cost tables are bounded in-memory calculations;
 they do not persist provider data or consume simulation random draws.
@@ -477,6 +481,9 @@ Run `python examples/check_stint_choices.py` for a deterministic synthetic
 comparison of fallback stint choices against actual lap calculations over short,
 medium and long stints. The diagnostic makes no network requests and compares
 fresh compounds at the same stop, without traffic or incidents.
+It also checks damp fallback choices on a custom high-aero circuit, including a
+shortened planning horizon with the original fuel distance, against actual
+noise-free lap totals and the allowed team-style tolerance.
 
 Run `python examples/check_pit_timing.py` to compare the chosen strategy with
 every permitted one-stop lap and unused compound in controlled synthetic

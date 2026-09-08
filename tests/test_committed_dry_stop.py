@@ -108,7 +108,9 @@ def test_execution_respects_weather_proposal_and_damp_fallback(
         return TireCompound.HARD
 
     monkeypatch.setattr(simulator, "_choose_committed_dry_compound", committed)
-    monkeypatch.setattr(simulator, "_choose_distinct_dry_compound", lambda *args: TireCompound.SOFT)
+    monkeypatch.setattr(
+        simulator, "_choose_distinct_dry_compound", lambda *args, **kwargs: TireCompound.SOFT,
+    )
     monkeypatch.setattr(simulator.lap_simulator, "calculate_pit_stop_time", lambda *args: 3)
     simulator._execute_pit_stop(state, track, weather, 20)
     assert state.current_tire.compound == expected

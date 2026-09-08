@@ -212,6 +212,31 @@ class LapSimulator:
         return sum(cls.tire_pace_contribution(driver, car, track, tire, age)
                    for age in range(laps))
 
+    def projected_stint_lap_cost(
+        self, driver: Driver, car: Car, track: Track, tire: Tire, laps: int,
+        current_lap: int, weather: Weather, *, physical_total_laps: int | None = None,
+        current_lap_time_modifier: float = 1.0, active_aero_enabled: bool = True,
+    ) -> float:
+        """Fresh-set running time, including the lap floor and projected surface.
+
+        Fuel follows the physical race distance even when strategy plans to an
+        earlier finish. Only the upcoming lap uses current race control; later
+        laps assume green running. No future incidents or traffic are forecast.
+        """
+        projected_driver = driver.model_copy(deep=True)
+        surface = weather.model_copy(deep=True)
+        total = 0.0
+        for age in range(laps):
+            projected_driver.current_tire_laps = age
+            total += self.calculate_lap_time(
+                projected_driver, car, track, tire, surface, current_lap + age,
+                physical_total_laps if physical_total_laps is not None else track.total_laps,
+                active_aero_enabled=active_aero_enabled if age == 0 else True,
+                sample_variation=False,
+            ) * (current_lap_time_modifier if age == 0 else 1.0)
+            surface = surface.project_surface()
+        return total
+
     @classmethod
     def _compound_pace_delta(
         cls,

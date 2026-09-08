@@ -1217,6 +1217,8 @@ class RaceSimulator:
         state: DriverRaceState,
         track: Track,
         current_lap: int,
+        weather: Weather | None = None,
+        *, physical_total_laps: int | None = None,
     ) -> TireCompound:
         """Choose a new slick compound while the dry-use rule is open."""
         slick_compounds = [
@@ -1228,7 +1230,8 @@ class RaceSimulator:
         available = [compound for compound in slick_compounds if compound not in used]
 
         return self._rank_stint_compounds(
-            state, track, current_lap, available or slick_compounds
+            state, track, current_lap, available or slick_compounds,
+            weather=weather, physical_total_laps=physical_total_laps,
         )
 
     @staticmethod
@@ -1258,22 +1261,29 @@ class RaceSimulator:
         return laps_to_finish
 
     def _choose_compound_for_next_stint(
-        self, state: DriverRaceState, track: Track, current_lap: int
+        self, state: DriverRaceState, track: Track, current_lap: int,
+        weather: Weather | None = None, *, physical_total_laps: int | None = None,
     ) -> TireCompound:
         """Rank fresh slicks using the same tyre pace as the actual race."""
         return self._rank_stint_compounds(
             state, track, current_lap,
             [TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD],
+            weather=weather, physical_total_laps=physical_total_laps,
         )
 
     def _rank_stint_compounds(
         self, state: DriverRaceState, track: Track, current_lap: int,
         available: list[TireCompound],
+        *, weather: Weather | None = None, physical_total_laps: int | None = None,
     ) -> TireCompound:
         target_stint = self._next_stint_laps(state, track, current_lap)
         costs = {
-            compound: self.lap_simulator.projected_tire_stint_cost(
-                state.driver, state.car, track, TIRE_COMPOUNDS[compound], target_stint
+            compound: self.lap_simulator.projected_stint_lap_cost(
+                state.driver, state.car, track, TIRE_COMPOUNDS[compound], target_stint,
+                current_lap, weather if weather is not None else Weather(),
+                physical_total_laps=physical_total_laps,
+                current_lap_time_modifier=self.event_manager.get_lap_time_modifier(),
+                active_aero_enabled=self.event_manager.is_active_aero_allowed(),
             ) for compound in available
         }
         fastest = min(available, key=costs.__getitem__)
@@ -1410,12 +1420,14 @@ class RaceSimulator:
                 state,
                 track,
                 current_lap,
+                weather, physical_total_laps=physical_total_laps,
             )
         else:
             new_compound = self._choose_compound_for_next_stint(
                 state,
                 track,
                 current_lap,
+                weather, physical_total_laps=physical_total_laps,
             )
 
         self._fit_tire(state, new_compound)

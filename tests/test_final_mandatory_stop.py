@@ -16,9 +16,11 @@ def run_short_race(monkeypatch, weather, forced_lap=None, laps=3):
     actual_lap_time = simulator.lap_simulator.calculate_lap_time
     ran = []
 
-    def mean_lap(**kwargs):
-        ran.append(kwargs["tire"].compound)
-        return actual_lap_time(**kwargs, sample_variation=False)
+    def mean_lap(*args, **kwargs):
+        if kwargs.get("sample_variation", True):
+            ran.append(kwargs["tire"].compound)
+        kwargs["sample_variation"] = False
+        return actual_lap_time(*args, **kwargs)
 
     monkeypatch.setattr(simulator.lap_simulator, "calculate_lap_time", mean_lap)
     monkeypatch.setattr(simulator.lap_simulator, "calculate_pit_stop_time",

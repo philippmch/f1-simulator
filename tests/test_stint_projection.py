@@ -118,11 +118,11 @@ def test_damp_fallback_projects_next_stop_not_current_stop(monkeypatch):
     horizons = []
     original = sim._rank_stint_compounds
 
-    def record(state, track, current_lap, available):
+    def record(state, track, current_lap, available, **kwargs):
         horizons.append(
             (current_lap, state.pit_stops, sim._next_stint_laps(state, track, current_lap))
         )
-        return original(state, track, current_lap, available)
+        return original(state, track, current_lap, available, **kwargs)
 
     monkeypatch.setattr(sim, "_rank_stint_compounds", record)
     monkeypatch.setattr(sim, "_plan_pit_lap_options", lambda *args, **kwargs: [[21, 42]])

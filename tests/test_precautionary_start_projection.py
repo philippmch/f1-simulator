@@ -40,8 +40,11 @@ def test_projection_matches_controlled_full_race(monkeypatch, compound, seed):
     monkeypatch.setattr(simulator.event_manager, "process_lap", lambda **kwargs: [])
     monkeypatch.setattr(Weather, "evolve", lambda self, rng: self.project_surface())
     lap_time = simulator.lap_simulator.calculate_lap_time
-    monkeypatch.setattr(simulator.lap_simulator, "calculate_lap_time",
-                        lambda **kwargs: lap_time(**kwargs, sample_variation=False))
+    def mean_lap(*args, **kwargs):
+        kwargs["sample_variation"] = False
+        return lap_time(*args, **kwargs)
+
+    monkeypatch.setattr(simulator.lap_simulator, "calculate_lap_time", mean_lap)
     monkeypatch.setattr(simulator.lap_simulator, "calculate_pit_stop_time",
                         expected_stationary_time)
     result, = simulator.simulate_race([driver], {"A": car}, track, weather, ["A"],
