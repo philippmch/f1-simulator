@@ -70,6 +70,23 @@ not complete a lap. Sequence length is therefore not the paid-stop count.
 These are descriptive frequencies from the simulated policy, not controlled
 comparisons of which strategy is fastest.
 
+For a fixed-input comparison, `examples/compare_starting_tyres.py` runs one
+driver's requested opening choices from an exported simulation snapshot. Each
+variant preserves the roster, cars, track, weather, race engine, other drivers'
+overrides and base seed range. `automatic` clears only the target driver's saved
+override. The trial count can differ from the source run. All later strategy
+and weather responses remain enabled, including immediate replacement of an
+unsuitable opening set.
+
+The comparison reports outcome rates and points per race, with a 95% Wilson
+interval for each win rate. These intervals measure Monte Carlo sampling
+uncertainty within the model. Matching seeds preserve qualifying, but changes
+in race decisions can consume random draws differently, so incidents and later
+events are not held fixed between variants. This is a comparison of opening
+policies under the saved model, not a ranking of complete pit schedules or a
+claim about real-race optimality. Exported variants contain their own inputs
+and can be replayed using the installed simulator implementation.
+
 With no rainfall, the dry policy projection is deterministic and needs one
 private run per slick. With sustained rainfall that could change the surface,
 it averages the same eight private reaction seeds used below. Cached scores

@@ -26,6 +26,18 @@ def replay_saved_simulation(
     Runtime provenance does not change the installed implementation. Exact results
     require the same model and dependency versions as the original run.
     """
+    runner, count = _load_saved_runner(path, scenario)
+    index = _integer(simulation, "simulation", 1)
+    if index > count:
+        raise ValueError(f"simulation must be between 1 and {count}")
+    runner.base_seed += index - 1
+    return runner.run(1, parallel=False)
+
+
+def _load_saved_runner(
+    path: str | Path, scenario: str | None = None,
+) -> tuple[MonteCarloRunner, int]:
+    """Validate saved models and metadata without running a simulation."""
     saved = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(saved, dict):
         raise ValueError("Saved statistics must be a JSON object")
@@ -59,9 +71,6 @@ def replay_saved_simulation(
         raise ValueError("Saved metadata must be an object")
     seed = _integer(metadata.get("seed"), "seed", 0)
     count = _integer(metadata.get("num_simulations"), "num_simulations", 1)
-    index = _integer(simulation, "simulation", 1)
-    if index > count:
-        raise ValueError(f"simulation must be between 1 and {count}")
     engine = validate_race_engine(metadata.get("race_engine"))
     raw_drivers, raw_cars = inputs.get("drivers"), inputs.get("cars")
     if not isinstance(raw_drivers, list):
@@ -79,7 +88,7 @@ def replay_saved_simulation(
     cars = {key: Car.model_validate(row) for key, row in raw_cars.items()}
     return MonteCarloRunner(
         drivers, cars, Track.model_validate(inputs["track"]),
-        Weather.model_validate(inputs["weather"]), seed=seed + index - 1,
+        Weather.model_validate(inputs["weather"]), seed=seed,
         race_engine=engine,
         starting_tires=inputs.get("starting_tires"),
-    ).run(1, parallel=False)
+    ), count

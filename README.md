@@ -120,6 +120,26 @@ require matching model code, dependencies and runtime behavior. Snapshots do not
 archive executable code or runtime monkeypatches, and replay does not claim to
 reproduce a real race. Ordinary live runs still fetch current-season inputs.
 
+Compare one driver's opening choices against the same saved inputs, offline:
+
+```powershell
+python examples/compare_starting_tyres.py output/saved_statistics.json --driver VER --simulations 100 --export
+python examples/compare_starting_tyres.py output/dashboard_run.json --scenario dry --driver VER --compounds automatic,soft,medium,hard
+```
+
+Each choice uses the saved race engine and base seed, with the requested number
+of trials per choice. All other drivers' starting overrides remain in place;
+`automatic` removes only the selected driver's override. Later pit decisions
+remain automatic. The table reports wins with 95% sampling intervals, podiums,
+retirements and points per race. Equal seeds do not freeze subsequent random
+events, and these estimates do not establish the best strategy for a real race.
+
+Nothing is written unless `--export` is supplied. Exported bundles and a combined
+comparison JSON go to `output/strategy-comparisons` (or `--output-dir`), with unique
+names. Replay a trial from the comparison using `--scenario hard`, for example.
+The source file is unchanged. Comparisons use installed simulator code and share
+the replay limitations above. Use `--parallel --max-workers 4` for process workers.
+
 There is no `--year` option. The current season comes from the backend's UTC date and requests for any other year are rejected. CLI runs use the same 1,000-simulation, 16-worker, and 32-bit-seed safety bounds as the dashboard.
 
 ## API
