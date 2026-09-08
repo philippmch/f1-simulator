@@ -1,4 +1,4 @@
-"""Racing-clock finish deadline; suspension wall time is not modeled."""
+"""Chronological finish deadline with bounded suspension-time extensions."""
 
 from dataclasses import dataclass, replace
 from math import isfinite
@@ -44,6 +44,35 @@ class RaceFinishClock:
         self.last_crossing_time: float | None = None
         self.winner_time: float | None = None
         self._time_limit_announced = False
+        self._last_observation_time: float | None = None
+        self._suspension_start: float | None = None
+        self._total_suspension_seconds = 0.0
+
+    @property
+    def total_suspension_seconds(self) -> float:
+        """Duration of completed suspensions, including collection and pause."""
+        return self._total_suspension_seconds
+
+    @property
+    def time_limit_seconds(self) -> float:
+        return RACING_TIME_LIMIT_SECONDS + min(self.total_suspension_seconds, 3600.0)
+
+    def begin_suspension(self, time: float) -> None:
+        _valid_time(time, self._last_observation_time)
+        if self.winner_time is not None:
+            raise ValueError("cannot suspend after the chequered flag")
+        if self._suspension_start is not None:
+            raise ValueError("a suspension is already open")
+        self._suspension_start = time
+        self._last_observation_time = time
+
+    def end_suspension(self, time: float) -> None:
+        _valid_time(time, self._last_observation_time)
+        if self._suspension_start is None:
+            raise ValueError("no suspension is open")
+        self._total_suspension_seconds += time - self._suspension_start
+        self._suspension_start = None
+        self._last_observation_time = time
 
     def observe_leader_crossing(
         self, completed_lap: int, time: float, *, allow_leadership_reset: bool = False,
@@ -54,7 +83,9 @@ class RaceFinishClock:
         A reset can lower the active leading distance, but cannot skip ahead.
         """
         _valid_lap(completed_lap, "completed_lap")
-        _valid_time(time, self.last_crossing_time)
+        _valid_time(time, self._last_observation_time)
+        if self._suspension_start is not None:
+            raise ValueError("leader crossings are forbidden during suspension")
         if self.winner_time is not None:
             raise ValueError("the leader has already received the chequered flag")
         if not isinstance(allow_leadership_reset, bool):
@@ -69,12 +100,15 @@ class RaceFinishClock:
                 "same/lower-distance leadership handoff after a two-hour "
                 "announcement requires scheduler and finish-classification policy"
             )
-        final_lap = announced_final_lap(self.final_lap, completed_lap, time)
+        final_lap = self.final_lap
+        if time >= self.time_limit_seconds:
+            final_lap = min(final_lap, completed_lap + 1)
         self.final_lap = final_lap
-        self._time_limit_announced |= (time >= RACING_TIME_LIMIT_SECONDS
+        self._time_limit_announced |= (time >= self.time_limit_seconds
                                        and completed_lap < final_lap)
         self.completed_laps = completed_lap
         self.last_crossing_time = time
+        self._last_observation_time = time
         if completed_lap == final_lap:
             self.winner_time = time
         return final_lap
@@ -117,6 +151,24 @@ class RaceFinishTimeline:
     @property
     def chequered_time(self) -> float | None:
         return self._clock.winner_time
+
+    @property
+    def total_suspension_seconds(self) -> float:
+        return self._clock.total_suspension_seconds
+
+    @property
+    def time_limit_seconds(self) -> float:
+        return self._clock.time_limit_seconds
+
+    def begin_suspension(self, time: float) -> None:
+        _valid_time(time, self._last_observation_time)
+        self._clock.begin_suspension(time)
+        self._last_observation_time = time
+
+    def end_suspension(self, time: float) -> None:
+        _valid_time(time, self._last_observation_time)
+        self._clock.end_suspension(time)
+        self._last_observation_time = time
 
     @property
     def states(self) -> Mapping[str, DriverFinishState]:
