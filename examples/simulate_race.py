@@ -169,8 +169,13 @@ def main() -> int:
         "--starting-tyres", "--starting-tires", dest="starting_tires", type=_starting_tires,
         help="Optional DRIVER=compound pairs, e.g. VER=hard,NOR=soft; others stay automatic",
     )
+    parser.add_argument(
+        "--weather-mode", choices=("evolving", "fixed_rainfall"), default="evolving",
+        help="Weather transitions: evolving (default) or fixed rainfall with evolving surface",
+    )
     args = parser.parse_args()
     print(f"Race model: {args.race_engine}")
+    print(f"Weather mode: {args.weather_mode}")
     try:
         scenario_labels = parse_scenario_labels(args.scenarios) if args.scenarios else ["dry"]
     except ValueError as exc:
@@ -252,7 +257,7 @@ def main() -> int:
     scenario_results = {}
 
     for idx, label in enumerate(scenario_labels):
-        scenario = scenario_weather_from_label(weather, label)
+        scenario = scenario_weather_from_label(weather, label, weather_mode=args.weather_mode)
         scenario_seed = args.seed + idx * 1000
 
         print(f"\n--- Scenario: {scenario.name} (seed={scenario_seed}) ---")

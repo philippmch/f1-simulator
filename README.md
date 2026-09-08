@@ -193,6 +193,14 @@ Dashboard requests accept 10–1,000 simulations, up to four supported weather s
 
 Weather scenario names describe the starting conditions. Weather evolves during each race, so a dry start can develop rain. The [weather calibration notes](docs/weather-calibration.md) explain the observations, model assumptions, and reproducible checks.
 
+For controlled strategy comparisons, select **Fixed rainfall** under Weather
+behavior, pass `--weather-mode fixed_rainfall` to the CLI, or set
+`"weather_mode": "fixed_rainfall"` in `/api/run`. This keeps each scenario's
+initial condition and rainfall unchanged. Surface wetness still responds to rain
+and drying, and race incidents and interruptions remain active. The default is
+`evolving`; neither mode is a forecast. Saved inputs and replay retain the chosen
+behavior, and result labels describe the completed run rather than current controls.
+
 ## Server capacity
 
 The server admits one complete simulation request at a time by default, including

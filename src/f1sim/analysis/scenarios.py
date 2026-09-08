@@ -6,6 +6,14 @@ from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.models import Weather, WeatherCondition
 
 SUPPORTED_SCENARIO_LABELS = ("dry", "cloudy", "light_rain", "heavy_rain")
+WEATHER_MODES = ("evolving", "fixed_rainfall")
+
+
+def validate_weather_mode(value: object) -> str:
+    """Validate the rainfall transition policy without coercing request values."""
+    if not isinstance(value, str) or value not in WEATHER_MODES:
+        raise ValueError("weather_mode must be evolving or fixed_rainfall")
+    return value
 
 
 @dataclass(frozen=True)
@@ -16,11 +24,14 @@ class WeatherScenario:
     weather: Weather
 
 
-def scenario_weather_from_label(base_weather: Weather, label: str) -> WeatherScenario:
+def scenario_weather_from_label(
+    base_weather: Weather, label: str, *, weather_mode: str = "evolving"
+) -> WeatherScenario:
     """Build a weather scenario from a simple label.
 
     Supported labels: dry, cloudy, light_rain, heavy_rain.
     """
+    validate_weather_mode(weather_mode)
     normalized = label.strip().lower()
 
     if normalized == "dry":
@@ -58,6 +69,9 @@ def scenario_weather_from_label(base_weather: Weather, label: str) -> WeatherSce
     else:
         msg = f"Unknown scenario label: {label}"
         raise ValueError(msg)
+
+    if weather_mode == "fixed_rainfall":
+        weather.change_probability = 0.0
 
     return WeatherScenario(name=normalized, weather=weather)
 

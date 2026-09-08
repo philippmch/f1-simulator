@@ -51,6 +51,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     assert.equal(await page.locator('#raceEngineSelect').inputValue(), 'standard');
     await page.locator('#raceEngineSelect').selectOption('chronological');
     await page.locator('#parallelSelect').selectOption('false');
+    assert.equal(await page.locator('#weatherModeSelect').inputValue(), 'evolving');
+    await page.locator('#weatherModeSelect').selectOption('fixed_rainfall');
     await page.locator('#startingTiresInput').fill('S00=soft,S00=hard');
     assert.equal(await page.evaluate(() => buildRunPayload()), null);
     assert((await page.locator('#appStatus').innerText()).includes('use each driver once'));
@@ -61,6 +63,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     const response = await responsePromise;
     assert.equal(response.status(), 200);
     assert.equal(response.request().postDataJSON().race_engine, 'chronological');
+    assert.equal(response.request().postDataJSON().weather_mode, 'fixed_rainfall');
     assert.deepEqual(response.request().postDataJSON().starting_tires,
       offline ? {S00: 'hard', S01: 'soft'} : {});
     const payload = await response.json();
@@ -70,6 +73,11 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     const driverId = Object.values(payload.scenarios)[0].win_probabilities[0][0];
     await page.waitForFunction(() => !runInProgress);
     assert((await page.locator('#panel-race').textContent()).includes('Lap-aware model (experimental)'));
+    assert((await page.locator('#panel-race').textContent()).includes('Fixed rainfall; surface wetness still evolves'));
+    await page.locator('#weatherModeSelect').selectOption('evolving');
+    await page.evaluate(() => renderRace());
+    assert((await page.locator('#panel-race').textContent()).includes('Fixed rainfall; surface wetness still evolves'));
+    await page.locator('#weatherModeSelect').selectOption('fixed_rainfall');
     if (offline) {
       assert((await page.locator('#panel-race').textContent()).includes('S00=hard, S01=soft'));
       for (const scenario of Object.values(payload.scenarios)) {

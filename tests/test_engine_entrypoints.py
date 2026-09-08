@@ -46,16 +46,18 @@ class SyntheticLoader:
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])
 @pytest.mark.parametrize("starting_tires", [None, {"A": "hard"}])
+@pytest.mark.parametrize("weather_mode", ["evolving", "fixed_rainfall"])
 def test_dashboard_real_runner_propagates_engine_to_each_scenario(
-    monkeypatch, tmp_path, engine, starting_tires,
+    monkeypatch, tmp_path, engine, starting_tires, weather_mode,
 ):
     monkeypatch.setattr(server, "_get_loader", SyntheticLoader)
     payload = server.run_dashboard_simulation(server.DashboardRunRequest(
         simulations=10, scenarios="dry,light_rain", seed=7, parallel=False,
-        race_engine=engine, starting_tires=starting_tires,
+        race_engine=engine, starting_tires=starting_tires, weather_mode=weather_mode,
     ))
     assert payload["request"]["race_engine"] == engine
     assert payload["request"]["starting_tires"] == (starting_tires or {})
+    assert payload["request"]["weather_mode"] == weather_mode
     report = payload["comparison_report_html"]
     assert "Simulation comparison" in report and "<script" not in report
     assert "dry; rain 0%" in report and "light_rain; rain 35%" in report
@@ -67,6 +69,8 @@ def test_dashboard_real_runner_propagates_engine_to_each_scenario(
         assert scenario["seed"] == 7 + index * 1000
         assert scenario["sample_race"]
         assert scenario["simulation_inputs"]["starting_tires"] == (starting_tires or {})
+        expected_change = 0 if weather_mode == "fixed_rainfall" else .2
+        assert scenario["simulation_inputs"]["weather"]["change_probability"] == expected_change
         if starting_tires:
             assert all(row["strategy"][0] == "hard" for row in scenario["sample_race"])
         strategies = scenario["strategy_statistics"]
@@ -93,7 +97,8 @@ def test_cli_real_runner_records_selected_engine_in_exports(monkeypatch, tmp_pat
     monkeypatch.setattr(module, "CurrentSeasonDataLoader", SyntheticLoader)
     monkeypatch.setattr(sys, "argv", [str(path), "--race-engine", engine,
         "--simulations", "1", "--no-parallel", "--scenarios", "dry,light_rain",
-        "--export", "--output-dir", str(tmp_path), "--starting-tyres", "A=hard"])
+        "--export", "--output-dir", str(tmp_path), "--starting-tyres", "A=hard",
+        "--weather-mode", "fixed_rainfall"])
     assert module.main() == 0
     comparison = next(tmp_path.glob("*scenario_comparison_*.json"))
     report = comparison.with_suffix(".html")
@@ -106,6 +111,8 @@ def test_cli_real_runner_records_selected_engine_in_exports(monkeypatch, tmp_pat
     assert all(entry["simulation_inputs"]["schema_version"] == 1
                for entry in scenarios.values())
     assert all(entry["simulation_inputs"]["starting_tires"] == {"A": "hard"}
+               for entry in scenarios.values())
+    assert all(entry["simulation_inputs"]["weather"]["change_probability"] == 0
                for entry in scenarios.values())
     assert all(entry["probability_intervals"]["A"]["trials"] == 1
                for entry in scenarios.values())

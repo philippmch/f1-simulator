@@ -11,6 +11,7 @@ from importlib.resources import files
 from typing import Any
 
 from f1sim.analysis import MonteCarloRunner, parse_scenario_labels, scenario_weather_from_label
+from f1sim.analysis.scenarios import validate_weather_mode
 from f1sim.data import CurrentSeasonDataError, CurrentSeasonDataLoader
 from f1sim.models import Weather, WeatherCondition
 from f1sim.output.comparison import render_comparison_report
@@ -57,11 +58,13 @@ class DashboardRunRequest:
     max_workers: int | None = None
     race_engine: str = "standard"
     starting_tires: dict[str, str] | None = None
+    weather_mode: str = "evolving"
 
 
 def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
     """Validate resource bounds and return all scenarios before live I/O."""
 
+    validate_weather_mode(request.weather_mode)
     validate_race_engine(request.race_engine)
     validate_starting_tires(request.starting_tires)
     current_season = _current_season()
@@ -470,7 +473,9 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
     )
 
     for idx, label in enumerate(labels):
-        scenario = scenario_weather_from_label(base_weather, label)
+        scenario = scenario_weather_from_label(
+            base_weather, label, weather_mode=request.weather_mode
+        )
         scenario_weather[scenario.name] = scenario.weather
         runner = MonteCarloRunner(
             drivers=drivers,
@@ -511,6 +516,7 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
         "seed": request.seed,
         "race_engine": request.race_engine,
         "starting_tires": starting_tires,
+        "weather_mode": request.weather_mode,
         "qualifying_mode": "simulated",
         "parallel": request.parallel,
         "max_workers": effective_max_workers,

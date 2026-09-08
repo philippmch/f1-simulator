@@ -16,6 +16,7 @@ CLI = PROJECT_ROOT / "examples" / "simulate_race.py"
     ("arguments", "message"),
     [
         (["--race-engine", "unknown"], "invalid choice"),
+        (["--weather-mode", "unknown"], "invalid choice"),
         (["--starting-tyres", "VER"], "use DRIVER=compound"),
         (["--starting-tyres", "VER=soft,VER=hard"], "duplicate starting tyre"),
         (["--starting-tyres", "VER=invalid"], "starting_tires"),

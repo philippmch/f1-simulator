@@ -1349,6 +1349,13 @@ input:focus-visible {
         </select>
       </div>
       <div class="control-group">
+        <label class="control-label" for="weatherModeSelect">Weather behavior</label>
+        <select id="weatherModeSelect" title="Fixed rainfall keeps the initial rain and condition unchanged. Surface wetness still responds to rain and drying.">
+          <option value="evolving" selected>Evolving weather</option>
+          <option value="fixed_rainfall">Fixed rainfall</option>
+        </select>
+      </div>
+      <div class="control-group">
         <label class="control-label" for="startingTiresInput">Starting tyres (optional)</label>
         <input type="text" id="startingTiresInput" maxlength="512"
           placeholder="Auto · VER=hard, NOR=soft"
@@ -2081,6 +2088,7 @@ function saveUiPrefs() {
   const payload = {
     focusScenario: weatherSelectEl.value,
     scenarioSet: getScenarioSetValue(),
+    weatherMode: document.getElementById('weatherModeSelect').value,
   };
   writeOptionalStorage(PREFS_KEY, JSON.stringify(payload));
 }
@@ -2090,6 +2098,9 @@ function loadUiPrefs() {
   if (!raw) return;
   try {
     const prefs = JSON.parse(raw);
+    if (['evolving', 'fixed_rainfall'].includes(prefs.weatherMode)) {
+      document.getElementById('weatherModeSelect').value = prefs.weatherMode;
+    }
     if (typeof prefs.focusScenario === 'string') {
       weatherSelectEl.value = prefs.focusScenario;
     }
@@ -2217,6 +2228,7 @@ function buildRunPayload() {
     qualifying_mode: 'simulated',
     race_engine: document.getElementById('raceEngineSelect').value,
     starting_tires: startingTires,
+    weather_mode: document.getElementById('weatherModeSelect').value,
     parallel: document.getElementById('parallelSelect').value === 'true',
     max_workers: workersValue ? Number(workersValue) : null,
   };
@@ -2300,6 +2312,14 @@ function renderAll() {
   renderScenarioLab();
 }
 
+function savedWeatherBehavior(scenario) {
+  const probability = scenario.simulation_inputs?.weather?.change_probability
+    ?? scenario.weather?.change_probability;
+  if (probability === 0) return 'Fixed rainfall; surface wetness still evolves';
+  if (typeof probability === 'number' && probability > 0) return 'Evolving weather';
+  return 'Weather behavior not recorded';
+}
+
 function renderRace() {
   const container = document.getElementById('raceContent');
   const empty = document.getElementById('emptyRace');
@@ -2347,6 +2367,7 @@ function renderRace() {
         <div class="race-meta">Starting tyres: ${escapeHtml(Object.entries(
           scenario.simulation_inputs?.starting_tires || simResults.request?.starting_tires || {}
         ).map(([id, compound]) => `${id}=${compound}`).join(', ') || 'Automatic')}</div>
+        <div class="race-meta">${savedWeatherBehavior(scenario)}</div>
         <div class="race-meta">${escapeHtml(track.country || 'Unknown country')} &middot; Scenario ${escapeHtml(titleFromKey(name))}${topTeam ? ` &middot; Top constructor ${escapeHtml(topTeam[0])}` : ''}</div>
         <div class="meta-pills">${pills.map(pill => `<div class="meta-pill">${escapeHtml(pill)}</div>`).join('')}</div>
       </div>
@@ -3190,6 +3211,7 @@ function renderScenarioLab() {
 
   await refreshLiveData();
 
+  document.getElementById('weatherModeSelect').addEventListener('change', saveUiPrefs);
   weatherSelectEl.addEventListener('change', () => {
     const focusedScenario = WEATHER_TO_SCENARIO[weatherSelectEl.value] || 'dry';
     if (!getSelectedScenarioNames().includes(focusedScenario)) {

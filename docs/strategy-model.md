@@ -43,6 +43,12 @@ do not change qualifying, grant a compound-use exemption, or specify a fixed
 pit schedule. They are included in saved-input replay. Unknown driver codes and
 invalid compounds are rejected instead of silently falling back to automatic.
 
+The optional `fixed_rainfall` weather mode helps isolate strategy behavior under
+unchanging rainfall. It prevents random condition transitions while retaining
+surface-water response, incidents and adaptive pit decisions. The usual evolving
+mode remains the default. Both modes are scenario assumptions, not forecasts;
+saved-input tyre comparisons retain whichever weather behavior was exported.
+
 Automatic starting-compound selection on a clearly dry track compares isolated
 runs of the existing pit policy for each slick, using noise-free lap pace and
 expected service time. These runs follow the race clock, retain the original

@@ -48,6 +48,7 @@ def build_fixture() -> dict:
         track=track.name, track_details=_serialize_track(track), year=2026,
         race=track.name, ratings=ratings, provenance={"source": "SYNTHETIC offline test"},
         request={"race_engine": "chronological", "simulations": 10, "seed": 42, "parallel": False,
+                 "weather_mode": "fixed_rainfall",
                  "starting_tires": {"S00": "hard", "S01": "soft"},
                  "scenarios": "dry,light_rain,heavy_rain", "qualifying_mode": "simulated"},
     )

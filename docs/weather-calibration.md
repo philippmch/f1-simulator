@@ -30,6 +30,15 @@ chequered flag, which this diagnostic correctly excludes.
 
 ## Model choices
 
+Live CLI and dashboard runs default to evolving weather using the circuit's
+modeled per-lap change probability. For a controlled rainfall assumption, use
+`--weather-mode fixed_rainfall`, the dashboard's Weather behavior selector, or
+the API's `weather_mode` field. This sets the copied scenario's condition-change
+probability to zero. Initial condition and rainfall remain fixed, while surface
+water still follows the response model below. It does not freeze race-control
+events, pit decisions or random incidents, and does not modify the default prior.
+Snapshots save the resulting weather model for offline replay and tyre comparisons.
+
 Aggregated `RaceEventStatistics` records `num_simulations`, including races with
 no events. Its `safety_car_rate` and `red_flag_rate` properties are percentages
 of races with at least one deployment; several flags in one race count once.
