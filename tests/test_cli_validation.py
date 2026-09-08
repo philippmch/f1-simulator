@@ -16,6 +16,9 @@ CLI = PROJECT_ROOT / "examples" / "simulate_race.py"
     ("arguments", "message"),
     [
         (["--race-engine", "unknown"], "invalid choice"),
+        (["--starting-tyres", "VER"], "use DRIVER=compound"),
+        (["--starting-tyres", "VER=soft,VER=hard"], "duplicate starting tyre"),
+        (["--starting-tyres", "VER=invalid"], "starting_tires"),
         (["--simulations", "0"], "must be a positive integer"),
         (["--seed", "-1"], "must be a non-negative integer"),
         (["--max-workers", "0"], "must be a positive integer"),

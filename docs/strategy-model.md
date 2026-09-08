@@ -35,6 +35,14 @@ globally optimal timed strategy. After a timed announcement, the next leading
 crossing remains authoritative even if a lapped driver inherits the lead.
 Original scheduled fuel distance remains separate from all strategy horizons.
 
+Explicit starting-tyre overrides are available per driver in the dashboard,
+CLI, API and Monte Carlo runner. They replace only the opening choice; unlisted
+drivers retain automatic selection and all later pit decisions remain active.
+An unsuitable starting set can therefore be replaced before lap one. Overrides
+do not change qualifying, grant a compound-use exemption, or specify a fixed
+pit schedule. They are included in saved-input replay. Unknown driver codes and
+invalid compounds are rejected instead of silently falling back to automatic.
+
 Automatic starting-compound selection on a clearly dry track compares isolated
 runs of the existing pit policy for each slick, using noise-free lap pace and
 expected service time. These runs follow the race clock, retain the original

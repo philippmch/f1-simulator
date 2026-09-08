@@ -1331,6 +1331,12 @@ input:focus-visible {
         </select>
       </div>
       <div class="control-group">
+        <label class="control-label" for="startingTiresInput">Starting tyres (optional)</label>
+        <input type="text" id="startingTiresInput" maxlength="512"
+          placeholder="Auto · VER=hard, NOR=soft"
+          title="Driver codes and soft, medium, hard, intermediate or wet. Unlisted drivers stay automatic; later stops follow the usual policy.">
+      </div>
+      <div class="control-group">
         <label class="control-label" for="parallelSelect">Execution</label>
         <select id="parallelSelect">
           <option value="true" selected>Parallel</option>
@@ -2167,6 +2173,22 @@ function buildRunPayload() {
   const simulations = Number(simulationsInput.value);
   const seed = Number(seedInput.value);
   const workersValue = workersInput.value.trim();
+  const startingTires = Object.create(null);
+  const tyreInput = document.getElementById('startingTiresInput');
+  if (tyreInput.value.trim()) {
+    for (const assignment of tyreInput.value.split(',')) {
+      const parts = assignment.trim().split('=');
+      const id = parts[0]?.trim();
+      const compound = parts[1]?.trim().toLowerCase();
+      if (parts.length !== 2 || !id || !['soft', 'medium', 'hard', 'intermediate', 'wet'].includes(compound)
+          || Object.hasOwn(startingTires, id)) {
+        setStatusMessage('Starting tyres: use each driver once, e.g. VER=hard, NOR=soft. Compounds: soft, medium, hard, intermediate, wet.', 'error');
+        tyreInput.focus();
+        return null;
+      }
+      startingTires[id] = compound;
+    }
+  }
 
   return {
     year: parseInt(document.getElementById('yearSelect').value, 10),
@@ -2176,6 +2198,7 @@ function buildRunPayload() {
     seed,
     qualifying_mode: 'simulated',
     race_engine: document.getElementById('raceEngineSelect').value,
+    starting_tires: startingTires,
     parallel: document.getElementById('parallelSelect').value === 'true',
     max_workers: workersValue ? Number(workersValue) : null,
   };
@@ -2303,6 +2326,9 @@ function renderRace() {
       <div>
         <div class="race-title">${escapeHtml(simResults.track)}</div>
         <div class="race-meta">${escapeHtml(lapLabel)} &middot; ${scenario.num_simulations} simulations &middot; seed ${scenario.seed}</div>
+        <div class="race-meta">Starting tyres: ${escapeHtml(Object.entries(
+          scenario.simulation_inputs?.starting_tires || simResults.request?.starting_tires || {}
+        ).map(([id, compound]) => `${id}=${compound}`).join(', ') || 'Automatic')}</div>
         <div class="race-meta">${escapeHtml(track.country || 'Unknown country')} &middot; Scenario ${escapeHtml(titleFromKey(name))}${topTeam ? ` &middot; Top constructor ${escapeHtml(topTeam[0])}` : ''}</div>
         <div class="meta-pills">${pills.map(pill => `<div class="meta-pill">${escapeHtml(pill)}</div>`).join('')}</div>
       </div>

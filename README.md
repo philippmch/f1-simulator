@@ -63,6 +63,25 @@ in the dashboard or pass `--race-engine chronological` to the CLI. The API and
 Python `MonteCarloRunner` accept `race_engine="chronological"` (or `"standard"`).
 Results record the selected model; see [its assumptions and limits](docs/chronological-race-design.md).
 
+To test an opening tyre choice, fill **Starting tyres (optional)** in the dashboard
+with driver-code pairs such as `VER=hard, NOR=soft`, or use the CLI:
+
+```powershell
+python examples/simulate_race.py --race 1 --starting-tyres "VER=hard,NOR=soft" --seed 42 --export
+```
+
+Use codes from the loaded roster. Allowed compounds are `soft`, `medium`, `hard`,
+`intermediate`, and `wet`. Unlisted drivers remain automatic; subsequent stops
+still follow the normal policy, including immediate correction for unsuitable
+weather tyres. Python `MonteCarloRunner` and `/api/run` accept
+`starting_tires={"VER": "hard"}`. Overrides apply to every selected weather
+scenario and are saved with the inputs for replay.
+
+The same inputs and seed reproduce an overridden run, including across worker
+counts. Changing a tyre choice can change later random draws and race events;
+equal seeds do not hold those events fixed across different strategies. Live
+runs also reload ratings, so compare saved inputs when checking which inputs changed.
+
 Use `--export` only when you explicitly want files for the newly simulated run:
 
 ```powershell
@@ -91,7 +110,7 @@ python examples/replay_simulation.py output/dashboard_run.json --scenario dry --
 Simulation numbers are one-based, matching the CSV. A multi-scenario file needs
 `--scenario`; a single-scenario file selects its only scenario automatically.
 The command reconstructs qualifying and the race with the saved model inputs,
-race engine and effective seed. Optional exports use a new unique bundle in
+race engine, starting-tyre overrides and effective seed. Optional exports use a new unique bundle in
 `output/replays` (override with `--output-dir`). Older exports without inputs
 cannot be reconstructed this way.
 

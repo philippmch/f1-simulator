@@ -37,6 +37,7 @@ def build_fixture() -> dict:
         results[label] = MonteCarloRunner(
             drivers, cars, track, scenario.weather, seed=42 + index * 1000,
             race_engine="chronological",
+            starting_tires={"S00": "hard", "S01": "soft"},
         ).run(num_simulations=10, parallel=False)
     payload = _summarize_scenario_results(results, scenario_weather=weather)
     ratings = _serialize_ratings_snapshot(drivers, cars, {})
@@ -45,6 +46,7 @@ def build_fixture() -> dict:
         track=track.name, track_details=_serialize_track(track), year=2026,
         race=track.name, ratings=ratings, provenance={"source": "SYNTHETIC offline test"},
         request={"race_engine": "chronological", "simulations": 10, "seed": 42, "parallel": False,
+                 "starting_tires": {"S00": "hard", "S01": "soft"},
                  "scenarios": "dry,light_rain,heavy_rain", "qualifying_mode": "simulated"},
     )
     return {

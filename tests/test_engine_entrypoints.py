@@ -45,19 +45,26 @@ class SyntheticLoader:
 
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])
-def test_dashboard_real_runner_propagates_engine_to_each_scenario(monkeypatch, tmp_path, engine):
+@pytest.mark.parametrize("starting_tires", [None, {"A": "hard"}])
+def test_dashboard_real_runner_propagates_engine_to_each_scenario(
+    monkeypatch, tmp_path, engine, starting_tires,
+):
     monkeypatch.setattr(server, "_get_loader", SyntheticLoader)
     payload = server.run_dashboard_simulation(server.DashboardRunRequest(
         simulations=10, scenarios="dry,light_rain", seed=7, parallel=False,
-        race_engine=engine,
+        race_engine=engine, starting_tires=starting_tires,
     ))
     assert payload["request"]["race_engine"] == engine
+    assert payload["request"]["starting_tires"] == (starting_tires or {})
     saved = tmp_path / "dashboard.json"
     saved.write_text(json.dumps(payload), encoding="utf-8")
     for index, (name, scenario) in enumerate(payload["scenarios"].items()):
         assert scenario["race_engine"] == engine
         assert scenario["seed"] == 7 + index * 1000
         assert scenario["sample_race"]
+        assert scenario["simulation_inputs"]["starting_tires"] == (starting_tires or {})
+        if starting_tires:
+            assert all(row["strategy"][0] == "hard" for row in scenario["sample_race"])
         strategies = scenario["strategy_statistics"]
         assert strategies
         for stats in strategies.values():
@@ -82,7 +89,7 @@ def test_cli_real_runner_records_selected_engine_in_exports(monkeypatch, tmp_pat
     monkeypatch.setattr(module, "CurrentSeasonDataLoader", SyntheticLoader)
     monkeypatch.setattr(sys, "argv", [str(path), "--race-engine", engine,
         "--simulations", "1", "--no-parallel", "--scenarios", "dry,light_rain",
-        "--export", "--output-dir", str(tmp_path)])
+        "--export", "--output-dir", str(tmp_path), "--starting-tyres", "A=hard"])
     assert module.main() == 0
     comparison = next(tmp_path.glob("*scenario_comparison.json"))
     scenarios = json.loads(comparison.read_text(encoding="utf-8"))["scenarios"]
@@ -92,3 +99,20 @@ def test_cli_real_runner_records_selected_engine_in_exports(monkeypatch, tmp_pat
                for entry in scenarios.values())
     assert all(entry["simulation_inputs"]["schema_version"] == 1
                for entry in scenarios.values())
+    assert all(entry["simulation_inputs"]["starting_tires"] == {"A": "hard"}
+               for entry in scenarios.values())
+
+
+def test_dashboard_rejects_unknown_starting_driver(monkeypatch):
+    monkeypatch.setattr(server, "_get_loader", SyntheticLoader)
+    with pytest.raises(ValueError, match="UNKNOWN"):
+        server.run_dashboard_simulation(server.DashboardRunRequest(
+            simulations=10, scenarios="dry", starting_tires={"UNKNOWN": "soft"},
+        ))
+
+
+@pytest.mark.parametrize("overrides", [{"A": "bad"}, ["soft"], {"A": None}])
+def test_dashboard_rejects_malformed_starting_tyres_before_loading(monkeypatch, overrides):
+    monkeypatch.setattr(server, "_get_loader", lambda **kwargs: pytest.fail("live loading"))
+    with pytest.raises(ValueError):
+        server.run_dashboard_simulation(server.DashboardRunRequest(starting_tires=overrides))

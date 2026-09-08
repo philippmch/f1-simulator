@@ -373,6 +373,10 @@ class Exporter:
         simulations_text = escape(str(results.num_simulations))
         seed_text = escape(str(results.seed))
         engine_text = escape(results.race_engine)
+        starting_tires = (results.input_snapshot or {}).get("starting_tires", {})
+        starting_text = escape(", ".join(f"{driver}={compound}"
+                                        for driver, compound in sorted(starting_tires.items()))
+                               or "Automatic")
         distance = results.get_race_distance_statistics()
         recorded = distance["recorded_races"]
         comparable = distance["finishers_with_comparable_distance"]
@@ -440,6 +444,7 @@ class Exporter:
   <div class=\"meta\">
     Track: {track_text} · Simulations: {simulations_text} · Seed: {seed_text}
     · Race model: {engine_text}
+    · Starting tyres: {starting_text}
   </div>
   <div class=\"grid\">
     <div class=\"card\" id=\"race-distance\"><h2>Race distance</h2>

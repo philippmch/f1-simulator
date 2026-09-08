@@ -21,6 +21,7 @@ def build_fixture():
                                   strategy=["soft", script, "soft"])]], qualifying_results=[],
         driver_stats={"A": DriverStatistics(driver_id="A", driver_name=driver, team=team,
                                             wins=1, positions=[1], total_points=25)},
+        input_snapshot={"starting_tires": {driver: "soft"}},
     )
     with TemporaryDirectory() as directory:
         exporter = Exporter(directory)

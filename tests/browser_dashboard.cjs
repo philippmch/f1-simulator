@@ -51,12 +51,18 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     assert.equal(await page.locator('#raceEngineSelect').inputValue(), 'standard');
     await page.locator('#raceEngineSelect').selectOption('chronological');
     await page.locator('#parallelSelect').selectOption('false');
+    await page.locator('#startingTiresInput').fill('S00=soft,S00=hard');
+    assert.equal(await page.evaluate(() => buildRunPayload()), null);
+    assert((await page.locator('#appStatus').innerText()).includes('use each driver once'));
+    await page.locator('#startingTiresInput').fill(offline ? 'S00=hard, S01=soft' : '');
     await page.evaluate(() => setScenarioSelection(['dry', 'light_rain', 'heavy_rain']));
     const responsePromise = page.waitForResponse(response => response.url().endsWith('/api/run'));
     await page.locator('#btnRun').click();
     const response = await responsePromise;
     assert.equal(response.status(), 200);
     assert.equal(response.request().postDataJSON().race_engine, 'chronological');
+    assert.deepEqual(response.request().postDataJSON().starting_tires,
+      offline ? {S00: 'hard', S01: 'soft'} : {});
     const payload = await response.json();
     assert.equal(payload.request.race_engine, 'chronological');
     // The matrix initially shows aggregate top contenders, which need not
@@ -64,6 +70,15 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     const driverId = Object.values(payload.scenarios)[0].win_probabilities[0][0];
     await page.waitForFunction(() => !runInProgress);
     assert((await page.locator('#panel-race').textContent()).includes('Lap-aware model (experimental)'));
+    if (offline) {
+      assert((await page.locator('#panel-race').textContent()).includes('S00=hard, S01=soft'));
+      for (const scenario of Object.values(payload.scenarios)) {
+        assert.deepEqual(scenario.simulation_inputs.starting_tires, {S00: 'hard', S01: 'soft'});
+      }
+      assert(payload.scenarios.dry.strategy_statistics.S00.strategies.every(row => row.compounds[0] === 'hard'));
+      // Critical weather corrections still replace an unsuitable unrun set.
+      assert(payload.scenarios.heavy_rain.strategy_statistics.S00.strategies.every(row => row.compounds[0] === 'wet'));
+    }
     await page.locator('#tab-stats').click();
     await page.locator('#probabilityIntervals summary').click();
     const statistics = Object.values(payload.scenarios)[0].driver_statistics;

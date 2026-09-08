@@ -15,7 +15,7 @@ from f1sim.models import Car, Driver, Track, Weather
 from f1sim.models.tire import TireCompound
 from f1sim.simulation.chronological_race import ChronologicalRace
 from f1sim.simulation.events import EventType
-from f1sim.simulation.execution import validate_race_engine
+from f1sim.simulation.execution import validate_race_engine, validate_starting_tires
 from f1sim.simulation.qualifying import QualifyingResult, QualifyingSimulator
 from f1sim.simulation.race import (
     DriverStatus,
@@ -471,20 +471,28 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
 
     Args:
         args: Tuple of (drivers_data, cars_data, track_data, weather_data, seed,
-            race_engine). Legacy five-item calls use the standard engine.
+            race_engine, starting_tires). Legacy five/six-item calls retain defaults.
 
     Returns:
         Tuple of (race_results, qualifying_results, event_counts)
     """
+    starting_tires = None
     if len(args) == 5:
         drivers_data, cars_data, track_data, weather_data, seed = args
         race_engine = "standard"
-    else:
+    elif len(args) == 6:
         drivers_data, cars_data, track_data, weather_data, seed, race_engine = args
+    else:
+        (drivers_data, cars_data, track_data, weather_data, seed,
+         race_engine, starting_tires) = args
     race_engine = validate_race_engine(race_engine)
 
     # Reconstruct objects from serializable data
     drivers = [Driver.model_validate(d) for d in drivers_data]
+    opening_compounds = {
+        key: TireCompound(value) for key, value in
+        validate_starting_tires(starting_tires, (driver.id for driver in drivers)).items()
+    }
     cars = {k: Car.model_validate(v) for k, v in cars_data.items()}
     track = Track.model_validate(track_data)
     weather = Weather.model_validate(weather_data)
@@ -509,6 +517,7 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
         track=track,
         weather=weather,
         starting_grid=starting_grid,
+        **({"starting_tires": opening_compounds} if opening_compounds else {}),
     )
 
     # Collect event statistics
@@ -556,6 +565,7 @@ class MonteCarloRunner:
         weather: Weather,
         seed: int | None = None,
         race_engine: str = "standard",
+        starting_tires: dict[str, str | TireCompound] | None = None,
     ):
         """Initialize Monte Carlo runner.
 
@@ -566,9 +576,11 @@ class MonteCarloRunner:
             weather: Initial weather conditions
             seed: Random seed for reproducibility
             race_engine: Standard lap loop or experimental chronological execution
+            starting_tires: Explicit opening compounds by driver ID; omitted drivers use policy
         """
         self.race_engine = validate_race_engine(race_engine)
         validate_unique_ids((driver.id for driver in drivers), "drivers")
+        self.starting_tires = validate_starting_tires(starting_tires, (d.id for d in drivers))
         self.drivers = drivers
         self.cars = cars
         self.track = track
@@ -611,6 +623,9 @@ class MonteCarloRunner:
             max_workers = int(max_workers)
 
         validate_unique_ids((driver.id for driver in self.drivers), "drivers")
+        starting_tires = validate_starting_tires(
+            self.starting_tires, (driver.id for driver in self.drivers),
+        )
 
         # Prepare serializable data for multiprocessing
         drivers_data = [d.model_dump() for d in self.drivers]
@@ -623,6 +638,7 @@ class MonteCarloRunner:
             "cars": deepcopy(cars_data),
             "track": deepcopy(track_data),
             "weather": deepcopy(weather_data),
+            "starting_tires": starting_tires.copy(),
             "runtime": simulation_runtime(),
         }
 
@@ -630,7 +646,8 @@ class MonteCarloRunner:
         seeds = [self.base_seed + i for i in range(num_simulations)]
 
         args_list = [
-            (drivers_data, cars_data, track_data, weather_data, seed, self.race_engine)
+            (drivers_data, cars_data, track_data, weather_data, seed,
+             self.race_engine, starting_tires)
             for seed in seeds
         ]
 

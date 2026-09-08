@@ -81,4 +81,5 @@ def replay_saved_simulation(
         drivers, cars, Track.model_validate(inputs["track"]),
         Weather.model_validate(inputs["weather"]), seed=seed + index - 1,
         race_engine=engine,
+        starting_tires=inputs.get("starting_tires"),
     ).run(1, parallel=False)

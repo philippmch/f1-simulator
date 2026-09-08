@@ -40,6 +40,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     await page.waitForFunction(() => window.plotCalls?.length === 2);
     assert.equal(await page.title(), `F1 Simulation Report - ${fixture.track}`);
     assert((await page.locator('.meta').innerText()).includes(fixture.track));
+    assert((await page.locator('.meta').innerText()).includes(`Starting tyres: ${fixture.driver}=soft`));
     assert((await page.locator('#race-distance').innerText()).includes('Mean winning distance: Not recorded'));
     assert((await page.locator('#race-distance').innerText()).includes('Lapped finishers: Not recorded'));
     await page.locator('#strategy-statistics summary').click();
