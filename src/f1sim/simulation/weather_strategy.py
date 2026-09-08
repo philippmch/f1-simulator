@@ -153,7 +153,11 @@ def weather_stop_costs(
         return WeatherStopCosts(0.0, inf)
     clean = driver.model_copy(deep=True)
     clean.reset_race_state()
-    snapshots = (clean.model_dump(), car.model_dump(), track.model_dump(),
+    # Names and identifiers do not enter lap or service physics. Normalize
+    # only those fields so equivalent entrants can share immutable plans.
+    clean.id = clean.name = clean.team_id = "projection"
+    clean_car = car.model_copy(update={"team_id": "projection", "team_name": "projection"})
+    snapshots = (clean.model_dump(), clean_car.model_dump(), track.model_dump(),
                  {compound.value: tire.model_dump() for compound, tire in TIRE_COMPOUNDS.items()})
     driver_json, car_json, track_json, tires_json = (
         json.dumps(value, sort_keys=True) for value in snapshots

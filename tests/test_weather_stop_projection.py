@@ -12,7 +12,7 @@ from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.models.track import ActiveAeroZone
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.pit_strategy import expected_stationary_time
-from f1sim.simulation.weather_strategy import _fresh_plan_costs, weather_stop_costs
+from f1sim.simulation.weather_strategy import _fresh_plan_costs, _retained_costs, weather_stop_costs
 
 
 def fixture(laps=4):
@@ -147,6 +147,33 @@ def test_cache_config_and_current_adjustments_are_isolated_and_inputs_unchanged(
     changed = weather_stop_costs(driver, car, track, weather, current, 1, 1)
     assert _fresh_plan_costs.cache_info().misses == 2 * track.total_laps
     assert changed.pit_now_cost != plain.pit_now_cost
+
+
+@pytest.mark.parametrize("changed_model", ["driver", "car"])
+def test_equivalent_entrants_share_weather_plans_but_changed_physics_does_not(changed_model):
+    driver, car, track, _ = fixture(12)
+    weather = Weather(track_wetness=.3, rain_intensity=0)
+    tire = TIRE_COMPOUNDS[TireCompound.INTERMEDIATE]
+    _fresh_plan_costs.cache_clear()
+    _retained_costs.cache_clear()
+    original = weather_stop_costs(driver, car, track, weather, tire, 15, 2)
+    misses = (_fresh_plan_costs.cache_info().misses, _retained_costs.cache_info().misses)
+    other = driver.model_copy(update={"id": "B", "name": "Other", "team_id": "B",
+                                      "position": 9, "pit_stops": 2})
+    other_car = car.model_copy(update={"team_id": "B", "team_name": "Other team"})
+    before = copy.deepcopy((other, other_car))
+    assert weather_stop_costs(other, other_car, track, weather, tire, 15, 2) == original
+    assert (_fresh_plan_costs.cache_info().misses, _retained_costs.cache_info().misses) == misses
+    assert (other, other_car) == before
+    if changed_model == "driver":
+        other.skill_rating = 1
+    else:
+        other_car.base_pace = 1
+    faster = weather_stop_costs(other, other_car, track, weather, tire, 15, 2)
+    assert faster.pit_now_cost < original.pit_now_cost
+    assert faster.stay_cost < original.stay_cost
+    assert _fresh_plan_costs.cache_info().misses > misses[0]
+    assert _retained_costs.cache_info().misses > misses[1]
 
 
 def test_no_pace_noise_draws_and_actual_lap_floor_preserved(monkeypatch):
