@@ -1034,6 +1034,24 @@ input:focus-visible {
   margin-bottom: 0.3rem;
 }
 
+.bar-track { position: relative; height: 14px; background: var(--bg-elevated); border-radius: 3px; }
+.bar-fill { height: 100%; background: var(--f1-red); border-radius: inherit; }
+.bar-range { position: absolute; top: 2px; height: 10px;
+  border-left: 2px solid var(--text-primary); border-right: 2px solid var(--text-primary); }
+.bar-range::before { content: ''; position: absolute; top: 3px; left: 0; right: 0;
+  border-top: 2px solid var(--text-primary); }
+.chart-scale { display: flex; justify-content: space-between; color: var(--text-secondary);
+  font-size: .75rem; margin: .25rem 0 .75rem; }
+#compareChart .chart-label { font-size: .8rem; overflow-wrap: anywhere; }
+#compareChart .sampling-range, #compareMatrix .sampling-range { font-size: .75rem; }
+#compareChart .inline-note, #compareMatrix .inline-note {
+  color: var(--text-secondary); font-size: .8rem; line-height: 1.5;
+}
+.scenario-driver > summary { cursor: pointer; padding: .6rem 0; font-size: .85rem;
+  color: var(--text-primary); overflow-wrap: anywhere; }
+.scenario-driver + .scenario-driver { border-top: 1px solid var(--border-medium); }
+.scenario-driver[open] { padding-bottom: .7rem; }
+
 .matrix-wrap {
   overflow: auto;
   border: 1px solid var(--border-subtle);
@@ -2759,6 +2777,29 @@ function renderScenarioCards(data) {
   `;
 }
 
+function scenarioWinEstimate(scenario, driver) {
+  const row = (scenario?.win_probabilities || []).find(([id]) => id === driver);
+  const metadata = scenario?.driver_statistics?.[driver]?.probability_intervals;
+  const trials = Number.isInteger(metadata?.trials) && metadata.trials >= 0 ? metadata.trials : null;
+  const rate = row?.[1];
+  const value = trials !== 0 && typeof rate === 'number' && Number.isFinite(rate)
+    && rate >= 0 && rate <= 100 ? rate : null;
+  const bounds = metadata?.win;
+  const range = value !== null && trials > 0 && metadata?.confidence === .95
+    && metadata?.scope === 'monte_carlo_sampling' && metadata?.method === 'wilson'
+    && typeof bounds?.lower === 'number' && Number.isFinite(bounds.lower)
+    && typeof bounds?.upper === 'number' && Number.isFinite(bounds.upper)
+    && bounds.lower >= 0 && bounds.lower <= value && bounds.upper >= value && bounds.upper <= 100
+    ? bounds : null;
+  return {value, range, trials};
+}
+
+function scenarioSamplingText(estimate) {
+  if (estimate.value === null) return 'Not recorded';
+  const range = estimate.range ? `95% range ${formatSamplingRange(estimate.range)}` : 'Sampling range unavailable';
+  return range + (estimate.trials !== null ? `; ${estimate.trials} observed trials` : '');
+}
+
 function renderScenarioWinChart(data) {
   const scenarios = data.scenarios || {};
   const names = Object.keys(scenarios);
@@ -2777,19 +2818,27 @@ function renderScenarioWinChart(data) {
   ))));
 
   chartEl.innerHTML = `
+    <p class="inline-note">Red bars show win estimates; pale whiskers show individual 95% sampling ranges.
+      Open a driver to compare scenarios. These ranges measure simulation sampling noise,
+      not which scenario is certainly better.</p>
+    <div class="chart-scale" aria-hidden="true"><span>0%</span><span>100%</span></div>
     <div class="chart-wrap">
-      ${focusDrivers.map(driver => names.map(name => {
-        const row = (scenarios[name].win_probabilities || []).find(([id]) => id === driver);
-        const pct = row ? toNumber(row[1]) : 0;
+      ${focusDrivers.map((driver, index) => `<details class="scenario-driver"${index === 0 ? ' open' : ''}>
+        <summary>${escapeHtml(driver)}</summary>${names.map(name => {
+        const estimate = scenarioWinEstimate(scenarios[name], driver);
+        const pct = estimate.value;
         return `
           <div class="chart-row">
-            <div class="chart-label">${escapeHtml(driver)} · ${escapeHtml(titleFromKey(name))} · ${pct.toFixed(1)}%</div>
-            <div class="bar-track">
-              <div class="bar-fill" style="width:${Math.max(0, Math.min(100, pct))}%"></div>
-            </div>
+            <div class="chart-label">${escapeHtml(driver)} · ${escapeHtml(titleFromKey(name))}
+              ${pct !== null ? ` · ${pct.toFixed(1)}%` : ''}
+              <span class="sampling-range">${scenarioSamplingText(estimate)}</span></div>
+            ${pct !== null ? `<div class="bar-track" aria-hidden="true">
+              <div class="bar-fill" style="width:${pct}%"></div>
+              ${estimate.range ? `<div class="bar-range" style="left:${estimate.range.lower}%;width:${estimate.range.upper-estimate.range.lower}%"></div>` : ''}
+            </div>` : ''}
           </div>
         `;
-      }).join('')).join('')}
+      }).join('')}</details>`).join('')}
     </div>
   `;
 }
@@ -2877,14 +2926,14 @@ function renderDriverMatrix(data) {
     .filter(driver => !driverFilter || driver.toLowerCase().includes(driverFilter))
     .map(driver => {
       const values = names.map(name => {
-        const item = (scenarios[name].win_probabilities || []).find(([id]) => id === driver);
-        return item ? toNumber(item[1]) : 0;
+        return scenarioWinEstimate(scenarios[name], driver).value;
       });
+      const observed = values.filter(value => value !== null);
       return {
         driver,
         values,
-        best: Math.max(...values),
-        avg: values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1),
+        best: observed.length ? Math.max(...observed) : null,
+        avg: observed.length ? observed.reduce((sum, value) => sum + value, 0) / observed.length : null,
       };
     });
 
@@ -2894,15 +2943,17 @@ function renderDriverMatrix(data) {
   }
 
   if (sortEl.value === 'best') {
-    rows.sort((a, b) => b.best - a.best);
+    rows.sort((a, b) => (b.best ?? -1) - (a.best ?? -1));
   } else if (sortEl.value === 'avg') {
-    rows.sort((a, b) => b.avg - a.avg);
+    rows.sort((a, b) => (b.avg ?? -1) - (a.avg ?? -1));
   } else {
     rows.sort((a, b) => a.driver.localeCompare(b.driver));
   }
 
   matrixEl.innerHTML = `
-    <div class="matrix-wrap">
+    <p class="inline-note">Highlights mark the highest point estimate only. Ranges apply to each rate,
+      not to differences between scenarios. Missing observations are excluded from sorting averages.</p>
+    <div class="matrix-wrap" tabindex="0" role="region" aria-label="Scenario win estimates and sampling ranges">
       <table class="matrix-table">
         <thead>
           <tr><th>Driver</th>${names.map(name => `<th>${escapeHtml(titleFromKey(name))}</th>`).join('')}</tr>
@@ -2911,9 +2962,12 @@ function renderDriverMatrix(data) {
           ${rows.map(row => `
             <tr>
               <td><strong>${escapeHtml(row.driver)}</strong></td>
-              ${row.values.map(value => {
+              ${row.values.map((value, index) => {
+                if (value === null) return '<td>Not recorded</td>';
                 const highlight = highlightEl.checked && value === row.best && value > 0;
-                return `<td${highlight ? ' class="matrix-best"' : ''}>${value.toFixed(1)}%</td>`;
+                const estimate = scenarioWinEstimate(scenarios[names[index]], row.driver);
+                return `<td${highlight ? ' class="matrix-best"' : ''}>${value.toFixed(1)}%
+                  <span class="sampling-range">${scenarioSamplingText(estimate)}</span></td>`;
               }).join('')}
             </tr>
           `).join('')}
@@ -2936,8 +2990,8 @@ function exportScenarioMatrixCsv(data) {
 
   const rows = Array.from(drivers).sort((a, b) => a.localeCompare(b)).map(driver => {
     const values = names.map(name => {
-      const item = (scenarios[name].win_probabilities || []).find(([id]) => id === driver);
-      return item ? toNumber(item[1]).toFixed(1) : '0.0';
+      const value = scenarioWinEstimate(scenarios[name], driver).value;
+      return value !== null ? value.toFixed(1) : '';
     });
     return [driver, ...values].map(csvCell).join(',');
   });
@@ -2961,7 +3015,8 @@ function csvCell(value) {
 }
 
 function downloadResultJson(data) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const { comparison_report_html, ...savedResults } = data;
+  const blob = new Blob([JSON.stringify(savedResults, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -2972,8 +3027,27 @@ function downloadResultJson(data) {
   URL.revokeObjectURL(url);
 }
 
+function downloadComparisonReport(data) {
+  if (typeof data?.comparison_report_html !== 'string' || !data.comparison_report_html) return;
+  const blob = new Blob([data.comparison_report_html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'scenario_comparison.html';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function updateScenarioViews() {
   if (!simResults) return;
+  const reportButton = document.getElementById('downloadScenarioReportBtn');
+  if (reportButton) {
+    reportButton.disabled = typeof simResults.comparison_report_html !== 'string'
+      || !simResults.comparison_report_html;
+    reportButton.title = reportButton.disabled ? 'Report unavailable for these results' : '';
+  }
   renderScenarioCards(simResults);
   renderScenarioWinChart(simResults);
   renderScenarioTrends(simResults);
@@ -3043,10 +3117,11 @@ function renderScenarioLab() {
     <div class="compare-actions">
       <button class="btn-simulate" type="button" id="rerunScenarioBtn">Run Current Set</button>
       <button class="btn-simulate" type="button" id="downloadScenarioJsonBtn">Download JSON</button>
+      <button class="btn-simulate" type="button" id="downloadScenarioReportBtn">Download comparison report</button>
       <button class="btn-simulate" type="button" id="downloadScenarioMatrixBtn">Export Matrix CSV</button>
       <label class="control-label" style="display:flex;align-items:center;gap:0.45rem;margin:0 0 0 0.25rem;">
         <input type="checkbox" id="compareMatrixHighlight" checked>
-        Highlight Best
+        Highlight highest estimate
       </label>
     </div>
 
@@ -3087,6 +3162,8 @@ function renderScenarioLab() {
     await runSimulation();
   });
   downloadJsonBtn.addEventListener('click', () => downloadResultJson(simResults));
+  document.getElementById('downloadScenarioReportBtn').addEventListener('click',
+    () => downloadComparisonReport(simResults));
   exportMatrixBtn.addEventListener('click', () => exportScenarioMatrixCsv(simResults));
   controlIds.forEach(id => {
     const el = document.getElementById(id);

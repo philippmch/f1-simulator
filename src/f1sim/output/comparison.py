@@ -1,5 +1,6 @@
 """Offline, descriptive comparison reports for saved simulation scenarios."""
 
+from enum import Enum
 from html import escape
 from math import isfinite
 from numbers import Real
@@ -33,7 +34,12 @@ def _weather(result: SimulationResults) -> str:
             return "not recorded"
         return f"{value * 100:.0f}%"
 
-    return f'Rain {percent("rain_intensity")}; surface wetness {percent("track_wetness")}'
+    condition = weather.get("condition", "Not recorded")
+    if isinstance(condition, Enum):
+        condition = condition.value
+    return (f'{condition}; rain {percent("rain_intensity")}; '
+            f'surface wetness {percent("track_wetness")}; '
+            f'weather change {percent("change_probability")}/lap')
 
 
 def render_comparison_report(

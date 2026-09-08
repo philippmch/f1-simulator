@@ -280,6 +280,17 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         await page.locator(`#tab-${tab}`).click();
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
           `${tab} overflows at ${width}px`);
+        if (tab === 'scenarios') {
+          assert(await page.locator('#compareChart .bar-track').first().evaluate(
+            node => node.getBoundingClientRect().height >= 10), 'Win bars must have visible height');
+          assert(await page.locator('#compareTrends .bar-track').first().evaluate(
+            node => node.getBoundingClientRect().height >= 10), 'Event bars must have visible height');
+          if (process.env.F1SIM_SCREENSHOTS && [390, 1440].includes(width)) {
+            await page.locator('#compareChart').screenshot({
+              path: path.join(process.env.F1SIM_SCREENSHOTS, `scenario-ranges-${width}.png`),
+            });
+          }
+        }
         if (tab === 'stats' && process.env.F1SIM_SCREENSHOTS && [390, 1440].includes(width)) {
           if (width === 1440) await page.setViewportSize({width, height: 1600});
           await page.locator('#strategyStatistics details').first().evaluate(node => { node.open = true; });
@@ -303,8 +314,51 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     assert.equal(await page.evaluate(() => formatGap({position: 2, gap_to_leader: 0})), '+0.000');
     assert.equal(await page.evaluate(() => formatGap({position: 1, gap_to_leader: 0})), 'LEADER');
     assert.equal(await page.locator('#scenarioContent pre').count(), 0);
+    const firstScenario = Object.keys(payload.scenarios)[0];
+    const firstChartDriver = payload.scenarios[firstScenario].win_probabilities[0][0];
+    const expectedRange = payload.scenarios[firstScenario].driver_statistics[firstChartDriver].probability_intervals;
+    const firstChartRow = page.locator('#compareChart .chart-row').first();
+    assert((await firstChartRow.innerText()).includes(`${expectedRange.trials} observed trials`));
+    const extent = await firstChartRow.locator('.bar-range').evaluate(node => {
+      const outer = node.parentElement.getBoundingClientRect(), inner = node.getBoundingClientRect();
+      return [(inner.left-outer.left)/outer.width*100, inner.width/outer.width*100];
+    });
+    assert(Math.abs(extent[0]-expectedRange.win.lower) < .1);
+    assert(Math.abs(extent[1]-(expectedRange.win.upper-expectedRange.win.lower)) < .1);
+    await page.evaluate(() => {
+      window.originalComparisonScenarios = simResults.scenarios;
+      simResults.scenarios = {
+        observed: {win_probabilities: [['TEST', 0]], driver_statistics: {TEST: {
+          probability_intervals: {trials: 4, confidence: .95, method: 'wilson',
+            scope: 'monte_carlo_sampling', win: {lower: 0, upper: 49}},
+        }}},
+        missing: {win_probabilities: []},
+        empty: {win_probabilities: [['TEST', 0]], driver_statistics: {TEST: {
+          probability_intervals: {trials: 0},
+        }}},
+        legacy: {win_probabilities: [['TEST', 50]]},
+      };
+      renderScenarioWinChart(simResults);
+      renderDriverMatrix(simResults);
+    });
+    assert.equal(await page.locator('#compareChart .bar-range').count(), 1);
+    assert.equal(await page.locator('#compareChart .bar-track').count(), 2);
+    const matrixCells = await page.locator('#compareMatrix tbody tr').first().locator('td').allTextContents();
+    assert(matrixCells[1].includes('0.0%') && matrixCells[1].includes('4 observed trials'));
+    assert.deepEqual(matrixCells.slice(2, 4), ['Not recorded', 'Not recorded']);
+    assert(matrixCells[4].includes('50.0%') && matrixCells[4].includes('Sampling range unavailable'));
+    const missingCsvPromise = page.waitForEvent('download');
+    await page.locator('#downloadScenarioMatrixBtn').click();
+    const missingCsv = await missingCsvPromise;
+    assert(readFileSync(await missingCsv.path(), 'utf8').includes('"TEST","0.0","","","50.0"'));
+    await page.evaluate(() => {
+      simResults.scenarios = window.originalComparisonScenarios;
+      delete window.originalComparisonScenarios;
+      updateScenarioViews();
+    });
     for (const [id, extension] of [
       ['downloadScenarioJsonBtn', '.json'], ['downloadScenarioMatrixBtn', '.csv'],
+      ['downloadScenarioReportBtn', '.html'],
     ]) {
       const downloadPromise = page.waitForEvent('download');
       await page.locator(`#${id}`).click();
@@ -312,13 +366,31 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       assert(download.suggestedFilename().endsWith(extension));
       if (extension === '.json') {
         const saved = JSON.parse(readFileSync(await download.path(), 'utf8'));
+        assert.equal(saved.comparison_report_html, undefined);
         for (const [name, scenario] of Object.entries(saved.scenarios)) {
           assert.deepEqual(scenario.simulation_inputs, payload.scenarios[name].simulation_inputs);
           assert.deepEqual(scenario.strategy_statistics, payload.scenarios[name].strategy_statistics);
           assert.equal(scenario.simulation_inputs.schema_version, 1);
         }
+      } else if (extension === '.html') {
+        const report = readFileSync(await download.path(), 'utf8');
+        assert.equal(report, payload.comparison_report_html);
+        assert(report.includes('Simulation comparison'));
+        assert(!report.includes('<script'));
       }
     }
+    await page.evaluate(() => {
+      window.savedComparisonReport = simResults.comparison_report_html;
+      delete simResults.comparison_report_html;
+      updateScenarioViews();
+    });
+    assert(await page.locator('#downloadScenarioReportBtn').isDisabled());
+    await page.evaluate(() => {
+      simResults.comparison_report_html = window.savedComparisonReport;
+      delete window.savedComparisonReport;
+      updateScenarioViews();
+    });
+    assert(await page.locator('#downloadScenarioReportBtn').isEnabled());
     await page.locator('#compareDriverFilter').fill(driverId);
     assert((await page.locator('#compareMatrix').innerText()).includes(driverId));
     await page.locator('#tab-race').focus();

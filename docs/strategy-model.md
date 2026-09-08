@@ -94,6 +94,16 @@ driver tables showing win, podium and retirement intervals. It does not rank
 choices or treat an interval for one rate as an interval for a difference.
 Absent drivers and zero observed trials display as not recorded; paid-stop
 averages use their own recorded-race counts and exclude free tyre changes.
+The dashboard's Scenarios tab can download this report for the completed run.
+Its weather context includes the condition label and per-lap change probability,
+since scenarios with identical initial rain and wetness can still evolve or run
+at different speeds under the model. These settings are not a weather forecast.
+The dashboard scenario chart and matrix also display the backend's Wilson
+intervals and observed trial counts. Driver groups in the chart can be expanded
+independently. Matrix highlights refer only to point estimates. Missing rates
+are excluded from sorting averages and remain blank in matrix CSV exports;
+older results without interval metadata retain their estimates with an explicit
+sampling-range-unavailable label.
 
 With no rainfall, the dry policy projection is deterministic and needs one
 private run per slick. With sustained rainfall that could change the surface,

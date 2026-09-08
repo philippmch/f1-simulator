@@ -9,6 +9,7 @@ import sys
 
 from f1sim.analysis import MonteCarloRunner, scenario_weather_from_label
 from f1sim.models import Car, Driver, Track, Weather
+from f1sim.output.comparison import render_comparison_report
 from f1sim.web.server import (
     _serialize_ratings_snapshot,
     _serialize_track,
@@ -40,6 +41,7 @@ def build_fixture() -> dict:
             starting_tires={"S00": "hard", "S01": "soft"},
         ).run(num_simulations=10, parallel=False)
     payload = _summarize_scenario_results(results, scenario_weather=weather)
+    payload["comparison_report_html"] = render_comparison_report(results)
     ratings = _serialize_ratings_snapshot(drivers, cars, {})
     ratings["source"] = "SYNTHETIC offline test"
     payload.update(

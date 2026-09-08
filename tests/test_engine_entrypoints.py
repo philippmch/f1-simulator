@@ -56,6 +56,10 @@ def test_dashboard_real_runner_propagates_engine_to_each_scenario(
     ))
     assert payload["request"]["race_engine"] == engine
     assert payload["request"]["starting_tires"] == (starting_tires or {})
+    report = payload["comparison_report_html"]
+    assert "Simulation comparison" in report and "<script" not in report
+    assert "dry; rain 0%" in report and "light_rain; rain 35%" in report
+    assert engine in report
     saved = tmp_path / "dashboard.json"
     saved.write_text(json.dumps(payload), encoding="utf-8")
     for index, (name, scenario) in enumerate(payload["scenarios"].items()):

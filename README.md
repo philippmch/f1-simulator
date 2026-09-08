@@ -150,6 +150,18 @@ report needs no network connection or JavaScript; expand a driver to compare
 scenarios. Individual intervals describe each rate, not the difference between
 two choices or the accuracy of the model against real races.
 
+After a dashboard run, open the Scenarios tab and choose **Download comparison
+report** for the same offline report of all returned scenarios and drivers.
+It uses the completed run, regardless of current display filters or edited
+controls. JSON downloads retain the replay inputs without embedding the HTML.
+Report context includes the initial condition, rain, surface wetness and modeled
+per-lap weather-change chance; these describe simulation settings, not a forecast.
+The dashboard's scenario chart and driver matrix show the same individual 95%
+sampling ranges and observed trial counts. Expand a driver in the chart to view
+its scenarios. Highlights identify the highest estimate, not a proven strategy
+advantage. Missing observations display as not recorded and export as blank CSV
+cells; an observed zero remains 0% with its sampling range.
+
 There is no `--year` option. The current season comes from the backend's UTC date and requests for any other year are rejected. CLI runs use the same 1,000-simulation, 16-worker, and 32-bit-seed safety bounds as the dashboard.
 
 ## API

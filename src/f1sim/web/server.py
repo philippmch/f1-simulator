@@ -13,6 +13,7 @@ from typing import Any
 from f1sim.analysis import MonteCarloRunner, parse_scenario_labels, scenario_weather_from_label
 from f1sim.data import CurrentSeasonDataError, CurrentSeasonDataLoader
 from f1sim.models import Weather, WeatherCondition
+from f1sim.output.comparison import render_comparison_report
 from f1sim.output.timing import finite_time
 from f1sim.simulation.execution import validate_race_engine, validate_starting_tires
 from f1sim.simulation.race import result_is_classified
@@ -517,6 +518,7 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
     }
     payload["ratings"] = _serialize_ratings_snapshot(drivers, cars, driver_stats)
     payload["provenance"] = loader.get_provenance()
+    payload["comparison_report_html"] = render_comparison_report(scenario_results)
     return payload
 
 

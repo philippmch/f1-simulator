@@ -3,6 +3,7 @@
 from html.parser import HTMLParser
 
 from f1sim.analysis.montecarlo import DriverStatistics, MonteCarloRunner, SimulationResults
+from f1sim.analysis.scenarios import scenario_weather_from_label
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.output.comparison import render_comparison_report
 
@@ -35,7 +36,7 @@ def test_real_results_report_observed_outcomes_and_paid_stop_denominator():
     document = Document(render_comparison_report({"hard": result}, focus_driver="A"))
     text = " ".join(document.text)
     assert "A=hard" in text
-    assert "Rain 0%; surface wetness 0%" in text
+    assert "dry; rain 0%; surface wetness 0%; weather change 0%/lap" in text
     assert "(2 recorded races)" in text
     assert "[34.2–100.0%]" in text
     assert "[0.0–65.8%]" in text
@@ -85,6 +86,20 @@ def test_empty_comparison_and_unknown_focus_are_explicit():
     assert "No scenarios recorded" in content
     assert "No driver outcomes recorded" in content
     assert "<details" not in content
+
+
+def test_context_distinguishes_conditions_with_identical_rain_and_surface():
+    base = Weather(change_probability=.2)
+    scenarios = {}
+    for label in ("dry", "cloudy"):
+        result = results()
+        result.input_snapshot = {
+            "weather": scenario_weather_from_label(base, label).weather.model_dump(),
+        }
+        scenarios[label] = result
+    report = render_comparison_report(scenarios)
+    assert "dry; rain 0%; surface wetness 0%; weather change 20%/lap" in report
+    assert "cloudy; rain 0%; surface wetness 0%; weather change 20%/lap" in report
 
 
 def test_legacy_starting_context_and_unknown_paid_stops_remain_unknown():
