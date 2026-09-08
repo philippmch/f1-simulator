@@ -57,6 +57,34 @@ are excluded. Forecasting neither mutates live state nor consumes random draws.
 This is a free-running forecast: future stops, incidents, battle delays and
 weather changes remain unknown, and the estimate never determines actual order.
 
+Red flags now hold the field for a shared restart. Already-running laps finish
+their committed work once, with passing disabled during collection. Completed
+cars wait; cars still receiving paid service wait at the closed pit exit and
+run their existing lap only after release. Paid service is not sampled or
+charged again. The restart preserves completed distances and known on-track
+order, including passes made before the signal but before a line crossing.
+Cars in service retain their last recorded rank slots. All survivors receive
+one free tyre choice using the shared restart weather.
+
+The common restart occurs after collection plus `red_flag_pause_seconds`, which
+defaults to 600 seconds and can be configured on `ChronologicalRace` or
+`simulate_chronological_race`. This is a ten-minute notice assumption, not a
+calibrated estimate of incident clearance. Zero is available for controlled
+experiments. The `suspensions` trace records signal time, restart time and order.
+Absolute crossing and pit-exit times include the wait; previous crossings are
+never rewritten. The lap containing the wait retains its original start time,
+so waiting cannot manufacture a fastest lap. Strategy forecasts continue to use
+free-running pace rather than treating a suspension as recurring lap time.
+
+The finish clock adds completed suspension intervals, including collection, to
+the two-hour threshold, with a maximum extension of one hour. An already
+announced final lap stays fixed. This follows the timing framework in
+[FIA sporting regulations B2.5.3, B5.14.2 and B5.15.2](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_b_sporting_-_iss_08_-_2026-08-05_7.pdf).
+Collection remains a lap-resolution approximation: it does not recalculate
+partially driven sectors at reduced speed. The model also omits the detailed
+restart formation procedure, abandonment and results countback. Production
+dispatch still uses its existing instantaneous red-flag abstraction.
+
 Running physics uses physical gaps for dirty air and Overtake Mode detection.
 The gap is estimated from the preceding on-track car's progress through its
 pending lap, independently of race rank and completed distance. Weather, control,
@@ -73,6 +101,8 @@ empirically calibrated value. A slower follower cannot exceed its free pace to
 join the queue. VSC applies its running-time modifier without this compression.
 These are lap-resolution approximations; changes do not rewrite pending laps'
 starting control snapshots.
+An unrun paid lap held at a closed pit exit is an exception: its tyre and control
+snapshot is replaced at the shared red-flag restart before its first physics call.
 
 When a car catches its physical predecessor on a higher own lap, the predecessor
 yields without sampling a defensive battle. This models compliant blue-flag
@@ -84,9 +114,9 @@ describe yielding at the first opportunity, with allowance for the next straight
 The engine has no sector geometry, so it does not model that wait, noncompliance
 or penalties, or add an uncalibrated time loss for yielding.
 
-This is not yet a replacement for the full production model. Red-flag physical
-grouping and suspension duration, and the finish transition
-described below, also remain before changing the production entry points.
+This is not yet a replacement for the full production model. The unsupported
+finish transition described below and remaining suspension/restart approximations
+must be resolved before changing the production entry points.
 The existing minor-contact time losses and personal spin/puncture/crash outcomes
 are already reused; a richer damage-severity model would improve both engines
 rather than close a migration gap.
