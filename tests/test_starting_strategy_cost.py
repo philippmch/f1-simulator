@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 
 from f1sim.models import Car, Driver, TireCompound, Track, Weather
-from f1sim.models.tire import TIRE_COMPOUNDS
-from f1sim.simulation.pit_strategy import SLICKS, expected_stationary_time, plan_dry_stop
+from f1sim.simulation.opening_strategy import dry_opening_policy_costs
+from f1sim.simulation.pit_strategy import SLICKS, expected_stationary_time
 from f1sim.simulation.race import RaceSimulator, TeamStrategyArchetype
 
 
@@ -22,47 +22,46 @@ def fixture():
 @pytest.mark.parametrize("style", list(TeamStrategyArchetype))
 def test_seeded_opening_variety_only_in_equal_cost_minima(style):
     driver, car, track = fixture()
-    costs = {compound: plan_dry_stop(driver, car, track, TIRE_COMPOUNDS[compound],
-                                   0, track.total_laps, 3, {compound}).wait_cost
-             for compound in SLICKS}
-    assert costs[TireCompound.SOFT] == pytest.approx(costs[TireCompound.MEDIUM])
-    assert costs[TireCompound.HARD] > min(costs.values()) + 3
+    simulator = RaceSimulator()
+    scores = dict(dry_opening_policy_costs(driver, car, track, Weather(), style,
+                                          simulator.strategy_tuning, simulator.strategy_profiles))
+    best = min(scores.values())
+    optimal = {compound for compound, score in scores.items()
+               if score.negative_mean_laps == best.negative_mean_laps
+               and score.mean_time <= best.mean_time + 1e-9}
+    assert scores[TireCompound.HARD].mean_time > best.mean_time + 3
     selected = {RaceSimulator(np.random.default_rng(seed))._choose_starting_compound(
         style, track, Weather(), driver, car,
     ) for seed in range(40)}
-    assert selected == {TireCompound.SOFT, TireCompound.MEDIUM}
+    assert selected == optimal
+    if style == TeamStrategyArchetype.BALANCED:
+        assert selected == {TireCompound.SOFT, TireCompound.MEDIUM}
 
 
-def test_projection_forwards_individual_physics_and_budget_without_mutation(monkeypatch):
+def test_projection_forwards_individual_physics_and_settings_without_mutation(monkeypatch):
     import f1sim.simulation.race as race_module
+    from f1sim.simulation.opening_strategy import dry_opening_policy_costs
 
     driver, car, track = fixture()
     driver.tire_management = 0.4
     car.tire_degradation_factor = 1.5
     simulator = RaceSimulator(np.random.default_rng(42))
     observed = []
-    budgets = []
 
-    def budget(state, track):
-        budgets.append((state.strategy_archetype, state.pit_stops, state.current_tire.compound))
-        return 1
-
-    def project(*args, **kwargs):
+    def project(*args):
         observed.append(args)
-        return plan_dry_stop(*args, **kwargs)
+        return dry_opening_policy_costs(*args)
 
-    monkeypatch.setattr(simulator, "_dry_stop_budget", budget)
-    monkeypatch.setattr(race_module, "plan_dry_stop", project)
+    monkeypatch.setattr(race_module, "dry_opening_policy_costs", project)
     before = copy.deepcopy((driver, car))
     simulator._choose_starting_compound(TeamStrategyArchetype.CONSERVATIVE,
                                        track, Weather(), driver, car)
-    assert len(observed) == len(budgets) == 3
-    for args in observed:
-        assert args[0] is driver and args[1] is car
-        assert args[4:7] == (0, 30, 1)
-        assert args[7] == {args[3].compound}
-    assert all(style == TeamStrategyArchetype.CONSERVATIVE and stops == 0
-               for style, stops, _ in budgets)
+    assert len(observed) == 1
+    args = observed[0]
+    assert args[0] is driver and args[1] is car and args[2] is track
+    assert args[4] == TeamStrategyArchetype.CONSERVATIVE
+    assert args[5] is simulator.strategy_tuning
+    assert args[6] is simulator.strategy_profiles
     assert (driver, car) == before
     # Exactly the original single choice draw, with no projection draws.
     expected_rng = np.random.default_rng(42)
@@ -98,7 +97,8 @@ def test_weather_selection_skips_dry_projection(monkeypatch):
     assert simulator.rng.bit_generator.state == before
 
 
-def test_full_race_opening_matches_best_explicit_start_with_same_later_policy():
+@pytest.mark.parametrize("style", list(TeamStrategyArchetype))
+def test_full_race_opening_matches_best_explicit_start_with_same_later_policy(style):
     class MeanPace:
         def normal(self, mean, std):
             return mean
@@ -106,6 +106,7 @@ def test_full_race_opening_matches_best_explicit_start_with_same_later_policy():
     def run(compound=None):
         driver, car, track = fixture()
         simulator = RaceSimulator(np.random.default_rng(4))
+        simulator._infer_team_strategy = lambda *args: style
         simulator.lap_simulator.rng = MeanPace()
         simulator.lap_simulator.calculate_pit_stop_time = lambda car: expected_stationary_time(car)
         simulator.event_manager.process_lap = lambda **kwargs: []

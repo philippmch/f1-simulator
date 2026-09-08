@@ -32,7 +32,7 @@ def test_dry_entry_points_preserve_fuel_and_control(monkeypatch, action):
     monkeypatch.setattr(race, "plan_dry_stop", plan)
     if action == "elective":
         assert not simulator._should_pit(
-            state, [state], track, 25, Weather(), physical_total_laps=60,
+            state, [state], track, 25, False, weather=Weather(), physical_total_laps=60,
         )
     elif action == "committed":
         simulator._execute_pit_stop(

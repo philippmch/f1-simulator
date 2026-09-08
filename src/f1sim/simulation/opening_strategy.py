@@ -14,6 +14,7 @@ from f1sim.simulation.race_timing import RaceFinishClock
 REACTION_SEEDS = tuple(range(8))
 OPENING_CANDIDATES = (TireCompound.INTERMEDIATE, TireCompound.SOFT,
                       TireCompound.MEDIUM, TireCompound.HARD)
+SLICKS = (TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD)
 
 
 @dataclass(frozen=True, order=True)
@@ -22,6 +23,56 @@ class OpeningPolicyScore:
 
     negative_mean_laps: float
     mean_time: float
+
+
+def dry_opening_policy_costs(driver, car, track, weather, strategy, tuning, profiles):
+    """Score actual slick-opening policies, including the timed race finish.
+
+    Rain-free, dry surfaces have deterministic pit decisions, so one private
+    seed suffices. Transitional surfaces retain the wet policy's reaction sample.
+    Identity and prior race state do not affect these isolated policy paths.
+    """
+    from f1sim.simulation import race_timing
+
+    clean_driver = driver.model_copy(deep=True)
+    clean_driver.reset_race_state()
+    clean_driver.id = clean_driver.name = clean_driver.team_id = "projection"
+    clean_car = car.model_copy(update={"team_id": "projection", "team_name": "projection"})
+    snapshots = [clean_driver.model_dump(), clean_car.model_dump(), track.model_dump(),
+                 weather.model_dump(), tuning, profiles,
+                 {c.value: tire.model_dump() for c, tire in TIRE_COMPOUNDS.items()}]
+    return _cached_dry_policy_costs(
+        *(json.dumps(value, sort_keys=True) for value in snapshots), strategy.value,
+        race_timing.RACING_TIME_LIMIT_SECONDS,
+    )
+
+
+@lru_cache(maxsize=128)
+def _cached_dry_policy_costs(driver_json, car_json, track_json, weather_json,
+                             tuning_json, profiles_json, tire_config_json, strategy,
+                             racing_time_limit):
+    # Configuration and deadline values key each synchronous projection. The
+    # shared policy runner reads that same current configuration on a cache miss.
+    from f1sim.simulation.race import TeamStrategyArchetype
+
+    driver = Driver.model_validate_json(driver_json)
+    car = Car.model_validate_json(car_json)
+    track = Track.model_validate_json(track_json)
+    weather = Weather.model_validate_json(weather_json)
+    tuning, profiles = json.loads(tuning_json), json.loads(profiles_json)
+    seeds = ((0,) if weather.rain_intensity == 0 and weather.track_wetness < 0.08
+             else REACTION_SEEDS)
+    scores = []
+    for compound in SLICKS:
+        outcomes = [_policy_path_outcome(
+            driver, car, track, weather, TeamStrategyArchetype(strategy), tuning, profiles,
+            compound, seed,
+        ) for seed in seeds]
+        mean_time = sum(time for _, time in outcomes) / len(outcomes)
+        negative_mean_laps = (-sum(laps for laps, _ in outcomes) / len(outcomes)
+                              if mean_time != inf else inf)
+        scores.append((compound, OpeningPolicyScore(negative_mean_laps, mean_time)))
+    return tuple(scores)
 
 
 def opening_policy_costs(driver, car, track, weather, strategy, tuning, profiles):

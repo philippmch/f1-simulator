@@ -101,7 +101,17 @@ def test_all_race_planners_forward_weather_and_traffic_scales_without_queue(monk
     simulator._choose_committed_dry_compound(state, track, 20, weather)
     simulator._choose_red_flag_tire(state, weather, track, 20)
     assert simulator.rng.bit_generator.state == before
+    assert len(observed) == 7  # One decision, three paid and three free set choices.
+    assert all(kwargs["tire_pace_multiplier"] == factor for _, kwargs in observed)
+    opening_inputs = []
+    original_opening = race_module.dry_opening_policy_costs
+
+    def capture_opening(*args):
+        opening_inputs.append(args)
+        return original_opening(*args)
+
+    monkeypatch.setattr(race_module, "dry_opening_policy_costs", capture_opening)
     simulator._choose_starting_compound(TeamStrategyArchetype.BALANCED, track, weather,
                                         state.driver, state.car)
-    assert len(observed) == 10  # One decision and three candidates in each chooser.
-    assert all(kwargs["tire_pace_multiplier"] == factor for _, kwargs in observed)
+    assert len(opening_inputs) == 1
+    assert opening_inputs[0][:4] == (state.driver, state.car, track, weather)

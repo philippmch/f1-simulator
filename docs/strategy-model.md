@@ -19,16 +19,28 @@ this is not a forecast of future weather. Expected service and pit-lane loss
 are not weather-scaled. A current SC/VSC running multiplier applies in addition
 to weather scaling for this lap only, with later laps assumed green.
 
-Automatic starting-compound selection on a clearly dry track also compares the
-full projected race for each driver and car. The opening set is free and must
-run before a later paid stop; future stops include service cost and the
-distinct-compound requirement. Existing strategy weights choose between
-minimum-cost opening compounds, allowing different orders of equally fast
-stints. A numerical tolerance of one billionth of a second treats floating-point
-ties consistently. If no legal projected plan exists, the original weighted
-choice remains available. Explicit starting-tyre overrides and rain sets selected
-by the surface/rainfall crossover retain priority. This projection shares the dry
-optimizer's limits on weather, traffic, inventory and future interruptions.
+Automatic starting-compound selection on a clearly dry track compares isolated
+runs of the existing pit policy for each slick, using noise-free lap pace and
+expected service time. These runs follow the race clock, retain the original
+fuel distance, and include later paid stops and the distinct-compound rule.
+They compare completed distance first and elapsed time second. This avoids
+choosing an opening tyre for a scheduled distance that the time limit will cut
+short, or rewarding a slower policy merely because it completes fewer laps.
+Existing strategy weights choose among equivalent best outcomes, with a
+one-billionth-of-a-second tolerance for elapsed-time ties. One-lap races and
+cases without a legal projected finish retain the original weighted choice.
+Explicit starting-tyre overrides and rain sets selected by the surface/rainfall
+crossover retain priority.
+
+With no rainfall, the dry policy projection is deterministic and needs one
+private run per slick. With sustained rainfall that could change the surface,
+it averages the same eight private reaction seeds used below. Cached scores
+include physical inputs, tyre configuration, strategy settings and the race
+time limit; driver and team names do not affect them. This compares the
+existing single-car policy, not every possible timed pit schedule. It assumes
+constant weather condition and rainfall, no traffic or future interruptions,
+and unlimited tyre inventory. A multi-car race can have a different horizon
+as its leader and traffic determine the finish.
 Precautionary intermediates must also pass the same mismatch check used during
 the race. A rainy condition label with a sufficiently dry surface and low
 rainfall does not fit intermediates that would immediately require a paid

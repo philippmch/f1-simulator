@@ -9,7 +9,7 @@ from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather, Weathe
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.events import EventManager, EventType, RaceEvent
 from f1sim.simulation.lap import LapSimulator
-from f1sim.simulation.opening_strategy import opening_policy_costs
+from f1sim.simulation.opening_strategy import dry_opening_policy_costs, opening_policy_costs
 from f1sim.simulation.overtaking import OvertakingModel
 from f1sim.simulation.pit_strategy import expected_stationary_time, plan_dry_stop
 from f1sim.simulation.race_points import points_for_classification
@@ -694,26 +694,21 @@ class RaceSimulator:
             weights[2] -= 0.01
 
         weights = np.clip(weights, 0.02, None)
-        if (driver is not None and car is not None
+        if (driver is not None and car is not None and track.total_laps > 1
                 and weather.track_wetness < 0.08 and weather.rain_intensity < 0.15):
-            costs = []
-            for compound in (TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD):
-                opening = DriverRaceState(
-                    driver, car, 1, current_tire=TIRE_COMPOUNDS[compound],
-                    strategy_archetype=strategy,
-                )
-                costs.append(plan_dry_stop(
-                    driver, car, track, opening.current_tire, 0, track.total_laps,
-                    min(3, max(0, self._dry_stop_budget(opening, track))), {compound},
-                    tire_pace_multiplier=self.lap_simulator.weather_pace_multiplier(
-                        driver, car, weather,
-                    ),
-                ).wait_cost)
-            best = min(costs)
-            if np.isfinite(best):
-                # Keep seeded style diversity only among equivalent complete
-                # schedules. An opening set is free but must run before a stop.
-                weights *= np.asarray(costs) <= best + 1e-9
+            scores = dry_opening_policy_costs(
+                driver, car, track, weather, strategy,
+                self.strategy_tuning, self.strategy_profiles,
+            )
+            best = min(score for _, score in scores)
+            if np.isfinite(best.mean_time):
+                # Compare the actual policy's completed distance first: a
+                # shorter timed race must not win merely by ending sooner.
+                weights *= np.asarray([
+                    score.negative_mean_laps == best.negative_mean_laps
+                    and score.mean_time <= best.mean_time + 1e-9
+                    for _, score in scores
+                ])
         weights /= weights.sum()
         # NumPy converts Enum objects to truncated unicode labels when it
         # builds an object array (for example ``"TireCo"``).  Sample the
