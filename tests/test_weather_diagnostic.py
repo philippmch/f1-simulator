@@ -33,7 +33,8 @@ def test_model_comparison_is_reproducible_machine_readable_and_labeled():
 
 
 @pytest.mark.parametrize("has_finish", [True, False])
-def test_observed_race_window_and_completion(monkeypatch, has_finish):
+@pytest.mark.parametrize("include_stints", [True, False])
+def test_observed_race_window_and_completion(monkeypatch, has_finish, include_stints):
     path = Path(__file__).resolve().parents[1] / "examples" / "check_weather_calibration.py"
     spec = importlib.util.spec_from_file_location("weather_diagnostic", path)
     module = importlib.util.module_from_spec(spec)
@@ -60,6 +61,10 @@ def test_observed_race_window_and_completion(monkeypatch, has_finish):
             {"date": "2026-08-01T12:01:00+00:00", "rainfall": 0},
             {"date": "2026-08-01T14:01:00+00:00", "rainfall": 1},
         ],
+        "stints?session_key=1": [{
+            "session_key": 1, "driver_number": 1, "stint_number": 1,
+            "compound": "INTERMEDIATE", "lap_start": 1, "lap_end": 6,
+        }],
     }
     monkeypatch.setattr(module, "datetime", Clock)
     monkeypatch.setattr(module.time, "sleep", lambda _: None)
@@ -69,8 +74,14 @@ def test_observed_race_window_and_completion(monkeypatch, has_finish):
 
     if not has_finish:
         with pytest.raises(RuntimeError, match="No completed-race evidence"):
-            module.observed_summary()
+            module.observed_summary(include_stints=include_stints)
     else:
-        assert module.observed_summary()["races"] == [{
+        observed = module.observed_summary(include_stints=include_stints)
+        if include_stints:
+            stint = observed["races"][0].pop("rain_stints")["stints"][0]
+            assert stint["reported_laps"] == 6
+            assert stint["tyre_age_at_end"] is None
+            assert stint["end_reason"] == "unknown"
+        assert observed["races"] == [{
             "session": 1, "venue": "Test", "rain_observed": False, "red_flag": True,
         }]

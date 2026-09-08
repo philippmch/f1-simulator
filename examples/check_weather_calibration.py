@@ -12,6 +12,9 @@ import json
 import sys
 import time
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+from math import isfinite
+from urllib.error import HTTPError
 from urllib.request import urlopen
 
 from f1sim.analysis.montecarlo import MonteCarloRunner
@@ -20,19 +23,95 @@ from f1sim.simulation.execution import RACE_ENGINES, validate_race_engine
 from f1sim.simulation.race import DriverStatus
 
 
-def observed_summary() -> dict:
+def rain_stint_summary(rows: list[dict], session_key: int) -> dict:
+    """Describe reported rain stints without inferring wear or why they ended."""
+    if not rows:
+        raise RuntimeError(f"No stint evidence for session {session_key}")
+    stints, excluded, seen = [], {}, {}
+
+    def exclude(reason):
+        excluded[reason] = excluded.get(reason, 0) + 1
+
+    def integer(value, minimum):
+        return isinstance(value, int) and not isinstance(value, bool) and value >= minimum
+
+    for row in rows:
+        if row.get("session_key") != session_key:
+            raise RuntimeError("Stint source returned an unexpected session")
+        identity = (row.get("driver_number"), row.get("stint_number"))
+        if not all(integer(value, 1) for value in identity):
+            exclude("missing_identity")
+            continue
+        if identity in seen:
+            if seen[identity] != row:
+                raise RuntimeError("Conflicting stint records")
+            exclude("duplicate_record")
+            continue
+        seen[identity] = row
+        compound = row.get("compound")
+        if compound in {"SOFT", "MEDIUM", "HARD"}:
+            continue
+        if compound not in {"INTERMEDIATE", "WET"}:
+            exclude("unknown_compound")
+            continue
+        start, end = row.get("lap_start"), row.get("lap_end")
+        if not integer(start, 1) or not integer(end, start):
+            exclude("incomplete_lap_range")
+            continue
+        age = row.get("tyre_age_at_start")
+        age = age if integer(age, 0) else None
+        laps = end - start + 1
+        stints.append({
+            "driver_number": identity[0], "stint_number": identity[1], "compound": compound,
+            "lap_start": start, "lap_end": end, "reported_laps": laps,
+            "tyre_age_at_start": age,
+            "tyre_age_at_end": age + laps if age is not None else None,
+            "end_reason": "unknown",
+        })
+    stints.sort(key=lambda row: (row["driver_number"], row["stint_number"]))
+    return {"source_records": len(rows), "excluded_records": excluded, "stints": stints}
+
+
+def observed_summary(*, include_stints: bool = False) -> dict:
     """Summarize completed current-season races; fail if a source is incomplete."""
     now = datetime.now(timezone.utc)
     cutoff = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    deadline = time.monotonic() + 120.0
+    deadline = time.monotonic() + (240.0 if include_stints else 180.0)
 
     def fetch(path: str) -> list[dict]:
-        time.sleep(0.3)
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise RuntimeError("Observed-data fetch budget exceeded")
-        with urlopen("https://api.openf1.org/v1/" + path, timeout=min(15, remaining)) as response:
-            raw = response.read(4_000_001)
+        for attempt in range(3):
+            if deadline - time.monotonic() <= 2.1:
+                raise RuntimeError("Observed-data fetch budget exceeded")
+            time.sleep(2.1)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError("Observed-data fetch budget exceeded")
+            try:
+                with urlopen("https://api.openf1.org/v1/" + path,
+                             timeout=min(15, remaining)) as response:
+                    raw = response.read(4_000_001)
+                break
+            except HTTPError as exc:
+                if exc.code != 429 or attempt == 2:
+                    raise RuntimeError(
+                        f"Observed request failed for {path}: HTTP {exc.code}"
+                    ) from exc
+                retry = (exc.headers or {}).get("Retry-After", "")
+                try:
+                    delay = float(retry)
+                except ValueError:
+                    try:
+                        delay = (parsedate_to_datetime(retry) - datetime.now(timezone.utc)
+                                 ).total_seconds()
+                    except (TypeError, ValueError, OverflowError):
+                        delay = 5.0 * (attempt + 1)
+                if not isfinite(delay) or delay < 0:
+                    delay = 5.0 * (attempt + 1)
+                if delay > 60 or delay + 2.1 >= deadline - time.monotonic():
+                    raise RuntimeError(
+                        "Provider retry delay exceeds observed fetch budget"
+                    ) from exc
+                time.sleep(delay)
         if len(raw) > 4_000_000:
             raise RuntimeError("Observed response exceeds size budget")
         rows = json.loads(raw)
@@ -59,14 +138,17 @@ def observed_summary() -> dict:
                    if start <= datetime.fromisoformat(row["date"]) <= end]
         if not weather:
             raise RuntimeError(f"No race weather observations for session {key}")
-        races.append({
+        race = {
             "session": key,
             "venue": session["location"],
             "rain_observed": any(row["rainfall"] for row in weather),
             # Some current records carry RED FLAG only in message, with flag=null.
             "red_flag": any(row.get("flag") == "RED" or
                             row.get("message", "").startswith("RED FLAG") for row in control),
-        })
+        }
+        if include_stints:
+            race["rain_stints"] = rain_stint_summary(fetch(f"stints?session_key={key}"), key)
+        races.append(race)
     return {"year": now.year, "completed_before": cutoff.isoformat(), "races": races}
 
 
@@ -127,6 +209,8 @@ def model_summary(simulations: int, seed: int = 42, race_engine: str = "standard
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--observed", action="store_true", help="Fetch current-season observations")
+    parser.add_argument("--observed-stints", action="store_true",
+                        help="Include reported rain stints; implies --observed")
     parser.add_argument("--simulations", type=int, default=200)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--race-engine", choices=(*RACE_ENGINES, "both"), default="standard",
@@ -137,11 +221,12 @@ def main() -> None:
     if not 0 <= args.seed <= 2**32 - 1:
         parser.error("seed must be between 0 and 4294967295")
     engines = RACE_ENGINES if args.race_engine == "both" else (args.race_engine,)
-    observed = observed_summary() if args.observed else None
+    observed = (observed_summary(include_stints=args.observed_stints)
+                if args.observed or args.observed_stints else None)
     with contextlib.redirect_stdout(sys.stderr):
         summaries = [row for engine in engines
                      for row in model_summary(args.simulations, args.seed, engine)]
-    output = {"observed": observed, "model": summaries} if args.observed else summaries
+    output = {"observed": observed, "model": summaries} if observed is not None else summaries
     print(json.dumps(output, indent=2, allow_nan=False))
 
 
