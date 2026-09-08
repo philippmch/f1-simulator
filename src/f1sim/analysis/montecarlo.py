@@ -136,6 +136,57 @@ class SimulationResults:
     max_workers: int | None = None
     race_engine: str = "standard"
 
+    def get_race_distance_statistics(self) -> dict[str, int | float | None]:
+        """Summarize recorded distances, with rates as fractions in [0, 1].
+
+        Only a finished position-one result identifies the winner: a retired
+        car can have completed more laps in a time-limited race. Missing legacy
+        distances stay unknown and do not enter distance-based denominators.
+        """
+        def positive_laps(result: RaceResult) -> int | None:
+            laps = getattr(result, "laps_completed", None)
+            if isinstance(laps, Integral) and not isinstance(laps, bool) and laps > 0:
+                return int(laps)
+            return None
+
+        winners = 0
+        winner_distances: list[int] = []
+        time_limited = 0
+        finishers = 0
+        comparable = 0
+        lapped = 0
+        for race in self.race_results:
+            finished = [result for result in race if result.status == DriverStatus.FINISHED]
+            winner = next((result for result in finished if result.position == 1), None)
+            winner_laps = positive_laps(winner) if winner is not None else None
+            winners += int(winner is not None)
+            if winner_laps is not None:
+                winner_distances.append(winner_laps)
+            time_limited += int(any(getattr(result, "race_time_limited", False) for result in race))
+            finishers += len(finished)
+            for result in finished:
+                laps = positive_laps(result)
+                if winner_laps is not None and laps is not None:
+                    comparable += 1
+                    lapped += int(laps < winner_laps)
+
+        recorded = len(self.race_results)
+        return {
+            "recorded_races": recorded,
+            "races_with_winner": winners,
+            "races_without_winner": recorded - winners,
+            "races_with_known_winner_distance": len(winner_distances),
+            "mean_winner_laps": (
+                sum(winner_distances) / len(winner_distances) if winner_distances else None
+            ),
+            "time_limited_races": time_limited,
+            "time_limited_race_rate": time_limited / recorded if recorded else None,
+            "finishing_cars": finishers,
+            "finishers_with_comparable_distance": comparable,
+            "lapped_finishers": lapped,
+            "lapped_finisher_rate": lapped / comparable if comparable else None,
+        }
+
     def get_pit_stop_statistics(self) -> dict[str, dict]:
         """Paid stops per observed race row, including retired entrants.
 
