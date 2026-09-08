@@ -146,6 +146,25 @@ results; each metric shows its own recorded counts. Replay a trial from the comp
 The source file is unchanged. Comparisons use installed simulator code and share
 the replay limitations above. Use `--parallel --max-workers 4` for process workers.
 
+You can also compare the Standard and experimental Lap-aware engines against
+the same saved models, weather behavior, starting tyres and base seed:
+
+```bash
+python examples/compare_race_engines.py output/saved_statistics.json --simulations 100 --export
+```
+
+For a multi-scenario input, select it with `--scenario dry`. Results appear in
+`standard,chronological` order by default; `--engines chronological,standard`
+reverses that order. Nothing is written without `--export`. Unique bundles and
+paired comparison JSON/HTML go to `output/engine-comparisons` or `--output-dir`.
+The console includes winning distance, timed races, lapping and driver outcomes;
+the HTML also shows actual tyre sequences. Replay an exported trial with
+`python examples/replay_simulation.py output/engine-comparisons/race_engines_ID.json --scenario chronological --simulation 2`.
+These comparisons measure sensitivity to the execution model. Equal seeds do
+not align all later events, and a different result does not establish that one
+engine is more accurate. Qualifying inputs and qualifying seed ranges are shared.
+Use `--parallel --max-workers 4` to run each engine's trials in process workers.
+
 Multi-scenario live CLI exports also include a combined HTML report and JSON with
 matching unique filenames. Comparison JSON preserves observed driver counts,
 points per observed race, sampling intervals and pit-stop statistics. The HTML

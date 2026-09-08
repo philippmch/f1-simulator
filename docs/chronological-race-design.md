@@ -209,6 +209,21 @@ winner's actual distance and the original scheduled distance respectively.
 
 ## Acceptance scenarios for the scheduler
 
+For an offline comparison using the same frozen inputs, run
+`python examples/compare_race_engines.py saved_statistics.json --simulations 100 --export`.
+Use `--scenario NAME` when the saved file contains multiple scenarios. Both engines
+retain the saved roster, cars, track, weather policy, starting-tyre overrides and
+base seed. Only execution-model selection changes; the source file is untouched.
+Automatic opening choices and later strategies remain active and can differ as
+the models evolve. Identical seed ranges do not guarantee identical future random
+events. The comparison therefore describes model sensitivity rather than a
+controlled estimate of one isolated mechanism or proof of real-race accuracy.
+
+Comparison exports include recorded winning distance, time-limited races,
+lapped finishers, driver outcomes, sampling intervals and actual tyre sequences.
+Each engine's trials can be replayed from the combined JSON with its engine name
+as the replay scenario. Reproduction uses installed code and dependencies.
+
 - The 90/110-second fixture finishes at 900/990 seconds and 10/9 laps, with no
   slow-car lap-10 physics, pit service, event or random draw.
 - Equal-clock crossings have deterministic ordering; the winner takes the flag
