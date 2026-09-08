@@ -404,3 +404,13 @@ remaining pit strategy with mean pace and expected stationary service.
 
 Sampling ranges in the dashboard measure Monte Carlo noise under these
 assumptions. They do not validate the strategy model against real race outcomes.
+
+Run `python examples/check_rain_pit_timing.py` for exhaustive short wet-race
+comparisons in both Standard and Lap-aware engines. Each selected strategy is
+compared with every schedule of up to four paid stops after the opening lap:
+99 schedules for eight laps and 562 for twelve laps. The synthetic cases cover
+intermediates, wets, and no-stop, one-stop and two-stop optima using actual tyre
+ageing, fuel and pit execution. They use a single car, fixed rainfall/surface,
+noise-free laps and expected service, with incidents disabled. Long reference
+lap times and cheap lanes deliberately exercise worthwhile fresh-tyre stops;
+these are model checks, not calibrated venues or observed race comparisons.
