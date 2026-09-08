@@ -19,7 +19,7 @@ def build_fixture():
         num_simulations=1, track_name=track, seed=42,
         race_results=[[RaceResult(driver, driver, team, 1, 100, 0, 0, 90, DriverStatus.DNF,
                                   strategy=["soft", script, "soft"])]], qualifying_results=[],
-        driver_stats={"A": DriverStatistics(driver_id="A", driver_name=driver, team=team,
+        driver_stats={driver: DriverStatistics(driver_id=driver, driver_name=driver, team=team,
                                             wins=1, positions=[1], total_points=25)},
         input_snapshot={"starting_tires": {driver: "soft"}},
     )
@@ -30,7 +30,7 @@ def build_fixture():
             race_results=[], qualifying_results=[], seed=43,
         )
         comparison = exporter.export_scenario_comparison_html(
-            {script: results, "No observations": empty}, focus_driver="A",
+            {script: results, "No observations": empty}, focus_driver=driver,
         ).read_text(encoding="utf-8")
         report = exporter.export_report_html(results, filename).read_text(encoding="utf-8")
         exporter._write_history([{

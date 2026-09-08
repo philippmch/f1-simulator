@@ -47,6 +47,7 @@ def render_comparison_report(
 ) -> str:
     """Render supplied scenario order without ranking or causal interpretation."""
     context = []
+    distance_rows = []
     drivers = {}
     summaries = {}
     for name, result in scenario_results.items():
@@ -60,19 +61,69 @@ def render_comparison_report(
         ) + "</tr>")
         for driver_id, stats in result.driver_stats.items():
             drivers.setdefault(driver_id, stats)
-        summaries[name] = (result.get_probability_intervals(), result.get_pit_stop_statistics())
+        summaries[name] = (
+            result.get_probability_intervals(), result.get_pit_stop_statistics(),
+            result.get_strategy_statistics(),
+        )
+        distance = result.get_race_distance_statistics()
+        recorded = distance["recorded_races"]
+        known = distance["races_with_known_winner_distance"]
+        comparable = distance["finishers_with_comparable_distance"]
+        mean = distance["mean_winner_laps"]
+        distance_cells = [str(recorded)]
+        distance_cells.append(
+            f'{mean:.2f} laps <span class="interval">({known} known winners)</span>'
+            if mean is not None else "Not recorded"
+        )
+        for count, denominator, unit in (
+            (distance["time_limited_races"], recorded, "recorded races"),
+            (distance["lapped_finishers"], comparable, "comparable finishers"),
+            (distance["races_without_winner"], recorded, "recorded races"),
+        ):
+            distance_cells.append(
+                f'{100 * count / denominator:.1f}% '
+                f'<span class="interval">({count} / {denominator} {unit})</span>'
+                if denominator else "Not recorded"
+            )
+        distance_rows.append(
+            f'<tr><th scope="row">{_text(name)}</th>'
+            + "".join(f"<td>{cell}</td>" for cell in distance_cells) + "</tr>"
+        )
 
     sections = []
     for driver_id, identity in drivers.items():
         rows = []
+        strategy_rows = []
         for name, result in scenario_results.items():
+            intervals, stops, strategies = summaries[name]
+            strategy = strategies.get(driver_id)
+            if strategy:
+                for sequence in strategy["strategies"]:
+                    strategy_rows.append(
+                        f'<tr><th scope="row">{_text(name)}</th>'
+                        f'<td>{_text(" → ".join(sequence["compounds"]))}</td>'
+                        f'<td>{sequence["races"]} / '
+                        f'{strategy["races_with_recorded_strategy"]} '
+                        f'({100 * sequence["share"]:.1f}%)</td>'
+                        f'<td>{sequence["finished_races"]}</td>'
+                        f'<td>{sequence["dnf_races"]}</td></tr>'
+                    )
+            if not strategy or strategy["missing_strategy_races"]:
+                missing = (
+                    f'missing sequence in {strategy["missing_strategy_races"]} '
+                    f'{"race" if strategy["missing_strategy_races"] == 1 else "races"}'
+                    if strategy else "No race rows recorded"
+                )
+                strategy_rows.append(
+                    f'<tr><th scope="row">{_text(name)}</th>'
+                    f'<td colspan="4">Not recorded ({missing})</td></tr>'
+                )
             stats = result.driver_stats.get(driver_id)
             trials = len(stats.positions) if stats else 0
             cells = [f'<th scope="row">{_text(name)}</th>']
             if not trials:
                 cells.append('<td colspan="6">Not recorded (no observed trials)</td>')
             else:
-                intervals, stops = summaries[name]
                 cells.append(f"<td>{trials}</td>")
                 for metric, count in (
                     ("win", stats.wins), ("podium", stats.podiums), ("dnf", stats.dnfs),
@@ -104,7 +155,14 @@ def render_comparison_report(
             '<th scope="col">DNF % [95% interval]</th>'
             '<th scope="col">Points / observed race</th>'
             '<th scope="col">Mean paid stops</th></tr></thead><tbody>'
-            + "".join(rows) + "</tbody></table></div></details>"
+            + "".join(rows) + "</tbody></table></div>"
+            '<div class="table-wrap" tabindex="0" role="region" '
+            f'aria-label="{_text(label)} recorded tyre sequences">'
+            f'<table><caption>Recorded tyre sequences for {_text(driver_id)}</caption>'
+            '<thead><tr><th scope="col">Scenario</th><th scope="col">Tyre sequence</th>'
+            '<th scope="col">Races / recorded sequences</th>'
+            '<th scope="col">Finished</th><th scope="col">DNF</th></tr></thead><tbody>'
+            + "".join(strategy_rows) + "</tbody></table></div></details>"
         )
 
     return """<!doctype html>
@@ -146,9 +204,24 @@ aria-label="Scenario context"><table><caption>Recorded run context</caption><the
 <th scope="col">Initial weather</th>
 <th scope="col">Starting tyre overrides</th></tr></thead><tbody>""" + (
         "".join(context) or '<tr><td colspan="7">No scenarios recorded</td></tr>'
+    ) + """</tbody></table></div><h2>Race distance</h2>
+<p>Shortened races and lapped finishes can change points and pit-stop counts.
+Winning distance uses finished P1 results with a recorded distance. Lapping
+compares only finishers whose distance and winner's distance are both known.</p>
+<div class="table-wrap context" tabindex="0" role="region" aria-label="Race distance">
+<table><caption>Recorded race distances and finish outcomes</caption><thead><tr>
+<th scope="col">Scenario</th><th scope="col">Recorded races</th>
+<th scope="col">Mean winning distance</th><th scope="col">Time-limited races</th>
+<th scope="col">Lapped finishers</th><th scope="col">Races without a winner</th>
+</tr></thead><tbody>""" + (
+        "".join(distance_rows) or '<tr><td colspan="6">No scenarios recorded</td></tr>'
     ) + """</tbody></table></div><h2>Driver outcomes</h2>
 <p>Rates and mean points use observed trials, including retirements. Paid stops
 exclude free tyre changes and show their own recorded-race counts.</p>
+<p>Tyre sequences show what was actually fitted, including free changes and
+truncated retirement runs. Shares use races with recorded sequences; missing
+records appear separately. Sequence frequencies do not measure which strategy
+is best. A requested opening tyre may be replaced before lap one.</p>
 <p>Individual 95% Wilson intervals describe sampling uncertainty,
 not real-world accuracy or intervals of differences between scenarios.
 Equal seeds do not freeze later race events.</p>""" + (

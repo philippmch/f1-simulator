@@ -6,6 +6,7 @@ from f1sim.analysis.montecarlo import DriverStatistics, MonteCarloRunner, Simula
 from f1sim.analysis.scenarios import scenario_weather_from_label
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.output.comparison import render_comparison_report
+from f1sim.simulation.race import DriverStatus, RaceResult
 
 
 class Document(HTMLParser):
@@ -105,6 +106,63 @@ def test_context_distinguishes_conditions_with_identical_rain_and_surface():
 def test_legacy_starting_context_and_unknown_paid_stops_remain_unknown():
     result = results({"A": DriverStatistics("A", "A", "T", positions=[4])})
     content = render_comparison_report({"legacy": result})
-    assert content.count("Not recorded") == 3  # Starting choice, weather and paid stops.
+    assert "<td>Not recorded</td>" in content
+    assert "<td>0</td><td>Not recorded</td>" in content  # No race distances.
     result.input_snapshot = {"schema_version": 1}
     assert "Automatic" in render_comparison_report({"legacy": result})
+
+
+def test_distance_comparison_uses_actual_winner_and_separate_denominators():
+    def car(position, laps, *, retired=False, limited=False):
+        return RaceResult(
+            str(position), str(position), "Team", position, 100.0, 0.0, 0, 90.0,
+            DriverStatus.DNF if retired else DriverStatus.FINISHED,
+            laps_completed=laps, race_time_limited=limited,
+        )
+
+    result = results()
+    result.race_results = [
+        [car(1, 30, limited=True), car(2, 40, retired=True), car(3, 29), car(4, None)],
+        [car(1, 50), car(2, 50)],
+        [car(1, 10, retired=True)],
+    ]
+    content = render_comparison_report({"mixed": result})
+    assert '40.00 laps <span class="interval">(2 known winners)</span>' in content
+    assert content.count("(1 / 3 recorded races)") == 2  # Timed and without a winner.
+    assert "(1 / 4 comparable finishers)" in content
+    assert "25.0%" in content
+    assert "33.3%" in content
+    # Requested 1000 simulations must not enter any outcome denominator.
+    assert "/ 1000" not in content
+
+
+def test_legacy_winner_without_distance_does_not_invent_lapping():
+    result = results()
+    result.race_results = [[RaceResult(
+        "A", "A", "Team", 1, 100.0, 0.0, 0, 90.0, DriverStatus.FINISHED,
+    )]]
+    content = render_comparison_report({"legacy": result})
+    assert content.count("(0 / 1 recorded races)") == 2
+    assert "comparable finishers)" not in content
+    assert "known winners)" not in content
+
+
+def test_sequences_show_observed_shares_free_fittings_retirements_and_missing():
+    result = results({"A": DriverStatistics("A", "A", "Team", positions=[1] * 4)})
+    hostile = '<script>bad()</script>'
+    for sequence, status in (
+        (["soft", "hard", "hard"], DriverStatus.FINISHED),
+        (["soft", "hard", "hard"], DriverStatus.DNF),
+        ([hostile], DriverStatus.FINISHED),
+        ([], DriverStatus.FINISHED),
+    ):
+        result.race_results.append([RaceResult(
+            "A", "A", "Team", 1, 100.0, 0.0, 0, 90.0, status, strategy=sequence,
+        )])
+    content = render_comparison_report({"mixed": result})
+    assert 'soft → hard → hard</td><td>2 / 3 (66.7%)</td><td>1</td><td>1</td>' in content
+    assert "1 / 3 (33.3%)" in content
+    assert "Not recorded (missing sequence in 1 race)" in content
+    assert hostile in "".join(Document(content).text)
+    assert not any(tag == "script" for tag, _ in Document(content).tags)
+    assert "<td>0.00 " in content  # Repeated fittings did not become paid stops.

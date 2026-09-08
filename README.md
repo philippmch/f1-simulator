@@ -138,7 +138,10 @@ Nothing is written unless `--export` is supplied. Exported bundles, combined JSO
 and an offline HTML comparison report go to `output/strategy-comparisons` (or
 `--output-dir`), with unique names. The report opens the selected driver and shows
 win, podium and retirement rates with 95% sampling intervals, mean points and
-paid stops for every choice. Replay a trial from the comparison JSON using
+paid stops for every choice. Recorded tyre sequences show how the race policy
+actually responded, including free fittings and retirement runs. Race-distance
+outcomes make shortened races and lapped finishes visible alongside strategy
+results; each metric shows its own recorded counts. Replay a trial from the comparison JSON using
 `--scenario hard`, for example.
 The source file is unchanged. Comparisons use installed simulator code and share
 the replay limitations above. Use `--parallel --max-workers 4` for process workers.

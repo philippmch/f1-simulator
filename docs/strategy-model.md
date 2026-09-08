@@ -528,6 +528,13 @@ lapped finishers, time-limited races and races without a winner. Statistics JSON
 scenario comparison JSON and dashboard scenario responses expose the same
 `race_distance_statistics` object. Rates are fractions from zero to one.
 Race counts use recorded raw races, not the requested simulation count. Mean
+winning distance and finish outcomes also appear together in offline comparison
+reports, with their own denominators, so scenarios with shortened races or lapped
+finishers can be interpreted alongside points and paid-stop counts. Each driver's
+comparison also lists actual tyre sequences, with finished and retired counts,
+shares among recorded sequences, and missing records shown separately. Free
+fittings remain part of sequences without becoming paid stops. These frequencies
+describe model behavior and do not establish the best strategy. Mean
 winning distance includes only winners with a positive recorded lap count;
 lapped-finisher rates include only finished cars whose own distance and winner's
 distance are both known. Classified retirements do not count as finishers, and
