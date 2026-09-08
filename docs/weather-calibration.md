@@ -134,7 +134,7 @@ python examples/check_weather_calibration.py --observed --simulations 100
 pytest -q tests/test_weather_calibration.py
 ```
 
-Only `--observed` makes network requests. The diagnostic prints summaries and
+Only `--observed` or `--observed-stints` makes network requests. The diagnostic prints summaries and
 does not add runtime feed dependencies, replay data, or a persistent cache.
 
 `--race-engine` accepts `standard` (the default), `chronological`, or `both`.
@@ -193,3 +193,39 @@ parameters usually favor keeping the rain set to the finish. This is a result
 of those model parameters, not evidence that real wet races should be no-stop
 races. Tyre durability calibration remains important; the planner must not
 manufacture stops to match an assumed count. Fixed-dry results were unchanged.
+
+### Observed rain-stint evidence
+
+```powershell
+python examples/check_weather_calibration.py --observed-stints --simulations 1
+```
+
+This option implies `--observed` and adds reported rain stints to each completed
+current-season race. [OpenF1's stint fields](https://openf1.org/docs/#stints)
+identify the initial lap, last completed lap, and tyre age at the start. Reported
+stint length is inclusive; a used set's ending age adds its initial age. Missing
+initial age remains unknown. Exact duplicate rows and incomplete lap ranges
+are counted in exclusion metadata; conflicting records or wrong-session rows
+fail the collection. An empty stint feed is missing evidence, whereas a complete
+feed containing only slick stints produces an empty rain-stint sample.
+
+Every end reason remains `unknown`: stint ranges alone cannot distinguish
+wear-driven replacement from drying weather, a free red-flag refit, retirement,
+or taking the finish. Race-level rain and red-flag observations are context,
+not labels for each stint. These observations must not be fitted directly as
+tyre-life limits. The tool does not alter simulator parameters or retain a feed
+cache. Standard output remains a single JSON object with `observed` and `model`.
+
+Observed requests are spaced by at least 2.1 seconds. Rate-limited requests honor
+numeric or HTTP-date `Retry-After` values with at most three attempts; excessive
+delays fail rather than bypass the limit. Fetch budgets are 180 seconds for event
+observations and 240 seconds with stints. Failed collection emits no partial
+season summary.
+
+The 2026-09-08 collection covered 13 completed races and returned six usable
+rain stints, all intermediates in session 11291 (Montreal), lasting one or two
+reported laps. It also reported seven unknown-compound records and one incomplete
+rain lap range across the season. This is insufficient long-stint evidence to
+calibrate rain-tyre durability, so no tyre parameters were fitted from it. The
+result is a dated provider snapshot, not proof that omitted or unidentified
+stints did not occur.
