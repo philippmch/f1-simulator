@@ -2729,6 +2729,8 @@ function renderStats() {
 
       <div class="stat-card">
         <div class="stat-card-title">Event Model</div>
+        ${Number.isInteger(scenario.event_rate_trials) && scenario.event_rate_trials >= 0
+          ? `<p class="inline-note">Event-rate denominator: ${scenario.event_rate_trials} trials.</p>` : ''}
         <div class="detail-list">
           <div class="detail-row"><span>Red flag race rate</span><span>${formatPercent(toNumber(eventRates.red_flag_race_rate) * 100)}</span></div>
           <div class="detail-row"><span>Average safety cars</span><span>${toNumber(eventRates.avg_safety_cars).toFixed(2)}</span></div>

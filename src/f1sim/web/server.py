@@ -411,6 +411,7 @@ def _summarize_scenario_results(
             )
             or {},
             "runtime_seconds": meta.get("runtime_seconds"),
+            "event_rate_trials": _safe_call(results, "get_event_rate_trials", default=None),
             "simulations_per_second": meta.get("simulations_per_second"),
             "weather": _serialize_weather(scenario_weather[scenario_name])
             if scenario_name in scenario_weather

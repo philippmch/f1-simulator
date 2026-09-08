@@ -197,7 +197,8 @@ class ConsoleOutput:
         event_stats = results.event_stats
         print("\nRACE EVENT STATISTICS:")
         print("-" * 50)
-        sims = results.num_simulations
+        sims = results.get_event_rate_trials()
+        print(f"  Event-rate denominator: {sims} trials")
         if sims > 0:
             sc_rate = event_stats.races_with_safety_car / sims * 100
             rf_rate = event_stats.races_with_red_flag / sims * 100
@@ -245,7 +246,8 @@ class ConsoleOutput:
                 )
 
             delta = results.get_mechanical_calibration_delta(expected_component_rates)
-            print(f"    Calibration delta: {delta * 100:.1f}%")
+            delta_text = "Not recorded" if delta is None else f"{delta * 100:.1f}%"
+            print(f"    Calibration delta: {delta_text}")
 
             suggestions = results.get_mechanical_tuning_suggestions(expected_component_rates)
             adjustments = results.get_reliability_adjustment_recommendations(
@@ -324,6 +326,7 @@ class ConsoleOutput:
         delta = results.get_safety_car_calibration_delta(expected_sc_race_rate)
 
         print("\nEVENT CALIBRATION")
+        print(f"Event-rate denominator: {results.get_event_rate_trials()} trials")
         print("-" * 50)
         print(f"Expected SC race rate: {expected_sc_race_rate * 100:5.1f}%")
         print(f"Observed SC race rate: {observed * 100:5.1f}%")

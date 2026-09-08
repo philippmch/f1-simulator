@@ -535,6 +535,14 @@ over a reconstructed union of team race records. Drivers with no observations
 and teams containing an unobserved listed driver are omitted. A recorded zero
 remains zero. Normal runs with every entrant observed in every trial are unchanged.
 
+Event rates use the event ledger's recorded trial count when available. Legacy
+aggregates without that count retain their nominal requested count; exports and
+dashboard responses expose the denominator as `event_rate_trials`. Console and
+dashboard event summaries show it alongside the rates. An empty mechanical
+failure sample has no component-share calibration delta (`None` in Python) and
+produces no tuning suggestions or reliability adjustments. An absence of observed
+failures cannot establish the relative proportions of failure components.
+
 The dashboard statistics and HTML reports include mean winning distance,
 lapped finishers, time-limited races and races without a winner. Statistics JSON,
 scenario comparison JSON and dashboard scenario responses expose the same

@@ -385,9 +385,13 @@ class SimulationResults:
             key=lambda item: item[1], reverse=True,
         ))
 
+    def get_event_rate_trials(self) -> int:
+        """Event ledger denominator, retaining nominal counts for legacy aggregates."""
+        return max(self.event_stats.num_simulations or self.num_simulations, 0)
+
     def get_event_rates(self) -> dict[str, float]:
         """Get normalized event-rate metrics per race."""
-        sims = max(self.num_simulations, 1)
+        sims = max(self.get_event_rate_trials(), 1)
         return {
             "safety_car_race_rate": self.event_stats.races_with_safety_car / sims,
             "red_flag_race_rate": self.event_stats.races_with_red_flag / sims,
@@ -416,11 +420,13 @@ class SimulationResults:
     def get_mechanical_calibration_delta(
         self,
         expected_component_rates: dict[str, float],
-    ) -> float:
-        """Mean absolute delta between observed and expected component failure rates."""
+    ) -> float | None:
+        """Mean component-share error, or None when no failures were observed."""
         observed = self.get_mechanical_failure_component_rates()
         if not expected_component_rates:
             return 0.0
+        if not observed:
+            return None
 
         keys = set(expected_component_rates) | set(observed)
         if not keys:
@@ -438,6 +444,8 @@ class SimulationResults:
     ) -> dict[str, str]:
         """Suggest direction of reliability tuning per component."""
         observed = self.get_mechanical_failure_component_rates()
+        if not observed:
+            return {}
         suggestions: dict[str, str] = {}
 
         for component, expected in expected_component_rates.items():
@@ -463,6 +471,8 @@ class SimulationResults:
         Negative => lower reliability, positive => increase reliability.
         """
         observed = self.get_mechanical_failure_component_rates()
+        if not observed:
+            return {}
         adjustments: dict[str, float] = {}
 
         for component, expected in expected_component_rates.items():
