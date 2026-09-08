@@ -226,14 +226,16 @@ class ChronologicalRace:
             modifier = self.simulator.event_manager.get_lap_time_modifier()
             if pending is not None:
                 flag_time = pending.ready
-                laps_left = max(0, self.timeline.final_lap - pending.lap)
+                laps_left = (0 if self.timeline.time_limit_announced else
+                             max(0, self.timeline.final_lap - pending.lap))
                 if leader_pace is None:
                     leader_pace = pending.running or None
                 if not pending.on_track and leader_pace is not None:
                     flag_time += leader_pace * pending.lap_time_modifier
             else:
                 flag_time = now
-                laps_left = max(0, self.timeline.final_lap - leader.laps_completed)
+                laps_left = (1 if self.timeline.time_limit_announced else
+                             max(0, self.timeline.final_lap - leader.laps_completed))
             if leader_pace is not None:
                 flag_time += laps_left * leader_pace * modifier
                 remaining = max(1, ceil((flag_time - now) / (own_pace * modifier) - 1e-12))
@@ -540,11 +542,8 @@ class ChronologicalRace:
             return False
         active_distance = max(other.laps_completed for other in self.states.values()
                               if other.status == DriverStatus.RACING)
-        previous_retired = (self.leader_id is not None
-                            and self.states[self.leader_id].status == DriverStatus.DNF)
         leading = (self.timeline.chequered_time is None
-                   and (pending.lap > active_distance
-                        or (previous_retired and pending.lap >= active_distance)))
+                   and pending.lap > active_distance)
         crossing = self.timeline.observe_crossing(driver_id, pending.lap, now, is_leader=leading)
         state.laps_completed = pending.lap
         state.total_time = now
@@ -622,7 +621,8 @@ class ChronologicalRace:
                 laps_completed=state.laps_completed, classified=classified,
                 pit_laps=list(state.pit_laps),
                 race_time_limited=(winner is not None
-                                   and self.timeline.final_lap < self.track.total_laps),
+                                   and self.timeline.time_limit_announced
+                                   and winner_laps < self.track.total_laps),
                 points_awarded=points_for_classification(
                     position, classified, winner_laps, self.track.total_laps, self.has_two_green,
                 ),

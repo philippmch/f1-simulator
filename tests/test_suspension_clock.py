@@ -40,15 +40,14 @@ def test_announced_distance_stays_latched_across_suspension():
     assert clock.winner_time == 7350
 
 
-def test_announced_regressing_handoff_remains_unsupported():
+def test_announced_handoff_after_suspension_does_not_restart_countdown():
     clock = RaceFinishClock(100)
     clock.observe_leader_crossing(1, 7200)
     clock.begin_suspension(7200)
     clock.end_suspension(7300)
-    before = vars(clock).copy()
-    with pytest.raises(NotImplementedError):
-        clock.observe_leader_crossing(1, 7350, allow_leadership_reset=True)
-    assert vars(clock) == before
+    clock.observe_leader_crossing(1, 7350, allow_leadership_reset=True)
+    assert clock.winner_time == 7350
+    assert clock.final_lap == 2 and clock.completed_laps == 1
 
 
 @pytest.mark.parametrize("invalid", [-1, float("inf"), float("nan"), True, "100"])

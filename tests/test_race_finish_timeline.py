@@ -214,7 +214,7 @@ def test_clock_reset_requires_explicit_opt_in_and_cannot_skip_distance():
 
 @pytest.mark.parametrize("successor_lap", [2, 4])
 @pytest.mark.parametrize("scheduled", [5, 10])
-def test_post_announcement_regressing_handoff_is_explicitly_unsupported_and_atomic(
+def test_post_announcement_handoff_finishes_at_next_leading_crossing(
     successor_lap, scheduled,
 ):
     timeline = RaceFinishTimeline(scheduled, ["A", "B"])
@@ -224,12 +224,30 @@ def test_post_announcement_regressing_handoff_is_explicitly_unsupported_and_atom
         timeline.observe_crossing(driver, lap, time, is_leader=driver == "A")
     assert timeline.final_lap == 5
     timeline.retire("A", 7250)
+    timeline.observe_crossing("B", successor_lap, 7300, is_leader=True)
+    assert timeline.winner_id == "B" and timeline.chequered_time == 7300
+    assert timeline.final_lap == 5 and timeline.time_limit_announced
+    assert timeline.states["A"].completed_laps == 4 and timeline.states["A"].retired
+    assert timeline.states["B"].completed_laps == successor_lap
+    assert not timeline.can_start_next_lap("B")
+
+
+def test_false_successor_matching_another_survivors_distance_is_rejected_atomically():
+    timeline = RaceFinishTimeline(10, ["A", "B", "C"])
+    for time, driver, lap in sorted(
+        [(1800 * lap, "A", lap) for lap in range(1, 5)]
+        + [(2000 * lap, "B", lap) for lap in range(1, 4)]
+        + [(6800, "C", 1), (7300, "C", 2)],
+    ):
+        if time > 7200 and not timeline.states["A"].retired:
+            timeline.retire("A", 7250)
+        timeline.observe_crossing(driver, lap, time, is_leader=driver == "A")
     before = snapshot(timeline)
     clock_before = vars(timeline._clock).copy()
-    leader_before = timeline._leader_id
-    with pytest.raises(NotImplementedError, match="after a two-hour"):
-        timeline.observe_crossing("B", successor_lap, 7300, is_leader=True)
-    assert snapshot(timeline) == before
-    assert vars(timeline._clock) == clock_before
-    assert timeline._leader_id == leader_before
-    assert timeline.can_start_next_lap("B")
+    with pytest.raises(ValueError, match="tie it"):
+        timeline.observe_crossing("C", 3, 7800, is_leader=True)
+    assert snapshot(timeline) == before and vars(timeline._clock) == clock_before
+    timeline.observe_crossing("C", 3, 7800)
+    assert timeline.chequered_time is None
+    timeline.observe_crossing("B", 4, 8000, is_leader=True)
+    assert timeline.winner_id == "B"

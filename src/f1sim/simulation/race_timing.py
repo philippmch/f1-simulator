@@ -57,6 +57,11 @@ class RaceFinishClock:
     def time_limit_seconds(self) -> float:
         return RACING_TIME_LIMIT_SECONDS + min(self.total_suspension_seconds, 3600.0)
 
+    @property
+    def time_limit_announced(self) -> bool:
+        """Whether a timed final-crossing announcement has been made."""
+        return self._time_limit_announced
+
     def begin_suspension(self, time: float) -> None:
         _valid_time(time, self._last_observation_time)
         if self.winner_time is not None:
@@ -94,14 +99,9 @@ class RaceFinishClock:
                        and completed_lap <= self.completed_laps + 1)
         if completed_lap != self.completed_laps + 1 and not valid_reset:
             raise ValueError("leader laps must be consecutive without duplicates")
-        if (valid_reset and completed_lap <= self.completed_laps
-                and self._time_limit_announced):
-            raise NotImplementedError(
-                "same/lower-distance leadership handoff after a two-hour "
-                "announcement requires scheduler and finish-classification policy"
-            )
+        finish_pending = self._time_limit_announced
         final_lap = self.final_lap
-        if time >= self.time_limit_seconds:
+        if not finish_pending and time >= self.time_limit_seconds:
             final_lap = min(final_lap, completed_lap + 1)
         self.final_lap = final_lap
         self._time_limit_announced |= (time >= self.time_limit_seconds
@@ -109,7 +109,10 @@ class RaceFinishClock:
         self.completed_laps = completed_lap
         self.last_crossing_time = time
         self._last_observation_time = time
-        if completed_lap == final_lap:
+        # The timed signal belongs to the next leading crossing, not the old
+        # leader's personal lap number. A retired leader's lapped successor
+        # must not restart the countdown or drive extra laps to reach it.
+        if finish_pending or completed_lap == final_lap:
             self.winner_time = time
         return final_lap
 
@@ -160,6 +163,10 @@ class RaceFinishTimeline:
     def time_limit_seconds(self) -> float:
         return self._clock.time_limit_seconds
 
+    @property
+    def time_limit_announced(self) -> bool:
+        return self._clock.time_limit_announced
+
     def begin_suspension(self, time: float) -> None:
         _valid_time(time, self._last_observation_time)
         self._clock.begin_suspension(time)
@@ -207,8 +214,10 @@ class RaceFinishTimeline:
         if self.chequered_time is None:
             if not is_leader and completed_lap > active_distance:
                 raise ValueError("a crossing leading the active race must identify the leader")
-            if is_leader and completed_lap < active_distance:
-                raise ValueError("a leader cannot trail another active car's completed distance")
+            if is_leader and completed_lap <= active_distance:
+                raise ValueError(
+                    "a leader cannot trail another active car's completed distance or tie it"
+                )
         leadership_reset = (self._leader_id is not None
                             and self._states[self._leader_id].retired)
         # The clock validates before mutation. No validation can fail after
