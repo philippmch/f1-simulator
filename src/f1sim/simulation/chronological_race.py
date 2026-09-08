@@ -140,6 +140,7 @@ class ChronologicalRace:
     def _fit_red_flag_set(self, state, planning):
         compound = self.simulator._choose_red_flag_tire(
             state, self.weather, planning, state.laps_completed,
+            physical_total_laps=self.track.total_laps,
         )
         self.simulator._fit_tire(state, compound)
         state.force_pit_next_lap = False
@@ -263,6 +264,7 @@ class ChronologicalRace:
             loss = self.simulator._execute_pit_stop(
                 state, planning, self.weather, lap, pit_box_releases=self.box_releases,
                 arrival_time=now,
+                physical_total_laps=self.track.total_laps,
             )
             state.pit_stops += 1
             state.pit_laps.append(lap)

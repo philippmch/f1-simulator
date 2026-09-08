@@ -386,8 +386,21 @@ solely because the car remains inside the same calendar window. Compound-changin
 fallback timing remains a heuristic.
 
 The fallback compound comparison assumes the stop has already been chosen;
-the dry optimizer additionally includes pit loss. Both omit common fuel and
-car pace terms that cancel between the compared dry schedules. Neither forecasts
+the dry optimizer additionally includes pit loss. The dry optimizer omits common
+fuel and car pace terms only when all projected laps stay above the lap-time
+floor. If clipping is possible, it compares full noise-free lap times using the
+same physics as race execution, including the 95%-of-reference-lap floor.
+This prevents crediting a fresh set with pace gains that execution would clip
+away. Such clipping is possible with custom high-aero configurations; this is
+a consistency correction, not a calibration to a real circuit.
+
+The full-lap projection retains the original scheduled fuel distance even when
+the planning horizon is shortened by the race clock or a car being lapped.
+Current aero eligibility and SC/VSC running factors apply only to the current
+lap; future laps assume green running. Cached costs in this path are absolute
+lap times, whereas the ordinary fast path reports tyre-relative costs. Costs
+from those two bases should not be compared across different model inputs.
+The fallback stint comparison still omits common fuel and car pace. Neither forecasts
 future weather or incidents, prices traffic beyond the immediate rejoin lap, limits the inventory of
 tyre sets, or jointly schedules both teammates' future stops. Those remain separate opportunities
 to improve strategy realism. Cost tables are bounded in-memory calculations;

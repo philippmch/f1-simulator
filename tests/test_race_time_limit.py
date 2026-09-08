@@ -50,9 +50,10 @@ def run_controlled(
 
     original_fit = simulator._fit_red_flag_tires
 
-    def fit(states, weather, plan_track, lap):
+    def fit(states, weather, plan_track, lap, **kwargs):
         fits.append((lap, plan_track.total_laps))
-        return original_fit(states, weather, plan_track, lap)
+        assert kwargs.get("physical_total_laps", plan_track.total_laps) == scheduled
+        return original_fit(states, weather, plan_track, lap, **kwargs)
 
     monkeypatch.setattr(simulator, "_should_pit", should_pit)
     monkeypatch.setattr(simulator, "_fit_red_flag_tires", fit)

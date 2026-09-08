@@ -93,6 +93,8 @@ def _policy_path_outcome(driver, car, track, weather, strategy, tuning, profiles
         ):
             loss = simulator._execute_pit_stop(
                 state, planning_track, projected, lap, sample_service=False,
+                **({"physical_total_laps": track.total_laps}
+                   if final_lap < track.total_laps else {}),
             )
             state.total_time += loss
             state.pit_stops += 1

@@ -543,7 +543,11 @@ class RaceSimulator:
                 if red_flag_deployed_this_lap:
                     restart_track = (track if final_lap == track.total_laps else
                                      track.model_copy(update={"total_laps": final_lap}))
-                    self._fit_red_flag_tires(states, current_weather, restart_track, lap)
+                    self._fit_red_flag_tires(
+                        states, current_weather, restart_track, lap,
+                        **({"physical_total_laps": track.total_laps}
+                           if final_lap < track.total_laps else {}),
+                    )
 
         # Mark finished drivers
         for state in states:
@@ -855,6 +859,8 @@ class RaceSimulator:
                 state, track, weather, current_lap=lap,
                 pit_box_releases=actual_releases,
                 arrival_time=arrivals[state.driver.id][0],
+                **({"physical_total_laps": physical_total_laps}
+                   if physical_total_laps is not None else {}),
             )
             state.pit_stops += 1
             state.pit_laps.append(lap)
@@ -980,6 +986,8 @@ class RaceSimulator:
                 self._pit_lane_factor(), additional_current_stop_cost + traffic_cost,
                 current_lap_time_modifier=self.event_manager.get_lap_time_modifier(),
                 tire_pace_multiplier=tire_multiplier,
+                physical_total_laps=physical_total_laps,
+                active_aero_enabled=self.event_manager.is_active_aero_allowed(),
             )
             timing_bias = {
                 TeamStrategyArchetype.AGGRESSIVE: 0.1,
@@ -1302,6 +1310,7 @@ class RaceSimulator:
     def _choose_committed_dry_compound(
         self, state: DriverRaceState, track: Track, current_lap: int,
         weather: Weather | None = None,
+        *, physical_total_laps: int | None = None,
     ) -> TireCompound:
         """Price a chosen paid stop's fresh set and all remaining dry stints.
 
@@ -1320,6 +1329,8 @@ class RaceSimulator:
                 track.total_laps - current_lap + 1, future_budget,
                 used | {compound}, wet_exemption,
                 current_lap_time_modifier=self.event_manager.get_lap_time_modifier(),
+                physical_total_laps=physical_total_laps,
+                active_aero_enabled=self.event_manager.is_active_aero_allowed(),
                 tire_pace_multiplier=(self.lap_simulator.weather_pace_multiplier(
                     state.driver, state.car, weather,
                 ) if weather is not None else 1.0),
@@ -1337,6 +1348,7 @@ class RaceSimulator:
         pit_box_releases: dict[str, float] | None = None,
         arrival_time: float | None = None,
         sample_service: bool = True,
+        physical_total_laps: int | None = None,
     ) -> float:
         """Execute pit stop and return total time lost.
 
@@ -1374,7 +1386,11 @@ class RaceSimulator:
         ):
             new_compound = proposal[1]
         elif weather.track_wetness < 0.08 and weather.rain_intensity < 0.15:
-            new_compound = self._choose_committed_dry_compound(state, track, current_lap, weather)
+            new_compound = self._choose_committed_dry_compound(
+                state, track, current_lap, weather,
+                **({"physical_total_laps": physical_total_laps}
+                   if physical_total_laps is not None else {}),
+            )
         elif len(self._used_slick_compounds(state)) < 2 and not self._has_used_wet_compound(state):
             # A dry stop must add a new slick compound until the two-compound
             # requirement is satisfied.  In particular, do not let a
@@ -1860,6 +1876,7 @@ class RaceSimulator:
 
     def _fit_red_flag_tires(
         self, states: list[DriverRaceState], weather: Weather, track: Track, current_lap: int,
+        *, physical_total_laps: int | None = None,
     ) -> None:
         """Fit free sets using weather at the restart, before next-lap decisions."""
         # All drivers can change tires during red flag (free tire change)
@@ -1868,7 +1885,11 @@ class RaceSimulator:
                 continue
 
             # Choose optimal tire for current conditions
-            new_compound = self._choose_red_flag_tire(state, weather, track, current_lap)
+            new_compound = self._choose_red_flag_tire(
+                state, weather, track, current_lap,
+                **({"physical_total_laps": physical_total_laps}
+                   if physical_total_laps is not None else {}),
+            )
             self._fit_tire(state, new_compound)
             # The sole modeled forced-stop cause is a puncture. A free fresh
             # set resolves it without charging another stop on the restart.
@@ -1877,6 +1898,7 @@ class RaceSimulator:
 
     def _choose_red_flag_tire(
         self, state: DriverRaceState, weather: Weather, track: Track, current_lap: int,
+        *, physical_total_laps: int | None = None,
     ) -> TireCompound:
         """Price a free set from the next lap, including future paid dry stops."""
         remaining_laps = track.total_laps - current_lap
@@ -1906,6 +1928,7 @@ class RaceSimulator:
             return plan_dry_stop(
                 state.driver, state.car, track, TIRE_COMPOUNDS[compound], 0,
                 remaining_laps, budget, prospective_used, wet_exemption,
+                physical_total_laps=physical_total_laps,
                 tire_pace_multiplier=self.lap_simulator.weather_pace_multiplier(
                     state.driver, state.car, weather,
                 ),
