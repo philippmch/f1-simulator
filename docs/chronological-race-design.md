@@ -114,9 +114,10 @@ describe yielding at the first opportunity, with allowance for the next straight
 The engine has no sector geometry, so it does not model that wait, noncompliance
 or penalties, or add an uncalibrated time loss for yielding.
 
-This is not yet a replacement for the full production model. The unsupported
-finish transition described below and remaining suspension/restart approximations
-must be resolved before changing the production entry points.
+Production dispatch remains unchanged while entry-point integration and
+end-to-end contracts are validated for chronological execution. Detailed restart
+formation and abandonment remain model limitations, rather than features of the
+existing production loop that have not yet been migrated.
 The existing minor-contact time losses and personal spin/puncture/crash outcomes
 are already reused; a richer damage-severity model would improve both engines
 rather than close a migration gap.
@@ -139,14 +140,29 @@ until their own next crossing or retirement. A car cannot start another lap
 after its own finish. Retirement must not manufacture a crossing or a winner.
 This layer is used by the experimental scheduler but not the production loop.
 
-One experimental transition remains deliberately unsupported: a same-distance
-or lapped successor taking over after a two-hour final-lap announcement. The
-timeline rejects that transition without changing its state. Recomputing the
-announced lap from the successor's own distance would silently change the finish
-rule; freezing the old driver's lap number is not sufficient either. Define
-the finish signal and classification together when integrating the scheduler,
-including the case where a retired car has completed more laps than a survivor.
-The current synchronous production loop cannot encounter this distance reset.
+A timed final-lap announcement now belongs to the next authoritative leading
+crossing. If the leader retires, a same-distance or lapped successor takes the
+flag at that crossing; it does not receive a fresh countdown or have to reach
+the retired driver's personal lap number. `final_lap` retains the original
+announced distance for reference, while each driver's finish ledger retains its
+actual completed distance. Suspensions do not cancel an existing announcement.
+Pit planning uses the current leader's next crossing once that announcement is
+latched. Merely matching another active car's already-completed distance cannot
+make a trailing car the leader; the crossing must advance the active lead.
+
+For this rare handoff, the model places the timed flag recipient first and orders
+the remaining cars by completed distance and crossing time. Thus an earlier
+retiree can retain more completed laps than the winner and still rank ahead of
+another finisher. Classification eligibility and reduced points continue to use
+the winner's actual distance. This is an explicit interpretation of B2.5.3 and
+B2.5.5, not a claim that an official precedent for this combination was found.
+The synchronous production loop cannot encounter this distance reset.
+
+An executable regression has A complete four laps at 7200 seconds, announce the
+flag, then retire at 7250. B receives it on its second lap at 7300, and C finishes
+its second lap at 7600. No B lap-three physics or pit decision runs. The result
+is marked time-limited even when the original announcement matched the scheduled
+distance cap; A retains all four completed laps.
 
 ## Remaining integration
 
