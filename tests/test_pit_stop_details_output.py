@@ -46,6 +46,16 @@ def test_paid_stop_exports_and_selected_trial(tmp_path, engine):
     shown = _summarize_scenario_results({"rain": results})["scenarios"]["rain"]
     assert shown["sample_race"][0]["pit_stop_details"] == results.race_results[
         shown["sample_index"]][0].pit_stop_details
+    losses = results.get_pit_loss_statistics()
+    assert shown["pit_loss_statistics"] == losses
+    assert json.loads(files["statistics_json"].read_text(encoding="utf-8"))[
+        "pit_loss_statistics"] == losses
+    assert json.loads(comparison.read_text(encoding="utf-8"))[
+        "scenarios"]["rain"]["pit_loss_statistics"] == losses
+    report = exporter.export_scenario_comparison_html({"rain": results}).read_text(encoding="utf-8")
+    assert "Mean paid-stop loss" in report
+    assert f'{losses["A"]["mean_total_loss_per_race"]:.3f} s' in report
+    assert "3 races with complete details" in report
 
     # Legacy unknown and known zero stops stay distinct in JSON, neither invents CSV rows.
     results.race_results[0][0].pit_stop_details = None
@@ -55,3 +65,12 @@ def test_paid_stop_exports_and_selected_trial(tmp_path, engine):
         assert list(csv.DictReader(f)) == []
     saved = json.loads(exporter.export_statistics_json(results).read_text(encoding="utf-8"))
     assert [row["stops"] for row in saved["pit_stop_details"]] == [None, [], []]
+
+
+def test_legacy_api_has_no_fabricated_loss_summary():
+    from types import SimpleNamespace
+
+    legacy = SimpleNamespace(num_simulations=2, seed=None, driver_stats={},
+                             race_results=[], qualifying_results=[])
+    shown = _summarize_scenario_results({"legacy": legacy})["scenarios"]["legacy"]
+    assert shown["pit_loss_statistics"] == {}

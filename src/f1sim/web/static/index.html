@@ -796,6 +796,11 @@ input:focus-visible {
   min-width: 34rem;
 }
 
+#pitLossDetails { margin-top: 1rem; }
+#pitLossDetails .inline-note, #pitLossStatistics th { color: var(--text-secondary); }
+#pitLossStatistics td { white-space: nowrap; }
+#pitLossStatistics .inline-note { display: block; margin-top: .3rem; }
+
 .strategy-sequence { margin: 12px 0; }
 .strategy-sequence summary { cursor: pointer; line-height: 1.5; }
 .strategy-sequence table { font-size: 0.8rem; }
@@ -2622,6 +2627,39 @@ function renderPitStopStatistics(statistics) {
     </div>`;
 }
 
+function renderPitLossStatistics(statistics) {
+  const rows = Object.entries(statistics || {}).filter(([, stats]) => stats
+    && Number.isInteger(stats.races) && stats.races > 0).sort(([a], [b]) => a.localeCompare(b));
+  if (!rows.length) return '<p class="inline-note">No aggregate pit-loss observations are available.</p>';
+  const count = value => Number.isInteger(value) && value >= 0 ? String(value) : 'Not recorded';
+  const seconds = value => typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? `${value.toFixed(3)} s` : 'Not recorded';
+  return `<details class="probability-details" id="pitLossDetails">
+    <summary>Paid-stop costs and queue delays</summary>
+    <p class="inline-note">Mean modeled loss per race with complete stop details, including zero-stop
+      races and retirements. Missing details are excluded. Components omit later on-track traffic
+      and free tyre changes. Queue share counts races with at least one paid-stop wait.
+      Scroll horizontally to see every component.</p>
+    <div class="stats-table-wrap" tabindex="0" role="region" aria-label="Paid-stop costs across simulations">
+      <table class="metrics-table" id="pitLossStatistics"><thead><tr>
+        <th scope="col">Driver</th><th scope="col">Complete / observed races</th>
+        <th scope="col">Mean loss</th><th scope="col">Lane</th><th scope="col">Service</th>
+        <th scope="col">Queue</th><th scope="col">Races with queue</th></tr></thead>
+      <tbody>${rows.map(([id, stats]) => {
+        const rate = stats.queue_race_rate;
+        const queue = typeof rate === 'number' && Number.isFinite(rate) && rate >= 0 && rate <= 1
+          ? `${(rate * 100).toFixed(1)}% (${count(stats.races_with_queue)})` : 'Not recorded';
+        return `<tr><th scope="row">${escapeHtml(id)}</th>
+          <td>${count(stats.races_with_recorded_details)} / ${count(stats.races)}
+            <span class="inline-note">${count(stats.recorded_stops)} stops;
+              ${count(stats.queued_stops)} queued</span></td>
+          ${['mean_total_loss_per_race', 'mean_lane_loss_per_race',
+              'mean_service_time_per_race', 'mean_queue_time_per_race'].map(key =>
+            `<td>${seconds(stats[key])}</td>`).join('')}
+          <td>${queue}</td></tr>`;
+      }).join('')}</tbody></table></div></details>`;
+}
+
 function renderStrategyStatistics(statistics) {
   const drivers = Object.entries(statistics || {})
     .filter(([, stats]) => stats && Number.isInteger(stats.races) && stats.races > 0)
@@ -2812,6 +2850,7 @@ function renderStats() {
       <div class="stat-card pit-summary-card">
         <div class="stat-card-title">Pit stops across simulations</div>
         ${renderPitStopStatistics(scenario.pit_stop_statistics)}
+        ${renderPitLossStatistics(scenario.pit_loss_statistics)}
       </div>
 
       <div class="stat-card strategy-summary-card" id="strategyStatistics">

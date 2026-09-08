@@ -204,6 +204,37 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     });
     assert.equal(await page.locator('#pitStopStatistics tbody tr').count(),
       Object.keys(pitStatistics).length);
+    await page.locator('#pitLossDetails summary').focus();
+    await page.keyboard.press('Enter');
+    const pitLosses = await page.evaluate(() => getScenarioEntry().data.pit_loss_statistics);
+    assert.equal(await page.locator('#pitLossStatistics tbody tr').count(), Object.keys(pitLosses).length);
+    for (const [id, stats] of Object.entries(pitLosses)) {
+      const row = page.locator('#pitLossStatistics tbody tr').filter({
+        has: page.locator('th', {hasText: new RegExp(`^${id}$`)}),
+      });
+      assert.equal(await row.locator('td').nth(1).innerText(), `${stats.mean_total_loss_per_race.toFixed(3)} s`);
+      assert.equal(await row.locator('td').nth(3).innerText(), `${stats.mean_service_time_per_race.toFixed(3)} s`);
+    }
+    await page.evaluate(() => {
+      window.savedPitLosses = getScenarioEntry().data.pit_loss_statistics;
+      getScenarioEntry().data.pit_loss_statistics = {
+        '<img src=x>': {races: 1, races_with_recorded_details: 0},
+        zero: {races: 1, races_with_recorded_details: 1, recorded_stops: 0, queued_stops: 0,
+          mean_total_loss_per_race: 0, mean_lane_loss_per_race: 0, mean_service_time_per_race: 0,
+          mean_queue_time_per_race: 0, queue_race_rate: 0, races_with_queue: 0},
+      };
+      renderStats();
+    });
+    await page.locator('#pitLossDetails summary').click();
+    assert.equal(await page.locator('#pitLossStatistics img').count(), 0);
+    assert.equal(await page.locator('#pitLossStatistics tbody tr').first().locator('td').nth(1).innerText(), 'Not recorded');
+    assert.equal(await page.locator('#pitLossStatistics tbody tr').last().locator('td').nth(1).innerText(), '0.000 s');
+    assert.equal(await page.locator('#pitLossStatistics tbody tr').last().locator('td').last().innerText(), '0.0% (0)');
+    await page.evaluate(() => {
+      getScenarioEntry().data.pit_loss_statistics = savedPitLosses;
+      delete window.savedPitLosses;
+      renderStats();
+    });
     for (const [id, stats] of Object.entries(pitStatistics)) {
       const row = page.locator('#pitStopStatistics tbody tr').filter({
         has: page.locator('th', {hasText: new RegExp(`^${id}$`)}),
@@ -346,6 +377,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       await page.setViewportSize({ width, height: 900 });
       for (const tab of ['race', 'qualifying', 'stats', 'scenarios']) {
         await page.locator(`#tab-${tab}`).click();
+        if (tab === 'stats') await page.locator('#pitLossDetails').evaluate(node => { node.open = true; });
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
           `${tab} overflows at ${width}px`);
         if (tab === 'scenarios') {

@@ -64,6 +64,7 @@ def render_comparison_report(
         summaries[name] = (
             result.get_probability_intervals(), result.get_pit_stop_statistics(),
             result.get_strategy_statistics(),
+            result.get_pit_loss_statistics(),
         )
         distance = result.get_race_distance_statistics()
         recorded = distance["recorded_races"]
@@ -95,7 +96,7 @@ def render_comparison_report(
         rows = []
         strategy_rows = []
         for name, result in scenario_results.items():
-            intervals, stops, strategies = summaries[name]
+            intervals, stops, strategies, losses = summaries[name]
             strategy = strategies.get(driver_id)
             if strategy:
                 for sequence in strategy["strategies"]:
@@ -122,7 +123,7 @@ def render_comparison_report(
             trials = len(stats.positions) if stats else 0
             cells = [f'<th scope="row">{_text(name)}</th>']
             if not trials:
-                cells.append('<td colspan="6">Not recorded (no observed trials)</td>')
+                cells.append('<td colspan="7">Not recorded (no observed trials)</td>')
             else:
                 cells.append(f"<td>{trials}</td>")
                 for metric, count in (
@@ -141,6 +142,13 @@ def render_comparison_report(
                     f'<span class="interval">({pit["races"]} recorded races)</span></td>'
                     if pit and pit["races"] else "<td>Not recorded</td>"
                 )
+                loss = losses.get(driver_id)
+                cells.append(
+                    f'<td>{loss["mean_total_loss_per_race"]:.3f} s '
+                    f'<span class="interval">({loss["races_with_recorded_details"]} '
+                    'races with complete details)</span></td>'
+                    if loss and loss["races_with_recorded_details"] else "<td>Not recorded</td>"
+                )
             rows.append("<tr>" + "".join(cells) + "</tr>")
         opened = " open" if driver_id == focus_driver else ""
         label = f"{identity.driver_name} ({driver_id}) · {identity.team}"
@@ -154,7 +162,8 @@ def render_comparison_report(
             '<th scope="col">Podium % [95% interval]</th>'
             '<th scope="col">DNF % [95% interval]</th>'
             '<th scope="col">Points / observed race</th>'
-            '<th scope="col">Mean paid stops</th></tr></thead><tbody>'
+            '<th scope="col">Mean paid stops</th><th scope="col">Mean paid-stop loss</th>'
+            '</tr></thead><tbody>'
             + "".join(rows) + "</tbody></table></div>"
             '<div class="table-wrap" tabindex="0" role="region" '
             f'aria-label="{_text(label)} recorded tyre sequences">'
@@ -217,7 +226,9 @@ compares only finishers whose distance and winner's distance are both known.</p>
         "".join(distance_rows) or '<tr><td colspan="6">No scenarios recorded</td></tr>'
     ) + """</tbody></table></div><h2>Driver outcomes</h2>
 <p>Rates and mean points use observed trials, including retirements. Paid stops
-exclude free tyre changes and show their own recorded-race counts.</p>
+exclude free tyre changes and show their own recorded-race counts. Mean paid-stop
+loss uses only races with complete stop details, including recorded zero-stop
+races. It includes lane, service and queue loss, excluding later on-track traffic.</p>
 <p>Tyre sequences show what was actually fitted, including free changes and
 truncated retirement runs. Shares use races with recorded sequences; missing
 records appear separately. Sequence frequencies do not measure which strategy

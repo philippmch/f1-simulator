@@ -214,6 +214,15 @@ has one row per paid stop with one-based trial numbers. Legacy JSON uses null fo
 unknown details and an empty list for a known zero stops; neither produces CSV
 stop rows. These records describe executed stops, not inferred decision reasons.
 
+Aggregate `pit_loss_statistics` reports each driver's mean total, lane, service
+and queue loss per race with complete details, plus queued-stop counts and the
+share of those races containing a queue delay. The denominator includes known
+zero-stop races and retirements. Unknown, incomplete or inconsistent detail rows
+are excluded entirely and counted separately. With no complete observations,
+means and queue share are null. Dashboard and comparison reports retain this
+observation count; these descriptive costs do not establish a strategy's causal
+effect on race results and exclude later on-track traffic and free fittings.
+
 Fresh weather tyre selection shares the slick-mismatch crossover: above 0.2
 surface wetness or 0.4 rain intensity, a stop fits intermediates; above 0.7
 surface wetness, it fits full wets. These values are normalized model parameters,

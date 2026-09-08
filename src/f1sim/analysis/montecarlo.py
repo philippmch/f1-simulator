@@ -4,8 +4,8 @@ from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from copy import deepcopy
 from dataclasses import dataclass, field
-from math import sqrt
-from numbers import Integral
+from math import isclose, isfinite, sqrt
+from numbers import Integral, Real
 from statistics import NormalDist
 
 import numpy as np
@@ -259,6 +259,76 @@ class SimulationResults:
             }
             for driver_id, counts in distributions.items()
         }
+
+    def get_pit_loss_statistics(self) -> dict[str, dict]:
+        """Modeled paid-stop losses per completely recorded driver race.
+
+        Include retirements and observed zero-stop races. Missing, partial or
+        inconsistent detail rows contribute only to the missing count, never
+        zero seconds. Means and queue race rates use races_with_recorded_details,
+        not requested simulations or recorded stop counts. Free fits are absent
+        from paid-stop details and contribute no service or queue loss.
+        """
+        fields = ("total_loss", "lane_loss", "service_time", "queue_time")
+
+        def valid_component(value):
+            if isinstance(value, bool) or not isinstance(value, Real):
+                return False
+            try:
+                return isfinite(value) and value >= 0
+            except OverflowError:
+                return False  # An integer too large for the loss representation.
+
+        summaries = {}
+        for race in self.race_results:
+            for result in race:
+                summary = summaries.setdefault(result.driver_id, {
+                    "races": 0, "races_with_recorded_details": 0,
+                    "missing_details_races": 0, "recorded_stops": 0,
+                    "queued_stops": 0, "races_with_queue": 0,
+                    "queue_race_rate": None,
+                    **{f"mean_{name}_per_race": None for name in fields},
+                })
+                summary["races"] += 1
+                stops = getattr(result, "pit_stops", None)
+                details = getattr(result, "pit_stop_details", None)
+                valid = (isinstance(stops, Integral) and not isinstance(stops, bool)
+                         and stops >= 0 and isinstance(details, (list, tuple))
+                         and len(details) == stops)
+                values = []
+                if valid:
+                    for stop in details:
+                        if not isinstance(stop, dict) or any(
+                            not valid_component(stop.get(name))
+                            for name in fields
+                        ):
+                            valid = False
+                            break
+                        row = {name: float(stop[name]) for name in fields}
+                        if not isclose(row["total_loss"], row["lane_loss"]
+                                       + row["service_time"] + row["queue_time"],
+                                       rel_tol=1e-9, abs_tol=1e-9):
+                            valid = False
+                            break
+                        values.append(row)
+                totals = {name: sum(row[name] for row in values) for name in fields}
+                if not all(isfinite(value) for value in totals.values()):
+                    valid = False
+                if not valid:
+                    summary["missing_details_races"] += 1
+                    continue
+                summary["races_with_recorded_details"] += 1
+                observed = summary["races_with_recorded_details"]
+                summary["recorded_stops"] += int(stops)
+                queued = sum(row["queue_time"] > 0 for row in values)
+                summary["queued_stops"] += queued
+                summary["races_with_queue"] += int(queued > 0)
+                summary["queue_race_rate"] = summary["races_with_queue"] / observed
+                for name in fields:
+                    key = f"mean_{name}_per_race"
+                    previous = summary[key] or 0.0
+                    summary[key] = previous * ((observed - 1) / observed) + totals[name] / observed
+        return summaries
 
     def get_probability_intervals(self) -> dict[str, dict]:
         """95% sampling intervals for win, podium and DNF rates, in percent.

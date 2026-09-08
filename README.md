@@ -198,6 +198,12 @@ for every trial, while dashboard JSON retains the selected trial's details.
 These are observations of the simulation, excluding free tyre changes and later
 on-track traffic. Missing legacy details remain distinct from a recorded zero stops.
 
+In Statistics, expand **Paid-stop costs and queue delays** to compare mean lane,
+service and queue loss per recorded race, and the share of races with a queue.
+Only complete stop histories contribute; recorded zero-stop races and retirements
+are included. Statistics and comparison JSON retain `pit_loss_statistics`, and
+the comparison report shows mean loss with its own observation count.
+
 The dashboard's scenario chart and driver matrix show the same individual 95%
 sampling ranges and observed trial counts. Expand a driver in the chart to view
 its scenarios. Highlights identify the highest estimate, not a proven strategy
