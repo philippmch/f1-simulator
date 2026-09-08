@@ -172,10 +172,15 @@ def test_classification_uses_time_limited_winner_distance(monkeypatch):
     assert all(r.classified and r.race_time_limited for r in results)
 
 
-def test_isolated_opening_projection_uses_same_finish_rule_and_original_fuel(monkeypatch):
+def test_isolated_opening_projection_uses_same_finish_rule_and_original_fuel(monkeypatch, request):
     from f1sim.simulation.lap import LapSimulator
     from f1sim.simulation.opening_strategy import _policy_path_cost
     from f1sim.simulation.race import TeamStrategyArchetype
+    from f1sim.simulation.rain_strategy import _fresh_future, _plan, _running_row
+
+    for cached in (_fresh_future, _plan, _running_row):
+        cached.cache_clear()
+        request.addfinalizer(cached.cache_clear)
 
     driver = Driver(id="A", name="A", team_id="A")
     car = Car(team_id="A", team_name="A")
@@ -185,7 +190,11 @@ def test_isolated_opening_projection_uses_same_finish_rule_and_original_fuel(mon
     calls = []
 
     def running(self, *args, **kwargs):
-        calls.append((args[6], args[2].total_laps))
+        # The rain planner also evaluates isolated future laps. Count only
+        # the opening policy's committed running on the original track.
+        assert args[6] == 10
+        if args[2] is track:
+            calls.append((args[6], args[2].total_laps))
         return 1800
 
     monkeypatch.setattr(LapSimulator, "calculate_lap_time", running)

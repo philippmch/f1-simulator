@@ -14,6 +14,7 @@ from f1sim.simulation.overtaking import OvertakingModel
 from f1sim.simulation.pit_strategy import expected_stationary_time, plan_dry_stop
 from f1sim.simulation.race_points import points_for_classification
 from f1sim.simulation.race_timing import RaceFinishClock
+from f1sim.simulation.rain_strategy import plan_rain_stop
 from f1sim.simulation.strategy_traffic import StrategyTrafficSnapshot
 from f1sim.simulation.validation import validate_unique_ids
 from f1sim.simulation.weather_strategy import weather_stop_costs
@@ -990,7 +991,25 @@ class RaceSimulator:
                 return True
             return False
 
-        # Wet/damp strategies retain their existing reactive windows.
+        if weather is not None and self._rain_stint_can_be_planned(state, track, weather, lap):
+            traffic_cost = 0.0
+            if not (self.event_manager.safety_car_active or self.event_manager.vsc_active):
+                traffic_cost = (
+                    self._pit_rejoin_traffic_cost(
+                        state, all_states, track, additional_current_stop_cost,
+                    ) if traffic_snapshot is None else traffic_snapshot.rejoin_traffic_cost
+                ) * self.lap_simulator.weather_pace_multiplier(state.driver, state.car, weather)
+            return plan_rain_stop(
+                state.driver, state.car, track, weather, state.current_tire,
+                state.tire_laps, lap, max_stops - state.pit_stops,
+                pit_lane_factor=self._pit_lane_factor(),
+                additional_current_stop_cost=additional_current_stop_cost + traffic_cost,
+                current_lap_time_modifier=self.event_manager.get_lap_time_modifier(),
+                active_aero_enabled=self.event_manager.is_active_aero_allowed(),
+                physical_total_laps=physical_total_laps,
+            ).should_pit()
+
+        # Changing compound requirements retain the reactive fallback windows.
         if lap <= 5 or lap >= track.total_laps - 5:
             return False
 
@@ -1111,6 +1130,20 @@ class RaceSimulator:
                 return wet_stop_can_pay()
 
         return False
+
+    @staticmethod
+    def _rain_stint_can_be_planned(
+        state: DriverRaceState, track: Track, weather: Weather, lap: int,
+    ) -> bool:
+        compound = state.current_tire.compound
+        if compound not in {TireCompound.INTERMEDIATE, TireCompound.WET}:
+            return False
+        surface = weather
+        for _ in range(track.total_laps - lap + 1):
+            if surface.fresh_rain_compound() != compound:
+                return False
+            surface = surface.project_surface()
+        return True
 
     @staticmethod
     def _actually_used_compounds(state: DriverRaceState) -> set[TireCompound]:
