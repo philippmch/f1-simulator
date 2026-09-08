@@ -167,6 +167,7 @@ class ConsoleOutput:
 
         # Driver points projection
         print("\nDRIVER POINTS PROJECTION (per race):")
+        print("Means use observed driver races; unobserved drivers are omitted.")
         print("-" * 50)
         points_proj = results.get_championship_projection()
         for driver_id, points in list(points_proj.items())[:10]:
@@ -176,6 +177,7 @@ class ConsoleOutput:
 
         # Team points projection
         print("\nTEAM POINTS PROJECTION (per race):")
+        print("Sum of listed drivers' observed means; incompletely observed teams are omitted.")
         print("-" * 50)
         team_proj = results.get_team_championship_projection()
         for team, points in list(team_proj.items())[:10]:

@@ -527,6 +527,14 @@ remaining pit strategy with mean pace and expected stationary service.
 Sampling ranges in the dashboard measure Monte Carlo noise under these
 assumptions. They do not validate the strategy model against real race outcomes.
 
+Driver points projections divide total awarded points by that driver's observed
+race count, including retirements, and rank the resulting means. Requested trial
+counts never dilute a partial result. Constructor projections sum the listed
+drivers' individual observed means; this is a lineup projection, not an average
+over a reconstructed union of team race records. Drivers with no observations
+and teams containing an unobserved listed driver are omitted. A recorded zero
+remains zero. Normal runs with every entrant observed in every trial are unchanged.
+
 The dashboard statistics and HTML reports include mean winning distance,
 lapped finishers, time-limited races and races without a winner. Statistics JSON,
 scenario comparison JSON and dashboard scenario responses expose the same

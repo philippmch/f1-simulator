@@ -2715,6 +2715,8 @@ function renderStats() {
 
       <div class="stat-card">
         <div class="stat-card-title">Constructor Projection</div>
+        <p class="inline-note">Sum of listed drivers’ points per observed race.
+          Teams with an unobserved driver are omitted.</p>
         ${renderBarRows(
           teamProjection,
           team => TEAM_SHORT_LABELS[team.team_key] || 'TEAM',

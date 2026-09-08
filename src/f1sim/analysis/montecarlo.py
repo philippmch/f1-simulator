@@ -293,15 +293,12 @@ class SimulationResults:
         }
 
     def get_championship_projection(self) -> dict[str, float]:
-        """Get projected points for each driver."""
-        return {
-            driver_id: stats.total_points / self.num_simulations
-            for driver_id, stats in sorted(
-                self.driver_stats.items(),
-                key=lambda x: x[1].total_points,
-                reverse=True,
-            )
+        """Mean points per observed driver race; omit unobserved drivers."""
+        projections = {
+            driver_id: stats.total_points / len(stats.positions)
+            for driver_id, stats in self.driver_stats.items() if stats.positions
         }
+        return dict(sorted(projections.items(), key=lambda item: item[1], reverse=True))
 
     def get_position_distribution(self, driver_id: str) -> dict[int, float]:
         """Get position probability distribution for a driver."""
@@ -369,13 +366,24 @@ class SimulationResults:
         return {p: float(np.percentile(values, p)) for p in percentiles}
 
     def get_team_championship_projection(self) -> dict[str, float]:
-        """Get projected points per team (constructors view)."""
+        """Sum listed drivers' observed means, omitting incompletely observed teams.
+
+        Each driver's mean uses their own observation count. This is a lineup
+        projection, not an average over a reconstructed union of team races.
+        """
         team_points: dict[str, float] = defaultdict(float)
+        incomplete: set[str] = set()
 
         for stats in self.driver_stats.values():
-            team_points[stats.team] += stats.total_points / self.num_simulations
+            if not stats.positions:
+                incomplete.add(stats.team)
+            else:
+                team_points[stats.team] += stats.total_points / len(stats.positions)
 
-        return dict(sorted(team_points.items(), key=lambda x: x[1], reverse=True))
+        return dict(sorted(
+            ((team, points) for team, points in team_points.items() if team not in incomplete),
+            key=lambda item: item[1], reverse=True,
+        ))
 
     def get_event_rates(self) -> dict[str, float]:
         """Get normalized event-rate metrics per race."""

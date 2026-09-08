@@ -507,7 +507,9 @@ class Exporter:
       {strategy_html}
     </div>
     <div class=\"card\"><h2>Top 10 Win Probabilities</h2><div id=\"wins\"></div></div>
-    <div class=\"card\"><h2>Team Points Projection (per race)</h2><div id=\"teams\"></div></div>
+    <div class=\"card\"><h2>Team Points Projection (per race)</h2>
+      <p>Sum of listed drivers' points per observed race. Teams with an unobserved
+      listed driver are omitted.</p><div id=\"teams\"></div></div>
   </div>
   <script>
     Plotly.newPlot('wins', [{{
