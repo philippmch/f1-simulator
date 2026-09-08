@@ -160,3 +160,18 @@ both models, versus roughly one in fixed dry weather. These small synthetic
 samples are a strategy-investigation baseline, not evidence of empirical
 accuracy or a reason to switch the default engine. The larger historical table
 above describes standard execution only.
+
+That baseline exposed repeated late wet pit windows. After preventing consumed
+schedules from reopening, the same seed-42 comparison produced these mean paid
+stops per entrant:
+
+| Model | Fixed light rain, before / after | Fixed heavy rain, before / after |
+|---|---:|---:|
+| Standard | 3.545 / 2.009 | 3.482 / 1.932 |
+| Chronological | 3.505 / 1.982 | 3.450 / 1.941 |
+
+Fixed-dry results were unchanged. These numbers demonstrate the effect of the
+schedule correction on the synthetic fixture; they do not calibrate stop counts
+against real races. Subsequent random draws change when an unnecessary stop is
+removed, so this is a seeded model comparison rather than an isolated time-saving
+estimate for each original race.

@@ -324,6 +324,15 @@ happens. Weather stops still consume stop budgets and fallback plan slots. On
 returning to clearly dry slick running, the optimizer reassesses the remaining
 race with the actual tyre age, compound history and stops remaining.
 
+Wet/damp planned windows are consumed once. After the selected plan is exhausted,
+it cannot fall through to another generic late-race window. When no explicit
+plan exists, the generic schedule offers at most two stops (or one when the
+ordinary budget is one). The higher wet stop allowance still permits reactive
+weather changes and SC/VSC opportunities; it does not repeat the second window.
+This prevents fresh intermediates being replaced again on consecutive laps
+solely because the car remains inside the same calendar window. Wet stop timing
+otherwise remains a heuristic, rather than a full remaining-race cost optimizer.
+
 The fallback compound comparison assumes the stop has already been chosen;
 the dry optimizer additionally includes pit loss. Both omit common fuel and
 car pace terms that cancel between the compared dry schedules. Neither forecasts
