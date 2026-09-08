@@ -66,6 +66,23 @@ def test_position_distribution_unknown_driver() -> None:
     assert results.get_position_distribution("HAM") == {}
 
 
+def test_partial_samples_rank_contenders_by_rate_including_api_top_three():
+    from f1sim.web.server import _summarize_scenario_results
+
+    stats = {
+        "A": _stats("A", [1] * 10 + [2] * 90, wins=10),
+        "B": _stats("B", [1] * 9 + [2] * 91, wins=9),
+        "C": _stats("C", [1] * 8 + [2] * 92, wins=8),
+        "D": _stats("D", [1, 2], wins=1),
+    }
+    results = SimulationResults(100, "Partial", stats, [], [])
+    assert list(results.get_win_probabilities().items()) == [
+        ("D", 50), ("A", 10), ("B", 9), ("C", 8),
+    ]
+    shown = _summarize_scenario_results({"partial": results})["scenarios"]["partial"]
+    assert shown["top3_win_probabilities"] == [("D", 50), ("A", 10), ("B", 9)]
+
+
 def test_championship_projection_sorted_desc() -> None:
     stats = {
         "VER": DriverStatistics(

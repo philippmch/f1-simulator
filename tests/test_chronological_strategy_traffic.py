@@ -41,6 +41,7 @@ def setup(monkeypatch, *, pit_lane=18, stop=False, queue_delay=0):
     def control(lap, *a, **k):
         if lap == 1 and queue_delay:
             engine.box_releases["A"] = 90 + queue_delay
+            engine.expected_box_releases["A"] = 90 + queue_delay
         return []
 
     monkeypatch.setattr(simulator.event_manager, "process_lap", control)

@@ -48,6 +48,7 @@ class _PendingLap:
     detected_gap: float | None = None
     safety_car: bool = False
     sc_queue_pace: float | None = None
+    expected_exit: float | None = None
 
 
 class ChronologicalRace:
@@ -63,6 +64,7 @@ class ChronologicalRace:
         self.crossings: list[tuple[str, int, float]] = []
         self.pit_exits: list[tuple[str, int, float]] = []
         self.suspensions: list[tuple[float, float, tuple[str, ...]]] = []
+        self.order: list[str] = []
 
     def run(self, drivers, cars, track, weather, starting_grid, *, starting_tires=None):
         validate_unique_ids([driver.id for driver in drivers], "driver")
@@ -96,6 +98,7 @@ class ChronologicalRace:
         self.queue = []
         self.serial = count()
         self.box_releases = {}
+        self.expected_box_releases = {}
         self.fastest = {}
         self.running_paces = {}
         self.free_refits = set()
@@ -177,6 +180,8 @@ class ChronologicalRace:
         self.order = [key for key in self.resumption_order if key in active]
         self.suspensions.append((self.red_flag_start, resume, tuple(self.order)))
         self.red_waiting.clear()
+        # Collection waits for all paid services; free restart fits reserve no box.
+        self.expected_box_releases.clear()
         for driver_id in list(self.order):
             state = self.states[driver_id]
             pending = self.pending.get(driver_id)
@@ -215,7 +220,10 @@ class ChronologicalRace:
 
         Use observed free running pace (excluding stops, incidents and blocking),
         with the current control multiplier on the upcoming lap. The leading
-        pending lap's absolute readiness anchors the forecast. The deadline
+        pending lap's absolute readiness anchors the forecast. Same-distance
+        cars still on track precede cars in service; a lap-ahead pitter remains
+        ahead. Unfinished pit service uses its expected exit, never its future
+        sampled completion. The deadline
         includes elapsed suspension time; later laps assume green running.
         Future weather, interruptions and elective stops are unknown.
         """
@@ -223,8 +231,11 @@ class ChronologicalRace:
         own_pace = self.running_paces.get(state.driver.id)
         active = [other for other in self.states.values() if other.status == DriverStatus.RACING]
         if own_pace is not None and active:
+            physical_order = {driver_id: index for index, driver_id in enumerate(self.order)}
             leader = min(active, key=lambda other: (
-                -other.laps_completed, other.total_time, other.position,
+                -other.laps_completed,
+                other.driver.id not in physical_order,
+                physical_order.get(other.driver.id, other.position),
             ))
             pending = self.pending.get(leader.driver.id)
             leader_pace = self.running_paces.get(leader.driver.id)
@@ -234,6 +245,7 @@ class ChronologicalRace:
                 if leader_pace is None:
                     leader_pace = pending.running or None
                 if not pending.on_track and leader_pace is not None:
+                    flag_time = max(now, pending.expected_exit or now)
                     flag_time += leader_pace * pending.lap_time_modifier
                 anchor_lap = pending.lap
                 next_modifier = 1.0
@@ -270,7 +282,10 @@ class ChronologicalRace:
         planning = self._planning_track(state, now)
         if driver_id in self.free_refits:
             self._fit_red_flag_set(state, planning)
-        delay = max(0.0, self.box_releases.get(state.car.team_id, now) - now)
+        # Completed service is observable; its future sampled duration is not.
+        if self.box_releases.get(state.car.team_id, now) <= now:
+            self.expected_box_releases.pop(state.car.team_id, None)
+        delay = max(0.0, self.expected_box_releases.get(state.car.team_id, now) - now)
         active = [other for other in self.states.values() if other.status == DriverStatus.RACING]
         stop = state.force_pit_next_lap or self.simulator._should_pit(
             state, active, planning, lap, control.is_pit_window_open(), self.weather,
@@ -278,7 +293,12 @@ class ChronologicalRace:
             traffic_snapshot=self._strategy_traffic(state, now, delay),
         )
         loss = 0.0
+        expected_exit = None
         if stop:
+            expected_service = expected_stationary_time(state.car)
+            self.expected_box_releases[state.car.team_id] = now + delay + expected_service
+            expected_exit = (now + delay + expected_service
+                             + self.track.pit_lane_delta * self.simulator._pit_lane_factor())
             loss = self.simulator._execute_pit_stop(
                 state, planning, self.weather, lap, pit_box_releases=self.box_releases,
                 arrival_time=now,
@@ -301,6 +321,7 @@ class ChronologicalRace:
             mode_allowed=control.is_overtake_mode_allowed(interval, snapshot),
             restart_boost=control.is_restart_lap(interval),
             safety_car=control.safety_car_active,
+            expected_exit=expected_exit,
         )
         if pending.safety_car:
             leader_id = self._queue_leader_id()
@@ -323,10 +344,10 @@ class ChronologicalRace:
             return self.leader_id
         return min(racing, key=lambda driver_id: -self.states[driver_id].laps_completed)
 
-    def _projected_progress(self, driver_id, when, exit_lap):
+    def _projected_progress(self, driver_id, when, exit_lap, *, now=None):
         """Forecast a rival's fractional position without simulating new events.
 
-        Keep committed running/pit delay, then extrapolate observed free pace.
+        Keep committed running and expected pit delay, then extrapolate observed free pace.
         Future tyre/weather changes, stops and battle delays are unknown. This
         projection prices one rejoin; it never changes actual crossing order.
         """
@@ -342,7 +363,10 @@ class ChronologicalRace:
         if pending.on_track:
             start, ready = pending.running_start, pending.ready
         else:
-            start, ready = pending.ready, pending.ready + first_pace
+            start = pending.expected_exit if pending.expected_exit is not None else pending.ready
+            if now is not None:
+                start = max(now, start)
+            ready = start + first_pace
             if when == start and pending.lap < exit_lap:
                 return None  # Our higher-distance exit has priority at this tie.
         if start is None or when < start or ready <= start:
@@ -372,7 +396,7 @@ class ChronologicalRace:
 
         The circular successor supplies the space behind, including lapped
         traffic. Race rank and old completed-crossing clocks are not positions.
-        Service is expected, existing queue delay is known, and no RNG is used.
+        Service and unfinished queue delay are expected; no RNG is used.
         """
         driver_id = state.driver.id
         modifier = self.simulator.event_manager.get_lap_time_modifier()
@@ -391,7 +415,7 @@ class ChronologicalRace:
                          + expected_stationary_time(state.car) + queue_delay)
             progress = [value for other_id in self.pending if other_id != driver_id
                         and (value := self._projected_progress(
-                            other_id, exit_time, state.laps_completed + 1,
+                            other_id, exit_time, state.laps_completed + 1, now=now,
                         )) is not None]
             rejoin_gap = min(progress) * pace if progress else None
             traffic = self.simulator.lap_simulator.traffic_pace_contribution

@@ -282,12 +282,12 @@ class SimulationResults:
         }
 
     def get_win_probabilities(self) -> dict[str, float]:
-        """Get win probability for each driver."""
+        """Get win probabilities ranked by observed rate, including partial samples."""
         return {
             driver_id: stats.win_rate
             for driver_id, stats in sorted(
                 self.driver_stats.items(),
-                key=lambda x: x[1].wins,
+                key=lambda x: x[1].win_rate,
                 reverse=True,
             )
         }

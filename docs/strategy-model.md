@@ -29,6 +29,12 @@ that schedule. Both engines use this estimate for pit decisions and free tyre
 choices; chronological races also map the leader's estimated finish time to
 each car's own remaining laps and include completed suspension extensions.
 
+Chronological forecasts resolve equal completed distances using physical
+on-track order, ahead of cars still in the pits, rather than stale crossing
+times. A pitting car a full lap ahead retains distance priority. A pending stop
+uses its expected exit when planning the remaining race; the actual finish
+controller continues to use executed crossings.
+
 The forecast is recalculated as the race develops. It does not change the
 actual finish controller, predict future stops or weather, or guarantee a
 globally optimal timed strategy. After a timed announcement, the next leading
@@ -299,8 +305,14 @@ Lap-start race clocks approximate relative pit-box arrivals. Before committing
 to a dry stop, a driver is charged the expected queue from an earlier-arriving
 teammate already committed on that lap. Planning uses expected service; actual
 execution uses sampled service, so the decision does not know a future slow-stop
-outcome. Reservations reset each lap and race. This is a same-lap box model,
-not a simulation of pit-lane congestion, crew setup time or unsafe releases.
+outcome. In the standard engine, reservations reset each lap and race.
+The chronological engine carries reservations across individual car lap starts
+and resets them for each race; cars on different laps can share the box.
+Its planning reservations and projections of pitting rivals use expected
+service separately from the sampled execution queue. Once service has visibly
+completed, a stale expected reservation cannot keep the box occupied. Estimates
+do not infer the remaining duration of an ongoing unusually slow stop.
+Neither engine models pit-lane congestion, crew setup time or unsafe releases.
 
 The recorded time for a stop lap includes the actual pit-lane, stationary and
 queue losses, so its clean running pace alone cannot earn a fastest lap. Those
