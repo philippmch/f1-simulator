@@ -188,6 +188,14 @@ Standard entries correspond to shared race-lap starts. Lap-aware entries are
 shared weather-update intervals, which can differ from a driver's own lap count
 and do not identify each driver's exact pit-stop conditions. Legacy output
 without a trace remains explicitly unrecorded.
+
+Expand **Paid pit stops during this trial** to inspect each driver's tyre age,
+compound change, weather and modeled lane, service and queue loss. Export bundles
+include a pit-stops CSV; statistics and comparison JSON retain `pit_stop_details`
+for every trial, while dashboard JSON retains the selected trial's details.
+These are observations of the simulation, excluding free tyre changes and later
+on-track traffic. Missing legacy details remain distinct from a recorded zero stops.
+
 The dashboard's scenario chart and driver matrix show the same individual 95%
 sampling ranges and observed trial counts. Expand a driver in the chart to view
 its scenarios. Highlights identify the highest estimate, not a proven strategy

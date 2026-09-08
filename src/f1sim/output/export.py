@@ -88,8 +88,10 @@ class Exporter:
             report = files.get("report_html") if isinstance(files, dict) else None
             stats = files.get("statistics_json") if isinstance(files, dict) else None
             weather = files.get("weather_csv") if isinstance(files, dict) else None
+            pits = files.get("pit_stops_csv") if isinstance(files, dict) else None
             links = []
-            for label, artifact in (("report", report), ("stats", stats), ("weather CSV", weather)):
+            for label, artifact in (("report", report), ("stats", stats),
+                                    ("weather CSV", weather), ("pit stops CSV", pits)):
                 if not artifact:
                     continue
                 if (isinstance(artifact, str) and artifact not in (".", "..")
@@ -245,6 +247,32 @@ class Exporter:
                                      row["rain_intensity"], row["track_wetness"]])
         return filepath
 
+    @staticmethod
+    def _pit_stop_details(results: SimulationResults) -> list[dict]:
+        return [
+            {"simulation": index, "driver_id": result.driver_id,
+             "stops": ([dict(stop) for stop in result.pit_stop_details]
+                       if getattr(result, "pit_stop_details", None) is not None else None)}
+            for index, race in enumerate(results.race_results, start=1) for result in race
+        ]
+
+    def export_pit_stop_details_csv(
+        self, results: SimulationResults, filename: str = "pit_stops.csv",
+    ) -> Path:
+        """Export modeled paid-stop components; free fittings have no rows."""
+        fields = ["lap", "from_compound", "to_compound", "tire_age", "condition",
+                  "rain_intensity", "track_wetness", "control", "lane_loss",
+                  "service_time", "queue_time", "total_loss"]
+        filepath = self.output_dir / filename
+        with filepath.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["simulation", "race_engine", "driver_id", *fields])
+            for row in self._pit_stop_details(results):
+                for stop in row["stops"] or []:
+                    writer.writerow([row["simulation"], results.race_engine, row["driver_id"],
+                                     *(stop[field] for field in fields)])
+        return filepath
+
     def export_statistics_json(
         self,
         results: SimulationResults,
@@ -265,6 +293,7 @@ class Exporter:
         stats_dict: dict[str, Any] = {
             "simulation_inputs": results.input_snapshot,
             "weather_histories": results.weather_histories,
+            "pit_stop_details": self._pit_stop_details(results),
             "metadata": {
                 "num_simulations": results.num_simulations,
                 "track_name": results.track_name,
@@ -373,6 +402,7 @@ class Exporter:
                 "event_rate_trials": results.get_event_rate_trials(),
                 "race_distance_statistics": results.get_race_distance_statistics(),
                 "weather_histories": results.weather_histories,
+                "pit_stop_details": self._pit_stop_details(results),
                 "strategy_statistics": results.get_strategy_statistics(),
                 "simulation_inputs": results.input_snapshot,
                 "team_championship_projection": results.get_team_championship_projection(),
@@ -565,6 +595,9 @@ class Exporter:
             ),
             "weather_csv": self.export_weather_history_csv(
                 results, f"{filename_prefix}weather_history.csv"
+            ),
+            "pit_stops_csv": self.export_pit_stop_details_csv(
+                results, f"{filename_prefix}pit_stops.csv"
             ),
             "statistics_json": self.export_statistics_json(
                 results, f"{filename_prefix}statistics.json"

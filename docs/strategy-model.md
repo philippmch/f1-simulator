@@ -187,6 +187,20 @@ timing use null in JSON and a blank CSV cell. Free red-flag tyre changes remain
 in compound history but do not add a paid pit lap. A stop performed before a
 retirement on the same lap remains part of that driver's stop history.
 
+Each paid stop also records `pit_stop_details`: the driver's own lap number,
+outgoing and incoming compounds, completed laps on the outgoing set, condition,
+rain intensity, surface wetness, race control, and lane/service/queue loss in
+seconds. The three cost components sum to the modeled total; they are not exact
+arrival timestamps and exclude subsequent on-track traffic. Recording does not
+change race decisions or consume random draws. Free red-flag fittings have no
+paid-stop record; an opening paid correction has tyre age zero.
+
+The dashboard shows these observations for its selected trial. Statistics and
+comparison JSON retain per-trial, per-driver records; the bundle's pit-stops CSV
+has one row per paid stop with one-based trial numbers. Legacy JSON uses null for
+unknown details and an empty list for a known zero stops; neither produces CSV
+stop rows. These records describe executed stops, not inferred decision reasons.
+
 Fresh weather tyre selection shares the slick-mismatch crossover: above 0.2
 surface wetness or 0.4 rain intensity, a stop fits intermediates; above 0.7
 surface wetness, it fits full wets. These values are normalized model parameters,

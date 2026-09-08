@@ -79,6 +79,34 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     assert((await page.locator('#panel-race').textContent()).includes('Fixed rainfall; surface wetness still evolves'));
     await page.locator('#weatherModeSelect').selectOption('fixed_rainfall');
     if (offline) {
+      await page.locator('#samplePitStopDetails summary').focus();
+      await page.keyboard.press('Enter');
+      const stopRows = await page.evaluate(() => getScenarioEntry().data.sample_race
+        .reduce((count, driver) => count + Math.max(1, driver.pit_stop_details.length), 0));
+      assert.equal(await page.locator('#samplePitStopDetails tbody tr').count(), stopRows);
+      await page.evaluate(() => {
+        window.savedPitSample = getScenarioEntry().data.sample_race;
+        getScenarioEntry().data.sample_race = savedPitSample.slice(0, 3).map((row, i) => ({
+          ...row, pit_stop_details: i === 0 ? null : i === 1 ? [] : [{lap: 4,
+            from_compound: '<img src=x onerror="window.pitInjected=true">', to_compound: 'hard',
+            tire_age: 3, condition: 'dry', rain_intensity: 0, track_wetness: 0,
+            control: 'green', lane_loss: 22, service_time: 3, queue_time: 2, total_loss: 27}],
+        }));
+        renderRace();
+      });
+      await page.locator('#samplePitStopDetails summary').click();
+      const pitText = await page.locator('#samplePitStopDetails').innerText();
+      for (const label of ['Pit-stop details not recorded', 'No paid stops', '27.000 s',
+        'Lane 22.000 s', 'Service 3.000 s', 'Queue 2.000 s', '3 completed laps']) {
+        assert(pitText.includes(label), `Missing paid-stop detail: ${label}`);
+      }
+      assert.equal(await page.locator('#samplePitStopDetails img').count(), 0);
+      assert.equal(await page.evaluate(() => Boolean(window.pitInjected)), false);
+      await page.evaluate(() => {
+        getScenarioEntry().data.sample_race = savedPitSample;
+        delete window.savedPitSample;
+        renderRace();
+      });
       const weatherSummary = page.locator('#sampleWeatherHistory summary');
       await weatherSummary.focus();
       await page.keyboard.press('Enter');
@@ -276,6 +304,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({width, height: 900});
       await page.locator('#sampleWeatherHistory').evaluate(node => { node.open = true; });
+      await page.locator('#samplePitStopDetails').evaluate(node => { node.open = true; });
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
         `Retirement classification overflows at ${width}px`);
       assert(await page.locator('#raceContent .pit-laps').first().isVisible(),

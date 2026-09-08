@@ -1064,6 +1064,13 @@ input:focus-visible {
 #sampleWeatherHistory th { font-size: .7rem; color: var(--text-secondary); }
 #sampleWeatherHistory caption { text-align: left; padding: .6rem 0; }
 
+#samplePitStopDetails { margin: 1.2rem 0; }
+#samplePitStopDetails table { min-width: 880px; font-size: .8rem; }
+#samplePitStopDetails th { font-size: .7rem; color: var(--text-secondary); }
+#samplePitStopDetails .inline-note { color: var(--text-secondary); }
+#samplePitStopDetails caption { text-align: left; padding: .6rem 0; }
+#samplePitStopDetails .pit-components { display: block; margin-top: .3rem; color: var(--text-secondary); }
+
 .matrix-table {
   width: 100%;
   border-collapse: collapse;
@@ -2349,6 +2356,42 @@ function renderWeatherHistory(scenario) {
   </details>`;
 }
 
+function renderPitStopDetails(race) {
+  const seconds = value => typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? `${value.toFixed(3)} s` : 'Not recorded';
+  const percent = value => typeof value === 'number' && Number.isFinite(value)
+    && value >= 0 && value <= 1 ? `${(value * 100).toFixed(1)}%` : 'Not recorded';
+  const rows = race.flatMap(driver => {
+    const name = escapeHtml(driver.driver_id);
+    if (!Array.isArray(driver.pit_stop_details)) {
+      return [`<tr><th scope="row">${name}</th><td colspan="4">Pit-stop details not recorded</td></tr>`];
+    }
+    if (!driver.pit_stop_details.length) {
+      return [`<tr><th scope="row">${name}</th><td colspan="4">No paid stops</td></tr>`];
+    }
+    return driver.pit_stop_details.map(stop => `<tr><th scope="row">${name}</th>
+      <td>${Number.isInteger(stop.lap) && stop.lap > 0 ? stop.lap : 'Not recorded'}</td>
+      <td>${escapeHtml(stop.from_compound)} → ${escapeHtml(stop.to_compound)}
+        <span class="pit-components">Previous set: ${Number.isInteger(stop.tire_age) && stop.tire_age >= 0
+          ? `${stop.tire_age} completed laps` : 'age not recorded'}</span></td>
+      <td>${escapeHtml(WEATHER_LABELS[stop.condition] || stop.condition || 'Not recorded')}
+        <span class="pit-components">Rain ${percent(stop.rain_intensity)} · Wetness ${percent(stop.track_wetness)}</span>
+        <span class="pit-components">${escapeHtml(titleFromKey(stop.control || 'Not recorded'))}</span></td>
+      <td>${seconds(stop.total_loss)}<span class="pit-components">Lane ${seconds(stop.lane_loss)}<br>
+        Service ${seconds(stop.service_time)}<br>Queue ${seconds(stop.queue_time)}</span></td></tr>`);
+  });
+  return `<details class="probability-details" id="samplePitStopDetails">
+    <summary>Paid pit stops during this trial</summary>
+    <p class="inline-note">Driver lap numbers and conditions at each paid stop. Loss is the modeled lane,
+      service and queue cost; it excludes later on-track traffic. Free tyre changes are excluded.
+      Scroll the table horizontally to see every column.</p>
+    <div class="results-table" tabindex="0" role="region" aria-label="Paid pit-stop details">
+      <table class="matrix-table"><caption>Observed paid-stop components</caption>
+        <thead><tr><th scope="col">Driver</th><th scope="col">Driver lap</th>
+          <th scope="col">Tyres</th><th scope="col">Conditions</th><th scope="col">Modeled loss</th></tr></thead>
+        <tbody>${rows.join('')}</tbody></table></div></details>`;
+}
+
 function renderRace() {
   const container = document.getElementById('raceContent');
   const empty = document.getElementById('emptyRace');
@@ -2456,7 +2499,7 @@ function renderRace() {
     `;
   });
 
-  html += '</div></div>';
+  html += '</div></div>' + renderPitStopDetails(race);
   container.innerHTML = html;
 }
 

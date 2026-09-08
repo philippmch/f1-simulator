@@ -68,6 +68,7 @@ class DriverRaceState:
     overtake_mode_active_lap: bool = False
     laps_completed: int = 0
     last_crossing_position: int | None = None
+    pit_stop_details: list[dict] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         """Seed tyre history from the driver's actual starting set."""
@@ -95,6 +96,7 @@ class RaceResult:
     pit_laps: list[int] | None = None
     race_time_limited: bool = False
     points_awarded: int | None = None
+    pit_stop_details: list[dict] | None = None
 
 
 def result_is_classified(result: RaceResult) -> bool:
@@ -626,6 +628,7 @@ class RaceSimulator:
                     strategy=strategy,
                     laps_completed=state.laps_completed,
                     pit_laps=list(state.pit_laps),
+                    pit_stop_details=[dict(stop) for stop in state.pit_stop_details],
                     race_time_limited=winner_laps is not None and final_lap < track.total_laps,
                     classified=classified,
                     points_awarded=points_for_classification(
@@ -1441,9 +1444,25 @@ class RaceSimulator:
                 weather, physical_total_laps=physical_total_laps,
             )
 
+        total_loss = pit_lane_time + stationary_time + queue_time
+        state.pit_stop_details.append({
+            "lap": int(current_lap),
+            "from_compound": state.current_tire.compound.value,
+            "to_compound": new_compound.value,
+            "tire_age": int(state.tire_laps),
+            "condition": weather.condition.value,
+            "rain_intensity": float(weather.rain_intensity),
+            "track_wetness": float(weather.track_wetness),
+            "control": ("safety_car" if self.event_manager.safety_car_active
+                        else "vsc" if self.event_manager.vsc_active else "green"),
+            "lane_loss": float(pit_lane_time),
+            "service_time": float(stationary_time),
+            "queue_time": float(queue_time),
+            "total_loss": float(total_loss),
+        })
         self._fit_tire(state, new_compound)
 
-        return pit_lane_time + stationary_time + queue_time
+        return total_loss
 
     def _pit_rejoin_traffic_cost(
         self, state: DriverRaceState, all_states: list[DriverRaceState],

@@ -642,6 +642,7 @@ class ChronologicalRace:
                 dnf_reason=state.dnf_reason, strategy=list(state.tire_compound_history),
                 laps_completed=state.laps_completed, classified=classified,
                 pit_laps=list(state.pit_laps),
+                pit_stop_details=[dict(stop) for stop in state.pit_stop_details],
                 race_time_limited=(winner is not None
                                    and self.timeline.time_limit_announced
                                    and winner_laps < self.track.total_laps),
