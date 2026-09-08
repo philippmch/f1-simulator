@@ -43,12 +43,13 @@ def test_history_escapes_all_metadata_and_encodes_filename_component(tmp_path):
     filename = 'Montréal 東京 " & report.html'
     exporter._write_history([{
         "timestamp": payload, "track": payload, "num_simulations": payload, "seed": payload,
+        "race_engine": payload,
         "files": {"report_html": filename, "statistics_json": "javascript:alert(1)"},
     }])
     html = exporter.export_run_index_html().read_text(encoding="utf-8")
     tags = Tags(html).tags
     assert not any(tag in ("svg", "script") for tag, _ in tags)
-    assert html.count(escape(payload)) == 4
+    assert html.count(escape(payload)) == 5
     links = [attrs["href"] for tag, attrs in tags if tag == "a"]
     assert links == ["./" + quote(filename, safe=""), "./javascript%3Aalert%281%29"]
     assert exporter._read_history()[0]["track"] == payload

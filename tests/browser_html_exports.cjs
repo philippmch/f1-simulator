@@ -29,6 +29,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     await page.goto('http://f1sim.test/index.html');
     assert.equal(await page.locator('tbody tr').count(), 1);
     assert((await page.locator('tbody').innerText()).includes(fixture.track));
+    assert((await page.locator('thead').innerText()).includes('Race model'));
+    assert((await page.locator('tbody').innerText()).includes('Standard'));
     assert.equal(await page.locator('img, svg, script').count(), 0);
     const links = await page.locator('tbody a').evaluateAll(nodes => nodes.map(n => n.href));
     assert.equal(links.length, 2);

@@ -7,6 +7,7 @@ from html import escape
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
+from uuid import uuid4
 
 from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.output.timing import csv_time
@@ -79,6 +80,10 @@ class Exporter:
             track = escape(str(row.get("track", "-")))
             sims = escape(str(row.get("num_simulations", "-")))
             seed = escape(str(row.get("seed", "-")))
+            engine = row.get("race_engine", "standard")
+            engine = escape({
+                "standard": "Standard", "chronological": "Lap-aware (experimental)",
+            }.get(engine, engine) if isinstance(engine, str) else "Unknown")
             files = row.get("files", {})
             report = files.get("report_html") if isinstance(files, dict) else None
             stats = files.get("statistics_json") if isinstance(files, dict) else None
@@ -94,10 +99,11 @@ class Exporter:
                     links.append(escape(str(artifact)))
             row_links = " | ".join(links) if links else "-"
             rows.append(
-                f"<tr><td>{ts}</td><td>{track}</td><td>{sims}</td><td>{seed}</td><td>{row_links}</td></tr>"
+                f"<tr><td>{ts}</td><td>{track}</td><td>{engine}</td>"
+                f"<td>{sims}</td><td>{seed}</td><td>{row_links}</td></tr>"
             )
 
-        table_rows = "\n".join(rows) if rows else "<tr><td colspan='5'>No runs yet</td></tr>"
+        table_rows = "\n".join(rows) if rows else "<tr><td colspan='6'>No runs yet</td></tr>"
 
         html = f"""<!doctype html>
 <html lang=\"en\">
@@ -122,7 +128,8 @@ class Exporter:
   <table>
     <thead>
       <tr>
-        <th>Timestamp (UTC)</th><th>Track</th><th>Simulations</th><th>Seed</th><th>Artifacts</th>
+        <th>Timestamp (UTC)</th><th>Track</th><th>Race model</th>
+        <th>Simulations</th><th>Seed</th><th>Artifacts</th>
       </tr>
     </thead>
     <tbody>{table_rows}</tbody>
@@ -423,16 +430,16 @@ class Exporter:
         results: SimulationResults,
         prefix: str = "",
     ) -> dict[str, Path]:
-        """Export all result formats.
+        """Export a uniquely named bundle so later runs preserve history links.
 
         Args:
             results: Simulation results
-            prefix: Optional prefix for filenames
+            prefix: Optional readable prefix; a unique bundle id is appended
 
         Returns:
             Dictionary of format -> filepath
         """
-        filename_prefix = f"{prefix}_" if prefix else ""
+        filename_prefix = (f"{prefix}_" if prefix else "") + uuid4().hex + "_"
 
         files = {
             "race_csv": self.export_race_results_csv(
