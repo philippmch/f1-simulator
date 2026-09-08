@@ -183,3 +183,13 @@ and seed 42, mean stops were 1.273/1.264 in standard fixed light/heavy rain and
 remained unchanged. Lower stop counts are not themselves the objective: the
 filter rejects stops that cannot recover their cost even under favorable
 projection assumptions, while retaining potentially worthwhile opportunities.
+
+The subsequent same-compound rain planner compares stopping now with optimal
+later stops, rather than comparing against keeping the old set forever. In the
+same 80-race seed-42 diagnostic, fixed light/heavy rain averaged 0.023/0.027 stops
+per entrant with standard execution and 0.027/0.027 with chronological execution.
+The default equal-performance fixture's current wear, pace-floor and pit-loss
+parameters usually favor keeping the rain set to the finish. This is a result
+of those model parameters, not evidence that real wet races should be no-stop
+races. Tyre durability calibration remains important; the planner must not
+manufacture stops to match an assumed count. Fixed-dry results were unchanged.

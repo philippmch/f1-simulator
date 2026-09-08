@@ -269,7 +269,7 @@ removing elapsed race time.
 Critical weather and damage stops retain priority. A noncritical weather
 mismatch does not by itself justify a stop. Before the existing reaction draw,
 the simulator estimates whether tyre gains over the remaining race can cover
-expected pit-lane, stationary and queue loss. Elective wet/damp pit-window
+expected pit-lane, stationary and queue loss. Reactive wet/damp pit-window
 proposals, including SC/VSC opportunities, pass this same cost veto after the
 window proposes stopping. A large gap behind alone does not make a stop free.
 The check also prevents a newly fitted rain set from being replaced solely to
@@ -329,14 +329,33 @@ happens. Weather stops still consume stop budgets and fallback plan slots. On
 returning to clearly dry slick running, the optimizer reassesses the remaining
 race with the actual tyre age, compound history and stops remaining.
 
-Wet/damp planned windows are consumed once. After the selected plan is exhausted,
+When the current rain compound remains the fresh-set choice throughout the
+projected remaining surface conditions, rain strategy compares stopping now
+with waiting at least one lap and making optimal later same-compound stops.
+The projection uses noise-free lap physics, current tyre age, circuit stress,
+car degradation and the remaining paid-stop budget. Fresh sets run on their
+fitting lap. Only the current stop receives known queue/rejoin costs and the
+current SC/VSC lane discount; future stops assume green running. Only the first
+running lap receives current control and Active Aero restrictions. The original
+fuel distance remains separate from a shortened planning horizon.
+
+This planner can choose a worthwhile stop outside calendar windows, or wait
+when a later stop is cheaper. Ties favor staying out. It assumes current rainfall
+persists and replans after each lap; it does not forecast random weather changes,
+future incidents, future traffic, or tyre inventory. It compares clean-air pace
+for both actions, with only the immediate rejoin adjustment. This is an optimum
+within the same-compound projection and budget, not a claim of globally optimal
+wet-race strategy. If the projected fresh compound changes, the reactive
+compound-transition strategy remains in use.
+
+In that reactive fallback, wet/damp planned windows are consumed once. After the selected plan is exhausted,
 it cannot fall through to another generic late-race window. When no explicit
 plan exists, the generic schedule offers at most two stops (or one when the
 ordinary budget is one). The higher wet stop allowance still permits reactive
 weather changes and SC/VSC opportunities; it does not repeat the second window.
 This prevents fresh intermediates being replaced again on consecutive laps
-solely because the car remains inside the same calendar window. Wet stop timing
-otherwise remains a heuristic, rather than a full remaining-race cost optimizer.
+solely because the car remains inside the same calendar window. Compound-changing
+fallback timing remains a heuristic.
 
 The fallback compound comparison assumes the stop has already been chosen;
 the dry optimizer additionally includes pit loss. Both omit common fuel and
