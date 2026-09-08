@@ -42,12 +42,14 @@ def test_consumed_schedule_cannot_request_fresh_intermediates_again(plan, stops)
 def test_second_window_remains_available_before_second_stop(plan):
     sim, state, track, weather = fixture(plan, 1)
     state.tire_laps = 18
+    track.pit_lane_delta = 1
     assert sim._should_pit(state, [state], track, 35, False, weather)
 
 
 def test_consumed_plan_still_allows_neutralized_opportunity_on_old_set():
     sim, state, track, weather = fixture([20, 35], 2)
-    state.tire_laps = 15
+    state.tire_laps = 35
+    track.pit_lane_delta = 1
     sim.event_manager.safety_car_active = True
     assert sim._should_pit(state, [state], track, 40, True, weather)
 
@@ -57,6 +59,34 @@ def test_consumed_plan_still_allows_critical_weather_change():
     weather.track_wetness = 0
     weather.rain_intensity = 0
     assert sim._should_pit(state, [state], track, 40, False, weather)
+
+
+def test_planned_stop_is_vetoed_when_fresh_set_cannot_repay_pit_loss():
+    sim, state, track, weather = fixture([20, 35], 1)
+    assert not sim._should_pit(state, [state], track, 35, False, weather)
+
+
+def test_queue_cost_can_veto_an_otherwise_affordable_wet_stop():
+    sim, state, track, weather = fixture([20, 35], 1)
+    state.tire_laps = 18
+    track.pit_lane_delta = 1
+    assert sim._should_pit(state, [state], track, 35, False, weather)
+    assert not sim._should_pit(state, [state], track, 35, False, weather,
+                               additional_current_stop_cost=100)
+
+
+def test_wet_cost_projection_preserves_original_fuel_distance(monkeypatch):
+    sim, state, track, weather = fixture([20, 35], 1)
+    calls = []
+
+    def projection(*args, **kwargs):
+        calls.append(kwargs)
+        return False
+
+    monkeypatch.setattr(sim, "_weather_stop_can_pay", projection)
+    assert not sim._should_pit(state, [state], track, 35, False, weather,
+                               physical_total_laps=70)
+    assert calls == [{"traffic_possible": False, "physical_total_laps": 70}]
 
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])

@@ -994,14 +994,29 @@ class RaceSimulator:
         if lap <= 5 or lap >= track.total_laps - 5:
             return False
 
+        def wet_stop_can_pay() -> bool:
+            # A window proposes a stop; even an optimistic fresh-set plan
+            # must recover its paid loss before we accept that proposal.
+            if weather is None:
+                return True  # Legacy callers supplied no surface to project.
+            return self._weather_stop_can_pay(
+                state, track, weather, lap, additional_current_stop_cost,
+                traffic_possible=any(
+                    other.status == DriverStatus.RACING and other.driver.id != state.driver.id
+                    for other in all_states
+                ),
+                **({"physical_total_laps": physical_total_laps}
+                   if physical_total_laps is not None else {}),
+            )
+
         # Pit window opportunity (under SC/VSC) - usually strong strategic value.
         if pit_window_open and state.tire_laps > 10 and state.pit_stops < max_stops:
             # If we have a free stop window (big gap behind), almost always take it.
             if gap_behind is not None and gap_behind > track.pit_lane_delta * 0.85:
-                return True
+                return wet_stop_can_pay()
             window_prob = np.clip(0.85 + strategy_bias, 0.55, 0.98)
             if self.rng.random() < window_prob:
-                return True
+                return wet_stop_can_pay()
 
         # Prefer explicit planned pit laps when available for current stint.
         active_plan = self._select_active_pit_plan(state, weather, lap, gap_ahead, track=track)
@@ -1093,7 +1108,7 @@ class RaceSimulator:
                 self.strategy_tuning["pit_prob_min"],
                 self.strategy_tuning["pit_prob_max"],
             ):
-                return True
+                return wet_stop_can_pay()
 
         return False
 
