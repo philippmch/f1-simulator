@@ -259,6 +259,7 @@ class Exporter:
             "probability_intervals": results.get_probability_intervals(),
             "event_rates": results.get_event_rates(),
             "pit_stop_statistics": results.get_pit_stop_statistics(),
+            "race_distance_statistics": results.get_race_distance_statistics(),
             "top_3_finish_probabilities": results.get_top_n_finish_probabilities(3),
             "top_10_finish_probabilities": results.get_top_n_finish_probabilities(10),
             "championship_projection": results.get_championship_projection(),
@@ -333,6 +334,7 @@ class Exporter:
                 "seed": results.seed,
                 "race_engine": results.race_engine,
                 "win_probabilities": results.get_win_probabilities(),
+                "race_distance_statistics": results.get_race_distance_statistics(),
                 "team_championship_projection": results.get_team_championship_projection(),
             }
 
@@ -367,6 +369,22 @@ class Exporter:
         simulations_text = escape(str(results.num_simulations))
         seed_text = escape(str(results.seed))
         engine_text = escape(results.race_engine)
+        distance = results.get_race_distance_statistics()
+        recorded = distance["recorded_races"]
+        comparable = distance["finishers_with_comparable_distance"]
+        recorded_text = f'{recorded} {"race" if recorded == 1 else "races"}'
+        known = distance["races_with_known_winner_distance"]
+        winning_distance = ("Not recorded" if distance["mean_winner_laps"] is None else
+                            f'{distance["mean_winner_laps"]:.1f} laps '
+                            f'({known} {"race" if known == 1 else "races"})')
+        lapped = ("Not recorded" if not comparable else
+                  f'{distance["lapped_finishers"]} of {comparable} finishers with known distance '
+                  f'({distance["lapped_finisher_rate"] * 100:.1f}%)')
+        timed = ("Not recorded" if not recorded else
+                 f'{distance["time_limited_races"]} of {recorded_text} '
+                 f'({distance["time_limited_race_rate"] * 100:.1f}%)')
+        no_winner = ("Not recorded" if not recorded else
+                     f'{distance["races_without_winner"]} of {recorded_text}')
 
         html = f"""<!doctype html>
 <html lang=\"en\">
@@ -395,6 +413,12 @@ class Exporter:
     · Race model: {engine_text}
   </div>
   <div class=\"grid\">
+    <div class=\"card\" id=\"race-distance\"><h2>Race distance</h2>
+      <p>Mean winning distance: {escape(winning_distance)}</p>
+      <p>Lapped finishers: {escape(lapped)}</p>
+      <p>Time-limited races: {escape(timed)}</p>
+      <p>Races without a winner: {escape(no_winner)}</p>
+    </div>
     <div class=\"card\"><h2>Top 10 Win Probabilities</h2><div id=\"wins\"></div></div>
     <div class=\"card\"><h2>Team Points Projection (per race)</h2><div id=\"teams\"></div></div>
   </div>

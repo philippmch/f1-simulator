@@ -2474,6 +2474,25 @@ function renderPitStopStatistics(statistics) {
     </div>`;
 }
 
+function renderRaceDistanceStatistics(stats) {
+  if (!stats || !Number.isInteger(stats.recorded_races) || stats.recorded_races <= 0) {
+    return '<div class="inline-note">Race distance was not recorded for this run.</div>';
+  }
+  const count = value => Number.isInteger(value) && value >= 0 ? String(value) : 'Not recorded';
+  const races = value => `${count(value)} ${value === 1 ? 'race' : 'races'}`;
+  const rate = value => Number.isFinite(value) ? formatPercent(value * 100) : 'Not recorded';
+  const winning = Number.isFinite(stats.mean_winner_laps)
+    ? `${stats.mean_winner_laps.toFixed(1)} laps (${races(stats.races_with_known_winner_distance)})`
+    : 'Not recorded';
+  const lapped = stats.finishers_with_comparable_distance > 0
+    ? `${count(stats.lapped_finishers)} of ${count(stats.finishers_with_comparable_distance)} finishers with known distance (${rate(stats.lapped_finisher_rate)})`
+    : 'Not recorded';
+  return `<p>Mean winning distance: ${escapeHtml(winning)}</p>
+    <p>Lapped finishers: ${escapeHtml(lapped)}</p>
+    <p>Time-limited races: ${count(stats.time_limited_races)} of ${races(stats.recorded_races)} (${rate(stats.time_limited_race_rate)})</p>
+    <p>Races without a winner: ${count(stats.races_without_winner)} of ${races(stats.recorded_races)}</p>`;
+}
+
 function renderStats() {
   const container = document.getElementById('statsContent');
   const empty = document.getElementById('emptyStats');
@@ -2534,6 +2553,10 @@ function renderStats() {
     </div>
 
     <div class="stats-grid">
+      <div class="stat-card" id="raceDistanceStatistics">
+        <div class="stat-card-title">Race distance</div>
+        ${renderRaceDistanceStatistics(scenario.race_distance_statistics)}
+      </div>
       <div class="stat-card">
         <div class="stat-card-title">Win Probability</div>
         ${renderBarRows(

@@ -66,6 +66,12 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     await page.locator('#tab-stats').click();
     await page.locator('#probabilityIntervals summary').click();
     const statistics = Object.values(payload.scenarios)[0].driver_statistics;
+    const distance = Object.values(payload.scenarios)[0].race_distance_statistics;
+    assert.equal(distance.recorded_races, 10);
+    assert((await page.locator('#raceDistanceStatistics').innerText()).includes(
+      `${distance.mean_winner_laps.toFixed(1)} laps`));
+    assert((await page.locator('#raceDistanceStatistics').innerText()).includes(
+      `${distance.lapped_finishers} of ${distance.finishers_with_comparable_distance} finishers with known distance`));
     assert.equal(await page.locator('#probabilityIntervals tbody tr').count(),
       Object.keys(statistics).length);
     assert((await page.locator('#probabilityIntervals').innerText()).includes(
@@ -111,6 +117,18 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     await page.evaluate(() => {
       getScenarioEntry().data.pit_stop_statistics = savedPitStatistics;
       delete window.savedPitStatistics;
+      renderStats();
+    });
+    await page.evaluate(() => {
+      const scenario = getScenarioEntry().data;
+      window.savedDistance = scenario.race_distance_statistics;
+      delete scenario.race_distance_statistics;
+      renderStats();
+    });
+    assert((await page.locator('#raceDistanceStatistics').innerText()).includes('not recorded'));
+    await page.evaluate(() => {
+      getScenarioEntry().data.race_distance_statistics = savedDistance;
+      delete window.savedDistance;
       renderStats();
     });
     // Explicit classified and unclassified retirements must remain distinct.

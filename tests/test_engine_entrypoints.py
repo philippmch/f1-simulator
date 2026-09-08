@@ -55,6 +55,9 @@ def test_dashboard_real_runner_propagates_engine_to_each_scenario(monkeypatch, e
         assert scenario["race_engine"] == engine
         assert scenario["seed"] == 7 + index * 1000
         assert scenario["sample_race"]
+        distance = scenario["race_distance_statistics"]
+        assert distance["recorded_races"] == 10
+        assert distance["mean_winner_laps"] == 3
 
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])
@@ -72,3 +75,5 @@ def test_cli_real_runner_records_selected_engine_in_exports(monkeypatch, tmp_pat
     scenarios = json.loads(comparison.read_text(encoding="utf-8"))["scenarios"]
     assert [entry["race_engine"] for entry in scenarios.values()] == [engine, engine]
     assert [entry["seed"] for entry in scenarios.values()] == [42, 1042]
+    assert all(entry["race_distance_statistics"]["recorded_races"] == 1
+               for entry in scenarios.values())

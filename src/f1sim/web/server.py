@@ -369,6 +369,9 @@ def _summarize_scenario_results(
             ),
             "event_rates": _safe_call(results, "get_event_rates", default={}) or {},
             "pit_stop_statistics": _safe_call(results, "get_pit_stop_statistics", default={}) or {},
+            "race_distance_statistics": _safe_call(
+                results, "get_race_distance_statistics", default={},
+            ) or {},
             "team_projection": _safe_call(
                 results,
                 "get_team_championship_projection",
