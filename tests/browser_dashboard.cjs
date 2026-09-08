@@ -3,6 +3,7 @@
 // intercepts all requests, and needs neither a server nor network access.
 const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
+const { readFileSync } = require('node:fs');
 const path = require('node:path');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 
@@ -256,6 +257,13 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       await page.locator(`#${id}`).click();
       const download = await downloadPromise;
       assert(download.suggestedFilename().endsWith(extension));
+      if (extension === '.json') {
+        const saved = JSON.parse(readFileSync(await download.path(), 'utf8'));
+        for (const [name, scenario] of Object.entries(saved.scenarios)) {
+          assert.deepEqual(scenario.simulation_inputs, payload.scenarios[name].simulation_inputs);
+          assert.equal(scenario.simulation_inputs.schema_version, 1);
+        }
+      }
     }
     await page.locator('#compareDriverFilter').fill(driverId);
     assert((await page.locator('#compareMatrix').innerText()).includes(driverId));

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from f1sim.analysis.replay import replay_saved_simulation
 from f1sim.models import Car, Driver, Track
 from f1sim.web import server
 
@@ -44,20 +45,27 @@ class SyntheticLoader:
 
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])
-def test_dashboard_real_runner_propagates_engine_to_each_scenario(monkeypatch, engine):
+def test_dashboard_real_runner_propagates_engine_to_each_scenario(monkeypatch, tmp_path, engine):
     monkeypatch.setattr(server, "_get_loader", SyntheticLoader)
     payload = server.run_dashboard_simulation(server.DashboardRunRequest(
         simulations=10, scenarios="dry,light_rain", seed=7, parallel=False,
         race_engine=engine,
     ))
     assert payload["request"]["race_engine"] == engine
-    for index, scenario in enumerate(payload["scenarios"].values()):
+    saved = tmp_path / "dashboard.json"
+    saved.write_text(json.dumps(payload), encoding="utf-8")
+    for index, (name, scenario) in enumerate(payload["scenarios"].items()):
         assert scenario["race_engine"] == engine
         assert scenario["seed"] == 7 + index * 1000
         assert scenario["sample_race"]
         distance = scenario["race_distance_statistics"]
         assert distance["recorded_races"] == 10
         assert distance["mean_winner_laps"] == 3
+        assert scenario["simulation_inputs"]["schema_version"] == 1
+        assert scenario["simulation_inputs"]["track"]["total_laps"] == 3
+        replay = replay_saved_simulation(saved, scenario["sample_index"] + 1, name)
+        assert server._serialize_sample_race(replay) == scenario["sample_race"]
+        assert server._serialize_sample_qualifying(replay) == scenario["sample_qualifying"]
 
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])
@@ -76,4 +84,6 @@ def test_cli_real_runner_records_selected_engine_in_exports(monkeypatch, tmp_pat
     assert [entry["race_engine"] for entry in scenarios.values()] == [engine, engine]
     assert [entry["seed"] for entry in scenarios.values()] == [42, 1042]
     assert all(entry["race_distance_statistics"]["recorded_races"] == 1
+               for entry in scenarios.values())
+    assert all(entry["simulation_inputs"]["schema_version"] == 1
                for entry in scenarios.values())

@@ -247,6 +247,7 @@ class Exporter:
 
         # Build statistics dictionary
         stats_dict: dict[str, Any] = {
+            "simulation_inputs": results.input_snapshot,
             "metadata": {
                 "num_simulations": results.num_simulations,
                 "track_name": results.track_name,
@@ -335,6 +336,7 @@ class Exporter:
                 "race_engine": results.race_engine,
                 "win_probabilities": results.get_win_probabilities(),
                 "race_distance_statistics": results.get_race_distance_statistics(),
+                "simulation_inputs": results.input_snapshot,
                 "team_championship_projection": results.get_team_championship_projection(),
             }
 

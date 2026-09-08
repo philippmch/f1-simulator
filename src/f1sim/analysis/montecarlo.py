@@ -2,6 +2,7 @@
 
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
+from copy import deepcopy
 from dataclasses import dataclass, field
 from math import sqrt
 from numbers import Integral
@@ -9,6 +10,7 @@ from statistics import NormalDist
 
 import numpy as np
 
+from f1sim.analysis.provenance import simulation_runtime
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.simulation.chronological_race import ChronologicalRace
 from f1sim.simulation.events import EventType
@@ -135,6 +137,7 @@ class SimulationResults:
     parallel: bool = True
     max_workers: int | None = None
     race_engine: str = "standard"
+    input_snapshot: dict | None = None
 
     def get_race_distance_statistics(self) -> dict[str, int | float | None]:
         """Summarize recorded distances, with rates as fractions in [0, 1].
@@ -566,6 +569,14 @@ class MonteCarloRunner:
         cars_data = {k: v.model_dump() for k, v in self.cars.items()}
         track_data = self.track.model_dump()
         weather_data = self.weather.model_dump()
+        input_snapshot = {
+            "schema_version": 1,
+            "drivers": deepcopy(drivers_data),
+            "cars": deepcopy(cars_data),
+            "track": deepcopy(track_data),
+            "weather": deepcopy(weather_data),
+            "runtime": simulation_runtime(),
+        }
 
         # Generate unique seeds for each simulation
         seeds = [self.base_seed + i for i in range(num_simulations)]
@@ -610,6 +621,7 @@ class MonteCarloRunner:
             parallel=parallel,
             max_workers=max_workers,
             race_engine=self.race_engine,
+            input_snapshot=input_snapshot,
         )
 
     def _aggregate_statistics(

@@ -372,6 +372,7 @@ def _summarize_scenario_results(
             "race_distance_statistics": _safe_call(
                 results, "get_race_distance_statistics", default={},
             ) or {},
+            "simulation_inputs": getattr(results, "input_snapshot", None),
             "team_projection": _safe_call(
                 results,
                 "get_team_championship_projection",

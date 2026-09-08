@@ -1,6 +1,6 @@
 # Live F1 Monte Carlo Simulator
 
-A Formula 1 race simulator that runs **only for the current UTC season**. The backend fetches the active calendar, full-time driver lineup, standings, race results, and qualifying results when it runs. Older seasons, bundled grids, cached FastF1 sessions, and stale fallback calendars are intentionally unavailable.
+A Formula 1 race simulator whose live runs use **only the current UTC season**. The backend fetches the active calendar, full-time driver lineup, standings, race results, and qualifying results when it runs. Older-season fetching, bundled grids, cached FastF1 sessions, and stale fallback calendars are intentionally unavailable. Explicitly exported simulation inputs can also be replayed offline for reproducibility.
 
 ## What it does
 
@@ -24,7 +24,7 @@ The terminology and operating model follow Formula 1's [official 2026 regulation
 ## Requirements
 
 - Python 3.11+
-- Internet access while loading the calendar or running a simulation
+- Internet access while loading the calendar or starting a live-data run
 
 ## Install and run
 
@@ -77,6 +77,29 @@ Each `export_all` bundle receives a unique filename identifier, so exporting the
 same race/scenario again preserves earlier CSV, statistics and report files.
 The run-history index shows each bundle's race model and links to its own files.
 Individual export methods still use their explicitly supplied filenames.
+
+New statistics exports, scenario comparisons and dashboard JSON downloads include
+the driver, car, circuit and initial weather models used for each scenario. These
+are derived simulation inputs, not cached provider responses. Replay a selected
+simulation without fetching live data:
+
+```powershell
+python examples/replay_simulation.py output/saved_statistics.json --simulation 2
+python examples/replay_simulation.py output/dashboard_run.json --scenario dry --simulation 2 --export
+```
+
+Simulation numbers are one-based, matching the CSV. A multi-scenario file needs
+`--scenario`; a single-scenario file selects its only scenario automatically.
+The command reconstructs qualifying and the race with the saved model inputs,
+race engine and effective seed. Optional exports use a new unique bundle in
+`output/replays` (override with `--output-dir`). Older exports without inputs
+cannot be reconstructed this way.
+
+Snapshots record Python, NumPy, Pydantic and simulator versions plus a digest of
+the simulation source files. Replay uses the installed code; identical results
+require matching model code, dependencies and runtime behavior. Snapshots do not
+archive executable code or runtime monkeypatches, and replay does not claim to
+reproduce a real race. Ordinary live runs still fetch current-season inputs.
 
 There is no `--year` option. The current season comes from the backend's UTC date and requests for any other year are rejected. CLI runs use the same 1,000-simulation, 16-worker, and 32-bit-seed safety bounds as the dashboard.
 
