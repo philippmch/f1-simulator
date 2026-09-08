@@ -10,7 +10,9 @@ from statistics import NormalDist
 import numpy as np
 
 from f1sim.models import Car, Driver, Track, Weather
+from f1sim.simulation.chronological_race import ChronologicalRace
 from f1sim.simulation.events import EventType
+from f1sim.simulation.execution import validate_race_engine
 from f1sim.simulation.qualifying import QualifyingResult, QualifyingSimulator
 from f1sim.simulation.race import (
     DriverStatus,
@@ -132,6 +134,7 @@ class SimulationResults:
     seed: int | None = None
     parallel: bool = True
     max_workers: int | None = None
+    race_engine: str = "standard"
 
     def get_pit_stop_statistics(self) -> dict[str, dict]:
         """Paid stops per observed race row, including retired entrants.
@@ -365,12 +368,18 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     """Run a single race simulation (for multiprocessing).
 
     Args:
-        args: Tuple of (drivers_data, cars_data, track_data, weather_data, seed)
+        args: Tuple of (drivers_data, cars_data, track_data, weather_data, seed,
+            race_engine). Legacy five-item calls use the standard engine.
 
     Returns:
         Tuple of (race_results, qualifying_results, event_counts)
     """
-    drivers_data, cars_data, track_data, weather_data, seed = args
+    if len(args) == 5:
+        drivers_data, cars_data, track_data, weather_data, seed = args
+        race_engine = "standard"
+    else:
+        drivers_data, cars_data, track_data, weather_data, seed, race_engine = args
+    race_engine = validate_race_engine(race_engine)
 
     # Reconstruct objects from serializable data
     drivers = [Driver.model_validate(d) for d in drivers_data]
@@ -388,7 +397,11 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
 
     # Run race
     race_sim = RaceSimulator(rng=rng)
-    race_results = race_sim.simulate_race(
+    simulate = (
+        ChronologicalRace(race_sim).run
+        if race_engine == "chronological" else race_sim.simulate_race
+    )
+    race_results = simulate(
         drivers=drivers,
         cars=cars,
         track=track,
@@ -440,6 +453,7 @@ class MonteCarloRunner:
         track: Track,
         weather: Weather,
         seed: int | None = None,
+        race_engine: str = "standard",
     ):
         """Initialize Monte Carlo runner.
 
@@ -449,7 +463,9 @@ class MonteCarloRunner:
             track: Circuit to simulate
             weather: Initial weather conditions
             seed: Random seed for reproducibility
+            race_engine: Standard lap loop or experimental chronological execution
         """
+        self.race_engine = validate_race_engine(race_engine)
         validate_unique_ids((driver.id for driver in drivers), "drivers")
         self.drivers = drivers
         self.cars = cars
@@ -504,7 +520,7 @@ class MonteCarloRunner:
         seeds = [self.base_seed + i for i in range(num_simulations)]
 
         args_list = [
-            (drivers_data, cars_data, track_data, weather_data, seed)
+            (drivers_data, cars_data, track_data, weather_data, seed, self.race_engine)
             for seed in seeds
         ]
 
@@ -542,6 +558,7 @@ class MonteCarloRunner:
             seed=int(self.base_seed),
             parallel=parallel,
             max_workers=max_workers,
+            race_engine=self.race_engine,
         )
 
     def _aggregate_statistics(
