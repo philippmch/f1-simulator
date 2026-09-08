@@ -175,3 +175,11 @@ schedule correction on the synthetic fixture; they do not calibrate stop counts
 against real races. Subsequent random draws change when an unnecessary stop is
 removed, so this is a seeded model comparison rather than an isolated time-saving
 estimate for each original race.
+
+Applying the existing optimistic weather-cost veto to elective wet pit-window
+proposals reduced this fixture further. With the same ten races per scenario
+and seed 42, mean stops were 1.273/1.264 in standard fixed light/heavy rain and
+1.000/1.091 in chronological fixed light/heavy rain. Fixed-dry results again
+remained unchanged. Lower stop counts are not themselves the objective: the
+filter rejects stops that cannot recover their cost even under favorable
+projection assumptions, while retaining potentially worthwhile opportunities.

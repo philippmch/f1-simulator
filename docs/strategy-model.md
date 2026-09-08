@@ -269,7 +269,12 @@ removing elapsed race time.
 Critical weather and damage stops retain priority. A noncritical weather
 mismatch does not by itself justify a stop. Before the existing reaction draw,
 the simulator estimates whether tyre gains over the remaining race can cover
-expected pit-lane, stationary and queue loss. Surface wetness follows the same
+expected pit-lane, stationary and queue loss. Elective wet/damp pit-window
+proposals, including SC/VSC opportunities, pass this same cost veto after the
+window proposes stopping. A large gap behind alone does not make a stop free.
+The check also prevents a newly fitted rain set from being replaced solely to
+meet a planned lap. Legacy callers without weather retain their existing
+behavior because there is no surface state to project. Surface wetness follows the same
 deterministic rainfall and drying response used in race evolution, assuming
 current rainfall persists. The projection consumes no random draws and does
 not predict changes in weather condition or future race interruptions.
