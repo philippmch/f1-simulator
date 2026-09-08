@@ -72,7 +72,8 @@ class Tire(BaseModel):
             cliff_loss = effective_deg_rate * self.cliff_multiplier * laps_past_cliff
             grip = self.initial_grip - normal_loss - cliff_loss
 
-        return max(0.5, grip)  # Minimum 50% grip
+        # The absolute wear floor must not improve a valid low-grip set.
+        return min(self.initial_grip, max(0.5, grip))
 
     def time_penalty_per_lap(
         self, lap: int, base_lap_time: float, tire_management: float = 1.0
