@@ -208,6 +208,8 @@ def test_dashboard_rejects_non_simulated_qualifying() -> None:
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
+        ({"race_engine": "unknown"}, "race_engine must be"),
+        ({"race_engine": None}, "race_engine must be"),
         ({"race": "  "}, "race must be"),
         ({"simulations": 0}, "simulations must be between"),
         ({"simulations": 1001}, "simulations must be between"),

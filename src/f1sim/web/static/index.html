@@ -1314,6 +1314,13 @@ input:focus-visible {
         </select>
       </div>
       <div class="control-group">
+        <label class="control-label" for="raceEngineSelect">Race model</label>
+        <select id="raceEngineSelect" title="Lap-aware models individual car crossings, lapped finishes and shared restarts; experimental calibration.">
+          <option value="standard" selected>Standard</option>
+          <option value="chronological">Lap-aware (experimental)</option>
+        </select>
+      </div>
+      <div class="control-group">
         <label class="control-label" for="parallelSelect">Execution</label>
         <select id="parallelSelect">
           <option value="true" selected>Parallel</option>
@@ -2158,6 +2165,7 @@ function buildRunPayload() {
     scenarios: getScenarioSetValue(),
     seed,
     qualifying_mode: 'simulated',
+    race_engine: document.getElementById('raceEngineSelect').value,
     parallel: document.getElementById('parallelSelect').value === 'true',
     max_workers: workersValue ? Number(workersValue) : null,
   };
@@ -2272,6 +2280,8 @@ function renderRace() {
   const pills = [
     simResults.provenance?.source || 'Fresh current-season data',
     'Simulated qualifying',
+    (scenario.race_engine || simResults.request?.race_engine) === 'chronological'
+      ? 'Lap-aware model (experimental)' : 'Standard race model',
     Number.isInteger(scenario.sample_index) ? `Representative run ${scenario.sample_index + 1}` : '',
     simResults.request?.parallel ? 'Parallel execution' : 'Single-core execution',
     simResults.request?.max_workers ? `${simResults.request.max_workers} worker cap` : 'Auto workers',

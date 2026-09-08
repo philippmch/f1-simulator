@@ -14,6 +14,7 @@ from f1sim.analysis import MonteCarloRunner, parse_scenario_labels, scenario_wea
 from f1sim.data import CurrentSeasonDataError, CurrentSeasonDataLoader
 from f1sim.models import Weather, WeatherCondition
 from f1sim.output.timing import finite_time
+from f1sim.simulation.execution import validate_race_engine
 from f1sim.simulation.race import result_is_classified
 from f1sim.simulation.race_points import points_for_result
 from f1sim.web.capacity import RunCapacity
@@ -53,11 +54,13 @@ class DashboardRunRequest:
     qualifying_mode: str = "simulated"
     parallel: bool = True
     max_workers: int | None = None
+    race_engine: str = "standard"
 
 
 def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
     """Validate resource bounds and return all scenarios before live I/O."""
 
+    validate_race_engine(request.race_engine)
     current_season = _current_season()
     if isinstance(request.year, bool) or not isinstance(request.year, int):
         raise ValueError(f"Only the live {current_season} F1 season is available.")
@@ -404,6 +407,7 @@ def _summarize_scenario_results(
             "sample_index": sample_index,
             "sample_race": _serialize_sample_race(results, sample_index),
             "sample_qualifying": _serialize_sample_qualifying(results, sample_index),
+            "race_engine": getattr(results, "race_engine", "standard"),
             "qualifying_mode": "simulated",
             "driver_statistics": _serialize_driver_statistics(results),
         }
@@ -465,6 +469,7 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
             track=track,
             weather=scenario.weather,
             seed=request.seed + idx * 1000,
+            race_engine=request.race_engine,
         )
         t0 = time.perf_counter()
         result = runner.run(
@@ -494,6 +499,7 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
         "simulations": request.simulations,
         "scenarios": request.scenarios,
         "seed": request.seed,
+        "race_engine": request.race_engine,
         "qualifying_mode": "simulated",
         "parallel": request.parallel,
         "max_workers": effective_max_workers,

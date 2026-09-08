@@ -15,6 +15,7 @@ CLI = PROJECT_ROOT / "examples" / "simulate_race.py"
 @pytest.mark.parametrize(
     ("arguments", "message"),
     [
+        (["--race-engine", "unknown"], "invalid choice"),
         (["--simulations", "0"], "must be a positive integer"),
         (["--seed", "-1"], "must be a non-negative integer"),
         (["--max-workers", "0"], "must be a positive integer"),

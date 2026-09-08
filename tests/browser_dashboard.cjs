@@ -47,17 +47,22 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     await page.waitForFunction(() => !connectionRefreshInProgress);
     assert(await page.locator('#btnRun').isEnabled(), 'Live calendar must be available');
     await page.locator('#simCount').fill('10');
+    assert.equal(await page.locator('#raceEngineSelect').inputValue(), 'standard');
+    await page.locator('#raceEngineSelect').selectOption('chronological');
     await page.locator('#parallelSelect').selectOption('false');
     await page.evaluate(() => setScenarioSelection(['dry', 'light_rain', 'heavy_rain']));
     const responsePromise = page.waitForResponse(response => response.url().endsWith('/api/run'));
     await page.locator('#btnRun').click();
     const response = await responsePromise;
     assert.equal(response.status(), 200);
+    assert.equal(response.request().postDataJSON().race_engine, 'chronological');
     const payload = await response.json();
+    assert.equal(payload.request.race_engine, 'chronological');
     // The matrix initially shows aggregate top contenders, which need not
     // include the winner of the representative individual race.
     const driverId = Object.values(payload.scenarios)[0].win_probabilities[0][0];
     await page.waitForFunction(() => !runInProgress);
+    assert((await page.locator('#panel-race').textContent()).includes('Lap-aware model (experimental)'));
     await page.locator('#tab-stats').click();
     await page.locator('#probabilityIntervals summary').click();
     const statistics = Object.values(payload.scenarios)[0].driver_statistics;

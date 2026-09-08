@@ -59,6 +59,7 @@ class Exporter:
             "track": results.track_name,
             "num_simulations": results.num_simulations,
             "seed": results.seed,
+            "race_engine": results.race_engine,
             "prefix": prefix,
             "files": {k: p.name for k, p in files.items()},
         }
@@ -243,6 +244,7 @@ class Exporter:
                 "num_simulations": results.num_simulations,
                 "track_name": results.track_name,
                 "seed": results.seed,
+                "race_engine": results.race_engine,
                 "parallel": results.parallel,
                 "max_workers": results.max_workers,
             },
@@ -322,6 +324,7 @@ class Exporter:
             payload["scenarios"][name] = {
                 "num_simulations": results.num_simulations,
                 "seed": results.seed,
+                "race_engine": results.race_engine,
                 "win_probabilities": results.get_win_probabilities(),
                 "team_championship_projection": results.get_team_championship_projection(),
             }
@@ -356,6 +359,7 @@ class Exporter:
         track_text = escape(str(results.track_name))
         simulations_text = escape(str(results.num_simulations))
         seed_text = escape(str(results.seed))
+        engine_text = escape(results.race_engine)
 
         html = f"""<!doctype html>
 <html lang=\"en\">
@@ -381,6 +385,7 @@ class Exporter:
   <h1>F1 Simulation Report</h1>
   <div class=\"meta\">
     Track: {track_text} · Simulations: {simulations_text} · Seed: {seed_text}
+    · Race model: {engine_text}
   </div>
   <div class=\"grid\">
     <div class=\"card\"><h2>Top 10 Win Probabilities</h2><div id=\"wins\"></div></div>

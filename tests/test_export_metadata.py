@@ -21,6 +21,7 @@ def test_statistics_export_includes_run_metadata(tmp_path) -> None:
         race_results=[],
         qualifying_results=[],
         seed=123,
+        race_engine="chronological",
         parallel=False,
         max_workers=2,
     )
@@ -30,6 +31,9 @@ def test_statistics_export_includes_run_metadata(tmp_path) -> None:
 
     data = json.loads(out.read_text())
     metadata = data["metadata"]
+    assert metadata["race_engine"] == "chronological"
+    report = exporter.export_report_html(results).read_text(encoding="utf-8")
+    assert "Race model: chronological" in report
     assert metadata["seed"] == 123
     assert metadata["parallel"] is False
     assert metadata["max_workers"] == 2

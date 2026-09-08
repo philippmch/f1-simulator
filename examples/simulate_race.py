@@ -31,6 +31,7 @@ from f1sim.analysis import (
 from f1sim.data import CurrentSeasonDataLoader
 from f1sim.models import Weather, WeatherCondition
 from f1sim.output import ConsoleOutput, Exporter
+from f1sim.simulation.execution import RACE_ENGINES
 
 MAX_SIMULATIONS = 1000
 MAX_WORKERS = 16
@@ -143,7 +144,12 @@ def main() -> int:
             "(dry,cloudy,light_rain,heavy_rain)"
         ),
     )
+    parser.add_argument(
+        "--race-engine", choices=RACE_ENGINES, default="standard",
+        help="Race model (default: standard; chronological is experimental)",
+    )
     args = parser.parse_args()
+    print(f"Race model: {args.race_engine}")
     try:
         scenario_labels = parse_scenario_labels(args.scenarios) if args.scenarios else ["dry"]
     except ValueError as exc:
@@ -228,6 +234,7 @@ def main() -> int:
             track=track,
             weather=scenario.weather,
             seed=scenario_seed,
+            race_engine=args.race_engine,
         )
 
         scenario_result = runner.run(
