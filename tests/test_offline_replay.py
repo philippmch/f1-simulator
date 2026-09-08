@@ -52,6 +52,27 @@ def test_invalid_index(saved, index):
         replay_saved_simulation(saved, index)
 
 
+@pytest.mark.parametrize("field", ["base_lap_time", "pit_lane_delta", "sector_time"])
+@pytest.mark.parametrize("engine", ["standard", "chronological"])
+def test_overflowing_track_times_fail_before_execution(saved, field, engine, monkeypatch):
+    data = json.loads(saved.read_text(encoding="utf-8"))
+    data["metadata"]["race_engine"] = engine
+    track = data["simulation_inputs"]["track"]
+    if field == "sector_time":
+        track["sectors"] = [{"number": 1, "base_time": float("inf")}]
+    else:
+        track[field] = float("inf")
+    # 1e400 is valid JSON numeric syntax but overflows a Python float.
+    saved.write_text(json.dumps(data).replace("Infinity", "1e400"), encoding="utf-8")
+
+    def unexpected_run(*args, **kwargs):
+        pytest.fail("Invalid timing input reached simulation execution")
+
+    monkeypatch.setattr(MonteCarloRunner, "run", unexpected_run)
+    with pytest.raises(ValueError, match="finite number"):
+        replay_saved_simulation(saved)
+
+
 @pytest.mark.parametrize("field,value", [
     ("seed", True), ("seed", -1), ("seed", None), ("seed", 1.0),
     ("num_simulations", False), ("num_simulations", 0),

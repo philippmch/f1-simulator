@@ -111,7 +111,9 @@ Simulation numbers are one-based, matching the CSV. A multi-scenario file needs
 `--scenario`; a single-scenario file selects its only scenario automatically.
 The command reconstructs qualifying and the race with the saved model inputs,
 race engine, starting-tyre overrides and effective seed. Optional exports use a new unique bundle in
-`output/replays` (override with `--output-dir`). Older exports without inputs
+`output/replays` (override with `--output-dir`). Track lap, pit-lane and sector
+times must be finite positive values; overflowing numbers are rejected before
+replay starts. Older exports without inputs
 cannot be reconstructed this way.
 
 Snapshots record Python, NumPy, Pydantic and simulator versions plus a digest of

@@ -125,3 +125,27 @@ def test_lap_ahead_pitter_remains_forecast_leader(monkeypatch, service):
     assert anchors[0] == pytest.approx((3, 180 + 22 + expected_stationary_time(car) + 90))
     # A has two laps completed; B has only one. Future sampled service is hidden.
     assert decisions["B", 2][0] < 90
+
+
+@pytest.mark.parametrize("pace", [67.5, 75, 89.7, 90, 110, 120, 180, 1800])
+def test_controlled_forecasts_match_actual_finishes_with_nonrecurring_delays(pace):
+    # Compare the planner with the actual event/finish controller, without
+    # reproducing its deadline arithmetic. Delays must not become recurring pace.
+    for gap in (1, 5, 20, 30, 60):
+        for service in (.5, 3, 8, 40, 100):
+            with pytest.MonkeyPatch.context() as patch:
+                engine, run, decisions, _ = setup(
+                    patch, service, laps=int(7200 / pace) + 5, first_b=pace, both=False,
+                )
+                patch.setattr(engine.simulator.lap_simulator, "calculate_lap_time",
+                              lambda *a, **kw: pace)
+                begin = engine._begin_running
+
+                def delayed_start(state, pending, now):
+                    begin(state, pending, now)
+                    if state.driver.id == "B" and pending.lap == 1:
+                        pending.ready += gap
+
+                patch.setattr(engine, "_begin_running", delayed_start)
+                result = next(row for row in run() if row.driver_id == "B")
+                assert decisions["B", 2][0] == result.laps_completed, (pace, gap, service)

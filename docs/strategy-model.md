@@ -41,6 +41,13 @@ globally optimal timed strategy. After a timed announcement, the next leading
 crossing remains authoritative even if a lapped driver inherits the lead.
 Original scheduled fuel distance remains separate from all strategy horizons.
 
+Pit-rejoin traffic uses the same projected finish time, even before the timed
+finish is announced. Each rival remains traffic until its own projected final
+crossing; lapped cars can therefore remain after the leader takes the flag.
+Exact crossing/exit ties retain the scheduler's distance and ordering rules.
+This forecast retains current pace/control assumptions and does not predict
+later weather, incidents or elective stops.
+
 Explicit starting-tyre overrides are available per driver in the dashboard,
 CLI, API and Monte Carlo runner. They replace only the opening choice; unlisted
 drivers retain automatic selection and all later pit decisions remain active.

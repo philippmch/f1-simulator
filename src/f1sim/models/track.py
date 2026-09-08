@@ -7,7 +7,9 @@ class Sector(BaseModel):
     """Represents a track sector."""
 
     number: int = Field(..., ge=1, le=3, description="Sector number (1-3)")
-    base_time: float = Field(..., gt=0, description="Base sector time in seconds")
+    base_time: float = Field(
+        ..., gt=0, allow_inf_nan=False, description="Base sector time in seconds",
+    )
     is_high_speed: bool = Field(
         default=False,
         description="Whether this sector favors high downforce",
@@ -51,11 +53,13 @@ class Track(BaseModel):
     base_lap_time: float = Field(
         ...,
         gt=0,
+        allow_inf_nan=False,
         description="Reference lap time in seconds (for average car/driver)",
     )
     pit_lane_delta: float = Field(
         default=20.0,
         gt=0,
+        allow_inf_nan=False,
         description="Time lost entering/exiting pit lane in seconds",
     )
 

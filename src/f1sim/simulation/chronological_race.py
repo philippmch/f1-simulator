@@ -229,8 +229,21 @@ class ChronologicalRace:
         """
         horizon = self.timeline.final_lap
         own_pace = self.running_paces.get(state.driver.id)
+        flag_time = self._projected_flag_time(now)
+        if own_pace is not None and flag_time is not None:
+            modifier = self.simulator.event_manager.get_lap_time_modifier()
+            remaining = max(1, 1 + ceil(
+                (flag_time - now - own_pace * modifier) / own_pace - 1e-12,
+            ))
+            horizon = min(self.timeline.final_lap, state.laps_completed + remaining)
+        return self.track.model_copy(update={"total_laps": horizon})
+
+    def _projected_flag_time(self, now):
+        """Expected leading finish crossing using the same horizon assumptions."""
+        if self.timeline.chequered_time is not None:
+            return self.timeline.chequered_time
         active = [other for other in self.states.values() if other.status == DriverStatus.RACING]
-        if own_pace is not None and active:
+        if active:
             physical_order = {driver_id: index for index, driver_id in enumerate(self.order)}
             leader = min(active, key=lambda other: (
                 -other.laps_completed,
@@ -267,11 +280,8 @@ class ChronologicalRace:
                 flag_time += laps_left * leader_pace
                 if laps_left:
                     flag_time += leader_pace * (next_modifier - 1)
-                remaining = max(1, 1 + ceil(
-                    (flag_time - now - own_pace * modifier) / own_pace - 1e-12,
-                ))
-                horizon = min(self.timeline.final_lap, state.laps_completed + remaining)
-        return self.track.model_copy(update={"total_laps": horizon})
+                return flag_time
+        return None
 
     def _start_lap(self, state, now):
         driver_id = state.driver.id
@@ -344,7 +354,7 @@ class ChronologicalRace:
             return self.leader_id
         return min(racing, key=lambda driver_id: -self.states[driver_id].laps_completed)
 
-    def _projected_progress(self, driver_id, when, exit_lap, *, now=None):
+    def _projected_progress(self, driver_id, when, exit_lap, *, now=None, flag_time=None):
         """Forecast a rival's fractional position without simulating new events.
 
         Keep committed running and expected pit delay, then extrapolate observed free pace.
@@ -382,12 +392,21 @@ class ChronologicalRace:
         elapsed = when - ready
         completed = pending.lap + int(elapsed // pace)
         progress = (elapsed % pace) / pace
+        final_lap = self.timeline.final_lap
+        if flag_time is None and now is not None:
+            flag_time = self._projected_flag_time(now)
+        if flag_time is not None:
+            # A lapped rival remains on track until its own first crossing at
+            # or after the leader's projected flag, not merely until that flag.
+            final_lap = min(final_lap, pending.lap + max(
+                0, ceil((flag_time - ready) / pace - 1e-12),
+            ))
         if (elapsed > 0 and progress == 0 and completed <= exit_lap
-                and completed <= self.timeline.final_lap):
+                and completed <= final_lap):
             # Future crossings are enqueued after this candidate pit exit;
             # its serial priority also wins when their lap distances tie.
             return 1.0
-        if completed >= self.timeline.final_lap:
+        if completed >= final_lap:
             return None
         return progress
 
@@ -413,9 +432,11 @@ class ChronologicalRace:
         if self.simulator.event_manager.is_active_aero_allowed():
             exit_time = (now + self.track.pit_lane_delta * self.simulator._pit_lane_factor()
                          + expected_stationary_time(state.car) + queue_delay)
+            flag_time = self._projected_flag_time(now)
             progress = [value for other_id in self.pending if other_id != driver_id
                         and (value := self._projected_progress(
-                            other_id, exit_time, state.laps_completed + 1, now=now,
+                            other_id, exit_time, state.laps_completed + 1,
+                            now=now, flag_time=flag_time,
                         )) is not None]
             rejoin_gap = min(progress) * pace if progress else None
             traffic = self.simulator.lap_simulator.traffic_pace_contribution
