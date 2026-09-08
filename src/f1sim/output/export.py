@@ -288,16 +288,28 @@ class Exporter:
                     }
                 )
             ),
-            "driver_statistics": {},
+            "driver_statistics": self._driver_statistics(results),
         }
 
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(stats_dict, f, indent=2)
+
+        return filepath
+
+    @staticmethod
+    def _driver_statistics(results: SimulationResults) -> dict[str, dict[str, Any]]:
+        """Use identical observed-driver summaries in single and comparison JSON."""
+        summaries = {}
         top_5 = results.get_top_n_finish_probabilities(5)
         top_10 = results.get_top_n_finish_probabilities(10)
 
         for driver_id, stats in results.driver_stats.items():
-            stats_dict["driver_statistics"][driver_id] = {
+            trials = len(stats.positions)
+            summaries[driver_id] = {
                 "driver_name": stats.driver_name,
                 "team": stats.team,
+                "recorded_races": trials,
+                "points_per_race": stats.total_points / trials if trials else None,
                 "wins": stats.wins,
                 "win_rate": stats.win_rate,
                 "podiums": stats.podiums,
@@ -316,26 +328,30 @@ class Exporter:
                 "top_10_finish_probability": top_10.get(driver_id, 0.0),
             }
 
-        with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(stats_dict, f, indent=2)
-
-        return filepath
+        return summaries
 
     def export_scenario_comparison_json(
         self,
         scenario_results: dict[str, SimulationResults],
         filename: str = "scenario_comparison.json",
     ) -> Path:
-        """Export scenario-level win probability comparison to JSON."""
+        """Export scenario outcomes, observed counts, uncertainty and replay inputs."""
         filepath = self.output_dir / filename
 
         payload: dict[str, Any] = {"scenarios": {}}
         for name, results in scenario_results.items():
             payload["scenarios"][name] = {
+                "track_name": results.track_name,
                 "num_simulations": results.num_simulations,
                 "seed": results.seed,
                 "race_engine": results.race_engine,
+                "parallel": results.parallel,
+                "max_workers": results.max_workers,
                 "win_probabilities": results.get_win_probabilities(),
+                "probability_intervals": results.get_probability_intervals(),
+                "driver_statistics": self._driver_statistics(results),
+                "pit_stop_statistics": results.get_pit_stop_statistics(),
+                "event_rates": results.get_event_rates(),
                 "race_distance_statistics": results.get_race_distance_statistics(),
                 "strategy_statistics": results.get_strategy_statistics(),
                 "simulation_inputs": results.input_snapshot,
@@ -345,6 +361,19 @@ class Exporter:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2)
 
+        return filepath
+
+    def export_scenario_comparison_html(
+        self, scenario_results: dict[str, SimulationResults],
+        filename: str = "scenario_comparison.html", *, focus_driver: str | None = None,
+    ) -> Path:
+        """Write an offline comparison with observed counts and sampling intervals."""
+        from f1sim.output.comparison import render_comparison_report
+
+        filepath = self.output_dir / filename
+        filepath.write_text(
+            render_comparison_report(scenario_results, focus_driver=focus_driver), encoding="utf-8",
+        )
         return filepath
 
     def export_report_html(

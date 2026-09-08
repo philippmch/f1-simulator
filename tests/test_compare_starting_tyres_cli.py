@@ -46,10 +46,16 @@ def test_comparison_cli_export_is_unique_and_replayable(monkeypatch, tmp_path, c
     assert "Equal seeds do not freeze later race events" in output
     comparisons = list(target.glob("starting_tyres_*.json"))
     assert len(comparisons) == 2
+    reports = list(target.glob("starting_tyres_*.html"))
+    assert {p.stem for p in reports} == {p.stem for p in comparisons}
+    assert "Comparison report:" in output
+    assert all("Simulation comparison" in p.read_text(encoding="utf-8") for p in reports)
     assert len(list(target.glob("*statistics.json"))) == 4
     for comparison in comparisons:
         scenarios = json.loads(comparison.read_text(encoding="utf-8"))["scenarios"]
         assert list(scenarios) == ["automatic", "hard"]
+        assert scenarios["hard"]["probability_intervals"]["A"]["trials"] == 2
+        assert scenarios["hard"]["driver_statistics"]["A"]["recorded_races"] == 2
         assert scenarios["automatic"]["simulation_inputs"]["starting_tires"] == {}
         assert scenarios["hard"]["simulation_inputs"]["starting_tires"] == {"A": "hard"}
         replay = replay_saved_simulation(comparison, simulation=2, scenario="hard")

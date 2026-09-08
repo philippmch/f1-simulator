@@ -72,10 +72,15 @@ def main() -> int:
             for label, result in results.items():
                 paths = exporter.export_all(result, prefix=f"starting_{label}")
                 print(f"{label}: {paths['statistics_json']}")
+            prefix = f"starting_tyres_{uuid4().hex}"
             comparison = exporter.export_scenario_comparison_json(
-                results, filename=f"starting_tyres_{uuid4().hex}.json",
+                results, filename=f"{prefix}.json",
+            )
+            report = exporter.export_scenario_comparison_html(
+                results, filename=f"{prefix}.html", focus_driver=args.driver,
             )
             print(f"Comparison: {comparison}")
+            print(f"Comparison report: {report}")
     except (OSError, UnicodeError, ValueError) as error:
         parser.error(str(error))
     return 0

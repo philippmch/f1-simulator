@@ -134,11 +134,21 @@ remain automatic. The table reports wins with 95% sampling intervals, podiums,
 retirements and points per race. Equal seeds do not freeze subsequent random
 events, and these estimates do not establish the best strategy for a real race.
 
-Nothing is written unless `--export` is supplied. Exported bundles and a combined
-comparison JSON go to `output/strategy-comparisons` (or `--output-dir`), with unique
-names. Replay a trial from the comparison using `--scenario hard`, for example.
+Nothing is written unless `--export` is supplied. Exported bundles, combined JSON
+and an offline HTML comparison report go to `output/strategy-comparisons` (or
+`--output-dir`), with unique names. The report opens the selected driver and shows
+win, podium and retirement rates with 95% sampling intervals, mean points and
+paid stops for every choice. Replay a trial from the comparison JSON using
+`--scenario hard`, for example.
 The source file is unchanged. Comparisons use installed simulator code and share
 the replay limitations above. Use `--parallel --max-workers 4` for process workers.
+
+Multi-scenario live CLI exports also include a combined HTML report and JSON with
+matching unique filenames. Comparison JSON preserves observed driver counts,
+points per observed race, sampling intervals and pit-stop statistics. The HTML
+report needs no network connection or JavaScript; expand a driver to compare
+scenarios. Individual intervals describe each rate, not the difference between
+two choices or the accuracy of the model against real races.
 
 There is no `--year` option. The current season comes from the backend's UTC date and requests for any other year are rejected. CLI runs use the same 1,000-simulation, 16-worker, and 32-bit-seed safety bounds as the dashboard.
 

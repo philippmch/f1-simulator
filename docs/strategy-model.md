@@ -87,6 +87,14 @@ policies under the saved model, not a ranking of complete pit schedules or a
 claim about real-race optimality. Exported variants contain their own inputs
 and can be replayed using the installed simulator implementation.
 
+Combined JSON exports retain each scenario's observed driver counts, rate
+intervals, points per observed race and paid-stop statistics. The offline HTML
+comparison report places scenarios in their supplied order, with expandable
+driver tables showing win, podium and retirement intervals. It does not rank
+choices or treat an interval for one rate as an interval for a difference.
+Absent drivers and zero observed trials display as not recorded; paid-stop
+averages use their own recorded-race counts and exclude free tyre changes.
+
 With no rainfall, the dry policy projection is deterministic and needs one
 private run per slick. With sustained rainfall that could change the surface,
 it averages the same eight private reaction seeds used below. Cached scores

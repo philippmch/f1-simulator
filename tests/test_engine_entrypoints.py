@@ -91,7 +91,9 @@ def test_cli_real_runner_records_selected_engine_in_exports(monkeypatch, tmp_pat
         "--simulations", "1", "--no-parallel", "--scenarios", "dry,light_rain",
         "--export", "--output-dir", str(tmp_path), "--starting-tyres", "A=hard"])
     assert module.main() == 0
-    comparison = next(tmp_path.glob("*scenario_comparison.json"))
+    comparison = next(tmp_path.glob("*scenario_comparison_*.json"))
+    report = comparison.with_suffix(".html")
+    assert "Simulation comparison" in report.read_text(encoding="utf-8")
     scenarios = json.loads(comparison.read_text(encoding="utf-8"))["scenarios"]
     assert [entry["race_engine"] for entry in scenarios.values()] == [engine, engine]
     assert [entry["seed"] for entry in scenarios.values()] == [42, 1042]
@@ -100,6 +102,8 @@ def test_cli_real_runner_records_selected_engine_in_exports(monkeypatch, tmp_pat
     assert all(entry["simulation_inputs"]["schema_version"] == 1
                for entry in scenarios.values())
     assert all(entry["simulation_inputs"]["starting_tires"] == {"A": "hard"}
+               for entry in scenarios.values())
+    assert all(entry["probability_intervals"]["A"]["trials"] == 1
                for entry in scenarios.values())
 
 

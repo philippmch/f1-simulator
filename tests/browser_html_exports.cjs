@@ -2,6 +2,7 @@
 const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
+const fs = require('node:fs');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 
 (async () => {
@@ -18,6 +19,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         body: 'window.plotCalls=[];window.Plotly={newPlot:(id,data)=>plotCalls.push({id,data})};'});
       if (url.hostname === 'f1sim.test') {
         const name = decodeURIComponent(url.pathname.slice(1));
+        if (name === 'comparison.html') {
+          return route.fulfill({contentType: 'text/html; charset=utf-8', body: fixture.comparison});
+        }
         if (name === 'index.html' || name === fixture.filename) {
           return route.fulfill({contentType: 'text/html; charset=utf-8',
             body: name === 'index.html' ? fixture.index : fixture.report});
@@ -52,6 +56,30 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     assert.deepEqual(await page.evaluate(() => plotCalls.map(call => call.data[0].x)),
       [[fixture.driver], [fixture.team]]);
     assert.equal(await page.evaluate(() => Boolean(globalThis.exportInjected)), false);
+    await page.goto('http://f1sim.test/comparison.html');
+    assert.equal(await page.getByRole('heading', {name: 'Simulation comparison', exact: true}).count(), 1);
+    assert.equal(await page.locator('script, img, svg, link').count(), 0);
+    assert.equal(await page.locator('details[open]').count(), 1);
+    assert((await page.locator('body').innerText()).includes(fixture.track));
+    assert((await page.locator('details').first().innerText()).includes(fixture.driver));
+    assert((await page.locator('details').first().innerText()).includes('Not recorded'));
+    assert((await page.locator('details').first().innerText()).includes('100.0%'));
+    assert.equal(await page.evaluate(() => Boolean(globalThis.exportInjected)), false);
+    for (const width of [320, 390, 1440]) {
+      await page.setViewportSize({width, height: 1100});
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+      const summary = page.locator('details summary').first();
+      await summary.focus();
+      await page.keyboard.press('Enter');
+      assert.equal(await page.locator('details[open]').count(), 0);
+      await page.keyboard.press('Enter');
+      assert.equal(await page.locator('details[open]').count(), 1);
+      if (process.env.F1SIM_SCREENSHOTS && width !== 320) {
+        fs.mkdirSync(process.env.F1SIM_SCREENSHOTS, {recursive: true});
+        await page.screenshot({path: path.join(process.env.F1SIM_SCREENSHOTS,
+          `comparison-${width}.png`), fullPage: true});
+      }
+    }
     assert.deepEqual(errors, []);
     assert.deepEqual(unexpected, []);
     console.log('HTML export browser checks passed: text, script data, and filename links.');

@@ -19,6 +19,7 @@ import argparse
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 # Add src to path for development
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -311,11 +312,16 @@ def main() -> int:
                 print(f"  {scenario_name}:{fmt}: {path}")
 
         if len(scenario_results) > 1:
+            comparison_prefix = f"{current_season}_{track.id}_scenario_comparison_{uuid4().hex}"
             comparison = exporter.export_scenario_comparison_json(
                 scenario_results,
-                filename=f"{current_season}_{track.id}_scenario_comparison.json",
+                filename=f"{comparison_prefix}.json",
             )
             print(f"  comparison_json: {comparison}")
+            report = exporter.export_scenario_comparison_html(
+                scenario_results, filename=f"{comparison_prefix}.html",
+            )
+            print(f"  comparison_html: {report}")
 
     return 0
 

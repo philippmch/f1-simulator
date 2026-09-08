@@ -25,6 +25,13 @@ def build_fixture():
     )
     with TemporaryDirectory() as directory:
         exporter = Exporter(directory)
+        empty = SimulationResults(
+            num_simulations=5, track_name="No observations", driver_stats={},
+            race_results=[], qualifying_results=[], seed=43,
+        )
+        comparison = exporter.export_scenario_comparison_html(
+            {script: results, "No observations": empty}, focus_driver="A",
+        ).read_text(encoding="utf-8")
         report = exporter.export_report_html(results, filename).read_text(encoding="utf-8")
         exporter._write_history([{
             "timestamp": "<img src=x onerror=globalThis.exportInjected=true>",
@@ -32,7 +39,8 @@ def build_fixture():
             "files": {"report_html": filename, "statistics_json": stats_name},
         }])
         index = exporter.export_run_index_html().read_text(encoding="utf-8")
-    return {"report": report, "index": index, "track": track, "driver": driver,
+    return {"report": report, "comparison": comparison, "index": index,
+            "track": track, "driver": driver,
             "team": team, "filename": filename, "stats_name": stats_name}
 
 
