@@ -3,10 +3,33 @@
 import importlib.util
 import io
 import json
+import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+
+
+def test_model_comparison_is_reproducible_machine_readable_and_labeled():
+    path = Path(__file__).resolve().parents[1] / "examples" / "check_weather_calibration.py"
+    command = [sys.executable, str(path), "--simulations", "1", "--seed", "17",
+               "--race-engine", "both"]
+    first = subprocess.run(command, capture_output=True, text=True, check=True, timeout=30)
+    second = subprocess.run(command, capture_output=True, text=True, check=True, timeout=30)
+    summaries = json.loads(first.stdout)
+    assert summaries == json.loads(second.stdout)
+    assert len(summaries) == 8
+    assert {row["race_engine"] for row in summaries} == {"standard", "chronological"}
+    for row in summaries:
+        assert row["seed"] == 17
+        assert row["simulations"] == 1
+        assert 0 <= row["lapped_finishers"] <= row["finishing_cars"] <= 22
+        assert row["mean_winner_seconds"] > 0
+        assert row["mean_pit_stops_per_entrant"] >= 0
+        assert row["races_with_winner"] == 1
+        if row["race_engine"] == "standard":
+            assert row["lapped_finishers"] == 0
 
 
 @pytest.mark.parametrize("has_finish", [True, False])
