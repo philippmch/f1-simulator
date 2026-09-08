@@ -1,9 +1,50 @@
 """Lap time calculation engine."""
 
+from functools import lru_cache
+
 import numpy as np
 
 from f1sim.models import Car, Driver, Tire, Track, Weather
 from f1sim.models.tire import TireCompound
+
+
+@lru_cache(maxsize=128)
+def _track_profile_from_values(
+    sectors: tuple[tuple[float, bool, float], ...], overtake_difficulty: float,
+) -> tuple[float, float]:
+    """Cache bounded scalar profiles by values, never by mutable model identity."""
+    if not sectors:
+        return 0.0, float(np.clip(1.0 - overtake_difficulty, 0.0, 1.0))
+    weights = np.asarray([max(base_time, 0.0) for base_time, _, _ in sectors])
+    if float(weights.sum()) <= 0.0:
+        weights = np.ones(len(sectors), dtype=float)
+    weights /= weights.sum()
+    high_speed_mix = float(np.clip(
+        sum(weight for weight, (_, high_speed, _) in zip(weights, sectors) if high_speed),
+        0.0, 1.0,
+    ))
+    opportunity_mix = float(np.clip(
+        sum(weight * opportunity for weight, (_, _, opportunity) in zip(weights, sectors)),
+        0.0, 1.0,
+    ))
+    return high_speed_mix, opportunity_mix
+
+
+@lru_cache(maxsize=1024)
+def _track_car_delta_from_values(
+    high_speed_mix: float, opportunity_mix: float, downforce_level: float,
+    straight_line_speed: float, reference_lap_time: float,
+) -> float:
+    """Reuse the car/track term while retaining every input in the cache key."""
+    corner_mix = 1.0 - high_speed_mix
+    straight_mix = float(np.clip(0.55 * high_speed_mix + 0.45 * opportunity_mix, 0.0, 1.0))
+    neutral = 0.8
+    downforce_delta = (
+        (neutral - downforce_level) * corner_mix
+        + (downforce_level - neutral) * high_speed_mix
+    )
+    straight_delta = (neutral - straight_line_speed) * straight_mix
+    return reference_lap_time * (0.006 * downforce_delta + 0.008 * straight_delta)
 
 
 class LapSimulator:
@@ -268,33 +309,11 @@ class LapSimulator:
         opportunity value still gives the car model a useful, bounded signal
         without inventing a circuit layout.
         """
-        sectors = list(track.sectors)
-        if not sectors:
-            return 0.0, float(np.clip(1.0 - track.overtake_difficulty, 0.0, 1.0))
-
-        weights = np.asarray([max(float(sector.base_time), 0.0) for sector in sectors])
-        if float(weights.sum()) <= 0.0:
-            weights = np.ones(len(sectors), dtype=float)
-        weights /= weights.sum()
-
-        high_speed_mix = float(
-            np.clip(
-                sum(weight for weight, sector in zip(weights, sectors) if sector.is_high_speed),
-                0.0,
-                1.0,
-            )
+        return _track_profile_from_values(
+            tuple((float(sector.base_time), sector.is_high_speed,
+                   float(sector.overtake_opportunity)) for sector in track.sectors),
+            track.overtake_difficulty,
         )
-        opportunity_mix = float(
-            np.clip(
-                sum(
-                    weight * float(sector.overtake_opportunity)
-                    for weight, sector in zip(weights, sectors)
-                ),
-                0.0,
-                1.0,
-            )
-        )
-        return high_speed_mix, opportunity_mix
 
     @classmethod
     def _track_car_delta(cls, car: Car, track: Track, reference_lap_time: float) -> float:
@@ -307,19 +326,12 @@ class LapSimulator:
         their previous pace.
         """
         high_speed_mix, opportunity_mix = cls._track_profile(track)
-        corner_mix = 1.0 - high_speed_mix
-        straight_mix = float(np.clip(0.55 * high_speed_mix + 0.45 * opportunity_mix, 0.0, 1.0))
-
-        neutral = 0.8
-        downforce_delta = (
-            (neutral - car.downforce_level) * corner_mix
-            + (car.downforce_level - neutral) * high_speed_mix
-        )
-        straight_delta = (neutral - car.straight_line_speed) * straight_mix
-
         # At most roughly 1.2% for a maximally specialised rating on a
         # representative lap, before the normal base-pace term is applied.
-        return reference_lap_time * (0.006 * downforce_delta + 0.008 * straight_delta)
+        return _track_car_delta_from_values(
+            high_speed_mix, opportunity_mix, car.downforce_level,
+            car.straight_line_speed, reference_lap_time,
+        )
 
     def calculate_pit_stop_time(self, car: Car, tire_change: bool = True) -> float:
         """Calculate pit stop duration.

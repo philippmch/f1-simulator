@@ -500,6 +500,10 @@ traffic beyond the immediate rejoin lap, limits the inventory of
 tyre sets, or jointly schedules both teammates' future stops. Those remain separate opportunities
 to improve strategy realism. Cost tables are bounded in-memory calculations;
 they do not persist provider data or consume simulation random draws.
+Static circuit profiles and car/circuit pace terms also use bounded, process-local
+caches keyed by their numerical inputs. Editing sector weights, passing
+opportunities, car ratings or reference pace produces a new calculation; no
+mutable model objects or sampled lap outcomes are retained by these caches.
 
 Run `python examples/check_stint_choices.py` for a deterministic synthetic
 comparison of fallback stint choices against actual lap calculations over short,
