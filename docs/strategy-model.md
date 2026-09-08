@@ -412,6 +412,17 @@ remaining pit strategy with mean pace and expected stationary service.
 Sampling ranges in the dashboard measure Monte Carlo noise under these
 assumptions. They do not validate the strategy model against real race outcomes.
 
+The dashboard statistics and HTML reports include mean winning distance,
+lapped finishers, time-limited races and races without a winner. Statistics JSON,
+scenario comparison JSON and dashboard scenario responses expose the same
+`race_distance_statistics` object. Rates are fractions from zero to one.
+Race counts use recorded raw races, not the requested simulation count. Mean
+winning distance includes only winners with a positive recorded lap count;
+lapped-finisher rates include only finished cars whose own distance and winner's
+distance are both known. Classified retirements do not count as finishers, and
+the actual finished P1 supplies winner distance even if a retired car completed
+more laps. Empty distance denominators return null and display as “Not recorded”.
+
 Run `python examples/check_rain_pit_timing.py` for exhaustive short wet-race
 comparisons in both Standard and Lap-aware engines. Each selected strategy is
 compared with every schedule of up to four paid stops after the opening lap:
