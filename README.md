@@ -73,6 +73,11 @@ Exported CSV, JSON and HTML files use UTF-8 so international driver, team and
 circuit names are preserved across operating systems. Select UTF-8 when importing
 CSV into a tool that asks for a text encoding.
 
+Each `export_all` bundle receives a unique filename identifier, so exporting the
+same race/scenario again preserves earlier CSV, statistics and report files.
+The run-history index shows each bundle's race model and links to its own files.
+Individual export methods still use their explicitly supplied filenames.
+
 There is no `--year` option. The current season comes from the backend's UTC date and requests for any other year are rejected. CLI runs use the same 1,000-simulation, 16-worker, and 32-bit-seed safety bounds as the dashboard.
 
 ## API
