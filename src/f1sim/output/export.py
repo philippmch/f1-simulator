@@ -87,8 +87,9 @@ class Exporter:
             files = row.get("files", {})
             report = files.get("report_html") if isinstance(files, dict) else None
             stats = files.get("statistics_json") if isinstance(files, dict) else None
+            weather = files.get("weather_csv") if isinstance(files, dict) else None
             links = []
-            for label, artifact in (("report", report), ("stats", stats)):
+            for label, artifact in (("report", report), ("stats", stats), ("weather CSV", weather)):
                 if not artifact:
                     continue
                 if (isinstance(artifact, str) and artifact not in (".", "..")
@@ -229,6 +230,21 @@ class Exporter:
 
         return filepath
 
+    def export_weather_history_csv(
+        self, results: SimulationResults, filename: str = "weather_history.csv",
+    ) -> Path:
+        """Export observed shared race-lap weather, with one-based trial indices."""
+        filepath = self.output_dir / filename
+        with filepath.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["simulation", "race_engine", "weather_interval", "condition",
+                             "rain_intensity", "track_wetness"])
+            for index, history in enumerate(results.weather_histories, start=1):
+                for row in history:
+                    writer.writerow([index, results.race_engine, row["lap"], row["condition"],
+                                     row["rain_intensity"], row["track_wetness"]])
+        return filepath
+
     def export_statistics_json(
         self,
         results: SimulationResults,
@@ -248,6 +264,7 @@ class Exporter:
         # Build statistics dictionary
         stats_dict: dict[str, Any] = {
             "simulation_inputs": results.input_snapshot,
+            "weather_histories": results.weather_histories,
             "metadata": {
                 "num_simulations": results.num_simulations,
                 "track_name": results.track_name,
@@ -353,6 +370,7 @@ class Exporter:
                 "pit_stop_statistics": results.get_pit_stop_statistics(),
                 "event_rates": results.get_event_rates(),
                 "race_distance_statistics": results.get_race_distance_statistics(),
+                "weather_histories": results.weather_histories,
                 "strategy_statistics": results.get_strategy_statistics(),
                 "simulation_inputs": results.input_snapshot,
                 "team_championship_projection": results.get_team_championship_projection(),
@@ -540,6 +558,9 @@ class Exporter:
             ),
             "qualifying_csv": self.export_qualifying_results_csv(
                 results, f"{filename_prefix}qualifying_results.csv"
+            ),
+            "weather_csv": self.export_weather_history_csv(
+                results, f"{filename_prefix}weather_history.csv"
             ),
             "statistics_json": self.export_statistics_json(
                 results, f"{filename_prefix}statistics.json"

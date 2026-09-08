@@ -417,6 +417,10 @@ def _summarize_scenario_results(
             else None,
             "sample_index": sample_index,
             "sample_race": _serialize_sample_race(results, sample_index),
+            "sample_weather_history": (
+                results.weather_histories[sample_index]
+                if sample_index < len(getattr(results, "weather_histories", [])) else []
+            ),
             "sample_qualifying": _serialize_sample_qualifying(results, sample_index),
             "race_engine": getattr(results, "race_engine", "standard"),
             "qualifying_mode": "simulated",

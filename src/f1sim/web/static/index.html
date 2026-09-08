@@ -1058,6 +1058,12 @@ input:focus-visible {
   border-radius: var(--radius-md);
 }
 
+#sampleWeatherHistory { margin-bottom: 1.2rem; }
+#sampleWeatherHistory .inline-note { color: var(--text-secondary); }
+#sampleWeatherHistory table { min-width: 480px; font-size: .8rem; }
+#sampleWeatherHistory th { font-size: .7rem; color: var(--text-secondary); }
+#sampleWeatherHistory caption { text-align: left; padding: .6rem 0; }
+
 .matrix-table {
   width: 100%;
   border-collapse: collapse;
@@ -2320,6 +2326,29 @@ function savedWeatherBehavior(scenario) {
   return 'Weather behavior not recorded';
 }
 
+function renderWeatherHistory(scenario) {
+  const rows = Array.isArray(scenario.sample_weather_history)
+    ? scenario.sample_weather_history.filter(row => row && Number.isInteger(row.lap) && row.lap > 0)
+    : [];
+  const percent = value => typeof value === 'number' && Number.isFinite(value)
+    && value >= 0 && value <= 1 ? `${(value * 100).toFixed(1)}%` : 'Not recorded';
+  const note = scenario.race_engine === 'chronological'
+    ? 'Shared leading-interval updates; cars may be on different own laps. Interval numbers are not driver lap numbers or a record of their weather at a pit stop.'
+    : 'Observed weather at the start of each shared race lap.';
+  return `<details class="probability-details" id="sampleWeatherHistory">
+    <summary>Weather during this trial</summary>
+    <p class="inline-note">${note}</p>
+    ${rows.length ? `<div class="results-table" tabindex="0" role="region" aria-label="Trial weather history">
+      <table class="matrix-table"><caption>Recorded rainfall and surface wetness</caption>
+      <thead><tr><th scope="col">${scenario.race_engine === 'chronological' ? 'Weather interval' : 'Race lap'}</th><th scope="col">Condition</th>
+      <th scope="col">Rainfall</th><th scope="col">Surface wetness</th></tr></thead>
+      <tbody>${rows.map(row => `<tr><th scope="row">${row.lap}</th>
+        <td>${escapeHtml(WEATHER_LABELS[row.condition] || row.condition || 'Not recorded')}</td>
+        <td>${percent(row.rain_intensity)}</td><td>${percent(row.track_wetness)}</td></tr>`).join('')}
+      </tbody></table></div>` : '<p class="inline-note">Weather history not recorded for this trial.</p>'}
+  </details>`;
+}
+
 function renderRace() {
   const container = document.getElementById('raceContent');
   const empty = document.getElementById('emptyRace');
@@ -2377,6 +2406,7 @@ function renderRace() {
       </div>
     </div>
     ${timeLimited ? '<div class="inline-note time-limit-note" role="note">Race shortened by the two-hour limit. Points reflect completed distance and green running.</div>' : ''}
+    ${renderWeatherHistory(scenario)}
     <div class="results-table" tabindex="0" role="region" aria-label="Race classification">
     <div class="timing-header">
       <span>POS</span><span></span><span></span><span>DRIVER</span>

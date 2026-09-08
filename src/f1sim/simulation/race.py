@@ -142,6 +142,7 @@ class RaceSimulator:
             strategy_tuning: Optional strategy threshold overrides
         """
         self.rng = rng if rng is not None else np.random.default_rng()
+        self.weather_history: list[dict] = []
         self.lap_simulator = LapSimulator(rng=self.rng)
         self.overtaking_model = OvertakingModel(rng=self.rng)
         self.event_manager = EventManager(rng=self.rng)
@@ -182,6 +183,14 @@ class RaceSimulator:
                     continue
                 self.strategy_profiles[archetype].update(profile)
 
+    def _record_weather(self, lap: int, weather: Weather) -> None:
+        """Record the shared race weather without retaining mutable model references."""
+        self.weather_history.append({
+            "lap": int(lap), "condition": weather.condition.value,
+            "rain_intensity": float(weather.rain_intensity),
+            "track_wetness": float(weather.track_wetness),
+        })
+
     def simulate_race(
         self,
         drivers: list[Driver],
@@ -213,6 +222,7 @@ class RaceSimulator:
 
         # Reset event manager
         self.event_manager.reset()
+        self.weather_history = []
 
         # Keep the caller's supplied weather as the immutable lap-one
         # snapshot.  Weather evolution is applied only after a lap has been
@@ -278,6 +288,7 @@ class RaceSimulator:
         consecutive_green_laps = 0
         has_two_green_laps = False
         for lap in range(1, track.total_laps + 1):
+            self._record_weather(lap, current_weather)
             leader = min((state for state in states if state.status == DriverStatus.RACING),
                          key=lambda state: state.position)
             planning_final_lap = forecast_final_lap(

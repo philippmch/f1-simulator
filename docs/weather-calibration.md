@@ -3,6 +3,21 @@
 Updated 2026-09-07. These checks constrain event frequency and weather behavior;
 they do not estimate a forecast for a particular venue or validate winner odds.
 
+## Recorded simulation weather
+
+Simulation exports now preserve each trial's weather trace separately from the
+initial scenario. Each JSON entry contains `lap`, `condition`, `rain_intensity`
+and `track_wetness`; the two intensities are fractions from zero to one. The
+Standard engine's `lap` is the shared race-lap start. In the Lap-aware engine it
+is the ordinal shared leading interval, not any individual driver's distance.
+CSV calls this field `weather_interval` and includes the engine and one-based
+simulation index. These traces record activated weather states without adding
+random draws; they do not sample each driver's pending lap or pit arrival.
+
+Replays regenerate the selected trial's trace using installed simulator code.
+Missing legacy traces remain empty rather than being reconstructed from starting
+weather. Fixed rainfall still shows surface-water response across the trace.
+
 ## Observed reference
 
 The diagnostic queries [OpenF1 race sessions](https://api.openf1.org/v1/sessions?year=2026&session_name=Race),

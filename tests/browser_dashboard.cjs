@@ -79,6 +79,36 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     assert((await page.locator('#panel-race').textContent()).includes('Fixed rainfall; surface wetness still evolves'));
     await page.locator('#weatherModeSelect').selectOption('fixed_rainfall');
     if (offline) {
+      const weatherSummary = page.locator('#sampleWeatherHistory summary');
+      await weatherSummary.focus();
+      await page.keyboard.press('Enter');
+      const observedWeather = await page.evaluate(() => getScenarioEntry().data.sample_weather_history);
+      assert(observedWeather.length > 0);
+      assert.equal(await page.locator('#sampleWeatherHistory tbody tr').count(), observedWeather.length);
+      assert((await page.locator('#sampleWeatherHistory').innerText()).includes('Shared leading-interval updates'));
+      await page.evaluate(() => {
+        window.savedWeatherTrace = getScenarioEntry().data.sample_weather_history;
+        getScenarioEntry().data.sample_weather_history = [{lap: 2,
+          condition: '<img src=x onerror="window.weatherInjected=true">',
+          rain_intensity: .35, track_wetness: null}];
+        renderRace();
+      });
+      await page.locator('#sampleWeatherHistory summary').click();
+      assert((await page.locator('#sampleWeatherHistory').innerText()).includes('35.0%'));
+      assert((await page.locator('#sampleWeatherHistory').innerText()).includes('Not recorded'));
+      assert.equal(await page.locator('#sampleWeatherHistory img').count(), 0);
+      assert.equal(await page.evaluate(() => Boolean(window.weatherInjected)), false);
+      await page.evaluate(() => {
+        delete getScenarioEntry().data.sample_weather_history;
+        renderRace();
+      });
+      await page.locator('#sampleWeatherHistory summary').click();
+      assert((await page.locator('#sampleWeatherHistory').innerText()).includes('not recorded for this trial'));
+      await page.evaluate(() => {
+        getScenarioEntry().data.sample_weather_history = savedWeatherTrace;
+        delete window.savedWeatherTrace;
+        renderRace();
+      });
       assert((await page.locator('#panel-race').textContent()).includes('S00=hard, S01=soft'));
       for (const scenario of Object.values(payload.scenarios)) {
         assert.deepEqual(scenario.simulation_inputs.starting_tires, {S00: 'hard', S01: 'soft'});
@@ -245,6 +275,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     }, 5)), '+90.000');
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({width, height: 900});
+      await page.locator('#sampleWeatherHistory').evaluate(node => { node.open = true; });
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
         `Retirement classification overflows at ${width}px`);
       assert(await page.locator('#raceContent .pit-laps').first().isVisible(),

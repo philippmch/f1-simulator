@@ -139,6 +139,7 @@ class SimulationResults:
     max_workers: int | None = None
     race_engine: str = "standard"
     input_snapshot: dict | None = None
+    weather_histories: list[list[dict]] = field(default_factory=list)
 
     def get_race_distance_statistics(self) -> dict[str, int | float | None]:
         """Summarize recorded distances, with rates as fractions in [0, 1].
@@ -549,6 +550,7 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
             EventType.COLLISION, EventType.SPIN, EventType.PUNCTURE, EventType.MECHANICAL_FAILURE
         )]),
         "mechanical_failure_breakdown": dict(mech_breakdown),
+        "weather_history": race_sim.weather_history,
     }
 
     return race_results, quali_results, event_counts
@@ -687,6 +689,7 @@ class MonteCarloRunner:
             max_workers=max_workers,
             race_engine=self.race_engine,
             input_snapshot=input_snapshot,
+            weather_histories=[counts.get("weather_history", []) for counts in all_event_counts],
         )
 
     def _aggregate_statistics(

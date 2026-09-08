@@ -178,6 +178,16 @@ It uses the completed run, regardless of current display filters or edited
 controls. JSON downloads retain the replay inputs without embedding the HTML.
 Report context includes the initial condition, rain, surface wetness and modeled
 per-lap weather-change chance; these describe simulation settings, not a forecast.
+
+Expand **Weather during this trial** in the Race tab to inspect the selected
+trial's recorded rainfall and surface wetness. Full export bundles include a
+weather CSV, linked from the run-history index. Statistics and comparison JSON
+include `weather_histories` in trial order; dashboard JSON includes only the
+selected trial's `sample_weather_history`. Values are observations, not forecasts.
+Standard entries correspond to shared race-lap starts. Lap-aware entries are
+shared weather-update intervals, which can differ from a driver's own lap count
+and do not identify each driver's exact pit-stop conditions. Legacy output
+without a trace remains explicitly unrecorded.
 The dashboard's scenario chart and driver matrix show the same individual 95%
 sampling ranges and observed trial counts. Expand a driver in the chart to view
 its scenarios. Highlights identify the highest estimate, not a proven strategy

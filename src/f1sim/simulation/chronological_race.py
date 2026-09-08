@@ -70,6 +70,7 @@ class ChronologicalRace:
         self.track = track
         self.weather = weather.model_copy(deep=True)
         self.simulator.event_manager.reset()
+        self.simulator.weather_history = []
         for driver in drivers:
             driver.reset_race_state()
         lookup = {driver.id: driver for driver in drivers}
@@ -110,6 +111,8 @@ class ChronologicalRace:
         self.crossings.clear()
         self.pit_exits.clear()
         self.suspensions.clear()
+        if self.states:
+            self.simulator._record_weather(1, self.weather)
         for state in self.states.values():
             self._start_lap(state, 0.0)
         while self.queue:
@@ -617,6 +620,8 @@ class ChronologicalRace:
         if (self.timeline.chequered_time is None
                 and any(state.status == DriverStatus.RACING for state in self.states.values())):
             self.weather = self.weather.evolve(self.simulator.rng)
+            # Shared leading intervals, not an individual car's completed distance.
+            self.simulator._record_weather(self.control_intervals + 1, self.weather)
 
     def _results(self):
         winner = self.states.get(self.timeline.winner_id)

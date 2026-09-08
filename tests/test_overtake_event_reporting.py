@@ -66,7 +66,7 @@ def test_worker_counts_contact_once_and_race_control_follows_it(monkeypatch):
         original_init(simulator, *args, **kwargs)
         captured.append(simulator)
         simulator._should_pit = lambda *args, **kwargs: False
-        simulator.lap_simulator.calculate_lap_time = lambda **kwargs: 90
+        simulator.lap_simulator.calculate_lap_time = lambda *args, **kwargs: 90
 
         def process_lap(lap, incidents_this_lap, **kwargs):
             if lap == 1:
@@ -88,6 +88,7 @@ def test_worker_counts_contact_once_and_race_control_follows_it(monkeypatch):
         {key: car.model_dump() for key, car in cars.items()}, track.model_dump(),
         Weather(change_probability=0).model_dump(), 42,
     ))
+    assert counts.pop("weather_history") == captured[0].weather_history
     assert counts == {"incidents": 1, "safety_car": 1, "vsc": 0, "red_flag": 0,
                       "mechanical_failure_breakdown": {}}
     assert [event.event_type for event in captured[0].event_manager.events] == [
