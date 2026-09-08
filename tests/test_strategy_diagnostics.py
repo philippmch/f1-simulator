@@ -30,3 +30,21 @@ def test_restart_diagnostic_matches_full_race_compound_alternatives():
     assert rows[0]["selected"]["restart_compound"] == "soft"
     assert rows[1]["selected"]["restart_compound"] == "hard"
     assert [row["selected"]["paid_stops"] for row in rows] == [1, 1, 2]
+
+
+def test_rain_timing_matches_every_bounded_full_race_schedule():
+    diagnostic = runpy.run_path(
+        str(Path(__file__).resolve().parents[1] / "examples" / "check_rain_pit_timing.py")
+    )
+    rows = diagnostic["compare_rain_pit_timing"]()
+    assert len(rows) == 8
+    for engine in ("standard", "chronological"):
+        cases = [row for row in rows if row["race_engine"] == engine]
+        assert [len(row["selected"]["pit_laps"]) for row in cases] == [1, 1, 0, 2]
+        assert [row["schedules_checked"] for row in cases] == [99, 99, 99, 562]
+        for row in cases:
+            assert row["cost_vs_best_seconds"] == pytest.approx(0, abs=1e-8)
+            assert row["selected"]["laps_completed"] == row["race_laps"]
+            assert set(row["selected"]["compounds"]) == {row["compound"]}
+    for standard, chronological in zip(rows[:4], rows[4:]):
+        assert standard["selected"] == chronological["selected"]
