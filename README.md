@@ -286,6 +286,12 @@ pytest -q
 ruff check .
 ```
 
+Run `python examples/check_dry_pit_schedules.py` to compare dry strategy against
+every legal schedule of up to three stops in short synthetic races. It checks
+both engines, reports the best executed alternative and needs no network.
+See [strategy diagnostics](docs/strategy-model.md) for the search bounds and
+model assumptions.
+
 For an interactive browser regression check, start the server and run
 `node tests/browser_dashboard.cjs` with Playwright installed and its Chromium
 browser available. `PLAYWRIGHT_MODULE` can point to an existing Playwright

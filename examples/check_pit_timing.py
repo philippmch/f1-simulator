@@ -1,6 +1,6 @@
 """Check dry pit timing against exhaustive, controlled full-race alternatives.
 
-Synthetic 30-lap races, one permitted stop, a medium start, no incidents,
+Synthetic 30-lap races, a one-stop reference, a medium start, no incidents,
 mean lap variation and fixed 2.75-second stationary service. Every permitted
 stop lap from 2 through 30 and both unused slick compounds are simulated.
 This is an offline model check, not validation against observed race strategy.

@@ -551,6 +551,24 @@ every permitted one-stop lap and unused compound in controlled synthetic
 30-lap full races. This also checks pit execution and tyre ageing, not just
 the optimizer's own cost calculation.
 
+Run `python examples/check_dry_pit_schedules.py` for a broader bounded dry
+comparison in both engines (`--engine standard` or `--engine chronological`
+selects one). Each synthetic eight-lap race starts on medium and exhaustively
+executes all 1,092 legal schedules of one to three stops after lap one, including
+soft/medium/hard replacement sequences and repeated fresh sets of the same
+compound. The initial medium set must be used and at least one different slick
+must be fitted. Stop counts have 14, 168 and 910 alternatives respectively.
+
+The balanced policy is compared with the fastest executed schedule using mean
+pace, expected service, fixed dry weather and no incidents or traffic. Normal
+lane loss, cheap stops with high wear, and a deliberately long 600-second lap
+reference exercise one-, two- and three-stop optima. Both engines currently
+match these references. The JSON output includes inputs, completed distance,
+paid laps, tyre sequence, total time and the gap to the best bounded alternative.
+The diagnostic makes no network requests or default file writes. Its synthetic
+inputs are not calibrated venues, and it does not search beyond three stops,
+different opening sets or future weather changes.
+
 Run `python examples/check_restart_choices.py` to compare selected free restart
 sets with forced soft, medium and hard alternatives in controlled 60-lap races.
 The diagnostic covers a five-lap sprint, a long final stint, and high wear with
