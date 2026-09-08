@@ -129,9 +129,34 @@ volumes. Numerical priors can be revisited as more current-season evidence arriv
 ```powershell
 python examples/check_weather_calibration.py --simulations 100 --seed 42
 python examples/check_weather_calibration.py --simulations 100 --seed 17
+python examples/check_weather_calibration.py --simulations 100 --seed 42 --race-engine both
 python examples/check_weather_calibration.py --observed --simulations 100
 pytest -q tests/test_weather_calibration.py
 ```
 
 Only `--observed` makes network requests. The diagnostic prints summaries and
 does not add runtime feed dependencies, replay data, or a persistent cache.
+
+`--race-engine` accepts `standard` (the default), `chronological`, or `both`.
+Comparison runs use the same synthetic field, weather inputs and seed range.
+Qualifying draws match; later random draws follow each engine's event order,
+so individual race outcomes are not paired counterfactuals. Standard timings
+also exclude the chronological model's explicit suspension wait. Duration
+differences therefore include that modeling choice.
+
+Standard output is one JSON document; simulation progress goes to standard
+error. Without `--observed`, the document is a list of scenario/model summaries.
+With `--observed`, it is an object with `observed` and `model` fields. Each model
+summary identifies its engine and includes red flags, finishing-car counts,
+lapped finishers, mean winner time, mean paid stops per entrant (including
+retirees), and time-limited races. A missing winner or empty denominator gives
+`null` rather than a fabricated zero. Lapped-finisher rates use all finishers as
+the denominator. The equal-performance fixture is primarily a weather probe;
+zero lapped finishers does not establish that lapping behavior is correct.
+
+A seed-42 smoke comparison of ten races per scenario and engine completed all
+80 runs. Fixed light/heavy rain averaged roughly 3.5 paid stops per entrant in
+both models, versus roughly one in fixed dry weather. These small synthetic
+samples are a strategy-investigation baseline, not evidence of empirical
+accuracy or a reason to switch the default engine. The larger historical table
+above describes standard execution only.
