@@ -57,6 +57,12 @@ python examples/simulate_race.py --race "Italian Grand Prix" --simulations 500
 python examples/simulate_race.py --race 14 --scenarios dry,light_rain,heavy_rain
 ```
 
+The standard race model remains the default. To try individual car crossings,
+lapped finishes and shared red-flag restarts, choose **Lap-aware (experimental)**
+in the dashboard or pass `--race-engine chronological` to the CLI. The API and
+Python `MonteCarloRunner` accept `race_engine="chronological"` (or `"standard"`).
+Results record the selected model; see [its assumptions and limits](docs/chronological-race-design.md).
+
 Use `--export` only when you explicitly want files for the newly simulated run:
 
 ```powershell

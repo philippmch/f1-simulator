@@ -14,8 +14,14 @@ It is not a claim that the production engine already supports lapping.
 
 `simulation/chronological_race.py` provides `ChronologicalRace(simulator).run(...)`
 and `simulate_chronological_race(...)` for explicit Python experiments. They use
-the existing models and return `RaceResult` objects. The normal CLI, web and
-Monte Carlo entry points still use the production engine.
+the existing models and return `RaceResult` objects. The standard engine remains
+the default. Select chronological execution through `--race-engine chronological`
+in the CLI, **Race model: Lap-aware (experimental)** in the dashboard, or
+`race_engine="chronological"` on `MonteCarloRunner` and the API request.
+Both sequential and process-pool execution preserve per-run seeds and freshly
+simulated qualifying. API summaries, JSON exports, export history and HTML
+reports record the selected engine. This exposes the experiment; it does not
+establish empirical calibration or change the default.
 
 The experimental engine schedules individual crossings and pit exits on an
 absolute timeline. A persistent constructor queue accounts for staggered box
