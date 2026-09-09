@@ -288,6 +288,13 @@ Dashboard requests accept 10–1,000 simulations, up to four supported weather s
 
 Weather scenario names describe the starting conditions. Weather evolves during each race, so a dry start can develop rain. The [weather calibration notes](docs/weather-calibration.md) explain the observations, model assumptions, and reproducible checks.
 
+For current-season strategy evidence, run
+`python examples/check_weather_calibration.py --observed-strategy --simulations 1`.
+The report cross-checks reported tyre stints against each driver's completed laps
+and lists pit-lane observations, including missing or conflicting evidence.
+See the [report definitions](docs/weather-calibration.md#observed-strategy-evidence)
+before using these observations for calibration.
+
 For controlled strategy comparisons, select **Fixed rainfall** under Weather
 behavior, pass `--weather-mode fixed_rainfall` to the CLI, or set
 `"weather_mode": "fixed_rainfall"` in `/api/run`. This keeps each scenario's

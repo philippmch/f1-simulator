@@ -1,6 +1,6 @@
 # Weather and interruption calibration
 
-Updated 2026-09-07. These checks constrain event frequency and weather behavior;
+Updated 2026-09-09. These checks constrain event frequency and weather behavior;
 they do not estimate a forecast for a particular venue or validate winner odds.
 
 ## Recorded simulation weather
@@ -170,8 +170,9 @@ python examples/check_weather_calibration.py --observed --simulations 100
 pytest -q tests/test_weather_calibration.py
 ```
 
-Only `--observed` or `--observed-stints` makes network requests. The diagnostic prints summaries and
-does not add runtime feed dependencies, replay data, or a persistent cache.
+Only `--observed`, `--observed-stints`, or `--observed-strategy` makes network
+requests. The diagnostic prints summaries and does not add runtime feed
+dependencies, replay data, or a persistent cache.
 
 `--race-engine` accepts `standard` (the default), `chronological`, or `both`.
 Comparison runs use the same synthetic field, weather inputs and seed range.
@@ -181,8 +182,8 @@ also exclude the chronological model's explicit suspension wait. Duration
 differences therefore include that modeling choice.
 
 Standard output is one JSON document; simulation progress goes to standard
-error. Without `--observed`, the document is a list of scenario/model summaries.
-With `--observed`, it is an object with `observed` and `model` fields. Each model
+error. Without an observed option, the document is a list of scenario/model summaries.
+With an observed option, it is an object with `observed` and `model` fields. Each model
 summary identifies its engine and includes red flags, finishing-car counts,
 lapped finishers, mean winner time, mean paid stops per entrant (including
 retirees), and time-limited races. A missing winner or empty denominator gives
@@ -242,8 +243,9 @@ identify the initial lap, last completed lap, and tyre age at the start. Reporte
 stint length is inclusive; a used set's ending age adds its initial age. Missing
 initial age remains unknown. Exact duplicate rows and incomplete lap ranges
 are counted in exclusion metadata; conflicting records or wrong-session rows
-fail the collection. An empty stint feed is missing evidence, whereas a complete
-feed containing only slick stints produces an empty rain-stint sample.
+fail the collection. An empty stint feed is missing evidence. A feed containing
+only slick stints produces an empty rain-stint sample, but that alone does not
+establish that the source covered every driver's completed laps.
 
 Every end reason remains `unknown`: stint ranges alone cannot distinguish
 wear-driven replacement from drying weather, a free red-flag refit, retirement,
@@ -255,8 +257,10 @@ cache. Standard output remains a single JSON object with `observed` and `model`.
 Observed requests are spaced by at least 2.1 seconds. Rate-limited requests honor
 numeric or HTTP-date `Retry-After` values with at most three attempts; excessive
 delays fail rather than bypass the limit. Fetch budgets are 180 seconds for event
-observations and 240 seconds with stints. Failed collection emits no partial
-season summary.
+observations, 240 seconds with rain stints, and 360 seconds with strategy evidence.
+Failed collection emits no partial season summary. All feeds require records
+from the requested session. Weather observations require binary rainfall values
+and dates with timezones; malformed values cannot silently become rain evidence.
 
 The 2026-09-08 collection covered 13 completed races and returned six usable
 rain stints, all intermediates in session 11291 (Montreal), lasting one or two
@@ -265,3 +269,59 @@ rain lap range across the season. This is insufficient long-stint evidence to
 calibrate rain-tyre durability, so no tyre parameters were fitted from it. The
 result is a dated provider snapshot, not proof that omitted or unidentified
 stints did not occur.
+
+### Observed strategy evidence
+
+```powershell
+python examples/check_weather_calibration.py --observed-strategy --simulations 1
+python examples/check_weather_calibration.py --observed-strategy --observed-stints --simulations 1
+```
+
+`--observed-strategy` implies observations and adds a `strategy` object to each
+race. Combining the two evidence options fetches stints once. The report uses
+[session results](https://openf1.org/docs/#session-result) for completed-lap
+denominators, [stints](https://openf1.org/docs/#stints) for reported tyre exposure,
+and [pit records](https://openf1.org/docs/#pit) for pit-lane visits.
+
+The result feed defines the driver denominator; it is not independently verified
+as the full entry list. Retirees, non-starters, disqualified drivers and zero-lap
+entries remain visible. `feeds` describes received records and exact duplicates;
+`exclusions` counts unusable fields and ranges, including retained records whose
+invalid fields become unknown. Equivalent pit timestamps are normalized to UTC
+for identity and ordering; duplicate evidence is counted once. Missing result
+evidence or conflicting identities fails collection. Empty ancillary feeds remain visible
+as unavailable evidence, without establishing that no visits or stints occurred.
+
+Each driver's `coverage` cross-checks reported stint ranges against completed
+laps. It distinguishes gaps, overlapping ranges, unknown compounds and laps
+outside the result distance. Raw valid ranges remain visible even when their
+intersection with completed laps is used for coverage totals. Zero-lap entries
+have no meaningful coverage denominator. Positive-lap stints remain in reported
+sequence, including repeated compounds and unknown starting tyre age; empty
+or invalid ranges are counted separately. An empty range (`lap_end = lap_start - 1`)
+reports no completed laps; it does not establish that the tyre never ran.
+Complete lap coverage is an internal
+consistency check, not proof of a complete provider feed or correct tyre history.
+
+`pit_entries` records pit-lane observations separately from stints. Lane duration
+and stationary duration have separate availability counts; the deprecated
+`pit_duration` alias is not an additional observation. No entry is labeled a paid
+tyre change, and no stint ending is attributed to wear, a stop, suspension,
+retirement or the finish. Rain and red flags remain race-level context.
+
+These observations describe evidence available for future calibration. They
+neither score strategy optimality nor compare against a matched simulated race.
+The synthetic `model` field still uses the fixed diagnostic field. Live ratings
+intentionally use current form, standings and available target qualifying, with
+completed-target fastest laps used for track pace; they are not a blind historical
+evaluation. No simulator parameters are fitted by this report.
+
+The 2026-09-09 collection covered 13 races and 286 driver-result records, of which
+276 reported at least one completed lap. Stint ranges covered all 15,117 reported
+completed laps, but 86 laps lacked an identified compound. There were also 12
+reported lap exposures beyond result distances and four empty ranges. Only 266
+of the 276 positive-distance entries passed the complete-lap-coverage check.
+The 533 pit-lane records included lane durations for all entries, but stationary
+durations for only 148. These are dated availability counts, not evidence that
+the other visits lacked stationary service. No parameters were fitted from this
+collection.
