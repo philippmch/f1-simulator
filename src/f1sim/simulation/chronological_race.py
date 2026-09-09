@@ -540,6 +540,8 @@ class ChronologicalRace:
             if not pending.neutralized:
                 incident = self.simulator.event_manager._check_random_incident(
                     [state.driver], self.track, pending.weather, pending.lap,
+                    exposure_drivers=[active.driver for active in self.states.values()
+                                      if active.status == DriverStatus.RACING],
                 )
                 if incident:
                     self.simulator.event_manager.events.append(incident)

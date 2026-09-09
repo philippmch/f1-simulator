@@ -33,7 +33,8 @@ def setup(monkeypatch, paces=None, laps=4, weather=None):
     monkeypatch.setattr(simulator, "_should_pit", lambda *args, **kwargs: False)
     monkeypatch.setattr(simulator.event_manager, "process_lap", lambda *args, **kwargs: [])
     monkeypatch.setattr(simulator.event_manager, "_check_mechanical_failure", lambda *args: None)
-    monkeypatch.setattr(simulator.event_manager, "_check_random_incident", lambda *args: None)
+    monkeypatch.setattr(simulator.event_manager, "_check_random_incident",
+                        lambda *args, **kwargs: None)
     monkeypatch.setattr(simulator.overtaking_model, "attempt_overtake", passing)
     monkeypatch.setattr(Weather, "evolve", lambda self, rng: self.model_copy(deep=True))
     engine = ChronologicalRace(simulator)

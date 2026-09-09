@@ -36,7 +36,7 @@ def test_final_retirement_stops_weather_and_later_forced_events(monkeypatch, ret
         return weather.model_copy(deep=True)
 
     monkeypatch.setattr(simulator.event_manager, "_check_mechanical_failure", failure)
-    monkeypatch.setattr(simulator.event_manager, "_check_random_incident", lambda *a: None)
+    monkeypatch.setattr(simulator.event_manager, "_check_random_incident", lambda *a, **kw: None)
     monkeypatch.setattr(simulator.event_manager, "_deploy_safety_measure", lambda *a: None)
     monkeypatch.setattr(simulator.event_manager, "process_lap", process)
     monkeypatch.setattr(simulator, "_should_pit", lambda *a, **kw: False)

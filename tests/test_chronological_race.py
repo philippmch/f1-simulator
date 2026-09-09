@@ -37,7 +37,8 @@ def fixture(monkeypatch, paces=None, laps=10):
     monkeypatch.setattr(simulator.lap_simulator, "calculate_lap_time", running)
     monkeypatch.setattr(simulator, "_should_pit", should)
     monkeypatch.setattr(simulator.event_manager, "_check_mechanical_failure", mechanical)
-    monkeypatch.setattr(simulator.event_manager, "_check_random_incident", lambda *args: None)
+    monkeypatch.setattr(simulator.event_manager, "_check_random_incident",
+                        lambda *args, **kwargs: None)
     monkeypatch.setattr(simulator.event_manager, "process_lap", events)
     monkeypatch.setattr(simulator.overtaking_model, "attempt_overtake", lambda *args, **kwargs:
                         (True, False))
@@ -147,7 +148,7 @@ def test_own_random_spin_delays_crossing_without_extra_exposure(monkeypatch):
     engine, args, calls, _, _, _ = fixture(monkeypatch, {"Fast": 90}, laps=3)
     exposures = []
 
-    def incident(drivers, track, weather, lap):
+    def incident(drivers, track, weather, lap, **kwargs):
         exposures.append(lap)
         return (RaceEvent(EventType.SPIN, lap, [drivers[0].id], time_loss_seconds=4)
                 if lap == 2 else None)
@@ -163,7 +164,7 @@ def test_own_random_spin_delays_crossing_without_extra_exposure(monkeypatch):
 def test_random_retirement_does_not_credit_failed_lap_or_fastest(monkeypatch):
     engine, args, _, _, _, _ = fixture(monkeypatch, {"Fast": 90}, laps=3)
 
-    def incident(drivers, track, weather, lap):
+    def incident(drivers, track, weather, lap, **kwargs):
         if lap == 2:
             drivers[0].dnf = True
             drivers[0].dnf_reason = "Controlled crash"

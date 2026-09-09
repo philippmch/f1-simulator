@@ -39,7 +39,7 @@ def setup(monkeypatch, scheduled, catching=False):
     monkeypatch.setattr(simulator.lap_simulator, "calculate_lap_time", physics)
     monkeypatch.setattr(simulator, "_should_pit", should)
     monkeypatch.setattr(simulator.event_manager, "_check_mechanical_failure", failure)
-    monkeypatch.setattr(simulator.event_manager, "_check_random_incident", lambda *a: None)
+    monkeypatch.setattr(simulator.event_manager, "_check_random_incident", lambda *a, **kw: None)
     monkeypatch.setattr(simulator.event_manager, "process_lap", lambda *a, **k: [])
     monkeypatch.setattr(simulator.overtaking_model, "attempt_overtake",
                         lambda *a, **k: (True, False))

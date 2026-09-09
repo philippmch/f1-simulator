@@ -74,7 +74,7 @@ def test_live_escalation_fits_once_and_restarts_without_paid_stop(monkeypatch):
     control = simulator.event_manager
     control.set_forced_safety_car(1)
     monkeypatch.setattr(control, "_check_mechanical_failure", lambda *args: None)
-    monkeypatch.setattr(control, "_check_random_incident", lambda *args: None)
+    monkeypatch.setattr(control, "_check_random_incident", lambda *args, **kwargs: None)
     monkeypatch.setattr(control, "_deploy_safety_measure", lambda *args: None)
     monkeypatch.setattr(simulator, "_should_pit", lambda *args, **kwargs: False)
     monkeypatch.setattr(simulator.lap_simulator, "calculate_lap_time", lambda **kwargs: 90)

@@ -30,7 +30,7 @@ def test_drying_race_skips_redundant_intermediate_stop(monkeypatch, engine):
         sim = RaceSimulator(np.random.default_rng(0))
         sim.event_manager.process_lap = lambda *a, **k: []
         sim.event_manager._check_mechanical_failure = lambda *a: None
-        sim.event_manager._check_random_incident = lambda *a: None
+        sim.event_manager._check_random_incident = lambda *a, **kw: None
         actual_lap = sim.lap_simulator.calculate_lap_time
 
         def mean_lap(*args, **kwargs):

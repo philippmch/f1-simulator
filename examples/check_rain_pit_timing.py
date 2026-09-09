@@ -30,7 +30,7 @@ def run_race(engine, compound, lane_loss, forced_stops=None, *, laps=8, base_lap
     simulator = RaceSimulator(np.random.default_rng(42))
     simulator.event_manager.process_lap = lambda *args, **kwargs: []
     simulator.event_manager._check_mechanical_failure = lambda *args: None
-    simulator.event_manager._check_random_incident = lambda *args: None
+    simulator.event_manager._check_random_incident = lambda *args, **kwargs: None
     actual_lap = simulator.lap_simulator.calculate_lap_time
 
     def mean_lap(*args, **kwargs):

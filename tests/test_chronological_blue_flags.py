@@ -18,7 +18,7 @@ def setup(monkeypatch, paces, laps=10):
     monkeypatch.setattr(simulator, "_should_pit", lambda *a, **k: False)
     monkeypatch.setattr(simulator.event_manager, "process_lap", lambda *a, **k: [])
     monkeypatch.setattr(simulator.event_manager, "_check_mechanical_failure", lambda *a: None)
-    monkeypatch.setattr(simulator.event_manager, "_check_random_incident", lambda *a: None)
+    monkeypatch.setattr(simulator.event_manager, "_check_random_incident", lambda *a, **kw: None)
     monkeypatch.setattr(Weather, "evolve", lambda self, rng: self.model_copy(deep=True))
     calls, attempts = [], []
 

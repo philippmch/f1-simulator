@@ -86,9 +86,21 @@ incident record.
   calibrated tyre-wear failure hazard. Mechanical failures remain per-car
   events, on-track overtakes retain their own contact model, and the independent
   background safety-intervention channel is unchanged. Neutralized laps still
-  suppress random racing incidents. At most one such incident is emitted per
-  lap, so this is an aggregate exposure model, not independent incident draws
-  for every car.
+  suppress random racing incidents. The standard engine emits at most one such
+  incident per shared lap.
+- The Lap-aware engine checks incidents once per car's actual lap, using the
+  current active field to preserve relative consistency and wet-skill risk.
+  Let `p` be that field's existing incident probability and `w_i` the driver's
+  normalized incident-victim weight. Its individual hazard is
+  `1 - (1 - p) ** w_i`. For a fixed field and weather, the product of individual
+  survival probabilities is `1 - p`; uniform fields of up to 22 cars recover
+  the previous single-car exposure. Driver wet skill influences the weight only
+  while rain falls or the surface is wet. Finished and retired cars leave the active context;
+  pitters remain active. A delay or failed passing attempt does not repeat an
+  already checked lap. The active field can change between crossings, and
+  several cars can have incidents within a leading interval, so the engines
+  do not promise identical event counts or seeded incidents. This corrects
+  how the existing model weights are applied; it adds no calibrated parameter.
 - While rain falls, surface wetness moves 20% of the distance toward normalized
   rainfall intensity each lap. This represents rainfall balanced by drainage:
   sustained intensity 0.35 tends toward wetness 0.35, not a flooded track.

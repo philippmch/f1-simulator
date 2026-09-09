@@ -32,7 +32,7 @@ def setup(monkeypatch, service=100, *, laps=4, first_b=91, stop_lap=2, both=True
     monkeypatch.setattr(simulator, "_should_pit", decide)
     monkeypatch.setattr(simulator.event_manager, "process_lap", control)
     monkeypatch.setattr(simulator.event_manager, "_check_mechanical_failure", lambda *a: None)
-    monkeypatch.setattr(simulator.event_manager, "_check_random_incident", lambda *a: None)
+    monkeypatch.setattr(simulator.event_manager, "_check_random_incident", lambda *a, **kw: None)
     monkeypatch.setattr(simulator.overtaking_model, "attempt_overtake",
                         lambda *a, **kw: (True, False))
     monkeypatch.setattr(simulator.lap_simulator, "calculate_lap_time",

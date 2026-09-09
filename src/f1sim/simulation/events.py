@@ -422,19 +422,57 @@ class EventManager:
             return 1.0
         return float(-np.expm1(np.log1p(-race_probability) / laps))
 
+    def _incident_subset_probability(
+        self,
+        drivers: list[Driver],
+        exposure_drivers: list[Driver],
+        track: Track,
+        weather: Weather,
+    ) -> float:
+        """Allocate the active field's hazard to a selected active subset.
+
+        Retired entries are ignored. Active IDs must be unique in each list,
+        and every selected ID must exist in the exposure field. Field ratings
+        define the risk weights; this calculation neither samples nor mutates.
+        """
+        selected = [driver for driver in drivers if not driver.dnf]
+        field = [driver for driver in exposure_drivers if not driver.dnf]
+        selected_ids = {driver.id for driver in selected}
+        field_ids = {driver.id for driver in field}
+        if len(selected_ids) != len(selected) or len(field_ids) != len(field):
+            raise ValueError("Incident exposure requires unique active driver IDs")
+        if not selected_ids <= field_ids:
+            raise ValueError("Incident drivers must belong to the active exposure field")
+        if not selected:
+            return 0.0
+        probability = self._incident_probability(field, track, weather)
+        if selected_ids == field_ids:
+            return probability
+        weights = self._incident_driver_weights(field, weather)
+        share = float(sum(weight for driver, weight in zip(field, weights)
+                          if driver.id in selected_ids))
+        return float(-np.expm1(np.log1p(-probability) * share))
+
     def _check_random_incident(
         self,
         drivers: list[Driver],
         track: Track,
         weather: Weather,
         lap: int,
+        *,
+        exposure_drivers: list[Driver] | None = None,
     ) -> RaceEvent | None:
-        """Check for random racing incidents."""
+        """Check incidents, optionally allocating a full field's subset hazard."""
         active_drivers = [d for d in drivers if not d.dnf]
+        incident_prob = (
+            self._incident_subset_probability(drivers, exposure_drivers, track, weather)
+            if exposure_drivers is not None else None
+        )
         if not active_drivers:
             return None
 
-        incident_prob = self._incident_probability(active_drivers, track, weather)
+        if incident_prob is None:
+            incident_prob = self._incident_probability(active_drivers, track, weather)
 
         if self.rng.random() < incident_prob:
             # Drivers with lower consistency are more exposed to spins and

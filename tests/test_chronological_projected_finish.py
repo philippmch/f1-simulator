@@ -102,7 +102,7 @@ def test_long_pit_exit_does_not_project_finished_leader_back_into_traffic(monkey
                         lambda car: 3)
     monkeypatch.setattr(simulator.event_manager, "process_lap", lambda *a, **kw: [])
     monkeypatch.setattr(simulator.event_manager, "_check_mechanical_failure", lambda *a: None)
-    monkeypatch.setattr(simulator.event_manager, "_check_random_incident", lambda *a: None)
+    monkeypatch.setattr(simulator.event_manager, "_check_random_incident", lambda *a, **kw: None)
     monkeypatch.setattr(simulator.overtaking_model, "attempt_overtake",
                         lambda *a, **kw: (True, False))
     monkeypatch.setattr(Weather, "evolve", lambda self, rng: self.model_copy(deep=True))

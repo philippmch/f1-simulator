@@ -21,7 +21,7 @@ def setup(monkeypatch, *, pause=600, laps=3, red=(1,), paces=None, pit=False):
         control.set_forced_red_flag(lap)
     monkeypatch.setattr(control, "_deploy_safety_measure", lambda *a: None)
     monkeypatch.setattr(control, "_check_mechanical_failure", lambda *a: None)
-    monkeypatch.setattr(control, "_check_random_incident", lambda *a: None)
+    monkeypatch.setattr(control, "_check_random_incident", lambda *a, **kw: None)
     monkeypatch.setattr(Weather, "evolve", lambda self, rng: self.model_copy(deep=True))
     monkeypatch.setattr(simulator, "_should_pit", lambda state, states, track, lap, *a, **k:
                         pit and state.driver.id == "B" and lap == 2)
