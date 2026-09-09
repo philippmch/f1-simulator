@@ -1,8 +1,9 @@
 """Deterministic remaining-race dry tyre and pit-cost planning.
 
 Future stops assume green running. Each action includes this lap, and at
-least one lap must be driven on a set before another stop. Traffic, future
-weather and tyre inventory are deliberately outside this projection.
+least one lap must be driven on a set before another stop. Only the current
+lap uses supplied traffic gaps; future traffic, weather and tyre inventory
+are deliberately outside this projection.
 """
 
 import json
@@ -16,6 +17,7 @@ import numpy as np
 from f1sim.models import Car, Driver, Tire, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
 from f1sim.simulation.lap import LapSimulator
+from f1sim.simulation.strategy_traffic import normalize_current_traffic_gaps
 
 SLICKS = (TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD)
 
@@ -27,7 +29,7 @@ class _ScaledDryWeather(Weather):
         return self.pace_scale
 
 
-def _full_row(driver, car, track, tire, age, lap, physical, scale, aero=True):
+def _full_row(driver, car, track, tire, age, lap, physical, scale, aero=True, gap=None):
     driver = driver.model_copy(deep=True)
     simulator = LapSimulator(np.random.default_rng(0))
     weather = _ScaledDryWeather(pace_scale=scale)
@@ -37,6 +39,7 @@ def _full_row(driver, car, track, tire, age, lap, physical, scale, aero=True):
         result.append(simulator.calculate_lap_time(
             driver, car, track, tire, weather, number, physical,
             active_aero_enabled=aero, sample_variation=False,
+            gap_to_car_ahead=gap if number == lap else None,
         ))
     return result
 
@@ -76,7 +79,7 @@ def _floor_tables(models, fresh, physical, scale):
 
 
 def _floor_plan(driver, car, track, tire, age, lap, budget, mask,
-                physical, scale, aero, modifier, lane, queue):
+                physical, scale, aero, modifier, lane, queue, gaps=None):
     projection = driver.model_copy(deep=True)
     projection.reset_race_state()
     projection.id = projection.name = projection.team_id = "projection"
@@ -93,10 +96,10 @@ def _floor_plan(driver, car, track, tire, age, lap, budget, mask,
         wait = min(wait, float(np.min(
             old[:-1] + costs[budget, wait_mask, lap + 1:track.total_laps + 1]
         )))
-    def first(set_tire, set_age):
+    def first(set_tire, set_age, gap):
         return _full_row(projection, car, track, set_tire, set_age,
-                         lap, physical, scale, aero)[0] * modifier
-    wait += first(tire, age) - row[0]
+                         lap, physical, scale, aero, gap)[0] * modifier
+    wait += first(tire, age, gaps[0] if gaps else None) - row[0]
     pit, selected = inf, None
     if budget:
         for c, compound in enumerate(SLICKS):
@@ -107,7 +110,8 @@ def _floor_plan(driver, car, track, tire, age, lap, budget, mask,
                 best = min(best, float(np.min(
                     prefix[:-1] + costs[budget - 1, next_mask, lap + 1:track.total_laps + 1]
                 )))
-            candidate = (best + first(TIRE_COMPOUNDS[compound], 0) - prefix[0]
+            candidate = (best + first(TIRE_COMPOUNDS[compound], 0, gaps[1] if gaps else None)
+                         - prefix[0]
                          + track.pit_lane_delta * lane + expected_stationary_time(car) + queue)
             if candidate < pit:
                 pit, selected = candidate, compound
@@ -215,8 +219,11 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
                   current_lap_time_modifier: float = 1.0,
                   tire_pace_multiplier: float = 1.0,
                   physical_total_laps: int | None = None,
-                  active_aero_enabled: bool = True) -> DryPitDecision:
+                  active_aero_enabled: bool = True, *,
+                  current_traffic_gaps: tuple[float | None, float | None] | None = None,
+                  ) -> DryPitDecision:
     """Compare legal plans using tyre-relative, or floor-clipped absolute, costs."""
+    gaps = normalize_current_traffic_gaps(current_traffic_gaps)
     if remaining_laps < 1 or remaining_stops < 0 or remaining_stops > 3:
         raise ValueError("Positive remaining laps and zero to three stops are required")
     physical = track.total_laps if physical_total_laps is None else physical_total_laps
@@ -234,7 +241,7 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
         return _floor_plan(driver, car, track, current_tire, tire_age, lap,
                            remaining_stops, mask, physical, tire_pace_multiplier,
                            active_aero_enabled, current_lap_time_modifier,
-                           pit_lane_factor, additional_current_stop_cost)
+                           pit_lane_factor, additional_current_stop_cost, gaps)
     # Both compound pace and degradation are linear in reference lap time.
     # Scale only the private tyre-physics key, never the actual track or pit
     # costs. This also isolates differently scaled curves in existing caches.
@@ -283,6 +290,11 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
                 adjusted = green_cost + best + (current_lap_time_modifier - 1) * curve[0]
                 if adjusted < pit_now_cost:
                     pit_now_cost, c = adjusted, candidate
+    if gaps is not None:
+        wait_cost += (LapSimulator.traffic_pace_contribution(gaps[0])
+                      * tire_pace_multiplier * current_lap_time_modifier)
+        pit_now_cost += (LapSimulator.traffic_pace_contribution(gaps[1])
+                         * tire_pace_multiplier * current_lap_time_modifier)
     # A committed teammate affects only this stop, never cached future plans.
     pit_now_cost += track.pit_lane_delta * (pit_lane_factor - 1) + additional_current_stop_cost
     return DryPitDecision(pit_now_cost, wait_cost, SLICKS[c] if c >= 0 else None)

@@ -2,6 +2,7 @@
 
 import copy
 from dataclasses import FrozenInstanceError
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -10,7 +11,10 @@ from f1sim.models import Car, Driver, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
 from f1sim.simulation.pit_strategy import DryPitDecision
 from f1sim.simulation.race import DriverRaceState, RaceSimulator
-from f1sim.simulation.strategy_traffic import StrategyTrafficSnapshot
+from f1sim.simulation.strategy_traffic import (
+    StrategyTrafficSnapshot,
+    normalize_current_traffic_gaps,
+)
 
 
 def fixture(wet=False):
@@ -141,3 +145,53 @@ def test_snapshot_is_immutable():
     snapshot = StrategyTrafficSnapshot(None, 1, -0.25)
     with pytest.raises(FrozenInstanceError):
         snapshot.gap_ahead = 1
+
+
+@pytest.mark.parametrize("gaps", [(True, 1), (float("nan"), 1), (1, float("inf")),
+                                 (-1, None), (1,), "01"])
+def test_current_gap_inputs_reject_invalid_values(gaps):
+    with pytest.raises(ValueError):
+        normalize_current_traffic_gaps(gaps)
+
+
+def test_current_gap_inputs_are_frozen_without_rewriting_clear_air():
+    gaps = [None, 1]
+    normalized = normalize_current_traffic_gaps(gaps)
+    gaps[1] = 3
+    assert normalized == (None, 1.0)
+    assert normalize_current_traffic_gaps(None) is None
+
+
+@pytest.mark.parametrize("path", ["dry", "rain", "transition"])
+@pytest.mark.parametrize("neutral", [None, "safety_car_active", "vsc_active"])
+def test_native_gaps_reach_candidate_physics_without_scalar_double_charge(
+    monkeypatch, path, neutral,
+):
+    sim, own, track, weather = fixture(wet=path != "dry")
+    if path != "dry":
+        own.tire_compound_history = ["intermediate"]
+        weather.track_wetness = weather.rain_intensity = .35
+        monkeypatch.setattr(sim, "_rain_stint_can_be_planned", lambda *a, **k: path == "rain")
+    if neutral:
+        setattr(sim.event_manager, neutral, True)
+    reject_old_gaps(monkeypatch, sim)
+    captured = []
+
+    def plan(*args, **kwargs):
+        captured.append((args, kwargs))
+        return SimpleNamespace(should_pit=lambda *a: False)
+
+    name = {"dry": "plan_dry_stop", "rain": "plan_rain_stop",
+            "transition": "plan_rain_transition"}[path]
+    monkeypatch.setattr(f"f1sim.simulation.race.{name}", plan)
+    snapshot = StrategyTrafficSnapshot(.75, 3, 99, (.75, 1.25))
+    before = copy.deepcopy(sim.rng.bit_generator.state)
+    assert not sim._should_pit(own, [own], track, 17, True, weather,
+                               additional_current_stop_cost=2,
+                               physical_total_laps=70, traffic_snapshot=snapshot)
+    assert len(captured) == 1
+    args, kwargs = captured[0]
+    assert (args[-1] if path == "dry" else kwargs["additional_current_stop_cost"]) == 2
+    assert kwargs.get("current_traffic_gaps") == (None if neutral else (.75, 1.25))
+    assert kwargs["physical_total_laps"] == 70
+    assert sim.rng.bit_generator.state == before

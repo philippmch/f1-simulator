@@ -406,15 +406,35 @@ can gain clean air when the car ahead stops. Strategy decisions and Overtake
 Mode detection retain their pre-stop information. Final position changes still
 use the completed lap clocks, including actual service and on-track running.
 
-During clearly dry green running, the optimizer also compares the first lap's
-dirty-air cost when stopping with that when staying out. It projects the driver's
-expected lane, service and queue loss into the current field, assuming other
-cars stay out. The shared lap model contributes between zero and 0.5 seconds,
-depending on a gap below two seconds; this can move a close timing decision in
-either direction. It does not predict a queue of slower cars over multiple laps,
+During green running, the dry, rain-refit and rain-transition optimizers also
+compare the first lap's dirty-air cost when stopping with that when staying out.
+They retain the current gap and the projected rejoin gap after expected lane,
+service and queue loss. The standard engine assumes other cars stay out; the
+chronological engine also accounts for rivals already in the pit lane through
+their expected exits. The shared lap model contributes between zero and 0.5
+seconds before weather scaling, depending on a gap below two seconds; this can
+move a close timing decision in either direction. It does not predict a queue of slower cars over multiple laps,
 passing opportunities, or rivals' stop decisions. The correction is disabled
 under neutralisation. Expected gaps approximate a nonlinear cost at the mean
 service time; they are not an average over every possible service outcome.
+
+Each retained or freshly fitted candidate receives its respective gap inside
+the current lap calculation, before the minimum lap-time floor and current
+control multiplier. A fast candidate whose clean and dirty laps both hit the
+floor therefore receives no fictitious traffic penalty or escape benefit.
+At the clipping boundary, different compounds can receive different effective
+traffic costs and are compared again before selecting the fitted set. Queue
+delay remains an independent pit cost. Future laps retain the existing
+green, clean-air assumptions and cached cost tables.
+
+For direct Python calls, `current_traffic_gaps=(stay_gap, rejoin_gap)` supplies
+these first-lap observations to the three planners; a gap of `None` means clear
+air. Omitting the option preserves the existing clean-air calculation and
+additive `additional_current_stop_cost` contract. Native engine snapshots
+carry both gaps. Explicit older `StrategyTrafficSnapshot` instances containing
+only a scalar rejoin cost retain their additive behavior. The reactive damp
+fallback remains the separate optimistic cost veto described below; it does
+not claim to optimize the observed rejoin gap.
 
 Clean air's relevance to an undercut is described in Formula 1's
 [pit-strategy analysis](https://www.formula1.com/en/latest/article/jolyon-palmers-analysis-singapore-and-the-art-of-undercutting.1NgVyVsZnHTDEA9wi0s5lW).

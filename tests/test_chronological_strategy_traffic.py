@@ -73,6 +73,9 @@ def test_rejoin_forecast_matches_actual_exit_across_rival_crossings(
     run()
     traffic = engine.simulator.lap_simulator.traffic_pace_contribution
     snapshot = snapshots["A", 2]
+    assert snapshot.current_traffic_gaps == pytest.approx(
+        (snapshot.gap_ahead, running["A", 2]),
+    )
     assert snapshot.rejoin_traffic_cost == pytest.approx(
         traffic(running["A", 2]) - traffic(snapshot.gap_ahead)
     )

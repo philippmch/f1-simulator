@@ -1009,20 +1009,28 @@ class RaceSimulator:
         if lap <= 1:
             return False
 
+        def current_traffic():
+            if (self.event_manager.safety_car_active or self.event_manager.vsc_active
+                    or self.event_manager.red_flag_active):
+                return {}, 0.0
+            if traffic_snapshot is None:
+                gaps = self._pit_rejoin_traffic_gaps(
+                    state, all_states, track, additional_current_stop_cost,
+                )
+            else:
+                gaps = traffic_snapshot.current_traffic_gaps
+                if gaps is None:
+                    # Preserve explicit legacy snapshots that supply only a
+                    # scalar cost. Native engines retain both observed gaps.
+                    return {}, traffic_snapshot.rejoin_traffic_cost
+            return {"current_traffic_gaps": gaps}, 0.0
+
         if dry_planning:
             tire_multiplier = (self.lap_simulator.weather_pace_multiplier(
                 state.driver, state.car, weather,
             ) if weather is not None else 1.0)
-            traffic_cost = 0.0
-            if not (
-                self.event_manager.safety_car_active or self.event_manager.vsc_active
-                or self.event_manager.red_flag_active
-            ):
-                traffic_cost = (
-                    self._pit_rejoin_traffic_cost(
-                        state, all_states, track, additional_current_stop_cost,
-                    ) if traffic_snapshot is None else traffic_snapshot.rejoin_traffic_cost
-                ) * tire_multiplier
+            traffic_options, traffic_cost = current_traffic()
+            traffic_cost *= tire_multiplier
             decision = plan_dry_stop(
                 state.driver, state.car, track, state.current_tire, state.tire_laps,
                 track.total_laps - lap + 1,
@@ -1033,6 +1041,7 @@ class RaceSimulator:
                 tire_pace_multiplier=tire_multiplier,
                 physical_total_laps=physical_total_laps,
                 active_aero_enabled=self.event_manager.is_active_aero_allowed(),
+                **traffic_options,
             )
             timing_bias = {
                 TeamStrategyArchetype.AGGRESSIVE: 0.1,
@@ -1049,13 +1058,10 @@ class RaceSimulator:
                 state, track, weather, lap, weather_intervals,
             )
         ):
-            traffic_cost = 0.0
-            if not (self.event_manager.safety_car_active or self.event_manager.vsc_active):
-                traffic_cost = (
-                    self._pit_rejoin_traffic_cost(
-                        state, all_states, track, additional_current_stop_cost,
-                    ) if traffic_snapshot is None else traffic_snapshot.rejoin_traffic_cost
-                ) * self.lap_simulator.weather_pace_multiplier(state.driver, state.car, weather)
+            traffic_options, traffic_cost = current_traffic()
+            traffic_cost *= self.lap_simulator.weather_pace_multiplier(
+                state.driver, state.car, weather,
+            )
             planner = plan_rain_transition if rain_transition else plan_rain_stop
             decision = planner(
                 state.driver, state.car, track, weather, state.current_tire,
@@ -1066,6 +1072,7 @@ class RaceSimulator:
                 active_aero_enabled=self.event_manager.is_active_aero_allowed(),
                 physical_total_laps=physical_total_laps,
                 weather_intervals=weather_intervals,
+                **traffic_options,
                 **({
                     "remaining_dry_stops": max(
                         0, self._dry_stop_budget(state, track) - state.pit_stops,
@@ -1516,7 +1523,18 @@ class RaceSimulator:
         self, state: DriverRaceState, all_states: list[DriverRaceState],
         track: Track, queue_delay: float = 0.0,
     ) -> float:
-        """One green lap's expected dirty-air difference versus staying out.
+        """Legacy unscaled dirty-air difference; native planning retains gaps."""
+        stay_gap, rejoin_gap = self._pit_rejoin_traffic_gaps(state, all_states, track, queue_delay)
+        return (
+            self.lap_simulator.traffic_pace_contribution(rejoin_gap)
+            - self.lap_simulator.traffic_pace_contribution(stay_gap)
+        )
+
+    def _pit_rejoin_traffic_gaps(
+        self, state: DriverRaceState, all_states: list[DriverRaceState],
+        track: Track, queue_delay: float = 0.0,
+    ) -> tuple[float | None, float | None]:
+        """Expected stay/rejoin gaps for the current green running lap.
 
         Use frozen clocks and expected own service only. Other cars are assumed
         to stay out; this is not a prediction of future traffic or their stops.
@@ -1543,10 +1561,7 @@ class RaceSimulator:
             key=lambda other: other.position, default=None,
         )
         rejoin_gap = None if ahead is None else max(0.0, rejoin_clock - ahead.total_time)
-        return (
-            self.lap_simulator.traffic_pace_contribution(rejoin_gap)
-            - self.lap_simulator.traffic_pace_contribution(stay_gap)
-        )
+        return stay_gap, rejoin_gap
 
     def _get_gap_to_car_ahead(
         self,

@@ -477,6 +477,7 @@ class ChronologicalRace:
             if follower is not None and follower.on_track:
                 behind = max(0.0, follower.ready - now)
         cost = 0.0
+        traffic_gaps = None
         if self.simulator.event_manager.is_active_aero_allowed():
             exit_time = (now + self.track.pit_lane_delta * self.simulator._pit_lane_factor()
                          + expected_stationary_time(state.car) + queue_delay)
@@ -487,9 +488,10 @@ class ChronologicalRace:
                             now=now, flag_time=flag_time,
                         )) is not None]
             rejoin_gap = min(progress) * pace if progress else None
+            traffic_gaps = (ahead, rejoin_gap)
             traffic = self.simulator.lap_simulator.traffic_pace_contribution
             cost = traffic(rejoin_gap) - traffic(ahead)
-        return StrategyTrafficSnapshot(ahead, behind, cost)
+        return StrategyTrafficSnapshot(ahead, behind, cost, traffic_gaps)
 
     def _physical_gap_ahead(self, driver_id, now, reference_pace=None):
         """Time-equivalent forward distance to the circular physical predecessor.

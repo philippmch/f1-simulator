@@ -89,12 +89,15 @@ def test_expected_traffic_can_change_near_tie_without_rng_or_state_mutation(monk
     observed = []
 
     def plan(*args, **kwargs):
-        observed.append(args[-1])
-        return DryPitDecision(10 + args[-1], 10, TireCompound.HARD)
+        stay, rejoin = kwargs["current_traffic_gaps"]
+        observed.append((args[-1], stay, rejoin))
+        return DryPitDecision(10 + LapSimulator.traffic_pace_contribution(rejoin),
+                              10 + LapSimulator.traffic_pace_contribution(stay),
+                              TireCompound.HARD)
 
     monkeypatch.setattr("f1sim.simulation.race.plan_dry_stop", plan)
     assert sim._should_pit(own, field, track(), 10, True, Weather()) is escape
-    assert observed == [pytest.approx(-.25 if escape else .25)]
+    assert observed == [(0, 1 if escape else None, pytest.approx(cost + 1) if escape else 1)]
     assert [(s.total_time, s.position) for s in field] == before
     assert sim.rng.bit_generator.state == rng_before
 

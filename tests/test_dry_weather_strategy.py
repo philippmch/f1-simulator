@@ -79,7 +79,7 @@ def test_private_base_scaling_equals_actual_weather_scaled_tyre_physics(compound
     ) * factor)
 
 
-def test_all_race_planners_forward_weather_and_traffic_scales_without_queue(monkeypatch):
+def test_all_race_planners_forward_weather_and_keep_traffic_separate_from_queue(monkeypatch):
     import f1sim.simulation.race as race_module
 
     state, track = fixture()
@@ -94,10 +94,16 @@ def test_all_race_planners_forward_weather_and_traffic_scales_without_queue(monk
         return plan_dry_stop(*args, **kwargs)
 
     monkeypatch.setattr(race_module, "plan_dry_stop", capture)
-    monkeypatch.setattr(simulator, "_pit_rejoin_traffic_cost", lambda *args: 0.25)
+    monkeypatch.setattr(simulator, "_pit_rejoin_traffic_gaps", lambda *args: (None, 1))
     before = copy.deepcopy(simulator.rng.bit_generator.state)
     simulator._should_pit(state, [state], track, 20, False, weather, 2)
-    assert observed[-1][0][10] == pytest.approx(2 + 0.25 * factor)
+    args, options = observed[-1]
+    assert args[10] == 2
+    assert options["current_traffic_gaps"] == (None, 1)
+    dirty = plan_dry_stop(*args, **options)
+    clean = plan_dry_stop(*args, **{**options, "current_traffic_gaps": None})
+    assert dirty.pit_now_cost - clean.pit_now_cost == pytest.approx(.25 * factor)
+    assert dirty.wait_cost == clean.wait_cost
     simulator._choose_committed_dry_compound(state, track, 20, weather)
     simulator._choose_red_flag_tire(state, weather, track, 20)
     assert simulator.rng.bit_generator.state == before

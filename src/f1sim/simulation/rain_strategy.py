@@ -15,6 +15,7 @@ from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.pit_strategy import expected_stationary_time
+from f1sim.simulation.strategy_traffic import normalize_current_traffic_gaps
 from f1sim.simulation.surface_projection import (
     normalize_weather_intervals,
     projected_surfaces,
@@ -88,7 +89,7 @@ def _fresh_future(models, weather_json, fresh_json, lap, budget, physical, inter
 
 @lru_cache(maxsize=256)
 def _plan(snapshots, tire_age, current_lap, budget, lane, queue, modifier, aero, physical,
-          intervals=None):
+          intervals=None, gaps=None):
     models = snapshots[:3]
     weather_json, retained_json, fresh_json = snapshots[3:]
     car = Car.model_construct(**json.loads(models[1]))
@@ -113,17 +114,19 @@ def _plan(snapshots, tire_age, current_lap, budget, lane, queue, modifier, aero,
         )
     )
     first_old, first_fresh = row[0], fresh_row[0]
-    if not aero:
+    if not aero or gaps is not None:
         driver = Driver.model_validate_json(models[0])
         simulator = LapSimulator(np.random.default_rng(0))
         weather = Weather.model_validate_json(weather_json)
-        def first(tire_json, age):
+        def first(tire_json, age, gap):
             driver.current_tire_laps = age
             return simulator.calculate_lap_time(
                 driver, car, track, Tire.model_validate_json(tire_json), weather,
-                current_lap, physical, active_aero_enabled=False, sample_variation=False,
+                current_lap, physical, active_aero_enabled=aero, sample_variation=False,
+                gap_to_car_ahead=gap,
             )
-        first_old, first_fresh = first(retained_json, tire_age), first(fresh_json, 0)
+        first_old = first(retained_json, tire_age, gaps[0] if gaps else None)
+        first_fresh = first(fresh_json, 0, gaps[1] if gaps else None)
     return RainStopDecision(pit + first_fresh * modifier - fresh_row[0],
                             wait + first_old * modifier - row[0])
 
@@ -134,6 +137,7 @@ def plan_rain_stop(
     additional_current_stop_cost: float = 0.0, current_lap_time_modifier: float = 1.0,
     active_aero_enabled: bool = True, physical_total_laps: int | None = None,
     weather_intervals: tuple[int, ...] | None = None,
+    current_traffic_gaps: tuple[float | None, float | None] | None = None,
 ) -> RainStopDecision:
     """Compare stopping now with driving at least one lap before any stop.
 
@@ -168,6 +172,7 @@ def plan_rain_stop(
         raise ValueError("current_lap_time_modifier must be positive")
     if not isinstance(active_aero_enabled, bool):
         raise ValueError("active_aero_enabled must be boolean")
+    gaps = normalize_current_traffic_gaps(current_traffic_gaps)
     intervals = normalize_weather_intervals(
         track.total_laps - current_lap + 1, weather_intervals, weather=weather,
     )
@@ -183,7 +188,8 @@ def plan_rain_stop(
     return _plan(snapshots, int(tire_age), int(current_lap),
                  min(int(remaining_stops), track.total_laps - current_lap + 1),
                  float(pit_lane_factor), float(additional_current_stop_cost),
-                 float(current_lap_time_modifier), active_aero_enabled, int(physical), intervals)
+                 float(current_lap_time_modifier), active_aero_enabled, int(physical),
+                 intervals, gaps)
 
 
 @dataclass(frozen=True)
@@ -220,7 +226,7 @@ def _remember_transition(key, value):
 
 @lru_cache(maxsize=256)
 def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
-                     modifier, aero, physical, dry_budget, damp_budget, intervals=None):
+                     modifier, aero, physical, dry_budget, damp_budget, intervals=None, gaps=None):
     models = snapshots[:3]
     weather_json, retained_json, tires_json = snapshots[3:]
     track = Track.model_validate_json(models[2])
@@ -326,20 +332,21 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
         for state in missing:
             solve(state)
 
-    def first(tire_json, age):
+    def first(tire_json, age, gap):
         row = _running_row(models, weather_json, tire_json, age, current_lap, physical, intervals)
-        if aero:
+        if aero and gap is None:
             return row[0] * modifier - row[0]
         driver = Driver.model_validate_json(models[0])
         driver.current_tire_laps = age
         simulator = LapSimulator(np.random.default_rng(0))
         actual = simulator.calculate_lap_time(
             driver, car, track, Tire.model_validate_json(tire_json), surfaces[0],
-            current_lap, physical, active_aero_enabled=False, sample_variation=False,
+            current_lap, physical, active_aero_enabled=aero, sample_variation=False,
+            gap_to_car_ahead=gap,
         )
         return actual * modifier - row[0]
 
-    wait += first(retained_json, tire_age)
+    wait += first(retained_json, tire_age, gaps[0] if gaps else None)
     pit, compound = inf, None
     if may_stop(0, retained.compound, budget, dry_budget, damp_budget):
         for candidate in candidates[0]:
@@ -353,7 +360,7 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
             if dependencies:
                 value = solve(state)
             cost = (track.pit_lane_delta * lane + service + queue + value
-                    + first(fresh[candidate], 0))
+                    + first(fresh[candidate], 0, gaps[1] if gaps else None))
             if cost < pit:
                 pit, compound = cost, candidate
     return RainTransitionDecision(pit, wait, compound)
@@ -366,6 +373,7 @@ def plan_rain_transition(
     active_aero_enabled: bool = True, physical_total_laps: int | None = None,
     weather_intervals: tuple[int, ...] | None = None,
     remaining_dry_stops: int | None = None, remaining_damp_stops: int | None = None,
+    current_traffic_gaps: tuple[float | None, float | None] | None = None,
 ) -> RainTransitionDecision:
     """Plan bounded paid stops across rain/slick transitions under fixed rainfall.
 
@@ -408,6 +416,7 @@ def plan_rain_transition(
             isinstance(value, bool) or not isinstance(value, Integral) or value < 0
         ):
             raise ValueError(f"{name} must be a nonnegative integer or None")
+    gaps = normalize_current_traffic_gaps(current_traffic_gaps)
     intervals = normalize_weather_intervals(
         track.total_laps - current_lap + 1, weather_intervals, weather=weather,
     )
@@ -425,5 +434,5 @@ def plan_rain_transition(
         float(pit_lane_factor), float(additional_current_stop_cost),
         float(current_lap_time_modifier), active_aero_enabled, int(physical),
         None if remaining_dry_stops is None else int(remaining_dry_stops),
-        None if remaining_damp_stops is None else int(remaining_damp_stops), intervals,
+        None if remaining_damp_stops is None else int(remaining_damp_stops), intervals, gaps,
     )
