@@ -300,6 +300,13 @@ and lists pit-lane observations, including missing or conflicting evidence.
 See the [report definitions](docs/weather-calibration.md#observed-strategy-evidence)
 before using these observations for calibration.
 
+For qualifying pace evaluation, run
+`python examples/evaluate_qualifying_pace.py --race 13` (or omit `--race` for all
+completed current-season events). This compares predictions built from earlier
+rounds with target Q1 times and a previous-Q1 baseline. See the
+[evaluation scope and metrics](docs/pace-evaluation.md); this separate diagnostic
+does not change live ratings or simulate a historical race.
+
 For controlled strategy comparisons, select **Fixed rainfall** under Weather
 behavior, pass `--weather-mode fixed_rainfall` to the CLI, or set
 `"weather_mode": "fixed_rainfall"` in `/api/run`. This keeps each scenario's

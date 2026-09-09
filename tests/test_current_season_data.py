@@ -1476,3 +1476,69 @@ def test_current_venue_profiles_use_active_aero_and_neutral_fallback() -> None:
     )
     fallback = loader._venue_profile({"circuit_id": "a-current-replacement"})
     assert fallback["active_aero"] == 2
+
+
+def test_supplied_driver_evidence_assembly_is_pure_and_matches_live(monkeypatch):
+    import copy
+
+    getter = FakeGetter()
+    loader = CurrentSeasonDataLoader(current_year=CURRENT_YEAR, http_getter=getter)
+    assembled = loader._build_driver_stats
+    captured = {}
+
+    def capture(**kwargs):
+        captured.update(copy.deepcopy(kwargs))
+        return assembled(**kwargs)
+
+    monkeypatch.setattr(loader, "_build_driver_stats", capture)
+    live = loader.get_weighted_driver_stats(CURRENT_YEAR, 4)
+    before_inputs = copy.deepcopy(captured)
+    cache_names = ("_driver_stats", "_track_stats", "_calendar", "_roster",
+                   "_driver_standings", "_constructor_standings", "_round_results",
+                   "_round_qualifying", "_season_results", "_season_qualifying", "_fetched_at")
+    before_caches = {name: copy.deepcopy(getattr(loader, name)) for name in cache_names}
+    before_urls = list(getter.urls)
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Supplied evidence assembly must not fetch or read live evidence")
+
+    for name in ("_event_for_race", "get_official_roster", "_load_season_rows", "_season_data",
+                 "_round_data", "_standings"):
+        monkeypatch.setattr(loader, name, unexpected)
+    direct = assembled(**captured)
+    assert direct == live
+    assert captured == before_inputs
+    assert {name: getattr(loader, name) for name in cache_names} == before_caches
+    assert getter.urls == before_urls
+    first_id = next(iter(direct))
+    direct[first_id].driver_skill_rating = .01
+    assert assembled(**captured) == live
+    assert loader._driver_stats == live
+
+
+def test_static_track_assembly_ignores_primed_live_cache_and_fetching(monkeypatch):
+    import copy
+
+    getter = FakeGetter()
+    loader = CurrentSeasonDataLoader(current_year=CURRENT_YEAR, http_getter=getter)
+    event = loader._event_for_race(CURRENT_YEAR, 4)
+    event["completed"] = True
+    profile_lap = float(loader._venue_profile(event)["lap"])
+    calibrated = loader._track_stats_from_event(CURRENT_YEAR, event, fastest_lap=profile_lap - 10)
+    loader._track_stats[calibrated.track_id] = calibrated
+    before_event = copy.deepcopy(event)
+    before_cache = copy.deepcopy(loader._track_stats)
+    before_urls = list(getter.urls)
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Static venue assembly must not read target results")
+
+    monkeypatch.setattr(loader, "_round_data", unexpected)
+    static = loader._track_stats_from_event(CURRENT_YEAR, event)
+    assert static.fastest_lap == static.avg_lap_time == profile_lap
+    assert static != calibrated
+    assert loader._track_stats == before_cache
+    assert event == before_event
+    assert getter.urls == before_urls
+    static.fastest_lap = 1
+    assert loader._track_stats_from_event(CURRENT_YEAR, event).fastest_lap == profile_lap

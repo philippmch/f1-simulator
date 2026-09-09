@@ -2487,6 +2487,22 @@ class CurrentSeasonDataLoader:
         target_qualifying_rows = [
             row for row in all_qualifying_rows if _as_int(row.get("round")) == target_round
         ]
+        stats = self._build_driver_stats(
+            year=year, target_event=target_event, roster=roster,
+            driver_standings=driver_standings, constructor_standings=constructor_standings,
+            race_rows=race_rows, quali_rows=quali_rows,
+            target_qualifying_rows=target_qualifying_rows,
+            track_weight=track_weight, form_weight=form_weight, quali_weight=quali_weight,
+        )
+        self._driver_stats = stats
+        return copy.deepcopy(stats)
+
+    def _build_driver_stats(
+        self, *, year, target_event, roster, driver_standings, constructor_standings,
+        race_rows, quali_rows, target_qualifying_rows, track_weight, form_weight, quali_weight,
+    ) -> dict[str, DriverStats]:
+        """Assemble fresh models from supplied evidence without fetching or caching."""
+        target_round = int(target_event["round"])
         # Map each current roster seat to a stable provider-independent key.
         standings_map = self._standings_driver_map(driver_standings)
         active, aliases_to_id = self._build_active_driver_map(roster, standings_map)
@@ -2755,8 +2771,7 @@ class CurrentSeasonDataLoader:
                 source=self.SOURCE,
                 fetched_at=self._fetched_at,
             )
-        self._driver_stats = stats
-        return copy.deepcopy(stats)
+        return stats
 
     def get_driver_lap_stats(
         self, year: int, races: list[str | int] | None = None
@@ -2783,7 +2798,6 @@ class CurrentSeasonDataLoader:
             return copy.deepcopy(self._track_stats[track_id])
         profile = self._venue_profile(event)
         fastest = float(profile["lap"])
-        total_laps = int(profile["laps"])
         if event.get("completed"):
             try:
                 rows, _ = self._round_data(year, int(event["round"]))
@@ -2813,6 +2827,20 @@ class CurrentSeasonDataLoader:
                 # Configuration remains sufficient for a just-published or
                 # temporarily unavailable result endpoint.
                 pass
+        stats = self._track_stats_from_event(year, event, fastest_lap=fastest)
+        self._track_stats[track_id] = stats
+        return copy.deepcopy(stats)
+
+    def _track_stats_from_event(self, year, event, *, fastest_lap=None) -> TrackStats:
+        """Build a fresh venue model without consulting live result/cache state.
+
+        Omitted fastest_lap uses the static venue profile, including when a
+        completed target's live calibrated track model is already cached.
+        """
+        track_id = str(event.get("circuit_id") or event.get("slug") or f"round_{event['round']}")
+        profile = self._venue_profile(event)
+        fastest = float(profile["lap"]) if fastest_lap is None else float(fastest_lap)
+        total_laps = int(profile["laps"])
         avg_lap = float(fastest if fastest > 0 else profile["lap"])
         stats = TrackStats(
             track_id=track_id,
@@ -2838,8 +2866,7 @@ class CurrentSeasonDataLoader:
             source=self.SOURCE,
             fetched_at=self._fetched_at,
         )
-        self._track_stats[track_id] = stats
-        return copy.deepcopy(stats)
+        return stats
 
     def _venue_profile(self, event: Mapping[str, Any]) -> Mapping[str, float | int]:
         candidates = [
