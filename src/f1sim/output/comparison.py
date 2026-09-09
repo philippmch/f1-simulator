@@ -37,9 +37,16 @@ def _weather(result: SimulationResults) -> str:
     condition = weather.get("condition", "Not recorded")
     if isinstance(condition, Enum):
         condition = condition.value
+    policy = snapshot.get("rng_policy", "shared_v1")
+    randomness = (
+        "independent of race decisions" if policy == "isolated_weather_v1"
+        else "shared with race events (legacy)" if policy == "shared_v1"
+        else "not recorded"
+    )
     return (f'{condition}; rain {percent("rain_intensity")}; '
             f'surface wetness {percent("track_wetness")}; '
-            f'weather change {percent("change_probability")}/lap')
+            f'weather change {percent("change_probability")}/lap; '
+            f'weather draws {randomness}')
 
 
 def render_comparison_report(
@@ -235,6 +242,10 @@ records appear separately. Sequence frequencies do not measure which strategy
 is best. A requested opening tyre may be replaced before lap one.</p>
 <p>Individual 95% Wilson intervals describe sampling uncertainty,
 not real-world accuracy or intervals of differences between scenarios.
-Equal seeds do not freeze later race events.</p>""" + (
+Equal seeds do not freeze later race events.</p>
+<p>With independent weather draws, matching weather inputs and seeds give the
+same sequence over shared weather-update intervals. Those intervals can occur
+at different elapsed times, and a shorter race records a shorter sequence.
+Legacy shared draws can change the weather when race decisions change.</p>""" + (
         "".join(sections) or "<p>No driver outcomes recorded.</p>"
     ) + "</main></body></html>"

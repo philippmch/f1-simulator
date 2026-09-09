@@ -470,7 +470,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         for (const [name, scenario] of Object.entries(saved.scenarios)) {
           assert.deepEqual(scenario.simulation_inputs, payload.scenarios[name].simulation_inputs);
           assert.deepEqual(scenario.strategy_statistics, payload.scenarios[name].strategy_statistics);
-          assert.equal(scenario.simulation_inputs.schema_version, 1);
+          assert.equal(scenario.simulation_inputs.schema_version, 2);
+          assert.equal(scenario.simulation_inputs.rng_policy, 'isolated_weather_v1');
         }
       } else if (extension === '.html') {
         const report = readFileSync(await download.path(), 'utf8');

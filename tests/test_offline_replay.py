@@ -87,7 +87,7 @@ def test_invalid_metadata(saved, field, value):
 
 
 @pytest.mark.parametrize("field,value", [
-    ("schema_version", True), ("schema_version", 2), ("schema_version", 1.0),
+    ("schema_version", True), ("schema_version", 3), ("schema_version", 1.0),
     ("drivers", {}), ("drivers", [None]), ("cars", []), ("cars", {"0": None}),
     ("track", []), ("weather", None), ("runtime", []),
     ("track", {"id": "t", "name": "T", "country": "T", "total_laps": -1}),

@@ -43,8 +43,11 @@ def test_default_standard_preserves_legacy_worker_results():
     )
     legacy_race, legacy_quali, _ = _run_single_simulation((*serialized(values), 42))
     assert default == explicit
-    assert default.race_results == [legacy_race]
-    assert default.qualifying_results == [legacy_quali]
+    shared = MonteCarloRunner(*values, seed=42, rng_policy="shared_v1").run(
+        1, parallel=False,
+    )
+    assert shared.race_results == [legacy_race]
+    assert shared.qualifying_results == [legacy_quali]
     assert default.race_engine == "standard"
     assert RACE_ENGINES == ("standard", "chronological")
 

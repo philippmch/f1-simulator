@@ -7,6 +7,7 @@ from pathlib import Path
 from f1sim.analysis.montecarlo import MonteCarloRunner, SimulationResults
 from f1sim.analysis.replay import _load_saved_runner
 from f1sim.models.tire import TireCompound
+from f1sim.simulation.randomness import validate_rng_policy
 
 
 def compare_saved_race_engines(
@@ -17,12 +18,16 @@ def compare_saved_race_engines(
     num_simulations: int = 100,
     parallel: bool = False,
     max_workers: int | None = None,
+    rng_policy: str | None = None,
 ) -> dict[str, SimulationResults]:
     """Run ordered engine variants using identical saved models and seed ranges.
 
     Uses installed simulation code without fetching live inputs. Matching seeds
     preserve qualifying inputs but do not guarantee matched random race events.
+    The saved RNG policy is retained unless explicitly overridden for all variants.
     """
+    if rng_policy is not None:
+        rng_policy = validate_rng_policy(rng_policy)
     for name, value in (("num_simulations", num_simulations), ("max_workers", max_workers)):
         if name == "max_workers" and value is None:
             continue
@@ -51,6 +56,7 @@ def compare_saved_race_engines(
             runner.track.model_copy(deep=True), runner.weather.model_copy(deep=True),
             seed=runner.base_seed, race_engine=label,
             starting_tires=runner.starting_tires.copy(),
+            rng_policy=runner.rng_policy if rng_policy is None else rng_policy,
         )
         results[label] = variant.run(
             int(num_simulations), parallel=parallel,
@@ -68,12 +74,16 @@ def compare_saved_starting_tires(
     num_simulations: int = 100,
     parallel: bool = False,
     max_workers: int | None = None,
+    rng_policy: str | None = None,
 ) -> dict[str, SimulationResults]:
     """Run ordered variants, retaining all other drivers' saved tyre overrides.
 
     Each variant starts at the saved base seed; subsequent adaptive race choices
     remain enabled. Matching seeds do not guarantee matched random race events.
+    The saved RNG policy is retained unless explicitly overridden for all variants.
     """
+    if rng_policy is not None:
+        rng_policy = validate_rng_policy(rng_policy)
     for name, value in (("num_simulations", num_simulations), ("max_workers", max_workers)):
         if name == "max_workers" and value is None:
             continue
@@ -110,6 +120,7 @@ def compare_saved_starting_tires(
             {key: car.model_copy(deep=True) for key, car in runner.cars.items()},
             runner.track.model_copy(deep=True), runner.weather.model_copy(deep=True),
             seed=runner.base_seed, race_engine=runner.race_engine, starting_tires=overrides,
+            rng_policy=runner.rng_policy if rng_policy is None else rng_policy,
         )
         results[label] = variant.run(
             int(num_simulations), parallel=parallel,

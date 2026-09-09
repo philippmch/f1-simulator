@@ -44,7 +44,11 @@ def test_empty_override_preserves_seeded_defaults_and_legacy_worker(engine):
     six = _run_single_simulation(args + (engine,))
     seven = _run_single_simulation(args + (engine, {}))
     assert six == seven
-    assert six[0] == baseline.race_results[0]
+    shared = runner(engine)
+    shared.rng_policy = "shared_v1"
+    assert six[0] == shared.run(1, parallel=False).race_results[0]
+    current = _run_single_simulation(args + (engine, {}, "isolated_weather_v1"))
+    assert current[0] == baseline.race_results[0]
     if engine == "standard":
         assert _run_single_simulation(args) == six
 

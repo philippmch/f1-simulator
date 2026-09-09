@@ -81,7 +81,8 @@ def test_dashboard_real_runner_propagates_engine_to_each_scenario(
         distance = scenario["race_distance_statistics"]
         assert distance["recorded_races"] == 10
         assert distance["mean_winner_laps"] == 3
-        assert scenario["simulation_inputs"]["schema_version"] == 1
+        assert scenario["simulation_inputs"]["schema_version"] == 2
+        assert scenario["simulation_inputs"]["rng_policy"] == "isolated_weather_v1"
         assert scenario["simulation_inputs"]["track"]["total_laps"] == 3
         replay = replay_saved_simulation(saved, scenario["sample_index"] + 1, name)
         assert server._serialize_sample_race(replay) == scenario["sample_race"]
@@ -108,7 +109,7 @@ def test_cli_real_runner_records_selected_engine_in_exports(monkeypatch, tmp_pat
     assert [entry["seed"] for entry in scenarios.values()] == [42, 1042]
     assert all(entry["race_distance_statistics"]["recorded_races"] == 1
                for entry in scenarios.values())
-    assert all(entry["simulation_inputs"]["schema_version"] == 1
+    assert all(entry["simulation_inputs"]["schema_version"] == 2
                for entry in scenarios.values())
     assert all(entry["simulation_inputs"]["starting_tires"] == {"A": "hard"}
                for entry in scenarios.values())

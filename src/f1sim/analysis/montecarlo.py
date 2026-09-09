@@ -25,6 +25,11 @@ from f1sim.simulation.race import (
 )
 from f1sim.simulation.race_points import POINTS_SYSTEM as POINTS_SYSTEM
 from f1sim.simulation.race_points import points_for_result
+from f1sim.simulation.randomness import (
+    DEFAULT_RNG_POLICY,
+    validate_rng_policy,
+    weather_rng_for_trial,
+)
 from f1sim.simulation.validation import validate_unique_ids
 
 
@@ -560,21 +565,27 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
 
     Args:
         args: Tuple of (drivers_data, cars_data, track_data, weather_data, seed,
-            race_engine, starting_tires). Legacy five/six-item calls retain defaults.
+            race_engine, starting_tires, rng_policy). Legacy five/six/seven-item
+            calls retain the shared random stream.
 
     Returns:
         Tuple of (race_results, qualifying_results, event_counts)
     """
     starting_tires = None
+    rng_policy = "shared_v1"
     if len(args) == 5:
         drivers_data, cars_data, track_data, weather_data, seed = args
         race_engine = "standard"
     elif len(args) == 6:
         drivers_data, cars_data, track_data, weather_data, seed, race_engine = args
-    else:
+    elif len(args) == 7:
         (drivers_data, cars_data, track_data, weather_data, seed,
          race_engine, starting_tires) = args
+    else:
+        (drivers_data, cars_data, track_data, weather_data, seed,
+         race_engine, starting_tires, rng_policy) = args
     race_engine = validate_race_engine(race_engine)
+    rng_policy = validate_rng_policy(rng_policy)
 
     # Reconstruct objects from serializable data
     drivers = [Driver.model_validate(d) for d in drivers_data]
@@ -595,7 +606,9 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     starting_grid = quali_sim.get_starting_grid(quali_results)
 
     # Run race
-    race_sim = RaceSimulator(rng=rng)
+    race_sim = RaceSimulator(
+        rng=rng, weather_rng=weather_rng_for_trial(seed, rng, rng_policy),
+    )
     simulate = (
         ChronologicalRace(race_sim).run
         if race_engine == "chronological" else race_sim.simulate_race
@@ -656,6 +669,7 @@ class MonteCarloRunner:
         seed: int | None = None,
         race_engine: str = "standard",
         starting_tires: dict[str, str | TireCompound] | None = None,
+        rng_policy: str = DEFAULT_RNG_POLICY,
     ):
         """Initialize Monte Carlo runner.
 
@@ -667,8 +681,10 @@ class MonteCarloRunner:
             seed: Random seed for reproducibility
             race_engine: Standard lap loop or experimental chronological execution
             starting_tires: Explicit opening compounds by driver ID; omitted drivers use policy
+            rng_policy: Versioned shared or independent weather random streams
         """
         self.race_engine = validate_race_engine(race_engine)
+        self.rng_policy = validate_rng_policy(rng_policy)
         validate_unique_ids((driver.id for driver in drivers), "drivers")
         self.starting_tires = validate_starting_tires(starting_tires, (d.id for d in drivers))
         self.drivers = drivers
@@ -713,6 +729,7 @@ class MonteCarloRunner:
             max_workers = int(max_workers)
 
         validate_unique_ids((driver.id for driver in self.drivers), "drivers")
+        rng_policy = validate_rng_policy(self.rng_policy)
         starting_tires = validate_starting_tires(
             self.starting_tires, (driver.id for driver in self.drivers),
         )
@@ -723,12 +740,13 @@ class MonteCarloRunner:
         track_data = self.track.model_dump()
         weather_data = self.weather.model_dump()
         input_snapshot = {
-            "schema_version": 1,
+            "schema_version": 2,
             "drivers": deepcopy(drivers_data),
             "cars": deepcopy(cars_data),
             "track": deepcopy(track_data),
             "weather": deepcopy(weather_data),
             "starting_tires": starting_tires.copy(),
+            "rng_policy": rng_policy,
             "runtime": simulation_runtime(),
         }
 
@@ -737,7 +755,7 @@ class MonteCarloRunner:
 
         args_list = [
             (drivers_data, cars_data, track_data, weather_data, seed,
-             self.race_engine, starting_tires)
+             self.race_engine, starting_tires, rng_policy)
             for seed in seeds
         ]
 

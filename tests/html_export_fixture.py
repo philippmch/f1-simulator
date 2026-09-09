@@ -4,6 +4,7 @@ import json
 from tempfile import TemporaryDirectory
 
 from f1sim.analysis.montecarlo import DriverStatistics, SimulationResults
+from f1sim.models import Weather
 from f1sim.output.export import Exporter
 from f1sim.simulation.race import DriverStatus, RaceResult
 
@@ -21,7 +22,9 @@ def build_fixture():
                                   strategy=["soft", script, "soft"])]], qualifying_results=[],
         driver_stats={driver: DriverStatistics(driver_id=driver, driver_name=driver, team=team,
                                             wins=1, positions=[1], total_points=25)},
-        input_snapshot={"starting_tires": {driver: "soft"}},
+        input_snapshot={"starting_tires": {driver: "soft"},
+                        "weather": Weather().model_dump(),
+                        "rng_policy": "isolated_weather_v1"},
     )
     with TemporaryDirectory() as directory:
         exporter = Exporter(directory)

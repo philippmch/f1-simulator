@@ -82,6 +82,12 @@ counts. Changing a tyre choice can change later random draws and race events;
 equal seeds do not hold those events fixed across different strategies. Live
 runs also reload ratings, so compare saved inputs when checking which inputs changed.
 
+New runs draw evolving weather independently of race decisions. With matching
+weather inputs and seeds, tyre choices and pit-service draws no longer change
+the weather sequence. This alignment is by shared weather-update interval,
+not elapsed seconds; shorter races can record fewer intervals. Incidents,
+traffic and adaptive race decisions can still differ between strategies.
+
 Use `--export` only when you explicitly want files for the newly simulated run:
 
 ```powershell
@@ -122,6 +128,13 @@ require matching model code, dependencies and runtime behavior. Snapshots do not
 archive executable code or runtime monkeypatches, and replay does not claim to
 reproduce a real race. Ordinary live runs still fetch current-season inputs.
 
+New snapshots use schema version 2 and require `rng_policy`; new runs use
+`isolated_weather_v1`. Earlier installations reject this new schema instead
+of silently using the wrong random streams.
+Older snapshots without this field replay with `shared_v1`, which preserves
+the former shared weather/race draw sequence. Python callers can select
+either policy with `MonteCarloRunner(..., rng_policy=...)`.
+
 Compare one driver's opening choices against the same saved inputs, offline:
 
 ```powershell
@@ -147,6 +160,14 @@ results; each metric shows its own recorded counts. Replay a trial from the comp
 `--scenario hard`, for example.
 The source file is unchanged. Comparisons use installed simulator code and share
 the replay limitations above. Use `--parallel --max-workers 4` for process workers.
+
+Both saved-input comparison commands retain the source's random-stream policy
+by default. Add `--independent-weather` to compare older saved inputs under
+independent weather draws. The policy applies to every variant and is recorded
+in each exported snapshot; the source file is unchanged. Python comparison
+functions accept `rng_policy="isolated_weather_v1"` for the same override.
+The console and HTML report identify whether weather draws are independent
+of race decisions or shared with race events.
 
 You can also compare the Standard and experimental Lap-aware engines against
 the same saved models, weather behavior, starting tyres and base seed:

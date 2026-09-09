@@ -61,6 +61,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     assert.equal(await page.locator('script, img, svg, link').count(), 0);
     assert.equal(await page.locator('details[open]').count(), 1);
     assert((await page.locator('body').innerText()).includes(fixture.track));
+    assert((await page.getByRole('region', {name: 'Scenario context', exact: true}).innerText())
+      .includes('weather draws independent of race decisions'));
     assert((await page.locator('details').first().innerText()).includes(fixture.driver));
     assert((await page.locator('details').first().innerText()).includes('Not recorded'));
     assert((await page.locator('details').first().innerText()).includes('100.0%'));

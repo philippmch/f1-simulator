@@ -136,14 +136,18 @@ class RaceSimulator:
         rng: np.random.Generator | None = None,
         strategy_tuning: dict[str, float] | None = None,
         strategy_profiles: dict[str, dict[str, float]] | None = None,
+        *,
+        weather_rng: np.random.Generator | None = None,
     ):
         """Initialize race simulator.
 
         Args:
             rng: Random number generator
             strategy_tuning: Optional strategy threshold overrides
+            weather_rng: Independent weather stream; omitted callers share rng
         """
         self.rng = rng if rng is not None else np.random.default_rng()
+        self.weather_rng = weather_rng if weather_rng is not None else self.rng
         self.weather_history: list[dict] = []
         self.lap_simulator = LapSimulator(rng=self.rng)
         self.overtaking_model = OvertakingModel(rng=self.rng)
@@ -562,7 +566,7 @@ class RaceSimulator:
             # The initial weather snapshot was used unchanged on lap one.
             # Evolve only when another lap will actually consume the result.
             if lap < final_lap:
-                current_weather = current_weather.evolve(self.rng)
+                current_weather = current_weather.evolve(self.weather_rng)
                 if red_flag_deployed_this_lap:
                     restart_final_lap = forecast_final_lap(
                         final_lap, lap, leader.total_time,

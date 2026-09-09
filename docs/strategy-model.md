@@ -101,10 +101,28 @@ The comparison reports outcome rates and points per race, with a 95% Wilson
 interval for each win rate. These intervals measure Monte Carlo sampling
 uncertainty within the model. Matching seeds preserve qualifying, but changes
 in race decisions can consume random draws differently, so incidents and later
-events are not held fixed between variants. This is a comparison of opening
+events are not held fixed between variants. New runs use an independent weather
+stream, so strategy choices cannot alter rainfall simply by consuming different
+race draws. With matching seeds and weather inputs, the recorded weather
+histories share the same prefix by weather-update interval. They are not aligned
+by elapsed seconds, and retirements or timed finishes can shorten the history.
+This is a comparison of opening
 policies under the saved model, not a ranking of complete pit schedules or a
 claim about real-race optimality. Exported variants contain their own inputs
 and can be replayed using the installed simulator implementation.
+
+The saved `rng_policy` makes this behavior explicit. `isolated_weather_v1`
+retains the usual seeded qualifying/race generator and derives a separate
+weather generator from `SeedSequence(seed, spawn_key=(0x57454154,))`. That fixed
+namespace separates weather from race draws without advancing the race stream.
+`shared_v1` retains the former single generator. New snapshots use schema 2 and
+require an explicit policy, so older installations reject the unsupported
+schema. Replay and comparison still accept schema 1 and infer `shared_v1` when
+its policy field is absent; unknown policies are rejected.
+Comparisons inherit the saved policy unless `--independent-weather` is supplied
+(or the Python `rng_policy` override). This changes all variants together and
+records the new policy for replay. Direct `RaceSimulator` callers retain their
+shared generator unless they supply a separate `weather_rng`.
 
 Combined JSON exports retain each scenario's observed driver counts, rate
 intervals, points per observed race and paid-stop statistics. The offline HTML

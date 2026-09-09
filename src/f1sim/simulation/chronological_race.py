@@ -664,7 +664,7 @@ class ChronologicalRace:
             control.end_red_flag()  # A completed race has no restart.
         if (self.timeline.chequered_time is None
                 and any(state.status == DriverStatus.RACING for state in self.states.values())):
-            self.weather = self.weather.evolve(self.simulator.rng)
+            self.weather = self.weather.evolve(self.simulator.weather_rng)
             # Shared leading intervals, not an individual car's completed distance.
             self.simulator._record_weather(self.control_intervals + 1, self.weather)
 

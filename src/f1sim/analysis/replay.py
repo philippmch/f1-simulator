@@ -65,8 +65,8 @@ def _load_saved_runner(
     if not isinstance(inputs, dict):
         raise ValueError("simulation_inputs must be an object")
     version = inputs.get("schema_version")
-    if type(version) is not int or version != 1:
-        raise ValueError("Unsupported simulation input schema_version; expected 1")
+    if type(version) is not int or version not in (1, 2):
+        raise ValueError("Unsupported simulation input schema_version; expected 1 or 2")
     if not isinstance(metadata, dict):
         raise ValueError("Saved metadata must be an object")
     seed = _integer(metadata.get("seed"), "seed", 0)
@@ -91,4 +91,5 @@ def _load_saved_runner(
         Weather.model_validate(inputs["weather"]), seed=seed,
         race_engine=engine,
         starting_tires=inputs.get("starting_tires"),
+        rng_policy=inputs.get("rng_policy", "shared_v1" if version == 1 else None),
     ), count
