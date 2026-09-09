@@ -357,6 +357,10 @@ access. It generates deterministic synthetic results using the real simulation
 and serializer, and intercepts all browser requests. `PYTHON` selects the Python
 executable when it is not available as `python`. CI runs this offline check in
 Chromium and runs the Python suite on Linux (3.11 and 3.12) and Windows (3.12).
+The browser job uses the official Playwright container with preinstalled browser
+and OS dependencies. Keep its image version and the job's npm Playwright version
+aligned when upgrading. Browser setup therefore does not update unrelated apt
+repositories supplied by the hosted runner.
 
 `node tests/browser_html_exports.cjs` also runs offline and is included in CI.
 It opens real report and history exports with markup-like names, checks local
