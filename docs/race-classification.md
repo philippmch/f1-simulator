@@ -91,8 +91,10 @@ can make its estimated finish distance wrong; it is recalculated each lap.
 The [chronological crossing design](chronological-race-design.md) describes the
 finish-controller foundation and the remaining scheduler integration.
 If every car retires, there is no modeled winner and no classification or points.
-The simulation records the final retirement lap and stops; subsequent scheduled
-laps do not evolve weather or generate race-control events. An empty usable grid
+The simulation records the final retirement incidents and stops. It does not
+deploy new SC, VSC or red flags once that lap has no survivors, including forced
+signals scheduled for the retirement lap. Subsequent scheduled laps do not
+evolve weather or generate race-control events. An empty usable grid
 likewise produces no laps or events, after resetting state from the previous run.
 Zero-lap retirements are always unclassified. These conventions must not be
 interpreted as a complete implementation of FIA race-ending regulations.

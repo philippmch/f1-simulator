@@ -561,7 +561,11 @@ class ChronologicalRace:
             defender = self.states[defender_id]
             defender_lap = self.pending[defender_id]
             success = incident = False
-            if (not self.regrouping and not pending.neutralized and not defender_lap.neutralized
+            control = self.simulator.event_manager
+            passing_allowed = not (self.regrouping or pending.neutralized
+                                   or defender_lap.neutralized or control.safety_car_active
+                                   or control.vsc_active or control.red_flag_active)
+            if (passing_allowed
                     and pending.lap > defender_lap.lap):
                 # This encounter puts the physical predecessor another lap
                 # down. Model compliant yielding at the lap-level catch point;
@@ -569,7 +573,7 @@ class ChronologicalRace:
                 # A same-lap attack or unlapping attempt still needs a pass.
                 self.order[index - 1], self.order[index] = driver_id, defender_id
                 continue
-            if (not self.regrouping and not pending.neutralized and not defender_lap.neutralized
+            if (passing_allowed
                     and defender_id not in pending.attempted):
                 pending.attempted.add(defender_id)
                 # Earlier unconstrained readiness means the car has caught its
@@ -612,6 +616,7 @@ class ChronologicalRace:
                               if other.status == DriverStatus.RACING)
         leading = (self.timeline.chequered_time is None
                    and pending.lap > active_distance)
+        red = self._leader_interval(pending) if leading else False
         crossing = self.timeline.observe_crossing(driver_id, pending.lap, now, is_leader=leading)
         state.laps_completed = pending.lap
         state.total_time = now
@@ -633,7 +638,7 @@ class ChronologicalRace:
         self._positions()
         if leading:
             self.leader_id = driver_id
-            self._leader_interval(state, now, pending)
+            self._after_leader_crossing(now, red)
         return True
 
     def _positions(self):
@@ -643,7 +648,7 @@ class ChronologicalRace:
         for position, state in enumerate(ordered, 1):
             state.position = position
 
-    def _leader_interval(self, leader, now, pending):
+    def _leader_interval(self, pending):
         control = self.simulator.event_manager
         # Leadership can pass to a lapped survivor. Race-control cadence still
         # advances once per leading interval rather than replaying its old laps.
@@ -656,15 +661,15 @@ class ChronologicalRace:
         ) for event in events)
         self.green_streak = 0 if neutral else self.green_streak + 1
         self.has_two_green |= self.green_streak >= 2
-        red = any(event.event_type == EventType.RED_FLAG for event in events)
+        return any(event.event_type == EventType.RED_FLAG for event in events)
+
+    def _after_leader_crossing(self, now, red):
         if red and self.timeline.chequered_time is None:
             self.timeline.begin_suspension(now)
             self.regrouping = True
             self.red_flag_start = now
             self.resumption_order = self._red_flag_order()
             self.free_refits.update(self.resumption_order)
-        elif red:
-            control.end_red_flag()  # A completed race has no restart.
         if (self.timeline.chequered_time is None
                 and any(state.status == DriverStatus.RACING for state in self.states.values())):
             self.weather = self.weather.evolve(self.simulator.weather_rng)

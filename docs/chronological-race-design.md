@@ -109,6 +109,11 @@ empirically calibrated value. A slower follower cannot exceed its free pace to
 join the queue. VSC applies its running-time modifier without this compression.
 These are lap-resolution approximations; changes do not rewrite pending laps'
 starting control snapshots.
+An active SC, VSC or red flag immediately prohibits on-track passing and
+blue-flag yielding, including encounters between cars that started under green.
+Already completed passes retain their physical order. A lap started under
+neutralization keeps its passing restriction through that crossing even if the
+signal clears meanwhile; sector-level restart timing is not modeled.
 An unrun paid lap held at a closed pit exit is an exception: its tyre and control
 snapshot is replaced at the shared red-flag restart before its first physics call.
 
@@ -147,6 +152,15 @@ with the leader first. Once the winner takes the flag, other cars remain racing
 until their own next crossing or retirement. A car cannot start another lap
 after its own finish. Retirement must not manufacture a crossing or a winner.
 This layer is used by the experimental scheduler but not the production loop.
+
+Race control resolves the completed leading interval before recording its
+crossing and possible chequered flag. Final-interval SC, VSC and red flags still
+count in the event ledger and break the green-lap sequence used for points.
+Their passing restriction remains active for trailing cars. Pending running
+times retain their starting conditions, so those cars finish at their actual
+next crossings without instantaneous gap compression. A final red flag does
+not open a suspension, fit tyres or generate restart state. If the last running
+car retires, no new leading interval or control deployment is generated.
 
 A timed final-lap announcement now belongs to the next authoritative leading
 crossing. If the leader retires, a same-distance or lapped successor takes the

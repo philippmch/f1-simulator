@@ -146,7 +146,7 @@ class EventManager:
 
         Args:
             lap: Current lap number
-            drivers: Active drivers
+            drivers: Field to sample, or an empty list for race-control-only updates
             cars: Dictionary of cars by team_id
             track: Current track
             weather: Current weather
@@ -215,11 +215,20 @@ class EventManager:
             not self._lap_started_neutralized
             and not self.safety_car_active
             and not self.vsc_active
+            and any(not driver.dnf for driver in drivers)
         ):
             random_incident = self._check_random_incident(drivers, track, weather, lap)
             if random_incident:
                 lap_events.append(random_incident)
                 incidents_this_lap += 1
+
+        # A supplied field losing its last survivor ends the race. Keep the
+        # retirement incidents, but do not deploy fresh control for an empty
+        # track. An empty input is the chronological engine's intentional
+        # control-only call; that caller owns its individual retirement checks.
+        if drivers and not any(not driver.dnf for driver in drivers):
+            self.events.extend(lap_events)
+            return lap_events
 
         # Check for forced red flag
         if (
