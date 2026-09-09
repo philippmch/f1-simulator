@@ -309,12 +309,19 @@ class EventManager:
             + weakest_component_rel * 0.15
         )
 
-        # Distribute reliability risk across race distance.
-        base = (1.0 - effective_reliability) / max(track.total_laps, 1)
+        if effective_reliability >= 1.0:
+            return 0.0
+        if effective_reliability <= 0.0:
+            return 1.0
 
         # Cars are more likely to fail late in races.
-        race_progress = max(lap, 1) / max(track.total_laps, 1)
+        distance = max(track.total_laps, 1)
+        race_progress = max(lap, 1) / distance
         progression_modifier = 0.85 + 0.35 * race_progress
+        # Normalize the scheduled progression weights analytically. With
+        # neutral stress/temperature, multiplying all lap survivals recovers
+        # the combined reliability exactly, including low reliability values.
+        progression_total = 0.85 * distance + 0.35 * (distance + 1) / 2
 
         # Tire-stress tracks tend to be harder on components.
         stress_modifier = 0.9 + 0.25 * track.tire_stress
@@ -325,7 +332,9 @@ class EventManager:
             cooling_penalty = 1.0 + (1.0 - car.cooling_reliability) * 0.8
             temp_modifier += min((weather.track_temperature - 45.0) * 0.01, 0.25) * cooling_penalty
 
-        return base * progression_modifier * stress_modifier * temp_modifier
+        hazard_share = progression_modifier / progression_total
+        return float(-np.expm1(np.log(effective_reliability) * hazard_share
+                              * stress_modifier * temp_modifier))
 
     def _check_mechanical_failure(
         self,

@@ -237,6 +237,9 @@ def main() -> int:
         print("Starting tyres: " + ", ".join(f"{key}={value}"
                                              for key, value in starting_tires.items()))
     cars = loader.create_cars_from_stats(driver_stats)
+    if all(getattr(stats, "team_reliability_source", None) == "model_prior"
+           for stats in driver_stats.values()):
+        print("Mechanical reliability uses a model prior; retirement causes are not identified.")
     track = loader.create_track_from_stats(track_stats)
 
     # Set up weather (default to dry)

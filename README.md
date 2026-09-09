@@ -6,7 +6,7 @@ A Formula 1 race simulator whose live runs use **only the current UTC season**. 
 
 - Fetches the current active calendar from Jolpica, including mid-season cancellations and replacement venues.
 - Fetches the official 22-seat lineup from Formula1.com so reserve, former, and FP-only drivers do not enter the grid.
-- Calibrates driver form, team pace, and reliability from completed races in the current season only.
+- Calibrates driver form and team pace from completed current-season races, retaining observed finish rates separately from mechanical reliability assumptions.
 - Simulates qualifying for every run; a completed event's real grid or result is never replayed.
 - Runs completed and future current-season venues. Future races use the live event identity plus circuit physics configuration and current-season form.
 - Keeps fetched F1 data in short-lived memory only. It does not create a data cache or silently fall back to an older season.
@@ -24,6 +24,11 @@ Retirements retain completed distance and can still qualify for points under the
 Both engines apply driver consistency and wet skill to relative random-incident
 risk. Lap-aware execution allocates the active field's risk to each car's own
 lap; see [incident exposure and model assumptions](docs/weather-calibration.md).
+
+Live mechanical reliability uses an explicit model prior because generic
+retirement statuses do not identify failure causes. Its lap hazards reproduce
+the configured combined survival probability at neutral stress; see
+[mechanical reliability assumptions](docs/mechanical-reliability.md).
 
 The terminology and operating model follow Formula 1's [official 2026 regulations explainer](https://corp.formula1.com/f1-2026-regulations-terminology-update/) and the FIA's [2026 technical overview](https://www.fia.com/news/f1s-new-era-everything-you-need-know-about-how-fia-making-formula-1-more-competitive-more).
 

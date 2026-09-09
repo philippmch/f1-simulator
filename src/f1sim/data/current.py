@@ -26,7 +26,7 @@ from datetime import date, datetime, timezone
 from html.parser import HTMLParser
 from statistics import median
 from types import MappingProxyType
-from typing import Any, Callable, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Literal, Mapping, Sequence
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
@@ -52,6 +52,9 @@ MAX_HTTP_TIMEOUT = 120.0
 MAX_HTTP_RESPONSE_BYTES = 8 * 1024 * 1024
 HTTP_READ_CHUNK_BYTES = 64 * 1024
 RESULT_ROUND_COMPLETENESS = 0.8
+# Generic result statuses do not identify hardware failures. This is a model
+# prior, not an estimate fitted to the observed all-cause non-finish rate.
+NOMINAL_MECHANICAL_RELIABILITY = 0.95
 
 
 class CurrentSeasonDataError(RuntimeError):
@@ -90,7 +93,14 @@ class DriverStats(BaseModel):
     wet_skill_modifier: float = Field(default=1.0, ge=0.5, le=1.5)
     overtaking_skill: float = Field(default=0.8, ge=0.0, le=1.0)
     tire_management: float = Field(default=0.8, ge=0.0, le=1.0)
-    team_reliability: float = Field(default=0.95, ge=0.0, le=1.0)
+    team_reliability: float = Field(
+        default=NOMINAL_MECHANICAL_RELIABILITY, ge=0.0, le=1.0,
+        description="Nominal mechanical survival input, separate from observed finish rate",
+    )
+    team_reliability_source: Literal["model_prior", "provided"] = "provided"
+    team_finish_rate: float | None = Field(default=None, ge=0.0, le=1.0)
+    team_result_count: int = Field(default=0, ge=0)
+    team_finished_count: int = Field(default=0, ge=0)
     constructor_points: float = Field(default=0.0, ge=0)
     current_season_starts: int = Field(default=0, ge=0)
     classified_finishes: int = Field(default=0, ge=0)
@@ -2635,9 +2645,9 @@ class CurrentSeasonDataLoader:
             else:
                 team_rating[team_id] = 0.86
 
-        # Reliability belongs to the constructor that entered each car in
-        # the sampled round. A transferred driver's earlier failure must not
-        # be reassigned to the team they drive for today.
+        # Observed finish rates belong to the constructor that entered each
+        # result. They describe all causes, including non-starts, and cannot
+        # identify the mechanical failures simulated separately from accidents.
         team_starts: dict[str, int] = defaultdict(int)
         team_classified_finishes: dict[str, int] = defaultdict(int)
         for row in race_rows:
@@ -2691,10 +2701,10 @@ class CurrentSeasonDataLoader:
             classified = sum(1 for row in rows if self._classified(row))
             dnf_rate = (starts - classified) / starts if starts else 0.0
             constructor_starts = team_starts.get(team_id, 0)
-            team_reliability = (
+            team_finish_rate = (
                 team_classified_finishes.get(team_id, 0) / constructor_starts
                 if constructor_starts
-                else 0.95
+                else None
             )
             constructor_row = constructor_map.get(_normalise_text(team_id))
             constructor_points = team_points.get(team_id, 0.0)
@@ -2732,7 +2742,11 @@ class CurrentSeasonDataLoader:
                 # Pace is already represented by driver skill; tyre management
                 # follows consistency only to avoid double-counting speed.
                 tire_management=float(max(0.7, min(1.0, consistency))),
-                team_reliability=float(team_reliability),
+                team_reliability=NOMINAL_MECHANICAL_RELIABILITY,
+                team_reliability_source="model_prior",
+                team_finish_rate=team_finish_rate,
+                team_result_count=constructor_starts,
+                team_finished_count=team_classified_finishes.get(team_id, 0),
                 constructor_points=float(constructor_points),
                 current_season_starts=starts,
                 classified_finishes=classified,

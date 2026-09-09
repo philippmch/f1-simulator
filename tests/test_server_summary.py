@@ -6,6 +6,8 @@ import pytest
 
 import f1sim.web.server as server_module
 from f1sim.data import CurrentSeasonDataError
+from f1sim.data.current import DriverStats
+from f1sim.models import Car, Driver
 from f1sim.web.server import (
     DashboardRunRequest,
     _representative_sample_index,
@@ -15,6 +17,23 @@ from f1sim.web.server import (
     build_dashboard_html,
     run_dashboard_simulation,
 )
+
+
+@pytest.mark.parametrize("source,actual,component,expected", [
+    ("model_prior", 0.95, 0.95, "model_prior"),
+    ("model_prior", 0.8, 0.95, "provided"),
+    ("provided", 0.95, 0.95, "provided"),
+    ("model_prior", 0.95, 0.8, "provided"),
+])
+def test_car_snapshot_reports_its_mechanical_assumption(source, actual, component, expected):
+    driver = Driver(id="A", name="A", team_id="team")
+    stats = DriverStats(driver_id="A", driver_name="A", team_id="team", team_name="Team",
+                        team_reliability=0.95, team_reliability_source=source)
+    car = Car(team_id="team", team_name="Team", reliability=actual)
+    car.brakes_reliability = component
+    snapshot = server_module._serialize_ratings_snapshot([driver], {"team": car}, {"A": stats})
+    assert snapshot["cars"][0]["reliability_source"] == expected
+    assert snapshot["cars"][0]["reliability"] == actual
 
 
 def test_track_payload_uses_2026_active_aero_terms() -> None:

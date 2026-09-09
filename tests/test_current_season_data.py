@@ -1066,7 +1066,10 @@ def test_form_rows_use_their_own_constructor_for_transferred_teammates(monkeypat
     )
 
 
-def test_reliability_stays_with_each_rows_constructor_after_transfer(monkeypatch) -> None:
+@pytest.mark.parametrize("non_finish", ["Retired", "Collision", "Did not start", "Engine"])
+def test_finish_evidence_stays_with_its_constructor_and_is_not_mechanical_risk(
+    monkeypatch, non_finish,
+) -> None:
     roster = [
         {"id": "ALC", "name": "Alice Current", "team_name": "Team B"},
         {"id": "BOB", "name": "Bob Current", "team_name": "Team B"},
@@ -1086,7 +1089,7 @@ def test_reliability_stays_with_each_rows_constructor_after_transfer(monkeypatch
 
     result_rows = []
     for position, code, team, status in (
-        (1, "ALC", "Team A", "Retired"),
+        (1, "ALC", "Team A", non_finish),
         (2, "BOB", "Team B", "Finished"),
         (3, "CAR", "Team A", "Finished"),
         (4, "DAN", "Team A", "Finished"),
@@ -1129,12 +1132,39 @@ def test_reliability_stays_with_each_rows_constructor_after_transfer(monkeypatch
     )
     cars = loader.create_cars_from_stats(stats)
 
-    assert stats["ALC"].team_reliability == pytest.approx(1.0)
-    assert stats["BOB"].team_reliability == pytest.approx(1.0)
-    assert stats["CAR"].team_reliability == pytest.approx(2 / 3)
-    assert stats["DAN"].team_reliability == pytest.approx(2 / 3)
-    assert cars["team_b"].reliability == pytest.approx(1.0)
-    assert cars["team_a"].reliability == pytest.approx(0.7)
+    assert stats["ALC"].team_finish_rate == pytest.approx(1.0)
+    assert stats["BOB"].team_finish_rate == pytest.approx(1.0)
+    assert stats["CAR"].team_finish_rate == pytest.approx(2 / 3)
+    assert stats["DAN"].team_finish_rate == pytest.approx(2 / 3)
+    assert stats["ALC"].team_result_count == 1
+    assert stats["CAR"].team_result_count == 3
+    assert stats["CAR"].team_finished_count == 2
+    assert stats["ALC"].dnf_rate == 1.0  # Personal all-cause evidence remains available.
+    for item in stats.values():
+        assert item.team_reliability_source == "model_prior"
+        assert item.team_reliability == pytest.approx(0.95)
+    for car in cars.values():
+        assert car.reliability == pytest.approx(0.95)
+        assert set(car.component_reliability_map().values()) == {0.95}
+
+    no_form = loader.get_weighted_driver_stats(CURRENT_YEAR, "Target Grand Prix", form_races=0)
+    for item in no_form.values():
+        assert item.team_finish_rate is None
+        assert item.team_result_count == item.team_finished_count == 0
+        assert item.team_reliability == 0.95
+        assert item.team_reliability_source == "model_prior"
+
+
+def test_explicit_mechanical_reliability_inputs_still_create_configured_cars():
+    loader = CurrentSeasonDataLoader(current_year=CURRENT_YEAR, http_getter=lambda *a, **k: {})
+    stats = current_module.DriverStats(
+        driver_id="A", driver_name="A", team_id="team", team_name="Team",
+        team_reliability=0.8, team_finish_rate=0.1,
+    )
+    car = loader.create_cars_from_stats({"A": stats})["team"]
+    assert stats.team_reliability_source == "provided"
+    assert car.reliability == 0.8
+    assert set(car.component_reliability_map().values()) == {0.8}
 
 
 def test_incomplete_or_identity_less_rounds_do_not_enter_form_or_provenance(monkeypatch) -> None:

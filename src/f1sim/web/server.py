@@ -315,12 +315,21 @@ def _serialize_ratings_snapshot(
 
     cars_out = []
     for car in cars.values():
+        team_stats = [stats for stats in driver_stats.values()
+                      if getattr(stats, "team_id", None) == car.team_id]
+        uses_prior = bool(team_stats) and all(
+            getattr(stats, "team_reliability_source", None) == "model_prior"
+            and abs(getattr(stats, "team_reliability", -1) - car.reliability) < 1e-12
+            for stats in team_stats
+        ) and all(abs(value - car.reliability) < 1e-12
+                  for value in car.component_reliability_map().values())
         cars_out.append(
             {
                 "team": car.team_name,
                 "team_key": _normalize_team_id(car.team_id),
                 "base_pace": round(car.base_pace, 4),
                 "reliability": round(car.reliability, 4),
+                "reliability_source": "model_prior" if uses_prior else "provided",
                 "engine_reliability": round(car.engine_reliability, 4),
                 "gearbox_reliability": round(car.gearbox_reliability, 4),
                 "brakes_reliability": round(car.brakes_reliability, 4),

@@ -1967,13 +1967,16 @@ function renderCarTable(ratings) {
   }
 
   return `
+    ${cars.some(car => car.reliability_source === 'model_prior')
+      ? '<div class="inline-note">Mechanical reliability uses a model prior. Reported retirements do not identify mechanical failures.</div>'
+      : ''}
     <div class="stats-table-wrap">
       <table class="metrics-table">
         <thead>
           <tr>
             <th>Team</th>
             <th>Pace</th>
-            <th>Rel</th>
+            <th>Mech Rel</th>
             <th>Wet</th>
             <th>Tire Deg</th>
             <th>Pit Avg</th>
