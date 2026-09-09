@@ -11,7 +11,7 @@ from f1sim.simulation.race import RaceSimulator, TeamStrategyArchetype
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])
 def test_drying_race_skips_redundant_intermediate_stop(monkeypatch, engine):
-    def run(legacy_bypass):
+    def run(redundant_refit):
         elapsed = 0
 
         def evolve(weather, rng):
@@ -41,18 +41,13 @@ def test_drying_race_skips_redundant_intermediate_stop(monkeypatch, engine):
         sim.lap_simulator.calculate_pit_stop_time = expected_stationary_time
         sim._infer_team_strategy = lambda *a: TeamStrategyArchetype.BALANCED
         sim._plan_pit_lap_options = lambda *a: [[17]]
-        if legacy_bypass:
-            current_check = sim._weather_stop_can_pay
+        if redundant_refit:
+            current_check = sim._should_pit
 
-            def old_check(state, track, weather, lap, *args, **kwargs):
-                surface = weather
-                for _ in range(track.total_laps - lap + 1):
-                    if surface.tire_mismatch(state.current_tire.compound) == "critical":
-                        return True
-                    surface = surface.project_surface()
-                return current_check(state, track, weather, lap, *args, **kwargs)
+            def extra_stop(state, states, track, lap, *args, **kwargs):
+                return lap == 17 or current_check(state, states, track, lap, *args, **kwargs)
 
-            sim._weather_stop_can_pay = old_check
+            sim._should_pit = extra_stop
         execute = sim.simulate_race if engine == "standard" else ChronologicalRace(sim).run
         return execute([driver], {"A": car}, track, weather, ["A"],
                        starting_tires={"A": TireCompound.INTERMEDIATE})[0]

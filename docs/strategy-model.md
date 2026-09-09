@@ -1,9 +1,11 @@
 # Strategy model and limits
 
-The simulator combines a dry-race cost optimizer with seeded, reactive weather
-strategy. It optimizes the modeled remaining dry race within the allowed stop
-budget, including a required compound-correction stop; it does not claim to find
-the fastest strategy for a real race.
+The simulator combines dry-race and rain-stint cost optimization with reactive
+decisions for slicks in changing conditions. It compares modeled remaining tyre
+and pit costs within the allowed stop budget, including required corrections.
+Rain-stint plans also consider compound transitions under persistent rainfall
+and the modeled surface response. These are conditional model calculations,
+not claims to find the fastest strategy for a real race.
 
 All team styles can evaluate up to three paid stops in dry running, using fewer
 when further tyre gains do not cover pit loss. Previous paid stops, including
@@ -446,7 +448,9 @@ while the existing clock reconciliation charges blocked running without
 removing elapsed race time.
 
 Critical weather and damage stops retain priority. A noncritical weather
-mismatch does not by itself justify a stop. Before the existing reaction draw,
+mismatch does not by itself justify a stop. Rain sets with completed wet-tyre
+use follow the cost planners described below. For the remaining reactive paths,
+before the existing reaction draw,
 the simulator estimates whether tyre gains over the remaining race can cover
 expected pit-lane, stationary and queue loss. Reactive wet/damp pit-window
 proposals, including SC/VSC opportunities, pass this same cost veto after the
@@ -556,17 +560,52 @@ persists and replans after each lap; it does not forecast random weather changes
 future incidents, future traffic, or tyre inventory. It compares clean-air pace
 for both actions, with only the immediate rejoin adjustment. This is an optimum
 within the same-compound projection and budget, not a claim of globally optimal
-wet-race strategy. If the projected fresh compound changes, the reactive
-compound-transition strategy remains in use.
+wet-race strategy.
 
-In that reactive fallback, wet/damp planned windows are consumed once. After the selected plan is exhausted,
+If the projected fresh compound changes, a car that has actually completed
+running on rain tyres compares compound-changing schedules instead. The search
+can retain its current set while noncritical, fit the appropriate fresh rain
+compound, or choose among soft, medium and hard when the surface allows a fresh
+slick. It compares stopping now with running at least one more lap before any
+stop, including later paid refits and their tyre ageing. It therefore can wait
+for slicks instead of buying a short intermediate stint, or move to slicks
+before the retained rain set becomes critical. Elective opening-lap stops remain
+disabled; fitting an unused rain set does not itself earn a dry-use exemption.
+
+The four-stop rain allowance remains available while the car runs rain tyres,
+including on a drying surface below wetness 0.3. It no longer drops to the
+ordinary short-race allowance before an intermediate-to-slick stop. Previous
+paid stops count toward it; after fitting slicks, the applicable dry or damp
+policy determines subsequent decisions. The transition search counts all paid
+fits against the allowance and restricts later stops on slicks to the applicable
+dry or damp limit. A permitted fourth rain-to-slick stop cannot claim another
+elective slick refit afterward. Mandatory
+replacements of critically unsuitable sets remain available after that allowance
+is exhausted, and their lane and service costs still count. Each new set runs
+on its fitting lap before another stop is possible. Only today's stop receives
+the known queue/rejoin adjustment and SC/VSC lane discount; only today's running
+lap receives current control and aero restrictions. Fuel follows the original
+scheduled distance even with a shorter planning horizon. The selected slick is
+carried into paid execution, with weather eligibility checked again; a newer
+rain requirement overrides it.
+
+Both engines re-evaluate this plan using their observed weather and remaining
+distance. Future green, clean-air running and persistent rainfall remain
+assumptions. The plan does not anticipate random weather changes, pit queues,
+later strategy-style changes, or the actual time of a lapped finish.
+Its optimum is bounded by these assumptions and fresh-set eligibility. Slicks
+in damp conditions still use the reactive policy until clearly dry running
+enables the dry optimizer.
+
+In the remaining reactive fallback, wet/damp planned windows are consumed once.
+After the selected plan is exhausted,
 it cannot fall through to another generic late-race window. When no explicit
 plan exists, the generic schedule offers at most two stops (or one when the
 ordinary budget is one). The higher wet stop allowance still permits reactive
 weather changes and SC/VSC opportunities; it does not repeat the second window.
 This prevents fresh intermediates being replaced again on consecutive laps
-solely because the car remains inside the same calendar window. Compound-changing
-fallback timing remains a heuristic.
+solely because the car remains inside the same calendar window. The remaining
+fallback timing is a heuristic.
 
 The fallback compound comparison assumes the stop has already been chosen;
 the dry optimizer additionally includes pit loss. The dry optimizer omits common
@@ -605,6 +644,19 @@ Run `python examples/check_pit_timing.py` to compare the chosen strategy with
 every permitted one-stop lap and unused compound in controlled synthetic
 30-lap full races. This also checks pit execution and tyre ageing, not just
 the optimizer's own cost calculation.
+
+Run `python examples/check_weather_transitions.py` to compare the adaptive rain
+policy with bounded schedules executed by both engines (`--engine standard` or
+`--engine chronological` selects one). The synthetic cases cover intermediates
+on a drying surface at two lane costs, wet-to-intermediate-to-slick running,
+and increasing rainfall. Every safe eligible schedule within a two-stop
+allowance is executed, including compulsory replacements after it is exhausted.
+The cases use mean lap pace, expected service, evolving surface wetness, and no
+incidents or traffic. JSON output records the inputs, checked schedule count,
+chosen and best executed results, and their time difference. The eight-lap
+drying case previously waited until lap eight; the transition planner changes
+on lap three, saving about 24.95 model seconds without an additional stop.
+This is a regression example under synthetic physics, not a real-race estimate.
 
 Run `python examples/check_dry_pit_schedules.py` for a broader bounded dry
 comparison in both engines (`--engine standard` or `--engine chronological`

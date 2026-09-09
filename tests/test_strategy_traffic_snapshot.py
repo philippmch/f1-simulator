@@ -79,8 +79,10 @@ def test_weather_scales_only_green_traffic_and_queue_cost_is_preserved(monkeypat
 
 
 @pytest.mark.parametrize("behind,expected", [(None, False), (30, True)])
-def test_wet_free_stop_window_uses_snapshot_gap(monkeypatch, behind, expected):
-    sim, own, track, weather = fixture(wet=True)
+def test_damp_slick_free_stop_window_uses_snapshot_gap(monkeypatch, behind, expected):
+    sim, own, track, weather = fixture()
+    weather.track_wetness = .19
+    own.tire_compound_history = ["soft", "medium"]
     reject_old_gaps(monkeypatch, sim)
     # Isolate the traffic trigger; a separate cost check can reject its stop.
     monkeypatch.setattr(sim, "_weather_stop_can_pay", lambda *a, **k: True)
@@ -93,8 +95,10 @@ def test_wet_free_stop_window_uses_snapshot_gap(monkeypatch, behind, expected):
 
 
 @pytest.mark.parametrize("ahead,expected", [(None, False), (1, True)])
-def test_wet_undercut_uses_snapshot_gap(monkeypatch, ahead, expected):
-    sim, own, track, weather = fixture(wet=True)
+def test_damp_slick_undercut_uses_snapshot_gap(monkeypatch, ahead, expected):
+    sim, own, track, weather = fixture()
+    weather.track_wetness = .19
+    own.tire_compound_history = ["soft", "medium"]
     reject_old_gaps(monkeypatch, sim)
     monkeypatch.setattr(sim, "_weather_stop_can_pay", lambda *a, **k: True)
     monkeypatch.setattr(sim, "rng", type("Threshold", (), {"random": lambda self: 0.3})())

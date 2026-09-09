@@ -47,14 +47,23 @@ def test_rain_planner_can_act_outside_windows_with_remaining_budget(monkeypatch,
     assert sim.rng.bit_generator.state == before
 
 
-def test_projected_drying_uses_fallback_instead_of_same_compound_planner(monkeypatch):
+def test_projected_drying_uses_compound_transition_planner(monkeypatch):
     sim, state, track, weather = fixture()
     weather.rain_intensity = 0
     weather.condition = WeatherCondition.CLOUDY
     monkeypatch.setattr("f1sim.simulation.race.plan_rain_stop",
                         lambda *a, **k: pytest.fail("Drying needs compound transitions"))
+    calls = []
+
+    def transition(*args, **kwargs):
+        calls.append((args, kwargs))
+        return SimpleNamespace(should_pit=lambda: True, compound=TireCompound.SOFT)
+
+    monkeypatch.setattr("f1sim.simulation.race.plan_rain_transition", transition)
     assert not sim._rain_stint_can_be_planned(state, track, weather, 10)
-    sim._should_pit(state, [state], track, 10, False, weather)
+    assert sim._should_pit(state, [state], track, 10, False, weather)
+    assert len(calls) == 1
+    assert state.weather_pit_proposal == (10, TireCompound.SOFT)
 
 
 def test_critical_mismatch_and_budget_keep_priority(monkeypatch):

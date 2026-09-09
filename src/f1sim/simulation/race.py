@@ -14,7 +14,7 @@ from f1sim.simulation.overtaking import OvertakingModel
 from f1sim.simulation.pit_strategy import expected_stationary_time, plan_dry_stop
 from f1sim.simulation.race_points import points_for_classification
 from f1sim.simulation.race_timing import RaceFinishClock, forecast_final_lap
-from f1sim.simulation.rain_strategy import plan_rain_stop
+from f1sim.simulation.rain_strategy import plan_rain_stop, plan_rain_transition
 from f1sim.simulation.strategy_traffic import StrategyTrafficSnapshot
 from f1sim.simulation.validation import validate_unique_ids
 from f1sim.simulation.weather_strategy import weather_stop_costs
@@ -69,6 +69,7 @@ class DriverRaceState:
     laps_completed: int = 0
     last_crossing_position: int | None = None
     pit_stop_details: list[dict] = field(default_factory=list)
+    weather_pit_proposal: tuple[int, TireCompound] | None = None
 
     def __post_init__(self) -> None:
         """Seed tyre history from the driver's actual starting set."""
@@ -909,12 +910,18 @@ class RaceSimulator:
     ) -> bool:
         """Decide if driver should pit this lap."""
         state.dry_pit_proposal = None
+        state.weather_pit_proposal = None
+        rain_transition = (
+            weather is not None and lap > 1 and self._has_used_wet_compound(state)
+            and state.current_tire.compound in {TireCompound.INTERMEDIATE, TireCompound.WET}
+            and not self._rain_stint_can_be_planned(state, track, weather, lap)
+        )
         # CRITICAL: Force pit if tires are completely wrong for conditions
         if weather is not None:
             tire_mismatch = self._check_tire_weather_mismatch(state.current_tire, weather)
             if tire_mismatch == "critical":
                 return True  # Must pit immediately
-            elif tire_mismatch == "suboptimal":
+            elif tire_mismatch == "suboptimal" and not rain_transition:
                 dry_rule_satisfied = self._stay_satisfies_tire_rule(state)
                 if (
                     dry_rule_satisfied
@@ -965,8 +972,13 @@ class RaceSimulator:
         # must not exclude a faster legal schedule before it is evaluated.
         max_stops = (self._dry_stop_budget(state, track) if dry_planning
                      else self._ordinary_stop_budget(state, track))
-        if weather is not None and weather.track_wetness > 0.3:
-            max_stops = max(max_stops, 4)  # Allow more stops in changing conditions
+        if weather is not None and (
+            weather.track_wetness > 0.3
+            or state.current_tire.compound in {TireCompound.INTERMEDIATE, TireCompound.WET}
+        ):
+            # Retain the rain-stint allowance while the surface dries. Dropping
+            # it at 0.3 would block a forecast intermediate-to-slick transition.
+            max_stops = max(max_stops, 4)
 
         # The dry-race regulation is about two distinct slick compounds,
         # not simply a stop count.  Keep one additional stop available when
@@ -1027,7 +1039,9 @@ class RaceSimulator:
                 return True
             return False
 
-        if weather is not None and self._rain_stint_can_be_planned(state, track, weather, lap):
+        if weather is not None and (
+            rain_transition or self._rain_stint_can_be_planned(state, track, weather, lap)
+        ):
             traffic_cost = 0.0
             if not (self.event_manager.safety_car_active or self.event_manager.vsc_active):
                 traffic_cost = (
@@ -1035,7 +1049,8 @@ class RaceSimulator:
                         state, all_states, track, additional_current_stop_cost,
                     ) if traffic_snapshot is None else traffic_snapshot.rejoin_traffic_cost
                 ) * self.lap_simulator.weather_pace_multiplier(state.driver, state.car, weather)
-            return plan_rain_stop(
+            planner = plan_rain_transition if rain_transition else plan_rain_stop
+            decision = planner(
                 state.driver, state.car, track, weather, state.current_tire,
                 state.tire_laps, lap, max_stops - state.pit_stops,
                 pit_lane_factor=self._pit_lane_factor(),
@@ -1043,9 +1058,22 @@ class RaceSimulator:
                 current_lap_time_modifier=self.event_manager.get_lap_time_modifier(),
                 active_aero_enabled=self.event_manager.is_active_aero_allowed(),
                 physical_total_laps=physical_total_laps,
-            ).should_pit()
+                **({
+                    "remaining_dry_stops": max(
+                        0, self._dry_stop_budget(state, track) - state.pit_stops,
+                    ),
+                    "remaining_damp_stops": max(
+                        0, self._ordinary_stop_budget(state, track) - state.pit_stops,
+                    ),
+                } if rain_transition else {}),
+            )
+            if decision.should_pit():
+                if rain_transition:
+                    state.weather_pit_proposal = (lap, decision.compound)
+                return True
+            return False
 
-        # Changing compound requirements retain the reactive fallback windows.
+        # Slicks in damp conditions retain the reactive fallback windows.
         if lap <= 5 or lap >= track.total_laps - 5:
             return False
 
@@ -1415,9 +1443,17 @@ class RaceSimulator:
         # Choose new tire compound
         weather_compound = self._choose_weather_compound(weather)
         proposal = state.dry_pit_proposal
+        weather_proposal = state.weather_pit_proposal
         state.dry_pit_proposal = None
+        state.weather_pit_proposal = None
         if weather_compound is not None:
             new_compound = weather_compound
+        elif (
+            weather_proposal is not None and weather_proposal[0] == current_lap
+            and weather_proposal[1] in {TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD}
+            and self._has_used_wet_compound(state)
+        ):
+            new_compound = weather_proposal[1]
         elif (
             proposal is not None and proposal[0] == current_lap
             and weather.track_wetness < 0.08 and weather.rain_intensity < 0.15
@@ -1951,6 +1987,7 @@ class RaceSimulator:
             # set resolves it without charging another stop on the restart.
             state.force_pit_next_lap = False
             state.dry_pit_proposal = None
+            state.weather_pit_proposal = None
 
     def _choose_red_flag_tire(
         self, state: DriverRaceState, weather: Weather, track: Track, current_lap: int,

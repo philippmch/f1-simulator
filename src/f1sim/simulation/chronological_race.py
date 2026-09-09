@@ -151,6 +151,7 @@ class ChronologicalRace:
         self.simulator._fit_tire(state, compound)
         state.force_pit_next_lap = False
         state.dry_pit_proposal = None
+        state.weather_pit_proposal = None
         self.free_refits.remove(state.driver.id)
 
     def _red_flag_order(self):
