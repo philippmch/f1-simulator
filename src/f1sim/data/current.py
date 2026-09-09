@@ -2605,20 +2605,57 @@ class CurrentSeasonDataLoader:
                         )
                         target[driver_id].append(driver_delta)
 
-        group_relative(
-            quali_rows,
-            self._row_qualifying_time,
-            True,
-            driver_qual_delta,
-            team_recent_qual,
-        )
-        group_relative(
-            target_qualifying_rows,
-            self._row_qualifying_time,
-            True,
-            driver_track_delta,
-            team_target_qual,
-        )
+        def qualifying_relative(rows, driver_target, team_target):
+            # Session progression changes track conditions and which drivers
+            # remain. Compare teams in one broad session, and teammates in
+            # their latest shared session, never best laps across sessions.
+            rounds = defaultdict(lambda: defaultdict(dict))
+            for row in rows:
+                driver_id = self._resolve_row_driver(row, aliases_to_id)
+                team = self._row_team_id(row)
+                if not driver_id or team is None:
+                    continue
+                sessions = {}
+                for session in ("Q1", "Q2", "Q3"):
+                    raw = _first(row, session)
+                    if isinstance(raw, Mapping):
+                        raw = _first(raw, "time")
+                    if isinstance(raw, bool):
+                        continue
+                    value = _parse_time_seconds(raw)
+                    if value is not None and math.isfinite(value) and value > 0:
+                        sessions[session] = value
+                number = _as_int(row.get("round"), 0) or 0
+                existing = rounds[number][team].setdefault(driver_id, {})
+                for session, value in sessions.items():
+                    existing[session] = min(existing.get(session, value), value)
+            for teams in rounds.values():
+                for session in ("Q1", "Q2", "Q3"):
+                    observed = {driver_id for drivers in teams.values()
+                                for driver_id, times in drivers.items() if session in times}
+                    if not self._near_complete(len(observed), len(active)):
+                        continue
+                    reference = median(times[session] for drivers in teams.values()
+                                       for times in drivers.values() if session in times)
+                    for team, drivers in teams.items():
+                        values = [times[session] for times in drivers.values() if session in times]
+                        if values:
+                            team_target[team].append((reference - median(values)) / reference)
+                    break
+                for drivers in teams.values():
+                    for session in ("Q3", "Q2", "Q1"):
+                        shared = [(driver_id, times[session])
+                                  for driver_id, times in drivers.items()
+                                  if session in times]
+                        if len(shared) < 2:
+                            continue
+                        reference = median(value for _, value in shared)
+                        for driver_id, value in shared:
+                            driver_target[driver_id].append((reference - value) / reference)
+                        break
+
+        qualifying_relative(quali_rows, driver_qual_delta, team_recent_qual)
+        qualifying_relative(target_qualifying_rows, driver_track_delta, team_target_qual)
 
         def race_speed(row: Mapping[str, Any]) -> float | None:
             _, speed = self._row_race_metric(row)
@@ -2641,7 +2678,6 @@ class CurrentSeasonDataLoader:
             # control both driver and team pace, and an unavailable or zeroed
             # bucket contributes nothing rather than an implicit zero score.
             weighted_total = constructor_score
-            total_weight = 1.0
             for bucket, weight in (
                 (team_target_qual, max(0.0, float(track_weight))),
                 (team_form_race, max(0.0, float(form_weight))),
@@ -2650,8 +2686,10 @@ class CurrentSeasonDataLoader:
                 values = bucket.get(team_id)
                 if values and weight > 0.0:
                     weighted_total += median(values) * weight
-                    total_weight += weight
-            team_raw[team_id] = weighted_total / total_weight
+            # Residuals are signed deviations around zero. Missing or neutral
+            # evidence must not dilute the constructor anchor by changing a
+            # team's denominator independently of the rest of the field.
+            team_raw[team_id] = weighted_total
         raw_values = list(team_raw.values())
         raw_min, raw_max = (min(raw_values), max(raw_values)) if raw_values else (0.0, 0.0)
         team_rating: dict[str, float] = {}

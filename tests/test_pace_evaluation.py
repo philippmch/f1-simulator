@@ -108,6 +108,19 @@ def test_prefix_changes_affect_prediction_and_standings_include_full_prefix(fixt
     assert before["predictions"][0]["skill_rating"] != after["predictions"][0]["skill_rating"]
 
 
+def test_unshared_later_form_sessions_do_not_create_prediction_advantages(fixture):
+    loader, _, qualifying, _ = fixture
+    before = evaluate_qualifying_pace(loader, YEAR, target_race=3)
+    for record in qualifying:
+        if record["round"] < 3 and record["Driver"]["code"] == "A1":
+            # A1 alone reaches faster later sessions. Its teammate and the
+            # broadly represented field still share only Q1 observations.
+            record.update(Q2="1:00.000", Q3="0:59.000", bestTime="0:58.000")
+    after = evaluate_qualifying_pace(loader, YEAR, target_race=3)
+    assert before["folds"] == after["folds"]
+    assert before["aggregate"] == after["aggregate"]
+
+
 def test_first_round_has_no_standings_or_baseline_and_no_historical_requests(fixture):
     loader, _, _, calls = fixture
     fold = evaluate_qualifying_pace(loader, YEAR, target_race=1)["folds"][0]

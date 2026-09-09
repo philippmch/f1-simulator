@@ -37,9 +37,10 @@ For target round `k`, the evaluator assembles fresh models using:
 - Static venue configuration. A completed target's fastest lap and any already
   cached live track calibration are ignored.
 
-The existing rating equations remain unchanged. Recent race and qualifying
+The evaluator uses the same [rating assembly as live runs](rating-evidence.md),
+including comparisons within qualifying sessions. Recent race and qualifying
 weights are 0.3 and 0.2, and target-qualifying weight is zero. Constructor points
-retain their existing contribution. Form-window rounds and standings cutoff
+use the same prior. Form-window rounds and standings cutoff
 are reported separately because the standings include more than the form window.
 Live model caches, selected form-round provenance and current-roster selection
 are not replaced by these evaluation snapshots.
@@ -84,20 +85,30 @@ significance, predicted winning odds or optimal race strategy is claimed.
 
 ## Current-season snapshot, 9 September 2026
 
-The default dry scenario and three-round form window scored 282 driver
+The initial evaluator at revision `30fed16`, using the default dry scenario
+and three-round form window, scored 282 driver
 observations across 13 completed events. The paired comparison covers 258
 observations across 12 events; round 1 has no earlier-Q1 baseline.
 
-| Paired metric | Rating model | Previous Q1 |
-|---|---:|---:|
-| Mean absolute rank error (places) | 3.178 | 3.070 |
-| Relative pace error (percentage points) | 0.659 | 0.495 |
-| Pairwise concordance | 79.766% | 79.841% |
+| Paired metric | Initial model (`30fed16`) | Corrected evidence | Previous Q1 |
+|---|---:|---:|---:|
+| Mean absolute rank error (places) | 3.178 | 3.202 | 3.070 |
+| Relative pace error (percentage points) | 0.6592 | 0.6587 | 0.4952 |
+| Pairwise concordance | 79.766% | 79.313% | 79.841% |
 
-The rating model had lower rank error in 5 of the 12 paired events, but did
-not improve on the baseline in aggregate. This supplies a reference for future
-calibration; no ratings were fitted to these results. The assumed dry weather
-and differing Q1 conditions limit what can be inferred about the pace equations.
+The corrected model uses [shared-session comparisons and a constructor prior
+unaffected by missing pace buckets](rating-evidence.md). Both model versions
+were evaluated against the same provider responses held temporarily in memory
+on 9 September. Form rounds, standings, entrants, target labels and baseline
+scores were verified identical. No raw feeds were persisted.
+
+The initial model had lower rank error than the baseline in 5 of the 12 paired
+events; the corrected model did so in 6. Neither improves on the baseline in
+aggregate. The corrections remove demonstrated comparison artifacts, while
+aggregate rank error is slightly worse and relative pace error slightly better.
+No weights or lap coefficients were fitted to these outcomes. The assumed dry
+weather and differing Q1 conditions limit what can be inferred about the pace
+equations or future predictive performance.
 
 Coverage also matters: the Australian qualifying feed supplied 19 entrants
 against 22 result entrants, within the declared 80% overlap threshold. Miami

@@ -30,6 +30,10 @@ retirement statuses do not identify failure causes. Its lap hazards reproduce
 the configured combined survival probability at neutral stress; see
 [mechanical reliability assumptions](docs/mechanical-reliability.md).
 
+Pace ratings compare qualifying times within the same session and keep missing
+pace evidence from rescaling the constructor prior; see
+[rating evidence and its limits](docs/rating-evidence.md).
+
 The terminology and operating model follow Formula 1's [official 2026 regulations explainer](https://corp.formula1.com/f1-2026-regulations-terminology-update/) and the FIA's [2026 technical overview](https://www.fia.com/news/f1s-new-era-everything-you-need-know-about-how-fia-making-formula-1-more-competitive-more).
 
 ## Requirements
