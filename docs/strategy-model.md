@@ -73,6 +73,19 @@ do not change qualifying, grant a compound-use exemption, or specify a fixed
 pit schedule. They are included in saved-input replay. Unknown driver codes and
 invalid compounds are rejected instead of silently falling back to automatic.
 
+Opening sets can include prior wear: `VER=soft@5` in the CLI or dashboard,
+or `starting_tires={"VER": "soft"}, starting_tire_ages={"VER": 5}` in Python
+and the corresponding JSON objects in the API. An age requires an explicit
+compound for that driver and must be an integer from 0 through 1000; omitted
+ages mean fresh sets. The upper bound limits inputs, not realistic tyre life.
+Prior laps enter the existing wear and strategy calculations but are separate
+from laps driven in this race. They do not add distance, satisfy dry-compound
+use or grant a wet-tyre exemption. A used opening set replaced before running
+does not create a fictitious stint. Paid stops and free red-flag changes fit
+fresh sets and reset the prior-wear offset. Qualifying remains independent.
+This models prior wear only, without tyre inventory, heat cycles or inferred
+real-world tyre allocations.
+
 The optional `fixed_rainfall` weather mode helps isolate strategy behavior under
 unchanging rainfall. It prevents random condition transitions while retaining
 surface-water response, incidents and adaptive pit decisions. The usual evolving
@@ -109,8 +122,10 @@ comparisons of which strategy is fastest.
 For a fixed-input comparison, `examples/compare_starting_tyres.py` runs one
 driver's requested opening choices from an exported simulation snapshot. Each
 variant preserves the roster, cars, track, weather, race engine, other drivers'
-overrides and base seed range. `automatic` clears only the target driver's saved
-override. The trial count can differ from the source run. All later strategy
+overrides, including their ages, and base seed range. Labels such as `soft@5`
+and `soft` compare a used set with a fresh one. `automatic` clears only the
+target driver's saved compound and age overrides. The trial count can differ
+from the source run. All later strategy
 and weather responses remain enabled, including immediate replacement of an
 unsuitable opening set.
 
@@ -132,10 +147,12 @@ The saved `rng_policy` makes this behavior explicit. `isolated_weather_v1`
 retains the usual seeded qualifying/race generator and derives a separate
 weather generator from `SeedSequence(seed, spawn_key=(0x57454154,))`. That fixed
 namespace separates weather from race draws without advancing the race stream.
-`shared_v1` retains the former single generator. New snapshots use schema 2 and
-require an explicit policy, so older installations reject the unsupported
-schema. Replay and comparison still accept schema 1 and infer `shared_v1` when
-its policy field is absent; unknown policies are rejected.
+`shared_v1` retains the former single generator. New snapshots use schema 2,
+or schema 3 when opening ages are specified, and require an explicit policy.
+Schema 3 also requires the age mapping, so older installations reject used-set
+runs instead of replaying them fresh. Replay and comparison still accept
+schemas 1 and 2 with fresh opening sets; schema 1 infers `shared_v1` when its
+policy field is absent. Unknown policies are rejected.
 Comparisons inherit the saved policy unless `--independent-weather` is supplied
 (or the Python `rng_policy` override). This changes all variants together and
 records the new policy for replay. Direct `RaceSimulator` callers retain their

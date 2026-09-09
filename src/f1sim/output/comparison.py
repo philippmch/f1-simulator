@@ -20,7 +20,11 @@ def _starting_tires(result: SimulationResults) -> str:
     overrides = snapshot.get("starting_tires", {})
     if not isinstance(overrides, dict):
         return "Not recorded"
-    return ", ".join(f"{driver}={tire}" for driver, tire in overrides.items()) or "Automatic"
+    ages = snapshot.get("starting_tire_ages", {})
+    if not isinstance(ages, dict):
+        ages = {}
+    return ", ".join(f"{driver}={tire}" + (f"@{ages[driver]}" if ages.get(driver) else "")
+                     for driver, tire in overrides.items()) or "Automatic"
 
 
 def _weather(result: SimulationResults) -> str:

@@ -32,7 +32,12 @@ from f1sim.analysis import (
 from f1sim.data import CurrentSeasonDataLoader
 from f1sim.models import Weather, WeatherCondition
 from f1sim.output import ConsoleOutput, Exporter
-from f1sim.simulation.execution import RACE_ENGINES, validate_starting_tires
+from f1sim.simulation.execution import (
+    RACE_ENGINES,
+    parse_starting_tire_spec,
+    validate_starting_tire_ages,
+    validate_starting_tires,
+)
 
 MAX_SIMULATIONS = 1000
 MAX_WORKERS = 16
@@ -80,8 +85,9 @@ def _seed_value(value: str) -> int:
     return parsed
 
 
-def _starting_tires(value: str) -> dict[str, str]:
+def _starting_tires(value: str) -> tuple[dict[str, str], dict[str, int]]:
     overrides = {}
+    ages = {}
     for assignment in value.split(","):
         driver, separator, compound = assignment.strip().partition("=")
         driver, compound = driver.strip(), compound.strip().lower()
@@ -89,9 +95,14 @@ def _starting_tires(value: str) -> dict[str, str]:
             raise argparse.ArgumentTypeError("use DRIVER=compound, e.g. VER=hard,NOR=soft")
         if driver in overrides:
             raise argparse.ArgumentTypeError(f"duplicate starting tyre override for {driver}")
-        overrides[driver] = compound
+        try:
+            overrides[driver], age = parse_starting_tire_spec(compound)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(str(exc)) from exc
+        if "@" in compound:
+            ages[driver] = age
     try:
-        return validate_starting_tires(overrides)
+        return validate_starting_tires(overrides), validate_starting_tire_ages(ages, overrides)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(str(exc)) from exc
 
@@ -167,7 +178,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--starting-tyres", "--starting-tires", dest="starting_tires", type=_starting_tires,
-        help="Optional DRIVER=compound pairs, e.g. VER=hard,NOR=soft; others stay automatic",
+        help="Optional DRIVER=compound[@prior-laps], e.g. VER=soft@5,NOR=hard; others automatic",
     )
     parser.add_argument(
         "--weather-mode", choices=("evolving", "fixed_rainfall"), default="evolving",
@@ -230,12 +241,19 @@ def main() -> int:
     print("\nCreating simulation models...")
     drivers = loader.create_drivers_from_stats(driver_stats)
     try:
-        starting_tires = validate_starting_tires(args.starting_tires, (d.id for d in drivers))
+        compounds, ages = args.starting_tires or ({}, {})
+        starting_tires = validate_starting_tires(compounds, (d.id for d in drivers))
+        starting_tire_ages = validate_starting_tire_ages(
+            ages, starting_tires, (d.id for d in drivers),
+        )
     except ValueError as exc:
         parser.error(str(exc))
     if starting_tires:
-        print("Starting tyres: " + ", ".join(f"{key}={value}"
-                                             for key, value in starting_tires.items()))
+        print("Starting tyres: " + ", ".join(
+            f"{key}={value}"
+            + (f"@{starting_tire_ages[key]}" if starting_tire_ages.get(key) else "")
+            for key, value in starting_tires.items()
+        ))
     cars = loader.create_cars_from_stats(driver_stats)
     if all(getattr(stats, "team_reliability_source", None) == "model_prior"
            for stats in driver_stats.values()):
@@ -272,6 +290,7 @@ def main() -> int:
             seed=scenario_seed,
             race_engine=args.race_engine,
             **({"starting_tires": starting_tires} if starting_tires else {}),
+            **({"starting_tire_ages": starting_tire_ages} if starting_tire_ages else {}),
         )
 
         scenario_result = runner.run(

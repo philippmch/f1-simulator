@@ -24,6 +24,7 @@ def build_fixture():
         driver_stats={driver: DriverStatistics(driver_id=driver, driver_name=driver, team=team,
                                             wins=1, positions=[1], total_points=25)},
         input_snapshot={"starting_tires": {driver: "soft"},
+                        "starting_tire_ages": {driver: 5},
                         "weather": Weather().model_dump(),
                         "rng_policy": "isolated_weather_v1"},
     )

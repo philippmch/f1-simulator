@@ -7,6 +7,7 @@ from pathlib import Path
 from f1sim.analysis.montecarlo import MonteCarloRunner, SimulationResults
 from f1sim.analysis.replay import _load_saved_runner
 from f1sim.models.tire import TireCompound
+from f1sim.simulation.execution import parse_starting_tire_spec
 from f1sim.simulation.randomness import validate_rng_policy
 
 
@@ -56,6 +57,7 @@ def compare_saved_race_engines(
             runner.track.model_copy(deep=True), runner.weather.model_copy(deep=True),
             seed=runner.base_seed, race_engine=label,
             starting_tires=runner.starting_tires.copy(),
+            starting_tire_ages=runner.starting_tire_ages.copy(),
             rng_policy=runner.rng_policy if rng_policy is None else rng_policy,
         )
         results[label] = variant.run(
@@ -96,9 +98,11 @@ def compare_saved_starting_tires(
     except TypeError as exc:
         message = "compounds must be a nonempty iterable of distinct compound labels"
         raise ValueError(message) from exc
-    valid = {"automatic", *(compound.value for compound in TireCompound)}
-    if not labels or any(not isinstance(label, str) or label not in valid for label in labels):
+    if not labels or any(not isinstance(label, str) for label in labels):
         raise ValueError("compounds must contain valid tyre labels or automatic")
+    for label in labels:
+        if label != "automatic":
+            parse_starting_tire_spec(label)
     labels = [str(label.value) if isinstance(label, TireCompound) else label for label in labels]
     if len(set(labels)) != len(labels):
         raise ValueError("compounds must be distinct")
@@ -111,15 +115,22 @@ def compare_saved_starting_tires(
     results = {}
     for label in labels:
         overrides = runner.starting_tires.copy()
+        ages = runner.starting_tire_ages.copy()
         if label == "automatic":
             overrides.pop(driver_id, None)
+            ages.pop(driver_id, None)
         else:
-            overrides[driver_id] = label
+            compound, age = parse_starting_tire_spec(label)
+            overrides[driver_id] = compound
+            ages.pop(driver_id, None)
+            if "@" in label:
+                ages[driver_id] = age
         variant = MonteCarloRunner(
             [driver.model_copy(deep=True) for driver in runner.drivers],
             {key: car.model_copy(deep=True) for key, car in runner.cars.items()},
             runner.track.model_copy(deep=True), runner.weather.model_copy(deep=True),
             seed=runner.base_seed, race_engine=runner.race_engine, starting_tires=overrides,
+            starting_tire_ages=ages,
             rng_policy=runner.rng_policy if rng_policy is None else rng_policy,
         )
         results[label] = variant.run(

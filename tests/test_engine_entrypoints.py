@@ -45,23 +45,28 @@ class SyntheticLoader:
 
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])
-@pytest.mark.parametrize("starting_tires", [None, {"A": "hard"}])
+@pytest.mark.parametrize("starting_tires,ages", [(None, None), ({"A": "hard"}, None),
+                                                ({"A": "hard"}, {"A": 5})])
 @pytest.mark.parametrize("weather_mode", ["evolving", "fixed_rainfall"])
 def test_dashboard_real_runner_propagates_engine_to_each_scenario(
-    monkeypatch, tmp_path, engine, starting_tires, weather_mode,
+    monkeypatch, tmp_path, engine, starting_tires, ages, weather_mode,
 ):
     monkeypatch.setattr(server, "_get_loader", SyntheticLoader)
     payload = server.run_dashboard_simulation(server.DashboardRunRequest(
         simulations=10, scenarios="dry,light_rain", seed=7, parallel=False,
         race_engine=engine, starting_tires=starting_tires, weather_mode=weather_mode,
+        starting_tire_ages=ages,
     ))
     assert payload["request"]["race_engine"] == engine
     assert payload["request"]["starting_tires"] == (starting_tires or {})
+    assert payload["request"]["starting_tire_ages"] == (ages or {})
     assert payload["request"]["weather_mode"] == weather_mode
     report = payload["comparison_report_html"]
     assert "Simulation comparison" in report and "<script" not in report
     assert "dry; rain 0%" in report and "light_rain; rain 35%" in report
     assert engine in report
+    if ages:
+        assert "A=hard@5" in report
     saved = tmp_path / "dashboard.json"
     saved.write_text(json.dumps(payload), encoding="utf-8")
     for index, (name, scenario) in enumerate(payload["scenarios"].items()):
@@ -81,7 +86,8 @@ def test_dashboard_real_runner_propagates_engine_to_each_scenario(
         distance = scenario["race_distance_statistics"]
         assert distance["recorded_races"] == 10
         assert distance["mean_winner_laps"] == 3
-        assert scenario["simulation_inputs"]["schema_version"] == 2
+        assert scenario["simulation_inputs"]["schema_version"] == (3 if ages else 2)
+        assert scenario["simulation_inputs"].get("starting_tire_ages", {}) == (ages or {})
         assert scenario["simulation_inputs"]["rng_policy"] == "isolated_weather_v1"
         assert scenario["simulation_inputs"]["track"]["total_laps"] == 3
         replay = replay_saved_simulation(saved, scenario["sample_index"] + 1, name)
@@ -90,7 +96,8 @@ def test_dashboard_real_runner_propagates_engine_to_each_scenario(
 
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])
-def test_cli_real_runner_records_selected_engine_in_exports(monkeypatch, tmp_path, engine):
+@pytest.mark.parametrize("age", [None, 5])
+def test_cli_real_runner_records_selected_engine_in_exports(monkeypatch, tmp_path, engine, age):
     path = Path(__file__).resolve().parents[1] / "examples" / "simulate_race.py"
     spec = importlib.util.spec_from_file_location("simulate_cli", path)
     module = importlib.util.module_from_spec(spec)
@@ -98,7 +105,8 @@ def test_cli_real_runner_records_selected_engine_in_exports(monkeypatch, tmp_pat
     monkeypatch.setattr(module, "CurrentSeasonDataLoader", SyntheticLoader)
     monkeypatch.setattr(sys, "argv", [str(path), "--race-engine", engine,
         "--simulations", "1", "--no-parallel", "--scenarios", "dry,light_rain",
-        "--export", "--output-dir", str(tmp_path), "--starting-tyres", "A=hard",
+        "--export", "--output-dir", str(tmp_path), "--starting-tyres",
+        "A=hard" if age is None else "A=hard@5",
         "--weather-mode", "fixed_rainfall"])
     assert module.main() == 0
     comparison = next(tmp_path.glob("*scenario_comparison_*.json"))
@@ -109,8 +117,12 @@ def test_cli_real_runner_records_selected_engine_in_exports(monkeypatch, tmp_pat
     assert [entry["seed"] for entry in scenarios.values()] == [42, 1042]
     assert all(entry["race_distance_statistics"]["recorded_races"] == 1
                for entry in scenarios.values())
-    assert all(entry["simulation_inputs"]["schema_version"] == 2
+    assert all(entry["simulation_inputs"]["schema_version"] == (2 if age is None else 3)
                for entry in scenarios.values())
+    assert all(entry["simulation_inputs"].get("starting_tire_ages", {})
+               == ({} if age is None else {"A": age}) for entry in scenarios.values())
+    if age is not None:
+        assert "A=hard@5" in report.read_text(encoding="utf-8")
     assert all(entry["simulation_inputs"]["starting_tires"] == {"A": "hard"}
                for entry in scenarios.values())
     assert all(entry["simulation_inputs"]["weather"]["change_probability"] == 0
@@ -132,3 +144,54 @@ def test_dashboard_rejects_malformed_starting_tyres_before_loading(monkeypatch, 
     monkeypatch.setattr(server, "_get_loader", lambda **kwargs: pytest.fail("live loading"))
     with pytest.raises(ValueError):
         server.run_dashboard_simulation(server.DashboardRunRequest(starting_tires=overrides))
+
+
+@pytest.mark.parametrize("ages", [{"A": True}, {"A": -1}, {"A": 1.5}, {"A": "5"},
+                                 {"A": 1001}, {"B": 5}, [5]])
+def test_dashboard_rejects_invalid_opening_ages_before_loading(monkeypatch, ages):
+    monkeypatch.setattr(server, "_get_loader", lambda **kwargs: pytest.fail("live loading"))
+    with pytest.raises(ValueError, match="starting_tire_ages"):
+        server.run_dashboard_simulation(server.DashboardRunRequest(
+            starting_tires={"A": "soft"}, starting_tire_ages=ages,
+        ))
+
+
+@pytest.mark.parametrize("ages,status", [
+    ({"A": True}, 422), ({"A": 1.0}, 422), ({"A": "1"}, 422),
+    ({"A": 1.5}, 422), ([5], 422), ({"A": -1}, 400),
+    ({"A": 1001}, 400), ({"B": 5}, 400),
+])
+def test_http_rejects_invalid_ages_without_coercion(monkeypatch, tmp_path, ages, status):
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("F1SIM_RUN_LOCK_DIR", str(tmp_path))
+    monkeypatch.setattr(server, "_get_loader", lambda **kwargs: pytest.fail("live loading"))
+    with TestClient(server.build_fastapi_app()) as client:
+        response = client.post("/api/run", json={
+            "starting_tires": {"A": "soft"}, "starting_tire_ages": ages,
+        })
+    assert response.status_code == status
+    assert "starting_tire_ages" in response.text
+
+
+@pytest.mark.parametrize("age", [0, 5, 1000])
+def test_http_preserves_valid_integer_ages(monkeypatch, tmp_path, age):
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("F1SIM_RUN_LOCK_DIR", str(tmp_path))
+
+    def simulate(request):
+        assert request.starting_tires == {"A": "soft"}
+        assert request.starting_tire_ages == {"A": age}
+        assert type(request.starting_tire_ages["A"]) is int
+        return {"starting_tire_ages": request.starting_tire_ages}
+
+    monkeypatch.setattr(server, "run_dashboard_simulation", simulate)
+    with TestClient(server.build_fastapi_app()) as client:
+        response = client.post("/api/run", json={
+            "starting_tires": {"A": "soft"}, "starting_tire_ages": {"A": age},
+        })
+    assert response.status_code == 200
+    assert response.json()["starting_tire_ages"] == {"A": age}

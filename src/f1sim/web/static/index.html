@@ -1376,8 +1376,8 @@ input:focus-visible {
       <div class="control-group">
         <label class="control-label" for="startingTiresInput">Starting tyres (optional)</label>
         <input type="text" id="startingTiresInput" maxlength="512"
-          placeholder="Auto · VER=hard, NOR=soft"
-          title="Driver codes and soft, medium, hard, intermediate or wet. Unlisted drivers stay automatic; later stops follow the usual policy.">
+          placeholder="Auto · VER=soft@5, NOR=hard"
+          title="Driver=compound, optionally @prior laps (0–1000). Example: VER=soft@5 starts a soft set with five laps of wear. Unlisted drivers stay automatic; later stops fit fresh sets.">
       </div>
       <div class="control-group">
         <label class="control-label" for="parallelSelect">Execution</label>
@@ -2224,19 +2224,23 @@ function buildRunPayload() {
   const seed = Number(seedInput.value);
   const workersValue = workersInput.value.trim();
   const startingTires = Object.create(null);
+  const startingTireAges = Object.create(null);
   const tyreInput = document.getElementById('startingTiresInput');
   if (tyreInput.value.trim()) {
     for (const assignment of tyreInput.value.split(',')) {
       const parts = assignment.trim().split('=');
       const id = parts[0]?.trim();
-      const compound = parts[1]?.trim().toLowerCase();
-      if (parts.length !== 2 || !id || !['soft', 'medium', 'hard', 'intermediate', 'wet'].includes(compound)
+      const choice = parts[1]?.trim().toLowerCase().match(/^(soft|medium|hard|intermediate|wet)(?:@(\d+))?$/);
+      const compound = choice?.[1];
+      const age = choice?.[2] === undefined ? 0 : Number(choice[2]);
+      if (parts.length !== 2 || !id || !choice || !Number.isSafeInteger(age) || age > 1000
           || Object.hasOwn(startingTires, id)) {
-        setStatusMessage('Starting tyres: use each driver once, e.g. VER=hard, NOR=soft. Compounds: soft, medium, hard, intermediate, wet.', 'error');
+        setStatusMessage('Starting tyres: use each driver once, e.g. VER=soft@5, NOR=hard. Prior laps must be 0–1000. Compounds: soft, medium, hard, intermediate, wet.', 'error');
         tyreInput.focus();
         return null;
       }
       startingTires[id] = compound;
+      if (choice[2] !== undefined) startingTireAges[id] = age;
     }
   }
 
@@ -2249,6 +2253,7 @@ function buildRunPayload() {
     qualifying_mode: 'simulated',
     race_engine: document.getElementById('raceEngineSelect').value,
     starting_tires: startingTires,
+    starting_tire_ages: startingTireAges,
     weather_mode: document.getElementById('weatherModeSelect').value,
     parallel: document.getElementById('parallelSelect').value === 'true',
     max_workers: workersValue ? Number(workersValue) : null,
@@ -2446,7 +2451,10 @@ function renderRace() {
         <div class="race-meta">${escapeHtml(lapLabel)} &middot; ${scenario.num_simulations} simulations &middot; seed ${scenario.seed}</div>
         <div class="race-meta">Starting tyres: ${escapeHtml(Object.entries(
           scenario.simulation_inputs?.starting_tires || simResults.request?.starting_tires || {}
-        ).map(([id, compound]) => `${id}=${compound}`).join(', ') || 'Automatic')}</div>
+        ).map(([id, compound]) => {
+          const age = (scenario.simulation_inputs?.starting_tire_ages || simResults.request?.starting_tire_ages || {})[id];
+          return `${id}=${compound}${age ? `@${age}` : ''}`;
+        }).join(', ') || 'Automatic')}</div>
         <div class="race-meta">${savedWeatherBehavior(scenario)}</div>
         <div class="race-meta">${escapeHtml(track.country || 'Unknown country')} &middot; Scenario ${escapeHtml(titleFromKey(name))}${topTeam ? ` &middot; Top constructor ${escapeHtml(topTeam[0])}` : ''}</div>
         <div class="meta-pills">${pills.map(pill => `<div class="meta-pill">${escapeHtml(pill)}</div>`).join('')}</div>

@@ -90,3 +90,27 @@ def test_unknown_driver_has_clean_error_and_no_exports(monkeypatch, tmp_path, ca
     assert error.value.code == 2
     assert "UNKNOWN" in capsys.readouterr().err
     assert not target.exists()
+
+
+def test_used_set_choices_export_and_replay(monkeypatch, tmp_path, capsys):
+    path = saved_input(tmp_path)
+    target = tmp_path / "used_sets"
+    monkeypatch.setattr(sys, "argv", ["compare_starting_tyres.py", str(path), "--driver", "A",
+                                     "--compounds", "soft@5,soft,automatic", "--simulations", "2",
+                                     "--export", "--output-dir", str(target)])
+    assert module().main() == 0
+    assert "soft@5" in capsys.readouterr().out
+    comparison = next(target.glob("starting_tyres_*.json"))
+    scenarios = json.loads(comparison.read_text(encoding="utf-8"))["scenarios"]
+    used = scenarios["soft@5"]["simulation_inputs"]
+    assert used["schema_version"] == 3
+    assert used["starting_tires"] == {"A": "soft"}
+    assert used["starting_tire_ages"] == {"A": 5}
+    for label in ("soft", "automatic"):
+        assert scenarios[label]["simulation_inputs"]["schema_version"] == 2
+        assert not scenarios[label]["simulation_inputs"].get("starting_tire_ages")
+    replay = replay_saved_simulation(comparison, simulation=2, scenario="soft@5")
+    assert replay.seed == 42
+    assert replay.input_snapshot["starting_tire_ages"] == {"A": 5}
+    report = next(target.glob("starting_tyres_*.html")).read_text(encoding="utf-8")
+    assert "A=soft@5" in report

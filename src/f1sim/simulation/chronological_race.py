@@ -15,6 +15,7 @@ from numbers import Real
 
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.events import EventType, RaceEvent
+from f1sim.simulation.execution import validate_starting_tire_ages, validate_starting_tires
 from f1sim.simulation.neutralization import safety_car_running_time
 from f1sim.simulation.pit_strategy import expected_stationary_time
 from f1sim.simulation.race import DriverRaceState, DriverStatus, RaceResult
@@ -66,9 +67,13 @@ class ChronologicalRace:
         self.suspensions: list[tuple[float, float, tuple[str, ...]]] = []
         self.order: list[str] = []
 
-    def run(self, drivers, cars, track, weather, starting_grid, *, starting_tires=None):
+    def run(self, drivers, cars, track, weather, starting_grid, *, starting_tires=None,
+            starting_tire_ages=None):
         validate_unique_ids([driver.id for driver in drivers], "driver")
         validate_unique_ids(starting_grid, "starting grid")
+        starting_tires = validate_starting_tires(starting_tires, (d.id for d in drivers))
+        ages = validate_starting_tire_ages(starting_tire_ages, starting_tires,
+                                           (d.id for d in drivers))
         self.track = track
         self.weather = weather.model_copy(deep=True)
         self.simulator.event_manager.reset()
@@ -86,10 +91,12 @@ class ChronologicalRace:
             compound = ((starting_tires or {}).get(driver_id)
                         or self.simulator._choose_starting_compound(style, track, self.weather,
                                                                    driver, car))
+            driver.current_tire_laps = ages.get(driver_id, 0)
             plans = self.simulator._plan_pit_lap_options(style, track)
             self.states[driver_id] = DriverRaceState(
                 driver, car, len(self.states) + 1,
                 current_tire=TIRE_COMPOUNDS[compound].model_copy(deep=True),
+                tire_laps=ages.get(driver_id, 0), prior_tire_laps=ages.get(driver_id, 0),
                 strategy_archetype=style, planned_pit_laps=plans[0], pit_plan_options=plans,
             )
         self.timeline = RaceFinishTimeline(track.total_laps, self.states)
@@ -756,8 +763,10 @@ class ChronologicalRace:
 
 
 def simulate_chronological_race(simulator, drivers, cars, track, weather, starting_grid,
-                                *, starting_tires=None, red_flag_pause_seconds=600.0):
+                                *, starting_tires=None, starting_tire_ages=None,
+                                red_flag_pause_seconds=600.0):
     """Run the experimental engine explicitly; production dispatch is unchanged."""
     return ChronologicalRace(simulator, red_flag_pause_seconds=red_flag_pause_seconds).run(
         drivers, cars, track, weather, starting_grid, starting_tires=starting_tires,
+        starting_tire_ages=starting_tire_ages,
     )

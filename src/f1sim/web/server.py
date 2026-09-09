@@ -10,13 +10,19 @@ from datetime import datetime, timezone
 from importlib.resources import files
 from typing import Any
 
+from pydantic import StrictInt
+
 from f1sim.analysis import MonteCarloRunner, parse_scenario_labels, scenario_weather_from_label
 from f1sim.analysis.scenarios import validate_weather_mode
 from f1sim.data import CurrentSeasonDataError, CurrentSeasonDataLoader
 from f1sim.models import Weather, WeatherCondition
 from f1sim.output.comparison import render_comparison_report
 from f1sim.output.timing import finite_time
-from f1sim.simulation.execution import validate_race_engine, validate_starting_tires
+from f1sim.simulation.execution import (
+    validate_race_engine,
+    validate_starting_tire_ages,
+    validate_starting_tires,
+)
 from f1sim.simulation.race import result_is_classified
 from f1sim.simulation.race_points import points_for_result
 from f1sim.web.capacity import RunCapacity
@@ -59,6 +65,7 @@ class DashboardRunRequest:
     race_engine: str = "standard"
     starting_tires: dict[str, str] | None = None
     weather_mode: str = "evolving"
+    starting_tire_ages: dict[str, StrictInt] | None = None
 
 
 def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
@@ -67,6 +74,7 @@ def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
     validate_weather_mode(request.weather_mode)
     validate_race_engine(request.race_engine)
     validate_starting_tires(request.starting_tires)
+    validate_starting_tire_ages(request.starting_tire_ages, request.starting_tires)
     current_season = _current_season()
     if isinstance(request.year, bool) or not isinstance(request.year, int):
         raise ValueError(f"Only the live {current_season} F1 season is available.")
@@ -468,6 +476,9 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
 
     drivers = loader.create_drivers_from_stats(driver_stats)
     starting_tires = validate_starting_tires(request.starting_tires, (d.id for d in drivers))
+    starting_tire_ages = validate_starting_tire_ages(
+        request.starting_tire_ages, starting_tires, (d.id for d in drivers),
+    )
     cars = loader.create_cars_from_stats(driver_stats)
     track = loader.create_track_from_stats(track_stats)
     base_weather = Weather(
@@ -502,6 +513,7 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
             seed=request.seed + idx * 1000,
             race_engine=request.race_engine,
             **({"starting_tires": starting_tires} if starting_tires else {}),
+            **({"starting_tire_ages": starting_tire_ages} if starting_tire_ages else {}),
         )
         t0 = time.perf_counter()
         result = runner.run(
@@ -533,6 +545,7 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
         "seed": request.seed,
         "race_engine": request.race_engine,
         "starting_tires": starting_tires,
+        "starting_tire_ages": starting_tire_ages,
         "weather_mode": request.weather_mode,
         "qualifying_mode": "simulated",
         "parallel": request.parallel,

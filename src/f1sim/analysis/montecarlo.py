@@ -15,7 +15,11 @@ from f1sim.models import Car, Driver, Track, Weather
 from f1sim.models.tire import TireCompound
 from f1sim.simulation.chronological_race import ChronologicalRace
 from f1sim.simulation.events import EventType
-from f1sim.simulation.execution import validate_race_engine, validate_starting_tires
+from f1sim.simulation.execution import (
+    validate_race_engine,
+    validate_starting_tire_ages,
+    validate_starting_tires,
+)
 from f1sim.simulation.qualifying import QualifyingResult, QualifyingSimulator
 from f1sim.simulation.race import (
     DriverStatus,
@@ -572,6 +576,7 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
         Tuple of (race_results, qualifying_results, event_counts)
     """
     starting_tires = None
+    starting_tire_ages = None
     rng_policy = "shared_v1"
     if len(args) == 5:
         drivers_data, cars_data, track_data, weather_data, seed = args
@@ -581,9 +586,12 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     elif len(args) == 7:
         (drivers_data, cars_data, track_data, weather_data, seed,
          race_engine, starting_tires) = args
-    else:
+    elif len(args) == 8:
         (drivers_data, cars_data, track_data, weather_data, seed,
          race_engine, starting_tires, rng_policy) = args
+    else:
+        (drivers_data, cars_data, track_data, weather_data, seed,
+         race_engine, starting_tires, rng_policy, starting_tire_ages) = args
     race_engine = validate_race_engine(race_engine)
     rng_policy = validate_rng_policy(rng_policy)
 
@@ -593,6 +601,8 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
         key: TireCompound(value) for key, value in
         validate_starting_tires(starting_tires, (driver.id for driver in drivers)).items()
     }
+    ages = validate_starting_tire_ages(starting_tire_ages, opening_compounds,
+                                       (d.id for d in drivers))
     cars = {k: Car.model_validate(v) for k, v in cars_data.items()}
     track = Track.model_validate(track_data)
     weather = Weather.model_validate(weather_data)
@@ -620,6 +630,7 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
         weather=weather,
         starting_grid=starting_grid,
         **({"starting_tires": opening_compounds} if opening_compounds else {}),
+        **({"starting_tire_ages": ages} if ages else {}),
     )
 
     # Collect event statistics
@@ -670,6 +681,7 @@ class MonteCarloRunner:
         race_engine: str = "standard",
         starting_tires: dict[str, str | TireCompound] | None = None,
         rng_policy: str = DEFAULT_RNG_POLICY,
+        starting_tire_ages: dict[str, int] | None = None,
     ):
         """Initialize Monte Carlo runner.
 
@@ -687,6 +699,9 @@ class MonteCarloRunner:
         self.rng_policy = validate_rng_policy(rng_policy)
         validate_unique_ids((driver.id for driver in drivers), "drivers")
         self.starting_tires = validate_starting_tires(starting_tires, (d.id for d in drivers))
+        self.starting_tire_ages = validate_starting_tire_ages(
+            starting_tire_ages, self.starting_tires, (d.id for d in drivers),
+        )
         self.drivers = drivers
         self.cars = cars
         self.track = track
@@ -734,13 +749,15 @@ class MonteCarloRunner:
             self.starting_tires, (driver.id for driver in self.drivers),
         )
 
+        ages = validate_starting_tire_ages(self.starting_tire_ages, starting_tires,
+                                           (d.id for d in self.drivers))
         # Prepare serializable data for multiprocessing
         drivers_data = [d.model_dump() for d in self.drivers]
         cars_data = {k: v.model_dump() for k, v in self.cars.items()}
         track_data = self.track.model_dump()
         weather_data = self.weather.model_dump()
         input_snapshot = {
-            "schema_version": 2,
+            "schema_version": 3 if ages else 2,
             "drivers": deepcopy(drivers_data),
             "cars": deepcopy(cars_data),
             "track": deepcopy(track_data),
@@ -750,12 +767,14 @@ class MonteCarloRunner:
             "runtime": simulation_runtime(),
         }
 
+        if ages:
+            input_snapshot["starting_tire_ages"] = ages.copy()
         # Generate unique seeds for each simulation
         seeds = [self.base_seed + i for i in range(num_simulations)]
 
         args_list = [
             (drivers_data, cars_data, track_data, weather_data, seed,
-             self.race_engine, starting_tires, rng_policy)
+             self.race_engine, starting_tires, rng_policy, ages)
             for seed in seeds
         ]
 

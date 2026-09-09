@@ -36,7 +36,7 @@ def main() -> int:
     parser.add_argument("--driver", required=True, help="Exact driver code from the saved roster")
     parser.add_argument("--scenario", help="Exact source scenario when the file contains several")
     parser.add_argument("--compounds", default="automatic,soft,medium,hard",
-                        help="Choices separated by commas; automatic restores the usual policy")
+                        help="Choices, e.g. soft@5,soft,hard; automatic restores fresh policy")
     parser.add_argument("--reference", help="Selected choice to compare against (default: first)")
     parser.add_argument("--simulations", type=_simulations, default=100,
                         help="Trials per choice (1-1000, default: 100)")

@@ -39,6 +39,7 @@ def build_fixture() -> dict:
             drivers, cars, track, scenario.weather, seed=42 + index * 1000,
             race_engine="chronological",
             starting_tires={"S00": "hard", "S01": "soft"},
+            starting_tire_ages={"S00": 5},
         ).run(num_simulations=10, parallel=False)
     payload = _summarize_scenario_results(results, scenario_weather=weather)
     payload["comparison_report_html"] = render_comparison_report(results)
@@ -50,6 +51,7 @@ def build_fixture() -> dict:
         request={"race_engine": "chronological", "simulations": 10, "seed": 42, "parallel": False,
                  "weather_mode": "fixed_rainfall",
                  "starting_tires": {"S00": "hard", "S01": "soft"},
+                 "starting_tire_ages": {"S00": 5},
                  "scenarios": "dry,light_rain,heavy_rain", "qualifying_mode": "simulated"},
     )
     return {

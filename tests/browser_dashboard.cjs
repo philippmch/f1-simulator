@@ -56,7 +56,11 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     await page.locator('#startingTiresInput').fill('S00=soft,S00=hard');
     assert.equal(await page.evaluate(() => buildRunPayload()), null);
     assert((await page.locator('#appStatus').innerText()).includes('use each driver once'));
-    await page.locator('#startingTiresInput').fill(offline ? 'S00=hard, S01=soft' : '');
+    for (const invalid of ['S00=hard@-1', 'S00=soft@1.5', 'S00=soft@1001', 'S00=soft@']) {
+      await page.locator('#startingTiresInput').fill(invalid);
+      assert.equal(await page.evaluate(() => buildRunPayload()), null);
+    }
+    await page.locator('#startingTiresInput').fill(offline ? 'S00=hard@5, S01=soft' : '');
     await page.evaluate(() => setScenarioSelection(['dry', 'light_rain', 'heavy_rain']));
     const responsePromise = page.waitForResponse(response => response.url().endsWith('/api/run'));
     await page.locator('#btnRun').click();
@@ -66,6 +70,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     assert.equal(response.request().postDataJSON().weather_mode, 'fixed_rainfall');
     assert.deepEqual(response.request().postDataJSON().starting_tires,
       offline ? {S00: 'hard', S01: 'soft'} : {});
+    assert.deepEqual(response.request().postDataJSON().starting_tire_ages,
+      offline ? {S00: 5} : {});
     const payload = await response.json();
     assert.equal(payload.request.race_engine, 'chronological');
     // The matrix initially shows aggregate top contenders, which need not
@@ -137,9 +143,10 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         delete window.savedWeatherTrace;
         renderRace();
       });
-      assert((await page.locator('#panel-race').textContent()).includes('S00=hard, S01=soft'));
+      assert((await page.locator('#panel-race').textContent()).includes('S00=hard@5, S01=soft'));
       for (const scenario of Object.values(payload.scenarios)) {
         assert.deepEqual(scenario.simulation_inputs.starting_tires, {S00: 'hard', S01: 'soft'});
+        assert.deepEqual(scenario.simulation_inputs.starting_tire_ages, {S00: 5});
       }
       assert(payload.scenarios.dry.strategy_statistics.S00.strategies.every(row => row.compounds[0] === 'hard'));
       // Critical weather corrections still replace an unsuitable unrun set.
@@ -470,7 +477,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         for (const [name, scenario] of Object.entries(saved.scenarios)) {
           assert.deepEqual(scenario.simulation_inputs, payload.scenarios[name].simulation_inputs);
           assert.deepEqual(scenario.strategy_statistics, payload.scenarios[name].strategy_statistics);
-          assert.equal(scenario.simulation_inputs.schema_version, 2);
+          assert.equal(scenario.simulation_inputs.schema_version, offline ? 3 : 2);
           assert.equal(scenario.simulation_inputs.rng_policy, 'isolated_weather_v1');
         }
       } else if (extension === '.html') {

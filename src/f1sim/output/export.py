@@ -464,9 +464,14 @@ class Exporter:
         seed_text = escape(str(results.seed))
         engine_text = escape(results.race_engine)
         starting_tires = (results.input_snapshot or {}).get("starting_tires", {})
-        starting_text = escape(", ".join(f"{driver}={compound}"
-                                        for driver, compound in sorted(starting_tires.items()))
-                               or "Automatic")
+        starting_ages = (results.input_snapshot or {}).get("starting_tire_ages", {})
+        if not isinstance(starting_ages, dict):
+            starting_ages = {}
+        starting_text = escape(", ".join(
+            f"{driver}={compound}"
+            + (f"@{starting_ages[driver]}" if starting_ages.get(driver) else "")
+            for driver, compound in sorted(starting_tires.items())
+        ) or "Automatic")
         distance = results.get_race_distance_statistics()
         recorded = distance["recorded_races"]
         comparable = distance["finishers_with_comparable_distance"]

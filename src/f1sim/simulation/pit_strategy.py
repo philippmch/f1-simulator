@@ -221,8 +221,12 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
                   physical_total_laps: int | None = None,
                   active_aero_enabled: bool = True, *,
                   current_traffic_gaps: tuple[float | None, float | None] | None = None,
+                  current_set_used: bool | None = None,
                   ) -> DryPitDecision:
     """Compare legal plans using tyre-relative, or floor-clipped absolute, costs."""
+    if current_set_used is not None and not isinstance(current_set_used, bool):
+        raise ValueError("current_set_used must be boolean or None")
+    used_current = tire_age > 0 if current_set_used is None else current_set_used
     gaps = normalize_current_traffic_gaps(current_traffic_gaps)
     if remaining_laps < 1 or remaining_stops < 0 or remaining_stops > 3:
         raise ValueError("Positive remaining laps and zero to three stops are required")
@@ -232,7 +236,7 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
         raise ValueError("Planning laps must fit the original physical race distance")
     mask = 7 if wet_exemption else sum(1 << i for i, c in enumerate(SLICKS)
                                      if c in used_compounds
-                                     or (tire_age > 0 and c == current_tire.compound))
+                                     or (used_current and c == current_tire.compound))
     # Fresh soft at the lightest projected fuel load bounds all slick pace.
     # If even it stays above the floor, common full-lap terms still cancel.
     fastest = _full_row(driver, car, track, TIRE_COMPOUNDS[TireCompound.SOFT],
@@ -255,7 +259,7 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
     costs, compounds = _fresh_tables(physics, tire_keys, horizon, green_cost)
     mask = 7 if wet_exemption else sum(1 << i for i, c in enumerate(SLICKS)
                                      if c in used_compounds
-                                     or (tire_age > 0 and c == current_tire.compound))
+                                     or (used_current and c == current_tire.compound))
     wait_mask = mask
     if current_tire.compound in SLICKS:
         wait_mask |= 1 << SLICKS.index(current_tire.compound)

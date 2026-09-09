@@ -79,18 +79,26 @@ Python `MonteCarloRunner` accept `race_engine="chronological"` (or `"standard"`)
 Results record the selected model; see [its assumptions and limits](docs/chronological-race-design.md).
 
 To test an opening tyre choice, fill **Starting tyres (optional)** in the dashboard
-with driver-code pairs such as `VER=hard, NOR=soft`, or use the CLI:
+with driver-code pairs such as `VER=soft@5, NOR=hard`, or use the CLI:
 
 ```powershell
-python examples/simulate_race.py --race 1 --starting-tyres "VER=hard,NOR=soft" --seed 42 --export
+python examples/simulate_race.py --race 1 --starting-tyres "VER=soft@5,NOR=hard" --seed 42 --export
 ```
 
 Use codes from the loaded roster. Allowed compounds are `soft`, `medium`, `hard`,
 `intermediate`, and `wet`. Unlisted drivers remain automatic; subsequent stops
 still follow the normal policy, including immediate correction for unsuitable
-weather tyres. Python `MonteCarloRunner` and `/api/run` accept
-`starting_tires={"VER": "hard"}`. Overrides apply to every selected weather
-scenario and are saved with the inputs for replay.
+weather tyres. Append `@5` to start on a set with five prior laps of wear;
+omitting the suffix means fresh tyres. Python `MonteCarloRunner` and `/api/run`
+accept `starting_tires={"VER": "soft"}` with optional
+`starting_tire_ages={"VER": 5}`. Ages must be integers from 0 through 1000 and
+require an explicit compound for the same driver. Overrides apply to every
+selected weather scenario and are saved with the inputs for replay.
+
+Prior laps affect tyre wear, without adding race distance or satisfying the
+race's compound-use rules. All later replacement sets are fresh. Qualifying is
+unchanged; these inputs do not model tyre inventory, heat cycles or actual
+qualifying tyre allocations.
 
 The same inputs and seed reproduce an overridden run, including across worker
 counts. Changing a tyre choice can change later random draws and race events;
@@ -143,10 +151,11 @@ require matching model code, dependencies and runtime behavior. Snapshots do not
 archive executable code or runtime monkeypatches, and replay does not claim to
 reproduce a real race. Ordinary live runs still fetch current-season inputs.
 
-New snapshots use schema version 2 and require `rng_policy`; new runs use
-`isolated_weather_v1`. Earlier installations reject this new schema instead
-of silently using the wrong random streams.
-Older snapshots without this field replay with `shared_v1`, which preserves
+New snapshots use schema version 2, or version 3 when opening tyre ages are
+specified. Version 3 requires `starting_tire_ages`; both versions require
+`rng_policy`, with new runs using `isolated_weather_v1`. Earlier installations
+reject unsupported schemas. Version 1 snapshots without a policy replay with
+`shared_v1`, which preserves
 the former shared weather/race draw sequence. Python callers can select
 either policy with `MonteCarloRunner(..., rng_policy=...)`.
 
@@ -154,12 +163,13 @@ Compare one driver's opening choices against the same saved inputs, offline:
 
 ```powershell
 python examples/compare_starting_tyres.py output/saved_statistics.json --driver VER --simulations 100 --export
-python examples/compare_starting_tyres.py output/dashboard_run.json --scenario dry --driver VER --compounds automatic,soft,medium,hard
+python examples/compare_starting_tyres.py output/dashboard_run.json --scenario dry --driver VER --compounds soft@5,soft,hard,automatic
 ```
 
 Each choice uses the saved race engine and base seed, with the requested number
-of trials per choice. All other drivers' starting overrides remain in place;
-`automatic` removes only the selected driver's override. Later pit decisions
+of trials per choice. All other drivers' compound and age overrides remain in
+place. `soft@5` tests a used soft set, while `soft` tests a fresh one;
+`automatic` removes the selected driver's compound and age overrides. Later pit decisions
 remain automatic. The table reports wins with 95% sampling intervals, podiums,
 retirements and points per race. Equal seeds do not freeze subsequent random
 events, and these estimates do not establish the best strategy for a real race.

@@ -8,6 +8,7 @@ import numpy as np
 from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather, WeatherCondition
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.events import EventManager, EventType, RaceEvent
+from f1sim.simulation.execution import validate_starting_tire_ages, validate_starting_tires
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.opening_strategy import dry_opening_policy_costs, opening_policy_costs
 from f1sim.simulation.overtaking import OvertakingModel
@@ -71,6 +72,7 @@ class DriverRaceState:
     last_crossing_position: int | None = None
     pit_stop_details: list[dict] = field(default_factory=list)
     weather_pit_proposal: tuple[int, TireCompound] | None = None
+    prior_tire_laps: int = 0
 
     def __post_init__(self) -> None:
         """Seed tyre history from the driver's actual starting set."""
@@ -207,6 +209,7 @@ class RaceSimulator:
         weather: Weather,
         starting_grid: list[str],
         starting_tires: dict[str, TireCompound] | None = None,
+        starting_tire_ages: dict[str, int] | None = None,
     ) -> list[RaceResult]:
         """Simulate a complete race.
 
@@ -223,6 +226,9 @@ class RaceSimulator:
         """
         validate_unique_ids((driver.id for driver in drivers), "drivers")
         validate_unique_ids(starting_grid, "starting_grid")
+        starting_tires = validate_starting_tires(starting_tires, (d.id for d in drivers))
+        ages = validate_starting_tire_ages(starting_tire_ages, starting_tires,
+                                           (d.id for d in drivers))
         # Reset mutable driver state as well as event state.  Monte Carlo
         # workers may intentionally reuse model instances between simulations.
         for driver in drivers:
@@ -268,12 +274,15 @@ class RaceSimulator:
                     car,
                 )
 
+            driver.current_tire_laps = ages.get(driver_id, 0)
             pit_plans = self._plan_pit_lap_options(strategy, track)
             states.append(
                 DriverRaceState(
                     driver=driver,
                     car=car,
                     position=pos,
+                    tire_laps=ages.get(driver_id, 0),
+                    prior_tire_laps=ages.get(driver_id, 0),
                     current_tire=TIRE_COMPOUNDS[tire_compound].model_copy(deep=True),
                     strategy_archetype=strategy,
                     planned_pit_laps=pit_plans[0],
@@ -1042,6 +1051,7 @@ class RaceSimulator:
                 physical_total_laps=physical_total_laps,
                 active_aero_enabled=self.event_manager.is_active_aero_allowed(),
                 **traffic_options,
+                current_set_used=state.tire_laps > state.prior_tire_laps,
             )
             timing_bias = {
                 TeamStrategyArchetype.AGGRESSIVE: 0.1,
@@ -1228,7 +1238,7 @@ class RaceSimulator:
     def _actually_used_compounds(state: DriverRaceState) -> set[TireCompound]:
         """Exclude only the current unrun fitted set, preserving earlier stints."""
         history = state.tire_compound_history
-        if (state.tire_laps == 0 and history
+        if (state.tire_laps == state.prior_tire_laps and history
                 and history[-1] == state.current_tire.compound.value):
             history = history[:-1]
         used = set()
@@ -1237,7 +1247,7 @@ class RaceSimulator:
                 used.add(TireCompound(compound))
             except (TypeError, ValueError):
                 continue
-        if state.tire_laps > 0:
+        if state.tire_laps > state.prior_tire_laps:
             used.add(state.current_tire.compound)
         return used
 
@@ -1264,13 +1274,14 @@ class RaceSimulator:
     @staticmethod
     def _fit_tire(state: DriverRaceState, compound: TireCompound) -> None:
         """Replace an unrun fitting instead of recording a fictitious stint."""
-        if (state.tire_laps == 0 and state.tire_compound_history
+        if (state.tire_laps == state.prior_tire_laps and state.tire_compound_history
                 and state.tire_compound_history[-1] == state.current_tire.compound.value):
             state.tire_compound_history[-1] = compound.value
         else:
             state.tire_compound_history.append(compound.value)
         state.current_tire = TIRE_COMPOUNDS[compound].model_copy(deep=True)
         state.tire_laps = 0
+        state.prior_tire_laps = 0
         state.driver.current_tire_laps = 0
 
     def _choose_distinct_dry_compound(
