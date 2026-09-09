@@ -16,6 +16,7 @@ from f1sim.simulation.race_points import points_for_classification
 from f1sim.simulation.race_timing import RaceFinishClock, forecast_final_lap
 from f1sim.simulation.rain_strategy import plan_rain_stop, plan_rain_transition
 from f1sim.simulation.strategy_traffic import StrategyTrafficSnapshot
+from f1sim.simulation.surface_projection import projected_surfaces
 from f1sim.simulation.validation import validate_unique_ids
 from f1sim.simulation.weather_strategy import weather_stop_costs
 
@@ -907,6 +908,7 @@ class RaceSimulator:
         additional_current_stop_cost: float = 0.0,
         physical_total_laps: int | None = None,
         traffic_snapshot: StrategyTrafficSnapshot | None = None,
+        weather_intervals: tuple[int, ...] | None = None,
     ) -> bool:
         """Decide if driver should pit this lap."""
         state.dry_pit_proposal = None
@@ -914,7 +916,9 @@ class RaceSimulator:
         rain_transition = (
             weather is not None and lap > 1 and self._has_used_wet_compound(state)
             and state.current_tire.compound in {TireCompound.INTERMEDIATE, TireCompound.WET}
-            and not self._rain_stint_can_be_planned(state, track, weather, lap)
+            and not self._rain_stint_can_be_planned(
+                state, track, weather, lap, weather_intervals,
+            )
         )
         # CRITICAL: Force pit if tires are completely wrong for conditions
         if weather is not None:
@@ -927,6 +931,7 @@ class RaceSimulator:
                     dry_rule_satisfied
                     and not self._weather_stop_can_pay(
                         state, track, weather, lap, additional_current_stop_cost,
+                        weather_intervals=weather_intervals,
                         traffic_possible=any(
                             other.status == DriverStatus.RACING
                             and other.driver.id != state.driver.id for other in all_states
@@ -1040,7 +1045,9 @@ class RaceSimulator:
             return False
 
         if weather is not None and (
-            rain_transition or self._rain_stint_can_be_planned(state, track, weather, lap)
+            rain_transition or self._rain_stint_can_be_planned(
+                state, track, weather, lap, weather_intervals,
+            )
         ):
             traffic_cost = 0.0
             if not (self.event_manager.safety_car_active or self.event_manager.vsc_active):
@@ -1058,6 +1065,7 @@ class RaceSimulator:
                 current_lap_time_modifier=self.event_manager.get_lap_time_modifier(),
                 active_aero_enabled=self.event_manager.is_active_aero_allowed(),
                 physical_total_laps=physical_total_laps,
+                weather_intervals=weather_intervals,
                 **({
                     "remaining_dry_stops": max(
                         0, self._dry_stop_budget(state, track) - state.pit_stops,
@@ -1084,6 +1092,7 @@ class RaceSimulator:
                 return True  # Legacy callers supplied no surface to project.
             return self._weather_stop_can_pay(
                 state, track, weather, lap, additional_current_stop_cost,
+                weather_intervals=weather_intervals,
                 traffic_possible=any(
                     other.status == DriverStatus.RACING and other.driver.id != state.driver.id
                     for other in all_states
@@ -1198,15 +1207,14 @@ class RaceSimulator:
     @staticmethod
     def _rain_stint_can_be_planned(
         state: DriverRaceState, track: Track, weather: Weather, lap: int,
+        weather_intervals: tuple[int, ...] | None = None,
     ) -> bool:
         compound = state.current_tire.compound
         if compound not in {TireCompound.INTERMEDIATE, TireCompound.WET}:
             return False
-        surface = weather
-        for _ in range(track.total_laps - lap + 1):
+        for surface in projected_surfaces(weather, track.total_laps - lap + 1, weather_intervals):
             if surface.fresh_rain_compound() != compound:
                 return False
-            surface = surface.project_surface()
         return True
 
     @staticmethod
@@ -2036,6 +2044,7 @@ class RaceSimulator:
         self, state: DriverRaceState, track: Track, weather: Weather, current_lap: int,
         additional_current_stop_cost: float = 0.0, *, traffic_possible: bool = True,
         physical_total_laps: int | None = None,
+        weather_intervals: tuple[int, ...] | None = None,
     ) -> bool:
         """Compare an optimistic paid-refit plan with retaining while safe."""
         costs = weather_stop_costs(
@@ -2047,6 +2056,7 @@ class RaceSimulator:
             active_aero_enabled=self.event_manager.is_active_aero_allowed(),
             traffic_possible=traffic_possible,
             physical_total_laps=physical_total_laps,
+            weather_intervals=weather_intervals,
         )
         return costs.pit_now_cost < costs.stay_cost
 

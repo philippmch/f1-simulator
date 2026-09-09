@@ -78,7 +78,8 @@ def test_queue_cost_can_veto_an_otherwise_affordable_wet_stop():
                                additional_current_stop_cost=100)
 
 
-def test_wet_cost_projection_preserves_original_fuel_distance(monkeypatch):
+@pytest.mark.parametrize("intervals", [None, tuple(range(0, 52, 2))])
+def test_wet_cost_projection_preserves_original_fuel_distance(monkeypatch, intervals):
     sim, state, track, weather = fixture([20, 35], 1)
     calls = []
 
@@ -88,8 +89,9 @@ def test_wet_cost_projection_preserves_original_fuel_distance(monkeypatch):
 
     monkeypatch.setattr(sim, "_weather_stop_can_pay", projection)
     assert not sim._should_pit(state, [state], track, 35, False, weather,
-                               physical_total_laps=70)
-    assert calls == [{"traffic_possible": False, "physical_total_laps": 70}]
+                               physical_total_laps=70, weather_intervals=intervals)
+    assert calls == [{"traffic_possible": False, "physical_total_laps": 70,
+                      "weather_intervals": intervals}]
 
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])

@@ -10,7 +10,7 @@ cross a physical predecessor.
 import heapq
 from dataclasses import dataclass, field
 from itertools import count
-from math import ceil, isfinite
+from math import ceil, floor, isfinite
 from numbers import Real
 
 from f1sim.models.tire import TIRE_COMPOUNDS
@@ -239,18 +239,24 @@ class ChronologicalRace:
             horizon = min(self.timeline.final_lap, state.laps_completed + remaining)
         return self.track.model_copy(update={"total_laps": horizon})
 
-    def _projected_flag_time(self, now):
-        """Expected leading finish crossing using the same horizon assumptions."""
-        if self.timeline.chequered_time is not None:
-            return self.timeline.chequered_time
+    def _forecast_leader(self):
+        """Select the observed active leader consistently across strategy forecasts."""
         active = [other for other in self.states.values() if other.status == DriverStatus.RACING]
         if active:
             physical_order = {driver_id: index for index, driver_id in enumerate(self.order)}
-            leader = min(active, key=lambda other: (
+            return min(active, key=lambda other: (
                 -other.laps_completed,
                 other.driver.id not in physical_order,
                 physical_order.get(other.driver.id, other.position),
             ))
+        return None
+
+    def _projected_flag_time(self, now):
+        """Expected leading finish crossing using the same horizon assumptions."""
+        if self.timeline.chequered_time is not None:
+            return self.timeline.chequered_time
+        leader = self._forecast_leader()
+        if leader is not None:
             pending = self.pending.get(leader.driver.id)
             leader_pace = self.running_paces.get(leader.driver.id)
             modifier = self.simulator.event_manager.get_lap_time_modifier()
@@ -284,6 +290,46 @@ class ChronologicalRace:
                 return flag_time
         return None
 
+    def _weather_intervals(self, state, now, planning):
+        """Map projected leading weather updates onto future own-lap starts.
+
+        Extrapolate observed free pace, with current control on the upcoming
+        lap and green running afterward, as in the finish forecast. A leader
+        already in service uses its expected exit. Later stops, incidents and
+        pace changes are unknown. The winner's crossing produces no update.
+        """
+        own_pace = self.running_paces.get(state.driver.id)
+        leader = self._forecast_leader()
+        if own_pace is None or leader is None:
+            return None
+        pending = self.pending.get(leader.driver.id)
+        leader_pace = self.running_paces.get(leader.driver.id)
+        if leader_pace is None and pending is not None:
+            leader_pace = pending.running or None
+        if any(pace is None or not isfinite(pace) or pace <= 0
+               for pace in (own_pace, leader_pace)):
+            return None
+        modifier = self.simulator.event_manager.get_lap_time_modifier()
+        if pending is None:
+            first_update = now + leader_pace * modifier
+        elif pending.on_track:
+            first_update = max(now, pending.ready)
+        else:
+            first_update = max(now, pending.expected_exit or now)
+            first_update += leader_pace * pending.lap_time_modifier
+        flag_time = self._projected_flag_time(now)
+        if flag_time is None:
+            return None
+        # Include an update at an equal-time own crossing: the leading
+        # distance has scheduler priority. Exclude the chequered crossing.
+        available = max(0, ceil((flag_time - first_update) / leader_pace - 1e-12))
+        intervals = [0]
+        for offset in range(1, planning.total_laps - state.laps_completed):
+            start = now + own_pace * (modifier + offset - 1)
+            elapsed = (start - first_update) / leader_pace
+            intervals.append(min(available, max(0, floor(elapsed + 1e-12) + 1)))
+        return tuple(intervals)
+
     def _start_lap(self, state, now):
         driver_id = state.driver.id
         if not self.timeline.can_start_next_lap(driver_id):
@@ -302,6 +348,7 @@ class ChronologicalRace:
             state, active, planning, lap, control.is_pit_window_open(), self.weather,
             additional_current_stop_cost=delay, physical_total_laps=self.track.total_laps,
             traffic_snapshot=self._strategy_traffic(state, now, delay),
+            weather_intervals=self._weather_intervals(state, now, planning),
         )
         loss = 0.0
         expected_exit = None

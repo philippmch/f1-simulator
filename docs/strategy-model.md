@@ -37,6 +37,21 @@ times. A pitting car a full lap ahead retains distance priority. A pending stop
 uses its expected exit when planning the remaining race; the actual finish
 controller continues to use executed crossings.
 
+Rain and weather-stop projections use this shared leading clock to estimate
+surface conditions at each car's future lap starts. A slow car can see multiple
+surface updates between its own laps; a faster car can see the same surface
+twice. The forecast includes no update at the projected chequered crossing.
+It uses observed free pace and expected unfinished leader service, with current
+control on the upcoming lap and green running thereafter. Without usable pace
+observations it retains one update per own lap. Rainfall and condition remain
+fixed, and no future weather draws are consumed.
+
+The projected lap-start schedule assumes continued observed pace and no further
+stops. A chosen stop, tyre change, battle or later intervention can change those
+start times and the car's finishing distance; the forecast is recalculated at
+its next decision. Matching the shared weather cadence does not establish an
+optimal complete strategy or predict a real weather forecast.
+
 The forecast is recalculated as the race develops. It does not change the
 actual finish controller, predict future stops or weather, or guarantee a
 globally optimal timed strategy. After a timed announcement, the next leading

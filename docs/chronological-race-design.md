@@ -65,6 +65,23 @@ are excluded. Forecasting neither mutates live state nor consumes random draws.
 This is a free-running forecast: future stops, incidents, battle delays and
 weather changes remain unknown, and the estimate never determines actual order.
 
+Weather-cost planning also maps the estimated leading crossings onto each
+car's future lap starts. The immutable `weather_intervals` tuple records
+cumulative surface updates from the current snapshot, starting at zero; repeated
+counts and skipped intervals are allowed. Rain-stint selection, compound
+transitions and the reactive weather-stop cost check all use the same tuple,
+including their cached future stints. The standard engine retains its ordinary
+one-update-per-lap projection. Pending physics and actual shared weather updates
+are unaffected by these forecasts.
+
+Constant-pace tests compare every projected future surface with actual lap-start
+snapshots across faster, equal-pace and lapped cars, including timed finishes.
+With a 90-second leader and a 180-second follower under fixed rainfall, the
+follower's second-lap wetness is 0.288. Its next-lap forecast now reaches 0.47232,
+matching the two shared updates, instead of the former one-update value 0.3904.
+The estimate uses expected service for a leader still in the pits and preserves
+the finish forecast's assumptions about future pace, stops and control.
+
 Red flags now hold the field for a shared restart. Already-running laps finish
 their committed work once, with passing disabled during collection. Completed
 cars wait; cars still receiving paid service wait at the closed pit exit and

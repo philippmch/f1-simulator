@@ -15,6 +15,11 @@ from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.pit_strategy import expected_stationary_time
+from f1sim.simulation.surface_projection import (
+    normalize_weather_intervals,
+    projected_surfaces,
+    suffix_weather_intervals,
+)
 
 
 @dataclass(frozen=True)
@@ -33,7 +38,7 @@ def _nonnegative(value, name):
 
 
 @lru_cache(maxsize=4096)
-def _running_row(models, weather_json, tire_json, age, lap, physical):
+def _running_row(models, weather_json, tire_json, age, lap, physical, intervals=None):
     """Green stint beginning here; no stop budget or current-control key."""
     driver = Driver.model_validate_json(models[0])
     car = Car.model_construct(**json.loads(models[1]))
@@ -42,55 +47,56 @@ def _running_row(models, weather_json, tire_json, age, lap, physical):
     tire = Tire.model_validate_json(tire_json)
     simulator = LapSimulator(np.random.default_rng(0))
     row = []
-    for offset in range(track.total_laps - lap + 1):
+    for offset, surface in enumerate(projected_surfaces(
+        surface, track.total_laps - lap + 1, intervals,
+    )):
         driver.current_tire_laps = age + offset
         row.append(simulator.calculate_lap_time(
             driver, car, track, tire, surface, lap + offset, physical,
             sample_variation=False,
         ))
-        surface = surface.project_surface()
     return tuple(row)
 
 
 @lru_cache(maxsize=4096)
-def _surfaces(weather_json, horizon):
-    surface = Weather.model_validate_json(weather_json)
-    result = []
-    for _ in range(horizon):
-        result.append(surface.model_dump_json())
-        surface = surface.project_surface()
-    return tuple(result)
+def _surfaces(weather_json, horizon, intervals=None):
+    return tuple(surface.model_dump_json() for surface in projected_surfaces(
+        Weather.model_validate_json(weather_json), horizon, intervals,
+    ))
 
 
 @lru_cache(maxsize=8192)
-def _fresh_future(models, weather_json, fresh_json, lap, budget, physical):
+def _fresh_future(models, weather_json, fresh_json, lap, budget, physical, intervals=None):
     """Best green cost after a fresh set is fitted; its service is excluded."""
-    row = _running_row(models, weather_json, fresh_json, 0, lap, physical)
+    row = _running_row(models, weather_json, fresh_json, 0, lap, physical, intervals)
     total = sum(row)
     if budget == 0:
         return total
     car = Car.model_construct(**json.loads(models[1]))
     track = Track.model_validate_json(models[2])
     stop = track.pit_lane_delta + expected_stationary_time(car)
-    surfaces = _surfaces(weather_json, len(row))
+    surfaces = _surfaces(weather_json, len(row), intervals)
     stint = 0.0
     for offset in range(1, len(row)):
         stint += row[offset - 1]
         total = min(total, stint + stop + _fresh_future(
             models, surfaces[offset], fresh_json, lap + offset, budget - 1, physical,
+            suffix_weather_intervals(intervals, offset),
         ))
     return total
 
 
 @lru_cache(maxsize=256)
-def _plan(snapshots, tire_age, current_lap, budget, lane, queue, modifier, aero, physical):
+def _plan(snapshots, tire_age, current_lap, budget, lane, queue, modifier, aero, physical,
+          intervals=None):
     models = snapshots[:3]
     weather_json, retained_json, fresh_json = snapshots[3:]
     car = Car.model_construct(**json.loads(models[1]))
     track = Track.model_validate_json(models[2])
-    row = _running_row(models, weather_json, retained_json, tire_age, current_lap, physical)
-    fresh_row = _running_row(models, weather_json, fresh_json, 0, current_lap, physical)
-    surfaces = _surfaces(weather_json, len(row))
+    row = _running_row(models, weather_json, retained_json, tire_age, current_lap,
+                       physical, intervals)
+    fresh_row = _running_row(models, weather_json, fresh_json, 0, current_lap, physical, intervals)
+    surfaces = _surfaces(weather_json, len(row), intervals)
     service = expected_stationary_time(car)
     wait = sum(row)
     if budget:
@@ -99,10 +105,11 @@ def _plan(snapshots, tire_age, current_lap, budget, lane, queue, modifier, aero,
             stint += row[offset - 1]
             wait = min(wait, stint + track.pit_lane_delta + service + _fresh_future(
                 models, surfaces[offset], fresh_json, current_lap + offset, budget - 1, physical,
+                suffix_weather_intervals(intervals, offset),
             ))
     pit = inf if budget == 0 else (
         track.pit_lane_delta * lane + service + queue + _fresh_future(
-            models, weather_json, fresh_json, current_lap, budget - 1, physical,
+            models, weather_json, fresh_json, current_lap, budget - 1, physical, intervals,
         )
     )
     first_old, first_fresh = row[0], fresh_row[0]
@@ -126,6 +133,7 @@ def plan_rain_stop(
     tire_age: int, current_lap: int, remaining_stops: int, *, pit_lane_factor: float = 1.0,
     additional_current_stop_cost: float = 0.0, current_lap_time_modifier: float = 1.0,
     active_aero_enabled: bool = True, physical_total_laps: int | None = None,
+    weather_intervals: tuple[int, ...] | None = None,
 ) -> RainStopDecision:
     """Compare stopping now with driving at least one lap before any stop.
 
@@ -134,6 +142,8 @@ def plan_rain_stop(
     clean air. Rainfall stays fixed while surface wetness evolves. The caller
     must ensure the same rain compound remains appropriate over the horizon.
     Fuel follows physical_total_laps even when track bounds a shorter plan.
+    weather_intervals optionally supplies cumulative surface-update counts for
+    each remaining own lap, starting at zero; None uses one update per lap.
     """
     for name, value, minimum in (("tire_age", tire_age, 0), ("current_lap", current_lap, 1),
                                  ("remaining_stops", remaining_stops, 0)):
@@ -158,6 +168,9 @@ def plan_rain_stop(
         raise ValueError("current_lap_time_modifier must be positive")
     if not isinstance(active_aero_enabled, bool):
         raise ValueError("active_aero_enabled must be boolean")
+    intervals = normalize_weather_intervals(
+        track.total_laps - current_lap + 1, weather_intervals, weather=weather,
+    )
     clean = driver.model_copy(deep=True)
     clean.reset_race_state()
     # Lap physics reads performance attributes, never names or identifiers.
@@ -170,7 +183,7 @@ def plan_rain_stop(
     return _plan(snapshots, int(tire_age), int(current_lap),
                  min(int(remaining_stops), track.total_laps - current_lap + 1),
                  float(pit_lane_factor), float(additional_current_stop_cost),
-                 float(current_lap_time_modifier), active_aero_enabled, int(physical))
+                 float(current_lap_time_modifier), active_aero_enabled, int(physical), intervals)
 
 
 @dataclass(frozen=True)
@@ -207,7 +220,7 @@ def _remember_transition(key, value):
 
 @lru_cache(maxsize=256)
 def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
-                     modifier, aero, physical, dry_budget, damp_budget):
+                     modifier, aero, physical, dry_budget, damp_budget, intervals=None):
     models = snapshots[:3]
     weather_json, retained_json, tires_json = snapshots[3:]
     track = Track.model_validate_json(models[2])
@@ -216,8 +229,10 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
              for key, value in json.loads(tires_json).items()}
     retained = Tire.model_validate_json(retained_json)
     horizon = track.total_laps - current_lap + 1
-    surface_json = _surfaces(weather_json, horizon)
+    surface_json = _surfaces(weather_json, horizon, intervals)
     surfaces = [Weather.model_validate_json(value) for value in surface_json]
+    cadence_suffixes = tuple(suffix_weather_intervals(intervals, offset, surface)
+                             for offset, surface in enumerate(surfaces))
     service = expected_stationary_time(car)
     stop_cost = track.pit_lane_delta + service
     candidates = []
@@ -244,7 +259,7 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
     def cache_key(state):
         offset, compound, left, dry, damp = state
         return (models, surface_json[offset], tires_json, current_lap + offset,
-                compound, left, dry, damp, physical)
+                compound, left, dry, damp, physical, cadence_suffixes[offset])
 
     solved = {}
     dependencies = []
@@ -265,7 +280,8 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
 
     def stint(start, compound, age, tire_json, left, dry, damp):
         row = _running_row(models, surface_json[start], tire_json, age,
-                           current_lap + start, physical)
+                           current_lap + start, physical,
+                           cadence_suffixes[start])
         total, best_cost = 0.0, inf
         # This set must run its fitting/current lap before any future stop.
         for offset in range(start, horizon):
@@ -311,7 +327,7 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
             solve(state)
 
     def first(tire_json, age):
-        row = _running_row(models, weather_json, tire_json, age, current_lap, physical)
+        row = _running_row(models, weather_json, tire_json, age, current_lap, physical, intervals)
         if aero:
             return row[0] * modifier - row[0]
         driver = Driver.model_validate_json(models[0])
@@ -348,9 +364,13 @@ def plan_rain_transition(
     tire_age: int, current_lap: int, remaining_stops: int, *, pit_lane_factor: float = 1.0,
     additional_current_stop_cost: float = 0.0, current_lap_time_modifier: float = 1.0,
     active_aero_enabled: bool = True, physical_total_laps: int | None = None,
+    weather_intervals: tuple[int, ...] | None = None,
     remaining_dry_stops: int | None = None, remaining_damp_stops: int | None = None,
 ) -> RainTransitionDecision:
     """Plan bounded paid stops across rain/slick transitions under fixed rainfall.
+
+    weather_intervals optionally supplies cumulative surface-update counts for
+    each remaining own lap, starting at zero; None uses one update per lap.
 
     A retained set may run while noncritical. Fresh fits follow the surface's
     rain-compound recommendation, or consider all slicks when it recommends
@@ -388,6 +408,9 @@ def plan_rain_transition(
             isinstance(value, bool) or not isinstance(value, Integral) or value < 0
         ):
             raise ValueError(f"{name} must be a nonnegative integer or None")
+    intervals = normalize_weather_intervals(
+        track.total_laps - current_lap + 1, weather_intervals, weather=weather,
+    )
     clean = driver.model_copy(deep=True)
     clean.reset_race_state()
     clean.id = clean.name = clean.team_id = "projection"
@@ -402,5 +425,5 @@ def plan_rain_transition(
         float(pit_lane_factor), float(additional_current_stop_cost),
         float(current_lap_time_modifier), active_aero_enabled, int(physical),
         None if remaining_dry_stops is None else int(remaining_dry_stops),
-        None if remaining_damp_stops is None else int(remaining_damp_stops),
+        None if remaining_damp_stops is None else int(remaining_damp_stops), intervals,
     )
