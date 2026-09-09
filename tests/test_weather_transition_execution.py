@@ -1,16 +1,26 @@
 """Compound-changing proposals remain executable in both race engines."""
 
 import copy
+import importlib.util
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from examples.check_weather_transitions import CASES, compare_schedules, run_race
 from f1sim.models import Car, Driver, TireCompound, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.race import DriverRaceState, RaceSimulator
 from f1sim.simulation.strategy_traffic import StrategyTrafficSnapshot
+
+
+@pytest.fixture(scope="module")
+def diagnostic():
+    path = Path(__file__).resolve().parents[1] / "examples" / "check_weather_transitions.py"
+    spec = importlib.util.spec_from_file_location("weather_transition_diagnostic", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def fixture():
@@ -23,8 +33,8 @@ def fixture():
     return simulator, state, track, Weather(track_wetness=.19, rain_intensity=0)
 
 
-def test_both_engines_match_bounded_executed_transition_schedules():
-    rows = compare_schedules()
+def test_both_engines_match_bounded_executed_transition_schedules(diagnostic):
+    rows = diagnostic.compare_schedules()
     assert len(rows) == 8
     assert {row["engine"] for row in rows} == {"standard", "chronological"}
     for row in rows:
@@ -38,9 +48,9 @@ def test_both_engines_match_bounded_executed_transition_schedules():
 
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])
-def test_drying_transition_avoids_waiting_until_critical(engine):
-    selected = run_race(CASES[0], engine)
-    late = run_race(CASES[0], engine, ((8, TireCompound.SOFT),))
+def test_drying_transition_avoids_waiting_until_critical(engine, diagnostic):
+    selected = diagnostic.run_race(diagnostic.CASES[0], engine)
+    late = diagnostic.run_race(diagnostic.CASES[0], engine, ((8, TireCompound.SOFT),))
     assert late["total_seconds"] - selected["total_seconds"] > 24
     assert selected["paid_stops"] == late["paid_stops"] == 1
 
