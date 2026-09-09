@@ -1,6 +1,7 @@
 """Console output formatting."""
 
 from f1sim.analysis.montecarlo import SimulationResults
+from f1sim.analysis.paired_comparison import paired_comparison_statistics
 from f1sim.output.timing import finite_time, format_lap_deficit
 from f1sim.simulation.qualifying import QualifyingResult
 from f1sim.simulation.race import RaceResult, result_is_classified
@@ -9,6 +10,40 @@ from f1sim.simulation.race_points import points_for_result
 
 class ConsoleOutput:
     """Formats simulation results for console display."""
+
+    @staticmethod
+    def print_paired_comparison(
+        results: dict[str, SimulationResults], reference_scenario: str,
+        driver_id: str | None = None,
+    ) -> None:
+        """Show differences over comparable seeded trials with their own counts."""
+        paired = paired_comparison_statistics(results, reference_scenario)
+        print(f"\nPaired changes compared with {reference_scenario}")
+        print("Positive points changes mean more points; "
+              "positive DNF changes mean more retirements.")
+        print("SE estimates sampling error, not a confidence interval. "
+              "Zero SE does not prove equality.")
+        for label, comparison in paired["variants"].items():
+            print(f"{label}:")
+            if comparison["status"] == "unavailable":
+                print(f"  Unavailable: {comparison['reason']}")
+                continue
+            print("Driver       Pairs  Excluded  Points change     SE   "
+                  "More/equal/fewer   DNF change")
+            for driver, stats in comparison["driver_statistics"].items():
+                if driver_id is not None and driver != driver_id:
+                    continue
+                if not stats["paired_races"]:
+                    print(f"{driver:<12} No usable paired results "
+                          f"({stats['excluded_pairs']} excluded pairs)")
+                    continue
+                error = stats["points_difference_standard_error"]
+                error_text = f"{error:.3f}" if error is not None else "n/a"
+                counts = (f"{stats['more_points_races']}/{stats['equal_points_races']}/"
+                          f"{stats['fewer_points_races']}")
+                print(f"{driver:<12} {stats['paired_races']:>5} {stats['excluded_pairs']:>9} "
+                      f"{stats['mean_points_difference']:>+14.3f} {error_text:>6} "
+                      f"{counts:>18} {stats['dnf_rate_difference_percentage_points']:>+11.1f} pp")
 
     @staticmethod
     def print_qualifying_results(results: list[QualifyingResult]) -> None:

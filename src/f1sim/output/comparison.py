@@ -6,6 +6,7 @@ from math import isfinite
 from numbers import Real
 
 from f1sim.analysis.montecarlo import SimulationResults
+from f1sim.analysis.paired_comparison import paired_comparison_statistics
 
 
 def _text(value: object) -> str:
@@ -49,14 +50,59 @@ def _weather(result: SimulationResults) -> str:
             f'weather draws {randomness}')
 
 
+def _paired_driver_table(driver_id: str, paired: dict | None) -> str:
+    if paired is None:
+        return ""
+    reference = _text(paired["reference_scenario"])
+    rows = []
+    for label, comparison in paired["variants"].items():
+        prefix = f'<tr><th scope="row">{_text(label)}</th>'
+        if comparison["status"] == "unavailable":
+            rows.append(prefix + f'<td colspan="4">Unavailable: '
+                        f'{_text(comparison["reason"])}</td></tr>')
+            continue
+        stats = comparison["driver_statistics"].get(driver_id)
+        if not stats or not stats["paired_races"]:
+            excluded = stats["excluded_pairs"] if stats else comparison["available_seed_pairs"]
+            rows.append(prefix + f'<td colspan="4">No usable paired results '
+                        f'({excluded} excluded pairs)</td></tr>')
+            continue
+        error = stats["points_difference_standard_error"]
+        error_text = f"SE {error:.3f} points" if error is not None else "SE needs at least 2 pairs"
+        rows.append(
+            prefix + f'<td>{stats["paired_races"]} '
+            f'<span class="interval">({stats["excluded_pairs"]} excluded pairs)</span></td>'
+            f'<td>{stats["mean_points_difference"]:+.3f} '
+            f'<span class="interval">{error_text}</span></td>'
+            f'<td>{stats["more_points_races"]} / {stats["equal_points_races"]} / '
+            f'{stats["fewer_points_races"]}</td>'
+            f'<td>{stats["dnf_rate_difference_percentage_points"]:+.1f} pp</td></tr>'
+        )
+    return (
+        '<div class="table-wrap" tabindex="0" role="region" '
+        f'aria-label="{_text(driver_id)} paired changes">'
+        f'<table><caption>Changes for {_text(driver_id)} compared with {reference}</caption>'
+        '<thead><tr><th scope="col">Choice</th><th scope="col">Paired races</th>'
+        '<th scope="col">Mean points change</th><th scope="col">More / equal / fewer points</th>'
+        '<th scope="col">Retirement rate change</th></tr></thead><tbody>'
+        + ("".join(rows) or '<tr><td colspan="5">No alternative choices supplied</td></tr>')
+        + '</tbody></table></div>'
+    )
+
+
 def render_comparison_report(
     scenario_results: dict[str, SimulationResults], *, focus_driver: str | None = None,
+    reference_scenario: str | None = None,
 ) -> str:
     """Render supplied scenario order without ranking or causal interpretation."""
     context = []
     distance_rows = []
     drivers = {}
     summaries = {}
+    paired = (
+        paired_comparison_statistics(scenario_results, reference_scenario)
+        if reference_scenario is not None else None
+    )
     for name, result in scenario_results.items():
         context.append("<tr>" + f'<th scope="row">{_text(name)}</th>' + "".join(
             f"<td>{_text(value)}</td>" for value in (
@@ -178,7 +224,8 @@ def render_comparison_report(
             '<thead><tr><th scope="col">Scenario</th><th scope="col">Tyre sequence</th>'
             '<th scope="col">Races / recorded sequences</th>'
             '<th scope="col">Finished</th><th scope="col">DNF</th></tr></thead><tbody>'
-            + "".join(strategy_rows) + "</tbody></table></div></details>"
+            + "".join(strategy_rows) + "</tbody></table></div>"
+            + _paired_driver_table(driver_id, paired) + "</details>"
         )
 
     return """<!doctype html>
@@ -247,5 +294,13 @@ Equal seeds do not freeze later race events.</p>
 same sequence over shared weather-update intervals. Those intervals can occur
 at different elapsed times, and a shorter race records a shorter sequence.
 Legacy shared draws can change the weather when race decisions change.</p>""" + (
+        f'<p>Paired changes compare each choice with {_text(reference_scenario)} using '
+        'overlapping recorded trial seeds, matching saved models and qualifying. '
+        'Positive points changes mean more points; positive retirement changes mean more DNFs. '
+        'SE is the estimated standard error of the mean points change, not a 95% interval. '
+        'Zero observed variation does not prove the choices equivalent. Missing, invalid or '
+        'unmatched results are excluded with their counts. Adaptive race events can differ.</p>'
+        if paired is not None else ""
+    ) + (
         "".join(sections) or "<p>No driver outcomes recorded.</p>"
     ) + "</main></body></html>"

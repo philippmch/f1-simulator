@@ -149,6 +149,24 @@ remain automatic. The table reports wins with 95% sampling intervals, podiums,
 retirements and points per race. Equal seeds do not freeze subsequent random
 events, and these estimates do not establish the best strategy for a real race.
 
+Saved-input comparisons also show changes against a reference choice. The first
+selected choice is the default; use `--reference hard`, for example, to change it.
+For each driver, the console and HTML report show the mean points change, its
+estimated standard error (SE), how many paired trials earned more/equal/fewer
+points, and the retirement-rate change. Positive points changes mean more points;
+positive retirement changes mean more DNFs. These use shared recorded trial
+seeds and matching qualifying, with their own paired and excluded counts.
+SE describes sampling error in the mean difference; it is not a confidence
+interval, and zero observed variation does not establish equivalent strategies.
+One paired observation has no estimable SE.
+
+Combined exports retain these summaries in `paired_comparisons`. Pairing requires
+matching saved models, runtime provenance and random-stream policy; starting
+tyres and engine may differ. Missing, duplicate or invalid driver records and
+unmatched qualifying are excluded. Different weather inputs are not paired.
+Python exporters accept `reference_scenario="hard"`; ordinary scenario exports
+omit paired summaries unless a reference is requested.
+
 Nothing is written unless `--export` is supplied. Exported bundles, combined JSON
 and an offline HTML comparison report go to `output/strategy-comparisons` (or
 `--output-dir`), with unique names. The report opens the selected driver and shows
@@ -183,6 +201,8 @@ paired comparison JSON/HTML go to `output/engine-comparisons` or `--output-dir`.
 The console includes winning distance, timed races, lapping and driver outcomes;
 the HTML also shows actual tyre sequences. Replay an exported trial with
 `python examples/replay_simulation.py output/engine-comparisons/race_engines_ID.json --scenario chronological --simulation 2`.
+Paired changes use the first selected engine as reference unless overridden with
+`--reference chronological` or `--reference standard`.
 These comparisons measure sensitivity to the execution model. Equal seeds do
 not align all later events, and a different result does not establish that one
 engine is more accurate. Qualifying inputs and qualifying seed ranges are shared.

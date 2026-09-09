@@ -9,7 +9,7 @@ from uuid import uuid4
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from f1sim.analysis.strategy_comparison import compare_saved_race_engines
-from f1sim.output import Exporter
+from f1sim.output import ConsoleOutput, Exporter
 
 
 def _simulations(value: str) -> int:
@@ -36,6 +36,7 @@ def main() -> int:
     parser.add_argument("--scenario", help="Exact source scenario when the file contains several")
     parser.add_argument("--engines", default="standard,chronological",
                         help="Distinct engines separated by commas, in comparison order")
+    parser.add_argument("--reference", help="Selected engine to compare against (default: first)")
     parser.add_argument("--simulations", type=_simulations, default=100,
                         help="Trials per engine (1-1000, default: 100)")
     parser.add_argument("--parallel", action="store_true", help="Use process workers")
@@ -47,6 +48,9 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, default=Path("output/engine-comparisons"))
     args = parser.parse_args()
     engines = tuple(value.strip().lower() for value in args.engines.split(","))
+    reference = args.reference.strip().lower() if args.reference is not None else engines[0]
+    if reference not in engines:
+        parser.error("reference must be one of the selected engines")
     try:
         results = compare_saved_race_engines(
             args.path, engines, scenario=args.scenario, num_simulations=args.simulations,
@@ -88,6 +92,7 @@ def main() -> int:
                       f"[{interval['lower']:>5.1f}, {interval['upper']:>5.1f}]"
                       f"       {stats.podium_rate:>6.1f} {stats.dnf_rate:>7.1f} "
                       f"{stats.total_points / trials:>12.2f}")
+        ConsoleOutput.print_paired_comparison(results, reference)
         if args.export:
             exporter = Exporter(args.output_dir)
             for engine, result in results.items():
@@ -96,8 +101,11 @@ def main() -> int:
             prefix = f"race_engines_{uuid4().hex}"
             comparison = exporter.export_scenario_comparison_json(
                 results, filename=f"{prefix}.json",
+                reference_scenario=reference,
             )
-            report = exporter.export_scenario_comparison_html(results, filename=f"{prefix}.html")
+            report = exporter.export_scenario_comparison_html(
+                results, filename=f"{prefix}.html", reference_scenario=reference,
+            )
             print(f"Comparison: {comparison}")
             print(f"Comparison report: {report}")
     except (OSError, UnicodeError, ValueError) as error:

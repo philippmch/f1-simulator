@@ -22,6 +22,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         if (name === 'comparison.html') {
           return route.fulfill({contentType: 'text/html; charset=utf-8', body: fixture.comparison});
         }
+        if (name === 'paired.html') {
+          return route.fulfill({contentType: 'text/html; charset=utf-8', body: fixture.paired});
+        }
         if (name === 'index.html' || name === fixture.filename) {
           return route.fulfill({contentType: 'text/html; charset=utf-8',
             body: name === 'index.html' ? fixture.index : fixture.report});
@@ -90,6 +93,28 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         fs.mkdirSync(process.env.F1SIM_SCREENSHOTS, {recursive: true});
         await page.screenshot({path: path.join(process.env.F1SIM_SCREENSHOTS,
           `comparison-${width}.png`), fullPage: true});
+      }
+    }
+    await page.goto('http://f1sim.test/paired.html');
+    const paired = page.getByRole('region', {name: 'A paired changes', exact: true});
+    const pairedText = await paired.innerText();
+    assert(pairedText.includes('Changes for A compared with hard'));
+    assert(pairedText.includes('Mean points change'));
+    assert(pairedText.includes('More / equal / fewer points'));
+    const stats = fixture.paired_stats;
+    const signed = value => `${value < 0 ? '' : '+'}${value.toFixed(3)}`;
+    assert(pairedText.includes(signed(stats.mean_points_difference)));
+    assert(pairedText.includes(`SE ${stats.points_difference_standard_error.toFixed(3)} points`));
+    assert(pairedText.includes(`${stats.more_points_races} / ${stats.equal_points_races} / ${stats.fewer_points_races}`));
+    assert(pairedText.includes('(0 excluded pairs)'));
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({width, height: 1100});
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+      await paired.focus();
+      assert(await paired.evaluate(node => document.activeElement === node));
+      if (process.env.F1SIM_SCREENSHOTS) {
+        await paired.screenshot({path: path.join(process.env.F1SIM_SCREENSHOTS,
+          `paired-comparison-${width}.png`)});
       }
     }
     assert.deepEqual(errors, []);

@@ -382,11 +382,18 @@ class Exporter:
         self,
         scenario_results: dict[str, SimulationResults],
         filename: str = "scenario_comparison.json",
+        *, reference_scenario: str | None = None,
     ) -> Path:
         """Export scenario outcomes, observed counts, uncertainty and replay inputs."""
         filepath = self.output_dir / filename
 
         payload: dict[str, Any] = {"scenarios": {}}
+        if reference_scenario is not None:
+            from f1sim.analysis.paired_comparison import paired_comparison_statistics
+
+            payload["paired_comparisons"] = paired_comparison_statistics(
+                scenario_results, reference_scenario,
+            )
         for name, results in scenario_results.items():
             payload["scenarios"][name] = {
                 "track_name": results.track_name,
@@ -418,13 +425,15 @@ class Exporter:
     def export_scenario_comparison_html(
         self, scenario_results: dict[str, SimulationResults],
         filename: str = "scenario_comparison.html", *, focus_driver: str | None = None,
+        reference_scenario: str | None = None,
     ) -> Path:
         """Write an offline comparison with observed counts and sampling intervals."""
         from f1sim.output.comparison import render_comparison_report
 
         filepath = self.output_dir / filename
         filepath.write_text(
-            render_comparison_report(scenario_results, focus_driver=focus_driver), encoding="utf-8",
+            render_comparison_report(scenario_results, focus_driver=focus_driver,
+                                     reference_scenario=reference_scenario), encoding="utf-8",
         )
         return filepath
 

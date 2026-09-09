@@ -142,6 +142,34 @@ are excluded from sorting averages and remain blank in matrix CSV exports;
 older results without interval metadata retain their estimates with an explicit
 sampling-range-unavailable label.
 
+Saved-input comparison commands additionally compare each variant against a
+reference (the first selected label, or `--reference`). They pair overlapping
+recorded effective seeds, `base_seed + trial_index`, only when saved driver,
+car, track, weather and runtime inputs and the random-stream policy match.
+Starting-tyre overrides and race engine may differ. Each retained trial must
+have identical qualifying records. A driver needs exactly one valid final row
+in both runs; missing, duplicate and malformed records exclude that driver's
+whole pair. Reported means and retirement rates use only this paired subset.
+The source run's overall averages can differ when observations were excluded.
+
+For points differences `d_i = variant_points_i - reference_points_i`, the mean
+is `sum(d_i) / n` and its estimated standard error is
+`sqrt(sum((d_i - mean)^2) / (n - 1)) / sqrt(n)`, following the
+[paired-observation statistics described by NIST](https://www.itl.nist.gov/div898/handbook/prc/section3/prc311.htm).
+SE is absent for fewer than two pairs. Identical observed differences give
+zero estimated SE, which is not evidence that future differences are fixed.
+This is a descriptive sampling-error estimate, not a confidence interval or
+an optimal-strategy ranking. Points use explicit distance-adjusted awards when
+recorded, including classified retirements; legacy rows use classification-based
+scoring. Operational DNFs are counted separately. Positive retirement-rate
+changes mean more retirements and are expressed in percentage points.
+These calculations do not consume simulation randomness or rerun races.
+
+JSON `paired_comparisons` and the HTML paired tables are opt-in through the
+exporter's `reference_scenario`; both saved-comparison commands supply it.
+General weather-scenario exports remain unpaired. Summary labels retain supplied
+order, and unavailable comparisons state which pairing prerequisite is missing.
+
 With no rainfall, the dry policy projection is deterministic and needs one
 private run per slick. With sustained rainfall that could change the surface,
 it averages the same eight private reaction seeds used below. Cached scores

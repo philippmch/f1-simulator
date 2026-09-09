@@ -9,7 +9,7 @@ from uuid import uuid4
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from f1sim.analysis.strategy_comparison import compare_saved_starting_tires
-from f1sim.output import Exporter
+from f1sim.output import ConsoleOutput, Exporter
 
 
 def _simulations(value: str) -> int:
@@ -37,6 +37,7 @@ def main() -> int:
     parser.add_argument("--scenario", help="Exact source scenario when the file contains several")
     parser.add_argument("--compounds", default="automatic,soft,medium,hard",
                         help="Choices separated by commas; automatic restores the usual policy")
+    parser.add_argument("--reference", help="Selected choice to compare against (default: first)")
     parser.add_argument("--simulations", type=_simulations, default=100,
                         help="Trials per choice (1-1000, default: 100)")
     parser.add_argument("--parallel", action="store_true", help="Use process workers")
@@ -48,6 +49,9 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, default=Path("output/strategy-comparisons"))
     args = parser.parse_args()
     compounds = tuple(value.strip().lower() for value in args.compounds.split(","))
+    reference = args.reference.strip().lower() if args.reference is not None else compounds[0]
+    if reference not in compounds:
+        parser.error("reference must be one of the selected compounds")
     try:
         results = compare_saved_starting_tires(
             args.path, args.driver, compounds, scenario=args.scenario,
@@ -75,6 +79,7 @@ def main() -> int:
             print(f"{label:<12} {trials:>6}  {stats.win_rate:>6.1f} "
                   f"[{interval['lower']:>5.1f}, {interval['upper']:>5.1f}]"
                   f"       {stats.podium_rate:>6.1f} {stats.dnf_rate:>7.1f} {points:>12.2f}")
+        ConsoleOutput.print_paired_comparison(results, reference, driver_id=args.driver)
         if args.export:
             exporter = Exporter(args.output_dir)
             for label, result in results.items():
@@ -83,9 +88,11 @@ def main() -> int:
             prefix = f"starting_tyres_{uuid4().hex}"
             comparison = exporter.export_scenario_comparison_json(
                 results, filename=f"{prefix}.json",
+                reference_scenario=reference,
             )
             report = exporter.export_scenario_comparison_html(
                 results, filename=f"{prefix}.html", focus_driver=args.driver,
+                reference_scenario=reference,
             )
             print(f"Comparison: {comparison}")
             print(f"Comparison report: {report}")
