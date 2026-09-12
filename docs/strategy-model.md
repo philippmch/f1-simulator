@@ -536,14 +536,28 @@ use the completed lap clocks, including actual service and on-track running.
 During green running, the dry, rain-refit and rain-transition optimizers also
 compare the first lap's dirty-air cost when stopping with that when staying out.
 They retain the current gap and the projected rejoin gap after expected lane,
-service and queue loss. The standard engine assumes other cars stay out; the
-chronological engine also accounts for rivals already in the pit lane through
-their expected exits. The shared lap model contributes between zero and 0.5
+service and queue loss. The standard engine includes stops already selected
+earlier in its frozen arrival-order batch, using expected lane, service and
+team-box delay. It projects both staying out and joining those pitters through
+the same physical-order merge used in execution. Undecided rivals are still
+assumed to stay out. The chronological engine accounts for rivals already in
+the pit lane through their expected exits. The shared lap model contributes
+between zero and 0.5
 seconds before weather scaling, depending on a gap below two seconds; this can
 move a close timing decision in either direction. It does not predict a queue of slower cars over multiple laps,
 passing opportunities, or rivals' stop decisions. The correction is disabled
 under neutralisation. Expected gaps approximate a nonlinear cost at the mean
 service time; they are not an average over every possible service outcome.
+
+For example, when two tied cars from different teams both stop behind a
+third car, equal expected service leaves the second pitter behind the first.
+Its decision cannot claim that the full pit loss will become clean air merely
+because the first pitter's original crossing clock was earlier. Conversely,
+a car that stays out can gain clean air when its predecessor has already
+committed to stop. Reservations use expected service only; actual service is
+sampled after the batch's decisions. The observed pre-stop gaps still govern
+reactive style changes. Projected traffic does not mutate race clocks, reserve
+tyre sets, revisit earlier decisions or predict later rivals' choices.
 
 Each retained or freshly fitted candidate receives its respective gap inside
 the current lap calculation, before the minimum lap-time floor and current

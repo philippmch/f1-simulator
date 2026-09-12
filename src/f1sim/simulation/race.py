@@ -1021,24 +1021,47 @@ class RaceSimulator(InventoryStrategyMixin):
             key=lambda state: (*arrivals[state.driver.id], state.driver.id),
         )
         expected_releases: dict[str, float] = {}
+        expected_losses: dict[str, float] = {}
         pitting = []
         for state in ordered:
             arrival = arrivals[state.driver.id][0]
             team = state.car.team_id
             delay = max(0.0, expected_releases.get(team, arrival) - arrival)
-            if state.force_pit_next_lap or self._should_pit(
+            traffic_snapshot = self._standard_pit_traffic_snapshot(
+                state,
+                lap_start_states,
+                states,
+                track,
+                delay,
+                expected_losses,
+            )
+            should_pit = state.force_pit_next_lap or self._should_pit(
                 state, lap_start_states, track, lap,
                 self.event_manager.is_pit_window_open(), weather=weather,
                 additional_current_stop_cost=delay,
+                traffic_snapshot=traffic_snapshot,
                 **({"physical_total_laps": physical_total_laps}
                    if physical_total_laps is not None else {}),
-            ):
+            )
+            if should_pit:
                 if state.tire_inventory is not None and not self._prepare_inventory_pit(
-                    state, track, weather, lap, physical_total_laps=physical_total_laps,
+                    state,
+                    track,
+                    weather,
+                    lap,
+                    physical_total_laps=physical_total_laps,
+                    current_traffic_gaps=traffic_snapshot.current_traffic_gaps,
+                    additional_current_stop_cost=delay,
                 ):
                     continue
                 pitting.append(state)
-                expected_releases[team] = arrival + delay + expected_stationary_time(state.car)
+                expected_service = expected_stationary_time(state.car)
+                expected_releases[team] = arrival + delay + expected_service
+                expected_losses[state.driver.id] = (
+                    track.pit_lane_delta * self._pit_lane_factor()
+                    + expected_service
+                    + delay
+                )
 
         actual_releases: dict[str, float] = {}
         for state in pitting:
@@ -1055,6 +1078,102 @@ class RaceSimulator(InventoryStrategyMixin):
             state.pit_laps.append(lap)
             state.force_pit_next_lap = False
         return pitting
+
+    def _standard_pit_traffic_snapshot(
+        self,
+        state: DriverRaceState,
+        lap_start_states: list[DriverRaceState],
+        states: list[DriverRaceState],
+        track: Track,
+        queue_delay: float,
+        committed_losses: dict[str, float],
+    ) -> StrategyTrafficSnapshot:
+        """Project only earlier committed stops for this standard decision.
+
+        Strategy decisions happen together at a lap boundary, while the
+        constructor queue is committed in frozen arrival order.  The traffic
+        projection therefore uses lap-start clocks and positions, then folds
+        in expected losses for stops already selected in this batch.  It does
+        not sample service, mutate live states, or make choices for rivals
+        that have not reached their decision yet.
+        """
+        active_ids = {
+            candidate.driver.id
+            for candidate in states
+            if candidate.status == DriverStatus.RACING
+        }
+        frozen = {
+            candidate.driver.id: candidate
+            for candidate in lap_start_states
+            if candidate.status == DriverStatus.RACING
+            and candidate.driver.id in active_ids
+        }
+        if state.driver.id not in frozen:
+            # The caller only asks for snapshots for active candidates. Keep a
+            # defensive empty snapshot for direct/instrumented callers that
+            # violate that invariant.
+            return StrategyTrafficSnapshot(None, None, 0.0, None)
+
+        # A failed finite-inventory preparation can retire a car between two
+        # decisions. Compact only the copied rows so a surviving car keeps
+        # seeing its nearest physical predecessor despite the old position
+        # hole; the live and frozen race states remain untouched.
+        base_rows = [replace(candidate) for candidate in frozen.values()]
+        if sorted(candidate.position for candidate in base_rows) != list(
+            range(1, len(base_rows) + 1)
+        ):
+            for position, candidate in enumerate(
+                sorted(base_rows, key=lambda row: row.position), 1
+            ):
+                candidate.position = position
+
+        observed_rows = [replace(candidate) for candidate in base_rows]
+        observed_by_id = {
+            candidate.driver.id: candidate for candidate in observed_rows
+        }
+        observed = observed_by_id[state.driver.id]
+        gap_ahead = self._get_gap_to_car_ahead(observed, observed_rows)
+        gap_behind = self._get_gap_to_car_behind(observed, observed_rows)
+
+        # Existing planning deliberately has no green-running traffic model
+        # while control compresses the field.  Match that contract while
+        # retaining the physical observations for reactive strategy rules.
+        if not self.event_manager.is_active_aero_allowed():
+            return StrategyTrafficSnapshot(gap_ahead, gap_behind, 0.0, None)
+
+        def merged_gap(candidate_loss: float | None) -> float | None:
+            # Recreate both alternatives from the same original physical
+            # order. The stay branch may move a car ahead of a committed
+            # pitter; that virtual position must not become the tie-breaker
+            # for the candidate-inclusive pit branch.
+            projected = [replace(row) for row in base_rows]
+            pitting = []
+            for row in projected:
+                loss = committed_losses.get(row.driver.id)
+                if loss is None and row.driver.id == state.driver.id:
+                    loss = candidate_loss
+                if loss is None:
+                    continue
+                row.total_time += loss
+                pitting.append(row)
+            self._handle_pit_batch_position_changes(pitting, projected)
+            own = next(row for row in projected if row.driver.id == state.driver.id)
+            return self._get_gap_to_car_ahead(own, projected)
+
+        expected_stay_gap = merged_gap(None)
+        expected_pit_gap = merged_gap(
+            track.pit_lane_delta * self._pit_lane_factor()
+            + expected_stationary_time(state.car)
+            + queue_delay
+        )
+        traffic = self.lap_simulator.traffic_pace_contribution
+        rejoin_cost = traffic(expected_pit_gap) - traffic(expected_stay_gap)
+        return StrategyTrafficSnapshot(
+            gap_ahead,
+            gap_behind,
+            rejoin_cost,
+            (expected_stay_gap, expected_pit_gap),
+        )
 
     def _should_pit(
         self,
