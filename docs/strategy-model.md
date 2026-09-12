@@ -20,7 +20,7 @@ a requirement to make three stops or a claim that longer races never need more.
 Dry red-flag projections use the same budget.
 
 Dry planning scales tyre costs with the same current weather multiplier as
-simulated laps, including cloudy conditions and the car's wet-performance
+simulated laps, including surface water, rainfall and the car's wet-performance
 contribution. It holds that multiplier constant over the projected stint;
 this is not a forecast of future weather. Expected service and pit-lane loss
 are not weather-scaled. A current SC/VSC running multiplier applies in addition
@@ -174,8 +174,10 @@ Absent drivers and zero observed trials display as not recorded; paid-stop
 averages use their own recorded-race counts and exclude free tyre changes.
 The dashboard's Scenarios tab can download this report for the completed run.
 Its weather context includes the condition label and per-lap change probability,
-since scenarios with identical initial rain and wetness can still evolve or run
-at different speeds under the model. These settings are not a weather forecast.
+since scenarios with identical initial rain and wetness can still evolve
+differently. Their current pace is identical: [numeric water and rainfall](weather-pace.md),
+rather than the condition label, determine the weather pace factor. These
+settings are not a weather forecast.
 The dashboard scenario chart and matrix also display the backend's Wilson
 intervals and observed trial counts. Driver groups in the chart can be expanded
 independently. Matrix highlights refer only to point estimates. Missing rates
@@ -314,7 +316,11 @@ Fresh weather tyre selection shares the slick-mismatch crossover: above 0.2
 surface wetness or 0.4 rain intensity, a stop fits intermediates; above 0.7
 surface wetness, it fits full wets. These values are normalized model parameters,
 not measured millimetres of water. Starts and red-flag restarts use the same
-selection, with an additional precautionary intermediate bias for rainy starts.
+selection. Below those fresh-selection thresholds, automatic openings compare
+intermediates with slick policies whenever intermediates are not critically
+mismatched (surface water at least 0.08 or rainfall at least 0.15), using numeric
+conditions consistently across labels. Without driver/car projection context,
+the fallback retains the precautionary intermediate choice.
 Already-fitted rain tyres have wider drying windows before they trigger another
 stop, which avoids repeatedly switching sets near the crossover.
 
@@ -324,7 +330,7 @@ fastest set. Equal projected times preserve compound enumeration order. This
 avoids paying a rain-tyre penalty on a still-dry surface solely because rainfall
 has begun. Race stops retain their precautionary rainfall thresholds because
 the next racing laps evolve surface wetness. Qualifying's lap model applies
-the same driver/car weather multiplier and flat
+the same driver/car weather multiplier and additive
 tyre-weather mismatch penalty as race laps, while retaining qualifying's own
 base pace, fresh-tyre grip and push-level variation. A driver with stronger wet
 skill can therefore improve a wet qualifying lap, and slicks no longer escape
@@ -739,8 +745,12 @@ allowance is executed, including compulsory replacements after it is exhausted.
 The cases use mean lap pace, expected service, evolving surface wetness, and no
 incidents or traffic. JSON output records the inputs, checked schedule count,
 chosen and best executed results, and their time difference. The eight-lap
-drying case previously waited until lap eight; the transition planner changes
-on lap three, saving about 24.95 model seconds without an additional stop.
+drying case uses a 350-second reference lap and a 22-second lane loss. Changing
+on lap three saves about 24.46 model seconds against waiting until lap eight,
+without an additional stop. In the 24-lap wet-to-dry case, an eight-second lane
+loss makes wet-to-intermediate-to-soft changes on laps nine and nineteen about
+4.70 seconds faster than a direct wet-to-soft change on lap nineteen. Both
+engines match the best executed schedules in these controlled cases.
 This is a regression example under synthetic physics, not a real-race estimate.
 
 Run `python examples/check_dry_pit_schedules.py` for a broader bounded dry

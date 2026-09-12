@@ -112,7 +112,7 @@ def test_driver_wet_skill_only_changes_wet_qualifying(wetness):
     times = [LapSimulator(np.random.default_rng(42)).calculate_qualifying_lap(
         driver.model_copy(update={"wet_skill_modifier": skill}), car, track, tire, weather,
     ) for skill in (0.8, 1.2)]
-    assert (times[0] > times[1]) if wetness > 0.3 else (times[0] == times[1])
+    assert (times[0] > times[1]) if wetness > 0 else (times[0] == times[1])
 
 
 def test_dry_qualifying_preserves_previous_formula_and_rng():

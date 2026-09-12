@@ -191,8 +191,8 @@ def test_long_valid_distance_uses_full_horizon_without_recursion(monkeypatch, re
 
 
 def test_used_intermediate_does_not_forecast_forbidden_fourth_slick_stop():
-    args = inputs(laps=25, wetness=.19)
-    args[1].tire_degradation_factor = 1.5
+    args = inputs(laps=35, wetness=.19)
+    args[1].tire_degradation_factor = 1
     args[2].base_lap_time = 200
     args[2].pit_lane_delta = 1
     args[2].tire_stress = 1
@@ -202,6 +202,8 @@ def test_used_intermediate_does_not_forecast_forbidden_fourth_slick_stop():
     assert unrestricted.should_pit()
     assert not restricted.should_pit()
     assert restricted.pit_now_cost > unrestricted.pit_now_cost
+    assert unrestricted.wait_cost - unrestricted.pit_now_cost > .3
+    assert restricted.pit_now_cost - restricted.wait_cost > .4
 
 
 def test_rain_fit_remains_allowed_after_slick_allowance_exhausted():

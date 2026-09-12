@@ -20,11 +20,11 @@ ENGINES = ("standard", "chronological")
 SLICKS = (TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD)
 CASES = (
     dict(name="drying_intermediates", compound="intermediate", wetness=.26, rain=0,
-         laps=8, lane=22, base=200, stops=2),
+         laps=8, lane=22, base=350, stops=2),
     dict(name="cheap_drying_stop", compound="intermediate", wetness=.26, rain=0,
          laps=8, lane=1, base=200, stops=2),
     dict(name="wet_to_intermediate_to_slick", compound="wet", wetness=.74, rain=0,
-         laps=24, lane=22, base=90, stops=2),
+         laps=24, lane=8, base=90, stops=2),
     dict(name="increasing_rain", compound="intermediate", wetness=.68, rain=.9,
          laps=8, lane=22, base=90, stops=2),
 )

@@ -147,7 +147,7 @@ def test_race_forwards_current_set_condition_in_all_weather(
 
 
 @pytest.mark.parametrize("wetness,attacking,defending", [
-    (0.21, TireCompound.INTERMEDIATE, TireCompound.SOFT),
+    (0.25, TireCompound.INTERMEDIATE, TireCompound.SOFT),
     (0.6, TireCompound.INTERMEDIATE, TireCompound.HARD),
     (0.9, TireCompound.WET, TireCompound.INTERMEDIATE),
     (0, TireCompound.SOFT, TireCompound.WET),
@@ -199,7 +199,7 @@ def test_weather_multiplier_uses_each_driver_and_car_without_base_pace(battle):
     weather = Weather(track_wetness=0.7, rain_intensity=0.8)
     driver = driver.model_copy(update={"wet_skill_modifier": 0.8})
     car = car.model_copy(update={"wet_performance": 0.6})
-    expected = weather.lap_time_multiplier() * (1 + (1 - 0.8) * 0.02)
+    expected = weather.lap_time_multiplier() * (1 + (1 - 0.8) * 0.02 * 0.7)
     expected *= 1 + (1 - 0.6) * 0.7 * 0.06
     assert LapSimulator.weather_pace_multiplier(driver, car, weather) == pytest.approx(expected)
     tire = TIRE_COMPOUNDS[TireCompound.INTERMEDIATE]

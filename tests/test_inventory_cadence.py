@@ -10,7 +10,7 @@ from f1sim.models import Weather
 
 def test_forced_puncture_keeps_observed_cadence_and_rejoin_snapshot(monkeypatch):
     engine, args, *_ = fixture(monkeypatch, {"A": 90, "B": 180}, laps=8)
-    args = (*args[:3], Weather(track_wetness=.28), args[4])
+    args = (*args[:3], Weather(track_wetness=.30), args[4])
     start = engine._start_lap
     prepare = engine.simulator._prepare_inventory_pit
     plans = []

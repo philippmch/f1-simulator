@@ -1,7 +1,10 @@
 # Weather and interruption calibration
 
-Updated 2026-09-09. These checks constrain event frequency and weather behavior;
+Updated 2026-09-12. These checks constrain event frequency and weather behavior;
 they do not estimate a forecast for a particular venue or validate winner odds.
+
+The [continuous weather pace model](weather-pace.md) uses numeric rainfall and
+surface water for lap speed, with separate tyre crossover and safety rules.
 
 ## Recorded simulation weather
 
@@ -232,17 +235,19 @@ rates or establish that real wet races should be no-stop races. The
 target stop count. Tyre durability calibration remains important. Fixed-dry
 results were unchanged by that earlier rain-planner change.
 
-With uncapped accumulated wear, this offline checkpoint was repeated on
-2026-09-12 using `--race-engine both --simulations 10 --seed 42`. All 80 races
-completed, with these mean paid stops per entrant, including retirees:
+With uncapped accumulated wear and continuous weather pace, this offline
+checkpoint was repeated on 2026-09-12 using
+`--race-engine both --simulations 10 --seed 42`. All 80 races completed, with
+these mean paid stops per entrant, including retirees:
 
 | Engine | Fixed dry | Fixed light rain | Fixed heavy rain | Evolving dry start |
 |---|---:|---:|---:|---:|
-| Standard | 0.895 | 0.986 | 0.959 | 1.018 |
-| Chronological | 0.786 | 0.982 | 1.064 | 0.968 |
+| Standard | 0.895 | 0.982 | 0.982 | 0.895 |
+| Chronological | 0.786 | 0.991 | 0.977 | 0.882 |
 
-No winner reached the racing time limit in this sample. The corrected wear
-curve generally makes a rain-tyre replacement worthwhile in this fixture.
+No winner reached the racing time limit in this sample. Fixed-dry stop counts
+remain identical to the preceding wear-correction checkpoint. The corrected
+wear curve generally makes a rain-tyre replacement worthwhile in this fixture.
 There is no newly imposed stop requirement or fitted stop-count target. These
 small synthetic samples describe current model behavior; they do not validate
 the wear coefficients or establish real-race strategy frequencies. Changes to

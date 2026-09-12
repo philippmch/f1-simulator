@@ -64,20 +64,23 @@ class Weather(BaseModel):
         description="Probability of weather change per lap",
     )
 
-    def lap_time_multiplier(self) -> float:
-        """Calculate lap time multiplier based on conditions.
+    def wet_severity(self) -> float:
+        """Continuous pace exposure from surface water and falling rain.
 
-        Returns:
-            Multiplier > 1.0 for slower conditions
+        Rain has an immediate contribution while the surface responds over
+        time. The existing 0.7 rainfall weight is a model assumption, not a
+        conversion from rainfall measurements to standing-water depth.
         """
-        if self.condition == WeatherCondition.DRY:
-            return 1.0
-        elif self.condition == WeatherCondition.CLOUDY:
-            return 1.01  # Slightly cooler track
-        elif self.condition == WeatherCondition.LIGHT_RAIN:
-            return 1.05 + (self.track_wetness * 0.05)
-        else:  # HEAVY_RAIN
-            return 1.10 + (self.track_wetness * 0.10)
+        return max(0.0, min(1.0, max(self.track_wetness, self.rain_intensity * 0.7)))
+
+    def lap_time_multiplier(self) -> float:
+        """Scale pace continuously from dry to the existing 20% wet endpoint.
+
+        The condition label controls weather transitions, not grip. Its name
+        alone cannot change pace while rain and surface water stay identical.
+        The linear response and endpoint remain explicit model assumptions.
+        """
+        return 1.0 + 0.2 * self.wet_severity()
 
     def is_wet(self) -> bool:
         """Check if conditions require wet/intermediate tires."""

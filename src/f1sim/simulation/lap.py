@@ -203,17 +203,15 @@ class LapSimulator:
         # Weather effect
         weather_multiplier = weather.lap_time_multiplier()
 
-        # Adjust for driver wet skill
-        if weather.is_wet():
-            wet_adjustment = 1.0 + (1.0 - driver.wet_skill_modifier) * 0.02
-            weather_multiplier *= wet_adjustment
+        wet_severity = weather.wet_severity()
+        # Wet skill develops with exposure rather than switching on at the
+        # separate boolean threshold used for race rules and tyre safety.
+        wet_adjustment = 1.0 + (1.0 - driver.wet_skill_modifier) * 0.02 * wet_severity
+        weather_multiplier *= wet_adjustment
 
         # Wet-performance is a car-package property, distinct from the
         # driver's ability to find grip.  Include rain intensity as a signal
         # even before wetness crosses the tyre-change threshold.
-        wet_severity = float(
-            np.clip(max(weather.track_wetness, weather.rain_intensity * 0.7), 0.0, 1.0)
-        )
         if wet_severity > 0.0:
             car_wet_penalty = (1.0 - car.wet_performance) * wet_severity * 0.06
             weather_multiplier *= 1.0 + float(np.clip(car_wet_penalty, 0.0, 0.06))
@@ -431,31 +429,19 @@ class LapSimulator:
         is_inter = compound == TireCompound.INTERMEDIATE
         is_wet = compound == TireCompound.WET
 
-        track_wetness = weather.track_wetness
-
-        # Slicks on wet track = disaster (aquaplaning)
-        if is_slick and track_wetness > 0.5:
-            # 10-30 seconds slower per lap, plus high crash risk
-            return 10.0 + (track_wetness - 0.5) * 40.0
-
-        # Slicks on damp track = very slow, but survivable
-        if is_slick and track_wetness > 0.2:
-            return 3.0 + (track_wetness - 0.2) * 15.0
-
-        # Inters on very wet track = too much water
-        if is_inter and track_wetness > 0.8:
-            return 5.0 + (track_wetness - 0.8) * 25.0
-
-        # Wet tires on dry track = massive overheating, graining
-        if is_wet and track_wetness < 0.3:
-            return 8.0 + (0.3 - track_wetness) * 20.0
-
-        # Inters on dry track = overheating but less severe
-        if is_inter and track_wetness < 0.15:
-            return 4.0 + (0.15 - track_wetness) * 20.0
-
-        # Inters in optimal window (0.3-0.6 wetness) = good
-        # Wets in optimal window (0.6+ wetness) = good
-        # Slicks on dry (< 0.2 wetness) = good
-
+        water = max(0.0, min(1.0, weather.track_wetness))
+        # Join explicit model anchors continuously. Preserve dry/flooded
+        # endpoints and the existing zero-penalty windows; tiny changes in
+        # surface water must not introduce fixed multi-second pace jumps.
+        # Tyre survivability remains a separate Weather.tire_mismatch rule.
+        if is_slick:
+            # (water, seconds): (0.2, 0), (0.5, 7.5), (1, 30).
+            return 25.0 * max(0.0, water - 0.2) + 20.0 * max(0.0, water - 0.5)
+        if is_inter:
+            # (0, 7), (0.15, 0), (0.8, 0), (1, 10).
+            return (7.0 * max(0.0, (0.15 - water) / 0.15)
+                    + 10.0 * max(0.0, (water - 0.8) / 0.2))
+        if is_wet:
+            # (0, 14), (0.3, 0); no added mismatch above 0.3.
+            return 14.0 * max(0.0, (0.3 - water) / 0.3)
         return 0.0

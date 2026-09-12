@@ -83,8 +83,10 @@ def test_average_costs_and_cache_preserve_state_and_actual_rng(monkeypatch):
     assert _cached_policy_costs.cache_info().misses == 3
 
 
-@pytest.mark.parametrize("laps,rain", [(10, 0.2), (30, 0.2), (10, 0.3), (30, 0.3), (3, 0.2)])
-def test_precautionary_selection_uses_conditional_policy_minimum(laps, rain):
+@pytest.mark.parametrize("laps,rain,beats_inter", [(10, .2, True), (30, .2, True),
+                                                 (10, .3, False), (30, .3, True),
+                                                 (3, .2, False)])
+def test_precautionary_selection_uses_conditional_policy_minimum(laps, rain, beats_inter):
     driver, car, track, weather = fixture(laps, rain)
     simulator = RaceSimulator(np.random.default_rng(42))
     style = TeamStrategyArchetype.BALANCED
@@ -92,8 +94,10 @@ def test_precautionary_selection_uses_conditional_policy_minimum(laps, rain):
                                  simulator.strategy_tuning, simulator.strategy_profiles)
     selected = simulator._choose_starting_compound(style, track, weather, driver, car)
     assert selected == min(costs, key=lambda pair: pair[1])[0]
-    if laps >= 10:
+    if beats_inter:
         assert dict(costs)[selected] < dict(costs)[TireCompound.INTERMEDIATE]
+    else:
+        assert selected == TireCompound.INTERMEDIATE
     assert simulator._choose_starting_compound(style, track, weather) == TireCompound.INTERMEDIATE
     weather.rain_intensity = 0.5
     assert simulator._choose_starting_compound(style, track, weather, driver, car) == (

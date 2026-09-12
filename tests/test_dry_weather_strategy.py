@@ -23,15 +23,15 @@ def fixture():
     return state, track
 
 
-def test_cloudy_scaling_changes_near_tie_and_keeps_default_cache_isolated():
+def test_weather_scaling_changes_near_tie_and_keeps_default_cache_isolated():
     state, track = fixture()
     track.pit_lane_delta = 25  # Keep the stop near break-even with uncapped wear.
     args = (state.driver, state.car, track, state.current_tire, 20, 10, 1,
             {TireCompound.SOFT, TireCompound.MEDIUM})
     plain = plan_dry_stop(*args)
-    cloudy = plan_dry_stop(*args, tire_pace_multiplier=1.01)
+    scaled = plan_dry_stop(*args, tire_pace_multiplier=1.01)
     assert not plain.should_pit()
-    assert cloudy.should_pit()
+    assert scaled.should_pit()
     assert plan_dry_stop(*args) == plain
     assert plan_dry_stop(*args, tire_pace_multiplier=1) == plain
     assert track.base_lap_time == 90

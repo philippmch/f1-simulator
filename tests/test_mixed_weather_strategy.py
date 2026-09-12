@@ -56,6 +56,10 @@ def exhaustive(args, age, lap, budget, used_compounds, **options):
                           if surface.tire_mismatch(c) != "critical"
                           and (elective or critical or c not in used)]
         for stop, next_tire in available:
+            if number == lap and stop and options.get(
+                "required_first_compound", next_tire.compound,
+            ) != next_tire.compound:
+                continue
             next_age = 0 if stop else tire_age
             driver.current_tire_laps = next_age
             cost = sim.calculate_lap_time(
@@ -100,9 +104,17 @@ def test_mixed_slick_schedule_matches_exhaustive(wetness, rain, budget, used):
     options = dict(remaining_dry_stops=1, remaining_damp_stops=0)
     expected = exhaustive(args, 15, 2, budget, used, **options)
     result = plan_rain_transition(*args, 15, 2, budget, used_compounds=used, **options)
-    assert result.pit_now_cost == pytest.approx(expected[0])
-    assert result.wait_cost == pytest.approx(expected[1])
-    assert result.compound == expected[2]
+    assert result.pit_now_cost == pytest.approx(expected[0], rel=0., abs=1e-10)
+    assert result.wait_cost == pytest.approx(expected[1], rel=0., abs=1e-10)
+    if result.compound is None:
+        assert expected[2] is None
+    else:
+        # Reversed stint order can tie to floating-point precision. Verify
+        # that the selected first compound can actually achieve the optimum,
+        # independently of left-to-right versus suffix summation tie order.
+        selected = exhaustive(args, 15, 2, budget, used,
+                              required_first_compound=result.compound, **options)
+        assert selected[0] == pytest.approx(expected[0], rel=0., abs=1e-10)
 
 
 @pytest.mark.parametrize("cadence", [(0, 0, 2, 4), (0, 1, 1, 3)])

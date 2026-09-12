@@ -65,7 +65,7 @@ def test_planned_stop_is_vetoed_when_fresh_set_cannot_repay_pit_loss():
 
 def test_queue_cost_can_veto_an_otherwise_affordable_wet_stop():
     sim, state, track, weather = fixture([20, 35], 1)
-    state.tire_laps = 25
+    state.tire_laps = 28
     track.pit_lane_delta = 1
     assert sim._should_pit(state, [state], track, 35, False, weather)
     assert not sim._should_pit(state, [state], track, 35, False, weather,

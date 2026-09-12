@@ -102,6 +102,8 @@ def test_damp_pit_choice_respects_actual_cost_bound_and_preserves_style(monkeypa
 
 def test_floor_rejects_style_preference_that_exceeds_actual_cost_bound():
     driver, car, track = fixture(True)
+    track.active_aero_zones = [ActiveAeroZone(zone_id=i + 1, sector=1, time_gain=.91)
+                               for i in range(7)]
     weather = Weather(track_wetness=0.08)
     sim = RaceSimulator(np.random.default_rng(4))
     state = DriverRaceState(

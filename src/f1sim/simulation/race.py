@@ -5,7 +5,7 @@ from enum import Enum
 
 import numpy as np
 
-from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather, WeatherCondition
+from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.events import EventManager, EventType, RaceEvent
 from f1sim.simulation.execution import validate_starting_tire_ages, validate_starting_tires
@@ -724,16 +724,12 @@ class RaceSimulator(InventoryStrategyMixin):
         weather_compound = self._choose_weather_compound(weather)
         if weather_compound is not None:
             return weather_compound
-        if (
-            (weather.rain_intensity >= 0.2
-             or weather.condition in {
-                 WeatherCondition.LIGHT_RAIN,
-                 WeatherCondition.HEAVY_RAIN,
-             })
-            and self._check_tire_weather_mismatch(
-                TIRE_COMPOUNDS[TireCompound.INTERMEDIATE], weather,
-            ) != "critical"
-        ):
+        # Compare precautionary intermediates whenever the numeric surface
+        # permits them. A descriptive label must not change the candidate
+        # set, or whether the opening choice consumes the actual race RNG.
+        if self._check_tire_weather_mismatch(
+            TIRE_COMPOUNDS[TireCompound.INTERMEDIATE], weather,
+        ) != "critical":
             if driver is not None and car is not None:
                 costs = opening_policy_costs(
                     driver, car, track, weather, strategy,

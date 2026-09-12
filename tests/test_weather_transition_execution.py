@@ -55,6 +55,16 @@ def test_drying_transition_avoids_waiting_until_critical(engine, diagnostic):
     assert selected["paid_stops"] == late["paid_stops"] == 1
 
 
+@pytest.mark.parametrize("engine", ["standard", "chronological"])
+def test_intermediate_bridge_recovers_its_extra_paid_stop(engine, diagnostic):
+    case = diagnostic.CASES[2]
+    selected = diagnostic.run_race(case, engine)
+    direct = diagnostic.run_race(case, engine, ((19, TireCompound.SOFT),))
+    assert selected["compounds"] == ["wet", "intermediate", "soft"]
+    assert selected["paid_stops"] == 2 and direct["paid_stops"] == 1
+    assert direct["total_seconds"] - selected["total_seconds"] > 4
+
+
 @pytest.mark.parametrize("neutralized", [False, True])
 def test_transition_receives_observed_costs_and_preserves_rng(monkeypatch, neutralized):
     simulator, state, track, weather = fixture()
@@ -128,8 +138,8 @@ def test_critical_mismatch_and_exhausted_budget_retain_priority(monkeypatch):
 def test_transition_does_not_rely_on_a_forbidden_later_slick_stop():
     simulator, state, track, weather = fixture()
     state.tire_laps = 1
-    state.car.tire_degradation_factor = 1.5
-    track.total_laps, track.base_lap_time = 25, 200
+    state.car.tire_degradation_factor = 1
+    track.total_laps, track.base_lap_time = 35, 200
     track.pit_lane_delta, track.tire_stress = 1, 1
     assert not simulator._should_pit(state, [state], track, 2, False, weather)
     assert state.weather_pit_proposal is None

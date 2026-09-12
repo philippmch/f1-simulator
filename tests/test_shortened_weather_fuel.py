@@ -25,13 +25,28 @@ def fixture(final=82):
 
 def test_announced_finish_retains_fuel_and_reverses_wrong_veto():
     driver, car, track, weather = fixture()
+    weather.track_wetness = weather.rain_intensity = .36
+    track.active_aero_zones = [ActiveAeroZone(zone_id=i + 1, sector=1, time_gain=.9)
+                               for i in range(20)]
     tire = TIRE_COMPOUNDS[TireCompound.SOFT]
     old = weather_stop_costs(driver, car, track, weather, tire, 1, 82, traffic_possible=False)
     corrected = weather_stop_costs(driver, car, track, weather, tire, 1, 82,
                                   traffic_possible=False, physical_total_laps=100)
-    assert old.pit_now_cost > old.stay_cost
+    assert old.pit_now_cost - old.stay_cost > .1
     assert corrected.pit_now_cost < corrected.stay_cost
-    assert corrected.stay_cost - corrected.pit_now_cost == pytest.approx(0.255021, abs=1e-6)
+    assert corrected.stay_cost - corrected.pit_now_cost == pytest.approx(.226250793, abs=1e-6)
+    # Independently execute both one-lap alternatives with the original fuel;
+    # the shortened-distance calculation straddles the numerical lap floor.
+    physics = LapSimulator(np.random.default_rng(0))
+    driver.current_tire_laps = 1
+    retained = physics.calculate_lap_time(
+        driver, car, track, tire, weather, 82, 100, sample_variation=False)
+    driver.current_tire_laps = 0
+    replacement = physics.calculate_lap_time(
+        driver, car, track, TIRE_COMPOUNDS[TireCompound.INTERMEDIATE], weather, 82, 100,
+        sample_variation=False) + track.pit_lane_delta + expected_stationary_time(car)
+    assert corrected.stay_cost == pytest.approx(retained)
+    assert corrected.pit_now_cost == pytest.approx(replacement)
     simulator = RaceSimulator(np.random.default_rng(1))  # First reaction is below 70%.
     state = DriverRaceState(driver, car, 1, current_tire=tire, tire_laps=1,
                             tire_compound_history=[TireCompound.MEDIUM, TireCompound.SOFT])
