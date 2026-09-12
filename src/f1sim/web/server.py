@@ -17,13 +17,13 @@ from f1sim.analysis.scenarios import validate_weather_mode
 from f1sim.data import CurrentSeasonDataError, CurrentSeasonDataLoader
 from f1sim.models import Weather, WeatherCondition
 from f1sim.output.comparison import render_comparison_report
-from f1sim.output.timing import finite_time
+from f1sim.output.timing import finite_time, suspension_statistics
 from f1sim.simulation.execution import (
     validate_race_engine,
     validate_starting_tire_ages,
     validate_starting_tires,
 )
-from f1sim.simulation.race import result_is_classified
+from f1sim.simulation.race import get_race_suspension_seconds, result_is_classified
 from f1sim.simulation.race_points import points_for_result
 from f1sim.simulation.tire_inventory import validate_tire_inventory
 from f1sim.web.capacity import RunCapacity
@@ -165,6 +165,7 @@ def _serialize_race_result(result: Any) -> dict[str, Any]:
         "team_key": _normalize_team_id(result.team),
         "position": result.position,
         "total_time": result.total_time,
+        "race_suspension_seconds": get_race_suspension_seconds([result]),
         "gap_to_leader": result.gap_to_leader,
         "pit_stops": result.pit_stops,
         "pit_laps": (list(result.pit_laps)
@@ -407,6 +408,7 @@ def _summarize_scenario_results(
             "race_distance_statistics": _safe_call(
                 results, "get_race_distance_statistics", default={},
             ) or {},
+            "suspension_statistics": suspension_statistics(results),
             "simulation_inputs": getattr(results, "input_snapshot", None),
             "team_projection": _safe_call(
                 results,
@@ -446,6 +448,12 @@ def _summarize_scenario_results(
             else None,
             "sample_index": sample_index,
             "sample_race": _serialize_sample_race(results, sample_index),
+            "sample_race_suspension_seconds": get_race_suspension_seconds(
+                getattr(results, "race_results", [])[min(
+                    max(sample_index, 0), len(getattr(results, "race_results", [])) - 1
+                )]
+                if getattr(results, "race_results", []) else []
+            ),
             "sample_weather_history": (
                 results.weather_histories[sample_index]
                 if sample_index < len(getattr(results, "weather_histories", [])) else []

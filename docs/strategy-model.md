@@ -413,6 +413,24 @@ flag after lap one, the original crossings remain 90 and 110 seconds. With the
 default pause, both cars restart at 710 seconds and finish at 890 and 930
 seconds. Their fastest laps remain 90 and 110 seconds.
 
+Results expose `race_suspension_seconds`: the sum of completed race-wide
+suspension intervals, including field collection and the restart pause. In
+the example above it is 620 seconds, repeated as context on every driver row.
+It is not each driver's stationary time: the trailing car still completes
+its lap during collection, and a retired driver's last crossing may precede
+the suspension. Subtracting it from `total_time` does not give driving pace.
+The recorded duration is uncapped; only the finish-deadline extension is capped.
+
+CSV exports leave unknown suspension values blank; JSON uses `null`. Native
+engine results record zero when no suspension completes, including a red flag
+at the actual finish. Older or manually constructed results remain unknown.
+Scenario `suspension_statistics` reports `recorded_races`,
+`races_with_recorded_suspension`, and `mean_completed_suspension_seconds`.
+The mean includes known zero-duration races and counts each race once, using
+only races whose driver rows all carry the same valid duration. Missing,
+invalid or inconsistent rows do not enter that denominator. Reports display
+the recorded count so incomplete historical data cannot imply zero stoppage.
+
 Collection and pause extend the existing two-hour finish threshold, with at
 most one hour of accumulated extension. An already announced final lap stays
 latched. Restart tyre selection and subsequent pit planning use the common

@@ -10,7 +10,12 @@ from urllib.parse import quote
 from uuid import uuid4
 
 from f1sim.analysis.montecarlo import SimulationResults
-from f1sim.output.timing import csv_time
+from f1sim.output.timing import (
+    csv_time,
+    format_seconds,
+    race_suspension_seconds,
+    suspension_statistics,
+)
 from f1sim.simulation.race import result_is_classified
 from f1sim.simulation.race_points import points_for_result
 
@@ -169,12 +174,14 @@ class Exporter:
             writer.writerow([
                 "simulation", "position", "driver_id", "driver_name", "team",
                 "total_time", "gap_to_leader", "pit_stops", "fastest_lap",
-                "status", "dnf_reason", "strategy", "laps_completed", "classified",
+                "status", "dnf_reason", "strategy", "race_suspension_seconds",
+                "laps_completed", "classified",
                 "pit_laps", "race_time_limited", "points_awarded",
                 *inventory_fields,
             ])
 
             for sim_idx, race_results in enumerate(results.race_results, 1):
+                suspension = race_suspension_seconds(race_results)
                 for result in race_results:
                     writer.writerow([
                         sim_idx,
@@ -189,6 +196,7 @@ class Exporter:
                         result.status.value,
                         result.dnf_reason or "",
                         ",".join(result.strategy),
+                        csv_time(suspension),
                         getattr(result, "laps_completed", None),
                         str(result_is_classified(result)).lower(),
                         json.dumps(result.pit_laps)
@@ -358,6 +366,7 @@ class Exporter:
             "pit_loss_statistics": results.get_pit_loss_statistics(),
             "strategy_statistics": results.get_strategy_statistics(),
             "race_distance_statistics": results.get_race_distance_statistics(),
+            "suspension_statistics": suspension_statistics(results),
             "top_3_finish_probabilities": results.get_top_n_finish_probabilities(3),
             "top_10_finish_probabilities": results.get_top_n_finish_probabilities(10),
             "championship_projection": results.get_championship_projection(),
@@ -458,6 +467,7 @@ class Exporter:
                 "event_rates": results.get_event_rates(),
                 "event_rate_trials": results.get_event_rate_trials(),
                 "race_distance_statistics": results.get_race_distance_statistics(),
+                "suspension_statistics": suspension_statistics(results),
                 "weather_histories": results.weather_histories,
                 "pit_stop_details": self._pit_stop_details(results),
                 "tire_set_ledgers": self._tire_set_ledgers(results),
@@ -537,6 +547,17 @@ class Exporter:
                  f'({distance["time_limited_race_rate"] * 100:.1f}%)')
         no_winner = ("Not recorded" if not recorded else
                      f'{distance["races_without_winner"]} of {recorded_text}')
+        suspension = suspension_statistics(results)
+        suspension_races = suspension["recorded_races"]
+        suspension_known = suspension["races_with_recorded_suspension"]
+        suspension_coverage = (
+            f'{suspension_races} recorded '
+            f'{"race" if suspension_races == 1 else "races"}; '
+            f'{suspension_known} with suspension'
+        )
+        suspension_mean = format_seconds(
+            suspension["mean_completed_suspension_seconds"]
+        )
         strategy_sections = []
         for driver_id, summary in results.get_strategy_statistics().items():
             known = summary["races_with_recorded_strategy"]
@@ -598,6 +619,12 @@ class Exporter:
       <p>Lapped finishers: {escape(lapped)}</p>
       <p>Time-limited races: {escape(timed)}</p>
       <p>Races without a winner: {escape(no_winner)}</p>
+    </div>
+    <div class=\"card\" id=\"suspension-statistics\"><h2>Completed race suspension</h2>
+      <p>Mean completed race suspension: {escape(suspension_mean)}</p>
+      <p>Known suspension durations: {escape(suspension_coverage)}</p>
+      <p>Race-wide collection + restart pause are already in finish clocks. This
+      elapsed-race context is not an individual driver's stopped or driving time.</p>
     </div>
     <div class=\"card\" id=\"strategy-statistics\"><h2>Recorded tyre sequences</h2>
       <p>Open a driver to see every sequence. Counts include retirements and free tyre

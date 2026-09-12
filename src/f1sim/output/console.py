@@ -2,7 +2,13 @@
 
 from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.analysis.paired_comparison import paired_comparison_statistics
-from f1sim.output.timing import finite_time, format_lap_deficit
+from f1sim.output.timing import (
+    finite_time,
+    format_lap_deficit,
+    format_seconds,
+    race_suspension_seconds,
+    suspension_statistics,
+)
 from f1sim.simulation.qualifying import QualifyingResult
 from f1sim.simulation.race import RaceResult, result_is_classified
 from f1sim.simulation.race_points import points_for_result
@@ -23,6 +29,7 @@ class ConsoleOutput:
               "positive DNF changes mean more retirements.")
         print("SE estimates sampling error, not a confidence interval. "
               "Zero SE does not prove equality.")
+        ConsoleOutput._print_suspension_context(results)
         for label, comparison in paired["variants"].items():
             print(f"{label}:")
             if comparison["status"] == "unavailable":
@@ -90,6 +97,10 @@ class ConsoleOutput:
         """
         print("\n" + "=" * 70)
         print("RACE RESULTS")
+        suspension = race_suspension_seconds(results)
+        print(f"Completed race suspension: {format_seconds(suspension)}")
+        print("Race-wide collection + restart pause; this elapsed-race context is "
+              "already in finish clocks, not an individual driver's stopped or driving time.")
         if any(getattr(result, "race_time_limited", False) for result in results):
             print("Race shortened by the two-hour limit.")
         print("=" * 70)
@@ -294,6 +305,8 @@ class ConsoleOutput:
                 sign = "+" if delta >= 0 else ""
                 print(f"      - {component:<10} {action:<22} ({sign}{delta:.3f})")
 
+        ConsoleOutput._print_suspension_context(results)
+
         print("=" * 80)
 
     @staticmethod
@@ -398,4 +411,26 @@ class ConsoleOutput:
                 row += f"{probs.get(driver_id, 0.0):13.1f}% "
             print(row)
 
+        ConsoleOutput._print_suspension_context(scenario_results)
+
         print("=" * 80)
+
+    @staticmethod
+    def _print_suspension_context(
+        results: SimulationResults | dict[str, SimulationResults],
+    ) -> None:
+        """Print race-wide suspension observations with their own denominator."""
+        print("\nRACE SUSPENSION CONTEXT:")
+        print("Race-wide collection + restart pause are already in finish clocks; "
+              "they are not an individual driver's stopped or driving time.")
+        items = results.items() if isinstance(results, dict) else [(results.track_name, results)]
+        for name, result in items:
+            stats = suspension_statistics(result)
+            recorded = stats["recorded_races"]
+            known = stats["races_with_recorded_suspension"]
+            unit = "race" if recorded == 1 else "races"
+            print(
+                f"  {name}: Mean completed race suspension: "
+                f"{format_seconds(stats['mean_completed_suspension_seconds'])}; "
+                f"{recorded} recorded {unit}; {known} with suspension"
+            )

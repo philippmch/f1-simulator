@@ -86,6 +86,11 @@ def test_dashboard_real_runner_propagates_engine_to_each_scenario(
         distance = scenario["race_distance_statistics"]
         assert distance["recorded_races"] == 10
         assert distance["mean_winner_laps"] == 3
+        suspension = scenario["suspension_statistics"]
+        assert suspension["recorded_races"] == 10
+        assert suspension["mean_completed_suspension_seconds"] >= 0
+        assert all(row["race_suspension_seconds"] == scenario["sample_race_suspension_seconds"]
+                   for row in scenario["sample_race"])
         assert scenario["simulation_inputs"]["schema_version"] == (3 if ages else 2)
         assert scenario["simulation_inputs"].get("starting_tire_ages", {}) == (ages or {})
         assert scenario["simulation_inputs"]["rng_policy"] == "isolated_weather_v1"
@@ -116,6 +121,8 @@ def test_cli_real_runner_records_selected_engine_in_exports(monkeypatch, tmp_pat
     assert [entry["race_engine"] for entry in scenarios.values()] == [engine, engine]
     assert [entry["seed"] for entry in scenarios.values()] == [42, 1042]
     assert all(entry["race_distance_statistics"]["recorded_races"] == 1
+               for entry in scenarios.values())
+    assert all(entry["suspension_statistics"]["recorded_races"] == 1
                for entry in scenarios.values())
     assert all(entry["simulation_inputs"]["schema_version"] == (2 if age is None else 3)
                for entry in scenarios.values())

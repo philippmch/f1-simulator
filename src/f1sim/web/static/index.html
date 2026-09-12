@@ -1641,6 +1641,43 @@ function formatTime(seconds) {
   return `${minutes}:${secs.padStart(6, '0')}`;
 }
 
+function finiteSuspensionSeconds(value) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? value : null;
+}
+
+function formatSuspensionSeconds(value) {
+  const safe = finiteSuspensionSeconds(value);
+  return safe === null ? 'Not recorded' : `${safe.toFixed(3)} s`;
+}
+
+function sampleRaceSuspensionSeconds(scenario) {
+  if (!scenario || Object.prototype.hasOwnProperty.call(
+    scenario, 'sample_race_suspension_seconds'
+  )) {
+    return finiteSuspensionSeconds(scenario?.sample_race_suspension_seconds);
+  }
+
+  const rows = Array.isArray(scenario?.sample_race) ? scenario.sample_race : [];
+  if (!rows.length) return null;
+  const values = rows.map(row => row?.race_suspension_seconds);
+  const first = finiteSuspensionSeconds(values[0]);
+  return first !== null && values.every(value => finiteSuspensionSeconds(value) === first)
+    ? first : null;
+}
+
+function suspensionStatisticsText(statistics) {
+  const recorded = Number.isInteger(statistics?.recorded_races)
+    && statistics.recorded_races >= 0 ? statistics.recorded_races : null;
+  const positive = Number.isInteger(statistics?.races_with_recorded_suspension)
+    && statistics.races_with_recorded_suspension >= 0
+    && recorded !== null && statistics.races_with_recorded_suspension <= recorded
+    ? statistics.races_with_recorded_suspension : null;
+  if (recorded === null || positive === null) return 'Not recorded';
+  const unit = recorded === 1 ? 'race' : 'races';
+  return `${formatSuspensionSeconds(statistics.mean_completed_suspension_seconds)} (${recorded} recorded ${unit}; ${positive} with suspension)`;
+}
+
 function formatPercent(value, digits = 1) {
   return `${toNumber(value).toFixed(digits)}%`;
 }
@@ -2456,6 +2493,7 @@ function renderRace() {
   const track = getTrackDetails();
   const timeLimited = race.some(row => row.race_time_limited === true);
   const winnerLaps = race.find(row => row.position === 1 && row.status === 'finished')?.laps_completed;
+  const sampleSuspension = sampleRaceSuspensionSeconds(scenario);
   const lapLabel = timeLimited && Number.isInteger(winnerLaps)
     ? `${winnerLaps} of ${track.total_laps || '--'} scheduled laps`
     : `${track.total_laps || '--'} laps`;
@@ -2497,6 +2535,8 @@ function renderRace() {
         }).join(', ') || 'Automatic')}</div>
         <div class="race-meta">Input race set pools: ${escapeHtml(JSON.stringify(scenario.simulation_inputs?.tire_inventory || simResults.request?.tire_inventory || {}))} · Unlisted drivers unlimited</div>
         <div class="race-meta">${savedWeatherBehavior(scenario)}</div>
+        <div class="race-meta">Completed race suspension: ${formatSuspensionSeconds(sampleSuspension)}</div>
+        <div class="race-meta">Race-wide collection + restart pause; already in finish clocks, not an individual driver's stopped or driving time.</div>
         <div class="race-meta">${escapeHtml(track.country || 'Unknown country')} &middot; Scenario ${escapeHtml(titleFromKey(name))}${topTeam ? ` &middot; Top constructor ${escapeHtml(topTeam[0])}` : ''}</div>
         <div class="meta-pills">${pills.map(pill => `<div class="meta-pill">${escapeHtml(pill)}</div>`).join('')}</div>
       </div>
@@ -2759,6 +2799,26 @@ function renderRaceDistanceStatistics(stats) {
     <p>Races without a winner: ${count(stats.races_without_winner)} of ${races(stats.recorded_races)}</p>`;
 }
 
+function renderSuspensionStatistics(stats) {
+  const recorded = Number.isInteger(stats?.recorded_races) && stats.recorded_races >= 0
+    ? stats.recorded_races : null;
+  const positive = Number.isInteger(stats?.races_with_recorded_suspension)
+    && stats.races_with_recorded_suspension >= 0
+    && recorded !== null && stats.races_with_recorded_suspension <= recorded
+    ? stats.races_with_recorded_suspension : null;
+  if (recorded === null || positive === null) {
+    return '<div class="inline-note">Race suspension was not recorded for this run.</div>';
+  }
+  const unit = recorded === 1 ? 'race' : 'races';
+  return `<p>Mean completed race suspension: ${formatSuspensionSeconds(
+    stats.mean_completed_suspension_seconds
+  )}</p>
+    <p>Known duration denominator: ${recorded} recorded ${unit}</p>
+    <p>Positive suspensions: ${positive} of ${recorded} recorded ${unit}</p>
+    <p class="inline-note">Race-wide collection + restart pause; already in finish clocks,
+      not an individual driver's stopped or driving time.</p>`;
+}
+
 function renderStats() {
   const container = document.getElementById('statsContent');
   const empty = document.getElementById('emptyStats');
@@ -2816,12 +2876,22 @@ function renderStats() {
         <div class="summary-value">${formatPercent(toNumber(eventRates.safety_car_race_rate) * 100)}</div>
         <div class="summary-label">Safety Car Race Rate</div>
       </div>
+      <div class="summary-card" id="suspensionSummaryCard">
+        <div class="summary-value">${formatSuspensionSeconds(
+          scenario.suspension_statistics?.mean_completed_suspension_seconds
+        )}</div>
+        <div class="summary-label">Mean Race Suspension</div>
+      </div>
     </div>
 
     <div class="stats-grid">
       <div class="stat-card" id="raceDistanceStatistics">
         <div class="stat-card-title">Race distance</div>
         ${renderRaceDistanceStatistics(scenario.race_distance_statistics)}
+      </div>
+      <div class="stat-card" id="suspensionStatistics">
+        <div class="stat-card-title">Completed race suspension</div>
+        ${renderSuspensionStatistics(scenario.suspension_statistics)}
       </div>
       <div class="stat-card">
         <div class="stat-card-title">Win Probability</div>
@@ -2948,6 +3018,8 @@ function renderScenarioCards(data) {
           .join('<br>');
         const rates = scenario.event_rates || {};
         const topTeam = Object.entries(scenario.team_projection || {})[0];
+        const suspension = scenario.suspension_statistics || {};
+        const suspensionSummary = suspensionStatisticsText(suspension);
 
         return `
           <div class="scenario-card">
@@ -2956,6 +3028,7 @@ function renderScenarioCards(data) {
               <div class="detail-row"><span>Top 3 win</span><span>${top || '-'}</span></div>
               <div class="detail-row"><span>Safety car</span><span>${formatPercent(toNumber(rates.safety_car_race_rate) * 100)}</span></div>
               <div class="detail-row"><span>Red flag</span><span>${formatPercent(toNumber(rates.red_flag_race_rate) * 100)}</span></div>
+              <div class="detail-row"><span>Race suspension</span><span>${suspensionSummary}</span></div>
               <div class="detail-row"><span>Top team</span><span>${topTeam ? `${escapeHtml(topTeam[0])} · ${toNumber(topTeam[1]).toFixed(1)}` : '-'}</span></div>
               <div class="detail-row"><span>Runtime</span><span>${toNumber(scenario.runtime_seconds).toFixed(2)}s</span></div>
             </div>

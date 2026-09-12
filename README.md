@@ -25,6 +25,8 @@ lap times and pit-service accounting; see [queue timing and limits](docs/strateg
 Red flags collect the surviving field before a shared restart, preserving
 completed crossings and extending the finish deadline for the modeled wait;
 see [suspension timing](docs/strategy-model.md#red-flag-suspension-timing).
+Results and reports include completed race suspension time and the number of
+races with recorded timing, keeping older unknown values distinct from zero.
 
 Tyre pace follows the configured wear and cliff rates throughout a stint;
 the numerical grip floor does not stop degradation. See the

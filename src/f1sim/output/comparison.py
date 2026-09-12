@@ -9,6 +9,7 @@ from numbers import Real
 from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.analysis.paired_comparison import paired_comparison_statistics
 from f1sim.output.export import Exporter
+from f1sim.output.timing import format_seconds, suspension_statistics
 
 
 def _text(value: object) -> str:
@@ -103,6 +104,7 @@ def render_comparison_report(
     """Render supplied scenario order without ranking or causal interpretation."""
     context = []
     distance_rows = []
+    suspension_rows = []
     drivers = {}
     summaries = {}
     paired = (
@@ -149,6 +151,18 @@ def render_comparison_report(
         distance_rows.append(
             f'<tr><th scope="row">{_text(name)}</th>'
             + "".join(f"<td>{cell}</td>" for cell in distance_cells) + "</tr>"
+        )
+        suspension = suspension_statistics(result)
+        recorded_suspensions = suspension["recorded_races"]
+        positive_suspensions = suspension["races_with_recorded_suspension"]
+        suspension_unit = "race" if recorded_suspensions == 1 else "races"
+        suspension_rows.append(
+            f'<tr><th scope="row">{_text(name)}</th>'
+            f'<td>{_text(format_seconds(suspension["mean_completed_suspension_seconds"]))}'
+            f' <span class="interval">({recorded_suspensions} recorded '
+            f'{suspension_unit}; {positive_suspensions} with suspension)</span></td>'
+            f'<td>{positive_suspensions} of {recorded_suspensions} recorded '
+            f'{suspension_unit}</td></tr>'
         )
 
     sections = []
@@ -282,6 +296,17 @@ aria-label="Scenario context"><table><caption>Recorded run context</caption><the
 <th scope="col">Starting tyre overrides</th>
 <th scope="col">Input race set pools (unlisted drivers unlimited)</th></tr></thead><tbody>""" + (
         "".join(context) or '<tr><td colspan="8">No scenarios recorded</td></tr>'
+    ) + """</tbody></table></div><h2>Completed race suspension</h2>
+<p>Mean suspension uses races with a valid shared duration, including known
+zero-second pauses. Positive suspension counts exclude those zero-second
+observations. The duration covers Race-wide collection + restart pause, already
+included in finish clocks. It is not an individual driver's stopped or driving
+time.</p>
+<div class="table-wrap context" tabindex="0" role="region" aria-label="Completed race suspension">
+<table><caption>Recorded race-wide suspension durations</caption><thead><tr>
+<th scope="col">Scenario</th><th scope="col">Mean completed suspension</th>
+<th scope="col">Positive suspensions</th></tr></thead><tbody>""" + (
+        "".join(suspension_rows) or '<tr><td colspan="3">No scenarios recorded</td></tr>'
     ) + """</tbody></table></div><h2>Race distance</h2>
 <p>Shortened races and lapped finishes can change points and pit-stop counts.
 Winning distance uses finished P1 results with a recorded distance. Lapping

@@ -828,6 +828,7 @@ class ChronologicalRace:
                 points_awarded=points_for_classification(
                     position, classified, winner_laps, self.track.total_laps, self.has_two_green,
                 ),
+                race_suspension_seconds=self.timeline.total_suspension_seconds,
                 **self.simulator._inventory_result_fields(state),
             ))
         return results

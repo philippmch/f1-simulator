@@ -1,5 +1,6 @@
 """Race simulation engine."""
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from math import isfinite
@@ -111,6 +112,45 @@ class RaceResult:
     pit_stop_details: list[dict] | None = None
     tire_set_history: list[dict] | None = None
     tire_inventory: list[dict] | None = None
+    race_suspension_seconds: float | None = None
+
+
+def get_race_suspension_seconds(results: Iterable[RaceResult]) -> float | None:
+    """Return one race's shared suspension duration when it is fully recorded.
+
+    A race result row carries the same global suspension duration for every
+    driver in that race.  Legacy rows may omit the field, and malformed or
+    inconsistent rows must remain unknown rather than being interpreted as a
+    zero-duration race.
+    """
+    try:
+        rows = list(results)
+    except (TypeError, ValueError):
+        return None
+    if not rows:
+        return None
+
+    def finite_nonnegative_real(value) -> tuple[Real, float] | None:
+        if isinstance(value, bool) or not isinstance(value, Real):
+            return None
+        try:
+            converted = float(value)
+        except (OverflowError, TypeError, ValueError):
+            return None
+        if not isfinite(converted) or converted < 0:
+            return None
+        # Keep the public representation canonical for negative zero.
+        return value, (0.0 if converted == 0 else converted)
+
+    first = finite_nonnegative_real(getattr(rows[0], "race_suspension_seconds", None))
+    if first is None:
+        return None
+    shared_original, shared = first
+    for row in rows[1:]:
+        validated = finite_nonnegative_real(getattr(row, "race_suspension_seconds", None))
+        if validated is None or validated[0] != shared_original:
+            return None
+    return shared
 
 
 def result_is_classified(result: RaceResult) -> bool:
@@ -756,6 +796,7 @@ class RaceSimulator(InventoryStrategyMixin):
                         state.position, classified, winner_laps or 0, track.total_laps,
                         has_two_green_laps,
                     ),
+                    race_suspension_seconds=finish_clock.total_suspension_seconds,
                     **self._inventory_result_fields(state),
                 )
             )

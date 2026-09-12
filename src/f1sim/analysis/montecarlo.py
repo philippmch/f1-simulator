@@ -25,6 +25,7 @@ from f1sim.simulation.race import (
     DriverStatus,
     RaceResult,
     RaceSimulator,
+    get_race_suspension_seconds,
     result_is_classified,
 )
 from f1sim.simulation.race_points import POINTS_SYSTEM as POINTS_SYSTEM
@@ -200,6 +201,33 @@ class SimulationResults:
             "finishers_with_comparable_distance": comparable,
             "lapped_finishers": lapped,
             "lapped_finisher_rate": lapped / comparable if comparable else None,
+        }
+
+    def get_suspension_statistics(self) -> dict[str, int | float | None]:
+        """Summarize globally recorded suspension duration once per race.
+
+        A race contributes when every emitted driver row carries one valid,
+        identical duration. Known zero-duration races are included in the
+        mean but are excluded from the positive-duration count. Incremental
+        averaging avoids overflowing while combining large finite durations.
+        """
+        recorded_races = 0
+        races_with_recorded_suspension = 0
+        mean_suspension: float | None = None
+        for race in self.race_results:
+            duration = get_race_suspension_seconds(race)
+            if duration is None:
+                continue
+            recorded_races += 1
+            races_with_recorded_suspension += int(duration > 0)
+            if mean_suspension is None:
+                mean_suspension = duration
+            else:
+                mean_suspension += (duration - mean_suspension) / recorded_races
+        return {
+            "recorded_races": recorded_races,
+            "races_with_recorded_suspension": races_with_recorded_suspension,
+            "mean_completed_suspension_seconds": mean_suspension,
         }
 
     def get_strategy_statistics(self) -> dict[str, dict]:

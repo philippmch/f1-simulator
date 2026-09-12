@@ -104,6 +104,20 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     await page.waitForFunction(() => !runInProgress);
     assert((await page.locator('#panel-race').textContent()).includes('Lap-aware model (experimental)'));
     assert((await page.locator('#panel-race').textContent()).includes('Fixed rainfall; surface wetness still evolves'));
+    const representativeScenario = Object.values(payload.scenarios)[0];
+    const sampleSuspension = representativeScenario.sample_race_suspension_seconds;
+    assert((await page.locator('#panel-race').textContent()).includes(
+      `Completed race suspension: ${typeof sampleSuspension === 'number'
+        ? `${sampleSuspension.toFixed(3)} s` : 'Not recorded'}`));
+    assert((await page.locator('#panel-race').textContent()).includes(
+      'Race-wide collection + restart pause'));
+    assert.equal(await page.evaluate(() => sampleRaceSuspensionSeconds({
+      sample_race: [{race_suspension_seconds: 12}, {}],
+    })), null);
+    assert.equal(await page.evaluate(() => sampleRaceSuspensionSeconds({
+      sample_race_suspension_seconds: null,
+      sample_race: [{race_suspension_seconds: 12}],
+    })), null);
     await page.locator('#weatherModeSelect').selectOption('evolving');
     await page.evaluate(() => renderRace());
     assert((await page.locator('#panel-race').textContent()).includes('Fixed rainfall; surface wetness still evolves'));
@@ -180,7 +194,37 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     await page.locator('#probabilityIntervals summary').click();
     const statistics = Object.values(payload.scenarios)[0].driver_statistics;
     const distance = Object.values(payload.scenarios)[0].race_distance_statistics;
+    const suspension = Object.values(payload.scenarios)[0].suspension_statistics;
     assert.equal(distance.recorded_races, 10);
+    assert(Number.isInteger(suspension.recorded_races));
+    assert(Number.isInteger(suspension.races_with_recorded_suspension));
+    assert((await page.locator('#suspensionStatistics').innerText()).includes(
+      `${suspension.recorded_races} recorded ${suspension.recorded_races === 1 ? 'race' : 'races'}`));
+    assert((await page.locator('#suspensionStatistics').innerText()).includes(
+      typeof suspension.mean_completed_suspension_seconds === 'number'
+        ? `${suspension.mean_completed_suspension_seconds.toFixed(3)} s`
+        : 'Not recorded'));
+    assert((await page.locator('#suspensionStatistics').innerText()).includes(
+      `${suspension.races_with_recorded_suspension} of ${suspension.recorded_races} recorded`));
+    await page.evaluate(() => {
+      const scenario = getScenarioEntry().data;
+      window.savedSuspensionStatistics = scenario.suspension_statistics;
+      scenario.suspension_statistics = {
+        recorded_races: 3, races_with_recorded_suspension: 1,
+        mean_completed_suspension_seconds: 6,
+      };
+      renderStats();
+    });
+    const suspensionText = await page.locator('#suspensionStatistics').innerText();
+    assert(suspensionText.includes('6.000 s'));
+    assert(suspensionText.includes('3 recorded races'));
+    assert(suspensionText.includes('1 of 3 recorded races'));
+    await page.evaluate(() => {
+      getScenarioEntry().data.suspension_statistics = savedSuspensionStatistics;
+      delete window.savedSuspensionStatistics;
+      renderStats();
+    });
+    await page.locator('#probabilityIntervals summary').click();
     assert((await page.locator('#raceDistanceStatistics').innerText()).includes(
       `${distance.mean_winner_laps.toFixed(1)} laps`));
     assert((await page.locator('#raceDistanceStatistics').innerText()).includes(
