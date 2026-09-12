@@ -63,11 +63,14 @@ def test_announced_finish_stays_at_lapped_successors_next_crossing():
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])
 def test_forced_replacement_matches_completed_timed_alternatives(monkeypatch, engine):
+    # The used medium reaches its wear cliff before a forced lap-35 stop.
+    # At this pace the observed clock leaves a soft-sized stint; planning
+    # all 90 scheduled laps instead selects another medium and pays again.
     def run(compound=None, *, legacy=False):
         driver = Driver(id="d", name="Driver", team_id="t")
         car = Car(team_id="t", team_name="Team")
         track = Track(id="t", name="Track", country="Test", total_laps=90,
-                      base_lap_time=110, pit_lane_delta=22)
+                      base_lap_time=130, pit_lane_delta=22)
         simulator = RaceSimulator(np.random.default_rng(7))
         simulator._infer_team_strategy = lambda *args: TeamStrategyArchetype.BALANCED
         simulator.event_manager.process_lap = lambda *args, **kwargs: []
@@ -88,12 +91,12 @@ def test_forced_replacement_matches_completed_timed_alternatives(monkeypatch, en
 
         def should_pit(state, states, planning, lap, *args, **kwargs):
             horizons.append((lap, planning.total_laps))
-            if lap <= 45:
-                return lap == 45
+            if lap <= 35:
+                return lap == 35
             return original_pit(state, states, planning, lap, *args, **kwargs)
 
         def choose(state, planning, lap, *args, **kwargs):
-            if lap == 45 and compound is not None:
+            if lap == 35 and compound is not None:
                 return compound
             return original_choice(state, planning, lap, *args, **kwargs)
 
@@ -112,23 +115,25 @@ def test_forced_replacement_matches_completed_timed_alternatives(monkeypatch, en
                               starting_tires={"d": TireCompound.MEDIUM})
         assert set(fuel_distances) == {90}
         if legacy:
-            assert dict(horizons)[45] == 90
+            assert dict(horizons)[35] == 90
         else:
-            assert dict(horizons)[45] < 90
+            assert dict(horizons)[35] < 90
         assert result.race_time_limited
         return result
 
     selected = run()
     alternatives = {compound: run(compound) for compound in SLICKS}
     assert selected.strategy[1] == TireCompound.SOFT.value
-    assert selected.laps_completed == 65
+    assert selected.laps_completed == 55
     best = min(alternatives.values(),
                key=lambda result: (-result.laps_completed, result.total_time))
     assert selected.laps_completed == best.laps_completed
     assert selected.total_time == pytest.approx(
         best.total_time, abs=1e-8,
     )
-    assert selected.pit_laps == [45]
+    assert selected.pit_laps == [35]
     previous = run(legacy=True)
+    assert previous.strategy[1] == TireCompound.MEDIUM.value
+    assert previous.pit_laps == [35, 55]
     assert previous.laps_completed == selected.laps_completed
     assert previous.total_time - selected.total_time > 21.6

@@ -146,7 +146,7 @@ def test_solver_matches_exhaustive_schedules_and_compounds(budget, compound, com
 
 
 def test_optional_stop_declined_when_pit_cost_exceeds_tyre_gain():
-    state = _state("A", 1, 0.0)
+    state = _state("A", 1, 0.0, TireCompound.HARD)
     state.tire_laps = 22
     state.pit_stops = 1
     state.tire_compound_history = ["medium", "hard"]
@@ -256,10 +256,10 @@ def test_current_lap_modifier_reranks_first_compound_before_selection():
     state.tire_laps = 20
     state.tire_compound_history = ["medium", "hard"]
     track = _track()
-    track.tire_stress = 0.3
-    green = _plan(state, track, 22)
-    neutralized = _plan(state, track, 22, modifier=1.4)
-    expected = _enumerated_actions(state, track, 22, 1, 1.0, 1.4)
+    track.tire_stress = 0.92
+    green = _plan(state, track, 17)
+    neutralized = _plan(state, track, 17, modifier=1.4)
+    expected = _enumerated_actions(state, track, 17, 1, 1.0, 1.4)
     assert green.compound == TireCompound.MEDIUM
     assert neutralized.compound == TireCompound.SOFT
     assert neutralized.compound in expected[True][1]
@@ -298,7 +298,7 @@ def test_discounted_safety_car_stop_is_worthwhile_in_last_five_laps():
     state.tire_compound_history = ["medium", "hard"]
     state.car.tire_degradation_factor = 1.5
     track = _track()
-    track.pit_lane_delta = 19
+    track.pit_lane_delta = 24
     track.tire_stress = 0.8
     sim = RaceSimulator(np.random.default_rng(1))
     assert not sim._should_pit(state, [state], track, 55, False, Weather())

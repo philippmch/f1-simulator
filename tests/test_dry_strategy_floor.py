@@ -90,9 +90,9 @@ def test_floor_plans_match_exhaustive_full_lap_schedules(budget, remaining, cont
 def test_clipped_fresh_pace_does_not_justify_a_losing_stop():
     driver, car, track = models(30)
     tire = TIRE_COMPOUNDS[TireCompound.SOFT]
-    decision = plan_dry_stop(driver, car, track, tire, 25, 5, 1,
+    decision = plan_dry_stop(driver, car, track, tire, 15, 5, 1,
                              {TireCompound.SOFT, TireCompound.MEDIUM})
-    expected = oracle(driver, car, track, tire, 25, 5, 1,
+    expected = oracle(driver, car, track, tire, 15, 5, 1,
                       {TireCompound.SOFT, TireCompound.MEDIUM}, False,
                       30, 1, True, 1, 1, 0)
     assert expected[True] > expected[False]

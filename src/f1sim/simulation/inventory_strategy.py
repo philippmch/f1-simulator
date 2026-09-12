@@ -131,15 +131,22 @@ def plan_inventory_strategy(
 
     solved = {}
 
+    @lru_cache(maxsize=None)
+    def retained_tail(offset, compound, age):
+        # Different exhausted pools can leave the same compulsory final
+        # stint. Its cost depends only on this call's lap, compound and age.
+        # Keep the original reverse summation order for identical rounding.
+        total = 0.
+        for number in range(horizon - 1, offset - 1, -1):
+            total = running(number, compound, age + number - offset) + total
+        return total
+
     def frame(state):
         offset, compound, age, pool, left, dry, damp, used = state
         if offset == horizon:
             return 0.0 if legal(used) else inf
         if left == 0 and legal(used) and not any(critical[compound][offset:]):
-            total = 0.
-            for number in range(horizon - 1, offset - 1, -1):
-                total = running(number, compound, age + number - offset) + total
-            return total
+            return retained_tail(offset, compound, age)
         best = inf
         if not critical[compound][offset]:
             cost = running(offset, compound, age)

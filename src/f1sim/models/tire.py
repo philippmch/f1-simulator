@@ -49,6 +49,18 @@ class Tire(BaseModel):
         description="Optimal operating temperature range in Celsius",
     )
 
+    def wear_loss_at_lap(self, lap: int, tire_management: float = 1.0) -> float:
+        """Accumulate the configured wear curve independently of bounded grip.
+
+        The grip floor is a numerical bound, not a limit on tyre ageing or
+        its pace cost. The cliff changes the slope after the threshold.
+        """
+        effective_deg_rate = self.degradation_rate * (2.0 - tire_management)
+        normal_laps = min(max(0, lap), self.cliff_threshold)
+        cliff_laps = max(0, lap - self.cliff_threshold)
+        return max(0.0, effective_deg_rate * normal_laps
+                   + effective_deg_rate * self.cliff_multiplier * cliff_laps)
+
     def grip_at_lap(self, lap: int, tire_management: float = 1.0) -> float:
         """Calculate grip level after N laps on this tire.
 
@@ -59,18 +71,7 @@ class Tire(BaseModel):
         Returns:
             Grip level (0.0 to initial_grip)
         """
-        # Apply tire management skill (reduces effective degradation)
-        effective_deg_rate = self.degradation_rate * (2.0 - tire_management)
-
-        if lap < self.cliff_threshold:
-            # Normal degradation
-            grip = self.initial_grip - (effective_deg_rate * lap)
-        else:
-            # Cliff degradation
-            laps_past_cliff = lap - self.cliff_threshold
-            normal_loss = effective_deg_rate * self.cliff_threshold
-            cliff_loss = effective_deg_rate * self.cliff_multiplier * laps_past_cliff
-            grip = self.initial_grip - normal_loss - cliff_loss
+        grip = self.initial_grip - self.wear_loss_at_lap(lap, tire_management)
 
         # The absolute wear floor must not improve a valid low-grip set.
         return min(self.initial_grip, max(0.5, grip))
@@ -88,13 +89,12 @@ class Tire(BaseModel):
         Returns:
             Time penalty in seconds
         """
-        grip = self.grip_at_lap(lap, tire_management)
-        grip_loss = self.initial_grip - grip
-        # Each 0.1 grip loss = ~0.3% slower
-        return base_lap_time * grip_loss * 0.03
+        # Preserve the configured conversion: 0.1 accumulated wear costs
+        # 0.3% of reference lap time. A bounded grip must not cap this cost.
+        return base_lap_time * self.wear_loss_at_lap(lap, tire_management) * 0.03
 
 
-# Pre-configured tire compounds with typical characteristics
+# Explicit compound presets; wear coefficients are model assumptions, not fitted data.
 TIRE_COMPOUNDS = {
     TireCompound.SOFT: Tire(
         compound=TireCompound.SOFT,

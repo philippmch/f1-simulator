@@ -25,6 +25,7 @@ def fixture():
 
 def test_cloudy_scaling_changes_near_tie_and_keeps_default_cache_isolated():
     state, track = fixture()
+    track.pit_lane_delta = 25  # Keep the stop near break-even with uncapped wear.
     args = (state.driver, state.car, track, state.current_tire, 20, 10, 1,
             {TireCompound.SOFT, TireCompound.MEDIUM})
     plain = plan_dry_stop(*args)

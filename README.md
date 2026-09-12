@@ -20,6 +20,10 @@ damp tracks and transitions between slicks and rain tyres as the surface changes
 see [the strategy model and its limits](docs/strategy-model.md)
 for its assumptions and remaining limitations.
 
+Tyre pace follows the configured wear and cliff rates throughout a stint;
+the numerical grip floor does not stop degradation. See the
+[wear model and executed strategy checks](docs/tyre-wear.md).
+
 Retirements retain completed distance and can still qualify for points under the rounded 90% classification threshold; see [classification conventions and limits](docs/race-classification.md).
 
 Both engines apply driver consistency and wet skill to relative random-incident

@@ -225,11 +225,29 @@ The subsequent same-compound rain planner compares stopping now with optimal
 later stops, rather than comparing against keeping the old set forever. In the
 same 80-race seed-42 diagnostic, fixed light/heavy rain averaged 0.023/0.027 stops
 per entrant with standard execution and 0.027/0.027 with chronological execution.
-The default equal-performance fixture's current wear, pace-floor and pit-loss
-parameters usually favor keeping the rain set to the finish. This is a result
-of those model parameters, not evidence that real wet races should be no-stop
-races. Tyre durability calibration remains important; the planner must not
-manufacture stops to match an assumed count. Fixed-dry results were unchanged.
+Those historical figures used the former capped tyre-wear curve, which often
+favored keeping the rain set to the finish. They do not describe current stop
+rates or establish that real wet races should be no-stop races. The
+[wear correction](tyre-wear.md) removes that pace plateau without fitting a
+target stop count. Tyre durability calibration remains important. Fixed-dry
+results were unchanged by that earlier rain-planner change.
+
+With uncapped accumulated wear, this offline checkpoint was repeated on
+2026-09-12 using `--race-engine both --simulations 10 --seed 42`. All 80 races
+completed, with these mean paid stops per entrant, including retirees:
+
+| Engine | Fixed dry | Fixed light rain | Fixed heavy rain | Evolving dry start |
+|---|---:|---:|---:|---:|
+| Standard | 0.895 | 0.986 | 0.959 | 1.018 |
+| Chronological | 0.786 | 0.982 | 1.064 | 0.968 |
+
+No winner reached the racing time limit in this sample. The corrected wear
+curve generally makes a rain-tyre replacement worthwhile in this fixture.
+There is no newly imposed stop requirement or fitted stop-count target. These
+small synthetic samples describe current model behavior; they do not validate
+the wear coefficients or establish real-race strategy frequencies. Changes to
+stops can also change subsequent race draws, and the two engines retain their
+different event ordering and suspension clocks.
 
 ### Observed rain-stint evidence
 

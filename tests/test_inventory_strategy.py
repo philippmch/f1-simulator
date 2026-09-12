@@ -193,3 +193,25 @@ def test_exhausted_budget_skips_relaxation_table(monkeypatch):
     assert result.pit_now_cost == inf
     # Exactly the retained thirty laps; no hypothetical age/compound table.
     assert len(calls) == 30
+
+
+@pytest.mark.parametrize("wetness,rain", [(0., 0.), (.18, .35), (.3, 0.)])
+def test_exhausted_worn_set_tails_match_physical_schedule_oracle(wetness, rain):
+    args = fixture(wetness, rain)
+    args[2].total_laps = 6
+    pool = TireInventory.from_sets([
+        {"compound": "soft", "age": 18},
+        {"compound": "hard", "age": 44},
+        {"compound": "intermediate", "age": 34},
+    ])
+    pool.fit("set-1")
+    options = dict(tire_age=18, remaining_stops=2,
+                   remaining_dry_stops=2, remaining_damp_stops=2,
+                   used_compounds=(TireCompound.SOFT, TireCompound.HARD))
+    # Different fitted/removed-set histories exhaust the budget at different
+    # physical ages around each cliff; a shared final-stint cost must retain
+    # that age and the projected surface at every remaining lap.
+    expected, _ = exhaustive(args, pool, **options)
+    result = plan_inventory_strategy(*args, pool, 1, **options)
+    assert result.wait_cost == pytest.approx(expected[False], abs=1e-9)
+    assert result.pit_now_cost == pytest.approx(expected[True], abs=1e-9)
