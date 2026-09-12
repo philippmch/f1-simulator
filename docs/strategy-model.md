@@ -248,6 +248,29 @@ deadline recomputes the completed-distance ranking before a new opening is
 selected. Direct selector calls
 without driver/car context retain the original precautionary choice.
 
+Run `python examples/check_opening_policy_execution.py` to compare the isolated
+opening-policy path with actual execution. The default diagnostic runs seven
+synthetic dry, drying, wetting and timed cases, all five opening compounds,
+two private reaction seeds (0 and 3), both engines and both inventory modes:
+280 comparisons. The finite pool has one set of every compound, with soft
+already five laps old. Rainfall stays fixed while the surface evolves; mean
+pace, expected service and green running remove incidents and traffic.
+
+The JSON report includes physical inputs, forecast and executed distance/time,
+actual compound and stop histories, and finite-set wear ledgers. It checks the
+original scheduled fuel distance even when racing finishes early, and accounts
+for all completed laps in physical wear. Infeasible forecast costs are explicit
+and use JSON null rather than Infinity; invalid numeric results are errors.
+The command exits with status 1 for a mismatch and 0 for a successful comparison.
+`--engine standard|chronological|both` and `--inventory unlimited|finite|both`
+select narrower runs. It makes no network requests or default file writes.
+
+The 2026-09-12 checkpoint matched all 280 comparisons, including 120 timed
+finishes. This tests execution of the existing policy, not every alternative
+pit schedule, all eight opening reaction seeds, or performance in a stochastic
+multi-car race. It does not calibrate tyre behaviour; in particular,
+[warm-up remains unmodeled](tyre-wear.md#temperature-and-warm-up).
+
 Aggressive, balanced and conservative profiles influence opening slick choices
 and close dry timing decisions. Damp strategy retains the style-based ordinary
 stop allowance while comparing projected running and stop costs. Legacy fallback

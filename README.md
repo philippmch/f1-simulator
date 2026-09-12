@@ -390,6 +390,12 @@ both engines, reports the best executed alternative and needs no network.
 See [strategy diagnostics](docs/strategy-model.md) for the search bounds and
 model assumptions.
 
+Run `python examples/check_opening_policy_execution.py` to compare opening-policy
+forecasts with actual execution in both engines, including used finite tyre
+sets and timed finishes. It reports distance, time, fuel and wear mismatches as
+JSON and exits unsuccessfully when a mismatch is found. Use `--engine` and
+`--inventory` to narrow the offline comparison.
+
 Run `python examples/benchmark_strategy_planning.py` to time full-grid synthetic
 races offline. Select either engine and steady damp, drying, wetting or
 rain-to-slick scenarios. Compare the reported outcome hashes across revisions

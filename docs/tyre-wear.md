@@ -50,6 +50,41 @@ numerical curves or a real tyre's safe lifetime. Temperature history, graining,
 damage-dependent pace and age-dependent puncture risk are separate modeling
 questions. This change does not calibrate them from reported stint lengths.
 
+## Temperature and warm-up
+
+The current model prices accumulated wear and weather mismatch, but a newly
+fitted tyre receives its configured grip immediately. The `optimal_temp_range`
+field is descriptive; lap physics does not track tyre temperature or charge
+for bringing a replacement set into its operating window. Formation laps,
+thermal recovery after neutralization, pressure and heat cycles are also
+outside this model. Track temperature is not a measurement of tyre temperature.
+
+This is a material limitation for comparing undercuts and overcuts. Pirelli
+describes fast warm-up as a characteristic of its
+[C4 compound](https://www.pirelli.com/tires/en-us/motorsport/car/formula-1).
+Its [2026 Canadian weekend comments](https://www.formula1.com/en/latest/article/what-the-teams-said-sprint-day-and-qualifying-in-canada.5K36jKNTRyzhQ6HTirVMgw)
+also describe the effect of low ambient temperatures, modest lateral loads
+and tyre blankets on early-lap heating. These observations support including
+thermal behaviour in future calibration; they do not supply a universal
+seconds-per-outlap penalty for the simulator's relative soft/medium/hard sets.
+
+A useful calibration must separate the time needed to heat a tyre from pit-lane
+loss, fuel burn, traffic, energy deployment and changing conditions. OpenF1's
+[lap fields](https://openf1.org/docs/#laps) identify pit-out laps and their full
+duration, with approximate starting timestamps; those times alone do not isolate
+warm-up. A 2026-09-12 evidence refresh returned HTTP 401 for both the season
+session request and a request restricted to completed races. No new timing
+observations or thermal coefficients were obtained from that attempt. This
+records access at that checkpoint, not a claim that all historical data requires
+authentication.
+
+Physical wear and thermal state must remain separate if this model is extended:
+a reused set retains its accumulated wear even when it needs to heat again.
+The same thermal response would need to be applied in actual laps, opening and
+pit forecasts, qualifying assumptions and replay, rather than adding a cost to
+only one strategy path. The current controlled execution diagnostics establish
+consistency of the existing physics and do not resolve this calibration gap.
+
 ## Reproducible strategy evidence
 
 ```powershell
