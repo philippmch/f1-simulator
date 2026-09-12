@@ -241,7 +241,11 @@ This is an approximate comparison of the current policy under sustained
 conditions, not a global wet-strategy optimizer or a forecast of changing rain,
 traffic, or incidents. Close choices can depend on the sampled reaction paths.
 Results are cached with a bounded capacity, including the driver, car, circuit,
-weather, tyre configuration, and strategy settings. Direct selector calls
+weather, tyre configuration, strategy settings and race time limit. Dry,
+precautionary and finite-pool scores share the same input normalization: driver
+and team names and previous race state do not create new physics. Changing the
+deadline recomputes the completed-distance ranking before a new opening is
+selected. Direct selector calls
 without driver/car context retain the original precautionary choice.
 
 Aggressive, balanced and conservative profiles influence opening slick choices

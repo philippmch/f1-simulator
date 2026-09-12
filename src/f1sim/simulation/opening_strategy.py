@@ -25,6 +25,16 @@ class OpeningPolicyScore:
     mean_time: float
 
 
+def _policy_snapshots(driver, car, track, weather, tuning, profiles):
+    """Keep physical/configuration inputs; remove identity and prior race state."""
+    clean_driver = driver.model_copy(deep=True)
+    clean_driver.reset_race_state()
+    clean_driver.id = clean_driver.name = clean_driver.team_id = "projection"
+    clean_car = car.model_copy(update={"team_id": "projection", "team_name": "projection"})
+    return [clean_driver.model_dump(), clean_car.model_dump(), track.model_dump(),
+            weather.model_dump(), tuning, profiles]
+
+
 def dry_opening_policy_costs(driver, car, track, weather, strategy, tuning, profiles):
     """Score actual slick-opening policies, including the timed race finish.
 
@@ -34,13 +44,8 @@ def dry_opening_policy_costs(driver, car, track, weather, strategy, tuning, prof
     """
     from f1sim.simulation import race_timing
 
-    clean_driver = driver.model_copy(deep=True)
-    clean_driver.reset_race_state()
-    clean_driver.id = clean_driver.name = clean_driver.team_id = "projection"
-    clean_car = car.model_copy(update={"team_id": "projection", "team_name": "projection"})
-    snapshots = [clean_driver.model_dump(), clean_car.model_dump(), track.model_dump(),
-                 weather.model_dump(), tuning, profiles,
-                 {c.value: tire.model_dump() for c, tire in TIRE_COMPOUNDS.items()}]
+    snapshots = _policy_snapshots(driver, car, track, weather, tuning, profiles)
+    snapshots.append({c.value: tire.model_dump() for c, tire in TIRE_COMPOUNDS.items()})
     return _cached_dry_policy_costs(
         *(json.dumps(value, sort_keys=True) for value in snapshots), strategy.value,
         race_timing.RACING_TIME_LIMIT_SECONDS,
@@ -77,20 +82,22 @@ def _cached_dry_policy_costs(driver_json, car_json, track_json, weather_json,
 
 def opening_policy_costs(driver, car, track, weather, strategy, tuning, profiles):
     """Return immutable distance/time scores; normalize transient state for caching."""
-    clean_driver = driver.model_copy(deep=True)
-    clean_driver.reset_race_state()
-    snapshots = [clean_driver.model_dump(), car.model_dump(), track.model_dump(),
-                 weather.model_dump(), tuning, profiles,
-                 {c.value: tire.model_dump() for c, tire in TIRE_COMPOUNDS.items()}]
-    return _cached_policy_costs(*(json.dumps(value, sort_keys=True) for value in snapshots),
-                                strategy.value)
+    from f1sim.simulation import race_timing
+
+    snapshots = _policy_snapshots(driver, car, track, weather, tuning, profiles)
+    snapshots.append({c.value: tire.model_dump() for c, tire in TIRE_COMPOUNDS.items()})
+    return _cached_policy_costs(
+        *(json.dumps(value, sort_keys=True) for value in snapshots), strategy.value,
+        race_timing.RACING_TIME_LIMIT_SECONDS,
+    )
 
 
 @lru_cache(maxsize=128)
 def _cached_policy_costs(driver_json, car_json, track_json, weather_json,
-                         tuning_json, profiles_json, tire_config_json, strategy):
-    # Local import avoids a race-selector import cycle. Tyre configuration is
-    # included in the cache key; each synchronous miss uses that current config.
+                         tuning_json, profiles_json, tire_config_json, strategy,
+                         racing_time_limit):
+    # Local import avoids a race-selector import cycle. Configuration and the
+    # deadline key each synchronous projection, as in dry/finite opening scores.
     from f1sim.simulation.race import TeamStrategyArchetype
 
     driver = Driver.model_validate_json(driver_json)
@@ -124,13 +131,9 @@ def inventory_opening_policy_costs(driver, car, track, weather, strategy, tuning
     """Compare each physical opening set through the finite, timed race policy."""
     from f1sim.simulation import race_timing
 
-    clean = driver.model_copy(deep=True)
-    clean.reset_race_state()
-    clean.id = clean.name = clean.team_id = "projection"
-    package = car.model_copy(update={"team_id": "projection", "team_name": "projection"})
-    snapshots = [clean.model_dump(), package.model_dump(), track.model_dump(), weather.model_dump(),
-                 tuning, profiles, records,
-                 {c.value: tire.model_dump() for c, tire in TIRE_COMPOUNDS.items()}]
+    snapshots = _policy_snapshots(driver, car, track, weather, tuning, profiles)
+    snapshots.extend([records,
+                      {c.value: tire.model_dump() for c, tire in TIRE_COMPOUNDS.items()}])
     return _cached_inventory_policy_costs(
         *(json.dumps(value, sort_keys=True) for value in snapshots), strategy.value,
         race_timing.RACING_TIME_LIMIT_SECONDS,

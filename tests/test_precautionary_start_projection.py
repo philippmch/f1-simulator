@@ -120,6 +120,46 @@ def test_mean_service_is_opt_in_and_default_rng_is_unchanged():
     assert simulators[2].rng.bit_generator.state == before
 
 
+def test_precautionary_cache_tracks_deadline_and_changes_opening(monkeypatch):
+    from f1sim.simulation import race_timing
+
+    driver, car, track, weather = fixture()
+    weather.track_wetness = weather.rain_intensity = .1
+    simulator = RaceSimulator(np.random.default_rng(42))
+    args = (driver, car, track, weather, TeamStrategyArchetype.BALANCED,
+            simulator.strategy_tuning, simulator.strategy_profiles)
+    _cached_policy_costs.cache_clear()
+    full_distance = opening_policy_costs(*args)
+    assert min(full_distance, key=lambda pair: pair[1])[0] == TireCompound.SOFT
+    assert all(score.negative_mean_laps == -10 for _, score in full_distance)
+
+    monkeypatch.setattr(race_timing, "RACING_TIME_LIMIT_SECONDS", 200.)
+    shortened = opening_policy_costs(*args)
+    assert _cached_policy_costs.cache_info().misses == 2
+    assert min(shortened, key=lambda pair: pair[1])[0] == TireCompound.INTERMEDIATE
+    assert dict(shortened)[TireCompound.INTERMEDIATE].negative_mean_laps == -4
+    assert dict(shortened)[TireCompound.MEDIUM].negative_mean_laps == -3
+    _cached_policy_costs.cache_clear()
+    assert opening_policy_costs(*args) == shortened
+
+
+def test_precautionary_cache_reuses_physics_after_identity_changes():
+    driver, car, track, weather = fixture()
+    simulator = RaceSimulator(np.random.default_rng(42))
+    args = (driver, car, track, weather, TeamStrategyArchetype.BALANCED,
+            simulator.strategy_tuning, simulator.strategy_profiles)
+    _cached_policy_costs.cache_clear()
+    baseline = opening_policy_costs(*args)
+    driver.id = driver.name = driver.team_id = "other"
+    driver.current_tire_laps = 99
+    driver.dnf = True
+    car.team_id = car.team_name = "other"
+    before = copy.deepcopy((args, simulator.rng.bit_generator.state))
+    assert opening_policy_costs(*args) is baseline
+    assert _cached_policy_costs.cache_info().hits == 1
+    assert (args, simulator.rng.bit_generator.state) == before
+
+
 def test_timed_opening_ranking_prefers_more_completed_laps(monkeypatch):
     from f1sim.simulation.lap import LapSimulator
 
