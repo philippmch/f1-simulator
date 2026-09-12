@@ -128,3 +128,20 @@ def test_mixed_weather_policy_matches_executed_complete_schedules(monkeypatch):
     worn = next(row for row in rows if row["case"]["name"] == "used_soft_steady_damp")
     assert worn["selected"]["pit_laps"] == [2, 6]
     assert worn["selected"]["compounds"] == ["soft", "soft", "medium"]
+
+
+def test_pit_exit_diagnostic_runs_once_under_observed_conditions(monkeypatch):
+    diagnostic = runpy.run_path(str(Path(__file__).resolve().parents[1]
+                                   / "examples" / "check_pit_exit_conditions.py"))
+    monkeypatch.setattr("socket.socket.connect", lambda *args, **kwargs: pytest.fail("network"))
+    rows = diagnostic["check_cases"]()
+    assert len(rows) == 5
+    for row in rows:
+        entry = row["track_entry"]
+        assert entry["conditions_match"]
+        assert entry["observed"] == entry["running_snapshot"]
+        assert entry["observed"]["wetness"] < row["pit_entry"]["wetness"]
+        assert entry["observed"]["neutralized"] == (row["later_control"] != "green")
+        assert entry["time"] == pytest.approx(row["pit_stop"]["total_loss"])
+        assert row["paid_stops"] == 1
+        assert row["running_calls"] == row["laps_completed"] > 1

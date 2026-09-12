@@ -113,9 +113,14 @@ dispatch still uses its existing instantaneous red-flag abstraction.
 Running physics uses physical gaps for dirty air and Overtake Mode detection.
 The gap is estimated from the preceding on-track car's progress through its
 pending lap, independently of race rank and completed distance. Weather, control,
-mode eligibility and restart conditions are captured for each started lap.
+mode eligibility and restart conditions are captured when track running starts.
 A paid stop samples running physics once at its actual pit exit, using the
-rejoin gap; it cannot deploy Overtake Mode on that lap. Passing retains the
+current weather, control and rejoin gap; it cannot deploy Overtake Mode on that lap.
+Weather evolution and SC/VSC deployment or clearance during service therefore
+affect the upcoming running. Lane loss, queue and service remain charged from
+the committed stop, and the fitted set is retained. Changing conditions at exit
+does not grant another tyre change. SC catch-up uses the queue observed at track
+entry, including a safety car deployed while the car was in service. Passing retains the
 original detection decision, and energy recharges once per completed own lap.
 
 Full safety-car catch-up closes gaps through future running time, preserving
@@ -131,8 +136,20 @@ blue-flag yielding, including encounters between cars that started under green.
 Already completed passes retain their physical order. A lap started under
 neutralization keeps its passing restriction through that crossing even if the
 signal clears meanwhile; sector-level restart timing is not modeled.
-An unrun paid lap held at a closed pit exit is an exception: its tyre and control
-snapshot is replaced at the shared red-flag restart before its first physics call.
+An unrun paid lap held at a closed pit exit waits for the shared red-flag restart.
+Its free restart tyre fitting and current running conditions are applied before
+its first physics call; paid service is not repeated. Forecasts for cars still
+in service use observed current control with expected remaining service, while
+cars already running retain their committed first-lap timing. Forecasts neither
+read future sampled service nor anticipate future control changes.
+
+Run `python examples/check_pit_exit_conditions.py` for five controlled full-race
+checks: drying, SC deployment/clearance and VSC deployment/clearance. Two synthetic
+cars use mean lap physics and no incidents. One opening stop has deliberately
+extended service so a leading weather/control update occurs before its exit.
+JSON records entry conditions, observed exit conditions, the running snapshot,
+paid loss and completed running count. This exposes stale entry snapshots without
+claiming realistic service duration or optimizing that scripted stop.
 
 When a car catches its physical predecessor on a higher own lap, the predecessor
 yields without sampling a defensive battle. This models compliant blue-flag

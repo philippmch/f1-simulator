@@ -1,8 +1,8 @@
 """Experimental chronological race execution; production still uses RaceSimulator.
 
 Each car owns one pending lap. Whole-lap physics freezes weather/control when
-that lap starts; red flags collect the field before a shared restart. There is
-no mid-lap sector redistribution. Circular crossing order
+running starts, after any paid service; red flags collect the field before a
+shared restart. There is no mid-lap sector redistribution. Circular crossing order
 requires a sampled pass or compliant blue-flag yield before a faster car can
 cross a physical predecessor.
 """
@@ -200,17 +200,8 @@ class ChronologicalRace:
             # running has never been sampled. Fit the shared restart set and
             # release the existing lap without charging/sampling another stop.
             self._fit_red_flag_set(state, self._planning_track(state, resume))
-            control = self.simulator.event_manager
-            pending.weather = self.weather.model_copy(deep=True)
             pending.tire = state.current_tire.model_copy(deep=True)
             pending.tire_age = state.tire_laps
-            pending.neutralized = False
-            pending.lap_time_modifier = control.get_lap_time_modifier()
-            pending.active_aero_enabled = control.is_active_aero_allowed()
-            pending.mode_allowed = False
-            pending.restart_boost = control.is_restart_lap(self.control_intervals + 1)
-            pending.safety_car = False
-            pending.sc_queue_pace = None
             pending.generation += 1
             self.pit_exits.append((driver_id, pending.lap, resume))
             self._begin_running(state, pending, resume)
@@ -273,7 +264,7 @@ class ChronologicalRace:
                     leader_pace = pending.running or None
                 if not pending.on_track and leader_pace is not None:
                     flag_time = max(now, pending.expected_exit or now)
-                    flag_time += leader_pace * pending.lap_time_modifier
+                    flag_time += leader_pace * modifier
                 anchor_lap = pending.lap
                 next_modifier = 1.0
             else:
@@ -323,7 +314,7 @@ class ChronologicalRace:
             first_update = max(now, pending.ready)
         else:
             first_update = max(now, pending.expected_exit or now)
-            first_update += leader_pace * pending.lap_time_modifier
+            first_update += leader_pace * modifier
         flag_time = self._projected_flag_time(now)
         if flag_time is None:
             return None
@@ -388,13 +379,6 @@ class ChronologicalRace:
             safety_car=control.safety_car_active,
             expected_exit=expected_exit,
         )
-        if pending.safety_car:
-            leader_id = self._queue_leader_id()
-            leader_pending = self.pending.get(leader_id)
-            leader_pace = (leader_pending.running if leader_pending is not None
-                           and leader_pending.running > 0 else self.running_paces.get(leader_id))
-            if leader_pace is not None:
-                pending.sc_queue_pace = leader_pace * pending.lap_time_modifier
         self.pending[driver_id] = pending
         state.overtake_mode_active_lap = False
         if not stop:
@@ -422,7 +406,7 @@ class ChronologicalRace:
         free_pace = (pending.running
                      or self.running_paces.get(driver_id, self.track.base_lap_time))
         pace = free_pace * self.simulator.event_manager.get_lap_time_modifier()
-        first_pace = free_pace * pending.lap_time_modifier
+        first_pace = free_pace * pending.lap_time_modifier if pending.on_track else pace
         if not isfinite(pace) or pace <= 0 or not isfinite(first_pace) or first_pace <= 0:
             return None
         if pending.on_track:
@@ -533,8 +517,29 @@ class ChronologicalRace:
                 self.running_paces.get(driver_id, self.track.base_lap_time) * modifier)
         return progress * pace if isfinite(pace) and pace > 0 else None
 
+    def _capture_running_conditions(self, pending):
+        """Freeze running conditions at track entry, after any paid service."""
+        control = self.simulator.event_manager
+        pending.weather = self.weather.model_copy(deep=True)
+        pending.neutralized = not control.is_active_aero_allowed()
+        pending.lap_time_modifier = control.get_lap_time_modifier()
+        pending.active_aero_enabled = control.is_active_aero_allowed()
+        interval = self.control_intervals + 1
+        pending.mode_allowed = control.is_overtake_mode_allowed(interval, pending.weather)
+        pending.restart_boost = control.is_restart_lap(interval)
+        pending.safety_car = control.safety_car_active
+        pending.sc_queue_pace = None
+        if pending.safety_car:
+            leader_id = self._queue_leader_id()
+            leader_pending = self.pending.get(leader_id)
+            leader_pace = (leader_pending.running if leader_pending is not None
+                           and leader_pending.running > 0 else self.running_paces.get(leader_id))
+            if leader_pace is not None:
+                pending.sc_queue_pace = leader_pace * pending.lap_time_modifier
+
     def _begin_running(self, state, pending, now):
         """Sample exactly once, using traffic at actual track entry after service."""
+        self._capture_running_conditions(pending)
         pending.on_track = True
         pending.running_start = now
         gap = self._physical_gap_ahead(state.driver.id, now)

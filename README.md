@@ -384,6 +384,9 @@ races offline. Select either engine and steady damp, drying, wetting or
 rain-to-slick scenarios. Compare the reported outcome hashes across revisions
 before interpreting timings; see [benchmark usage](docs/strategy-model.md#planner-performance-benchmark).
 
+Run `python examples/check_pit_exit_conditions.py` to check the lap-aware engine's
+pit exits across changing weather and safety-car conditions in controlled races.
+
 For an interactive browser regression check, start the server and run
 `node tests/browser_dashboard.cjs` with Playwright installed and its Chromium
 browser available. `PLAYWRIGHT_MODULE` can point to an existing Playwright
