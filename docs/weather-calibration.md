@@ -129,9 +129,12 @@ incident record.
   and uses the existing red-flag restart and free tyre-change procedure.
   Background interruption draws remain restricted to green laps, and an
   unchanged storm still receives only one weather decision.
-- Manual flags and independent background incidents remain possible. The race
-  engine abstracts suspension duration and does not simulate elapsed waiting
-  minutes, race abandonment, or a weather-conditioned restart forecast. One
+- Manual flags and independent background incidents remain possible. Both
+  engines include field collection and a fixed 600-second pause before a
+  red-flag restart. This does not predict incident clearance or weather
+  recovery; race abandonment and a weather-conditioned restart forecast remain
+  outside the model. Weather advances through the existing shared updates,
+  without extra draws during suspension waiting. One
   unchanged storm is not repeatedly sampled as a new weather interruption.
 
 These choices preserve the distinction between damp/intermediate and heavily
@@ -180,9 +183,10 @@ dependencies, replay data, or a persistent cache.
 `--race-engine` accepts `standard` (the default), `chronological`, or `both`.
 Comparison runs use the same synthetic field, weather inputs and seed range.
 Qualifying draws match; later random draws follow each engine's event order,
-so individual race outcomes are not paired counterfactuals. Standard timings
-also exclude the chronological model's explicit suspension wait. Duration
-differences therefore include that modeling choice.
+so individual race outcomes are not paired counterfactuals. Both engines now
+include red-flag collection and pause time. Their different crossing, collection
+and pit-exit resolution can still produce different elapsed durations. Older
+standard results, including the historical tables above, omitted that wait.
 
 Standard output is one JSON document; simulation progress goes to standard
 error. Without an observed option, the document is a list of scenario/model summaries.

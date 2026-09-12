@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass, field, replace
 from enum import Enum
+from math import isfinite
+from numbers import Real
 
 import numpy as np
 
@@ -150,6 +152,7 @@ class RaceSimulator(InventoryStrategyMixin):
         strategy_profiles: dict[str, dict[str, float]] | None = None,
         *,
         weather_rng: np.random.Generator | None = None,
+        red_flag_pause_seconds: float = 600.0,
     ):
         """Initialize race simulator.
 
@@ -157,9 +160,16 @@ class RaceSimulator(InventoryStrategyMixin):
             rng: Random number generator
             strategy_tuning: Optional strategy threshold overrides
             weather_rng: Independent weather stream; omitted callers share rng
+            red_flag_pause_seconds: Suspension pause after field collection
         """
+        if (isinstance(red_flag_pause_seconds, bool)
+                or not isinstance(red_flag_pause_seconds, Real)
+                or not isfinite(red_flag_pause_seconds) or red_flag_pause_seconds < 0):
+            raise ValueError("red_flag_pause_seconds must be finite and nonnegative")
         self.rng = rng if rng is not None else np.random.default_rng()
         self.weather_rng = weather_rng if weather_rng is not None else self.rng
+        self.red_flag_pause_seconds = float(red_flag_pause_seconds)
+        self.suspensions: list[tuple[float, float, tuple[str, ...]]] = []
         self.weather_history: list[dict] = []
         self.lap_simulator = LapSimulator(rng=self.rng)
         self.overtaking_model = OvertakingModel(rng=self.rng)
@@ -248,6 +258,7 @@ class RaceSimulator(InventoryStrategyMixin):
         # Reset event manager
         self.event_manager.reset()
         self.weather_history = []
+        self.suspensions.clear()
 
         # Keep the caller's supplied weather as the immutable lap-one
         # snapshot.  Weather evolution is applied only after a lap has been
@@ -324,16 +335,41 @@ class RaceSimulator(InventoryStrategyMixin):
         observed_running_pace: dict[str, float] = {}
         consecutive_green_laps = 0
         has_two_green_laps = False
+        pending_resume_time: float | None = None
         for lap in range(1, track.total_laps + 1):
+            # A suspension is elapsed between completed crossings. Preserve a
+            # scalar snapshot before exposing the common restart clock so a
+            # retirement on the restart lap can roll back its uncompleted lap
+            # without fabricating the suspension as running time.
+            last_completed_states: list[DriverRaceState] | None = None
+            resumed_at: float | None = None
+            if pending_resume_time is not None:
+                resumed_at = pending_resume_time
+                last_completed_states = [replace(state) for state in states]
+                for state in states:
+                    if state.status == DriverStatus.RACING:
+                        state.total_time = resumed_at
+                pending_resume_time = None
             if not any(state.status == DriverStatus.RACING for state in states):
                 break
             self._record_weather(lap, current_weather)
             leader = min((state for state in states if state.status == DriverStatus.RACING),
                          key=lambda state: state.position)
+            planning_crossing_time = leader.total_time
+            planning_next_lap_start = None
+            if last_completed_states is not None:
+                completed = next(
+                    state for state in last_completed_states
+                    if state.driver.id == leader.driver.id
+                )
+                planning_crossing_time = completed.total_time
+                planning_next_lap_start = resumed_at
             planning_final_lap = forecast_final_lap(
-                final_lap, lap - 1, leader.total_time,
+                final_lap, lap - 1, planning_crossing_time,
                 observed_running_pace.get(leader.driver.id), finish_clock.time_limit_seconds,
                 self.event_manager.get_lap_time_modifier(),
+                **({"next_lap_start_time": planning_next_lap_start}
+                   if planning_next_lap_start is not None else {}),
             )
             planning_track = (track if planning_final_lap == track.total_laps else
                               track.model_copy(update={"total_laps": planning_final_lap}))
@@ -375,6 +411,13 @@ class RaceSimulator(InventoryStrategyMixin):
                 **({"physical_total_laps": track.total_laps}
                    if planning_final_lap < track.total_laps else {}),
             )
+            # A paid stop is completed before the lap starts.  Retirements
+            # roll back only the uncompleted running lap, so retain the
+            # post-service tyre age for a car that fails after rejoining.
+            running_start_tire_laps = {
+                state.driver.id: state.tire_laps
+                for state in states if state.status == DriverStatus.RACING
+            }
             pitting_ids = {state.driver.id for state in drivers_pitting}
             pit_lap_losses = {
                 state.driver.id: state.total_time - lap_start_times[state.driver.id]
@@ -517,16 +560,19 @@ class RaceSimulator(InventoryStrategyMixin):
 
             # Restore a retired car's last completed crossing. Neither the
             # sampled failure lap nor its service/incident time is race distance.
-            for state, before in zip(states, lap_start_states):
+            rollback_states = (last_completed_states
+                               if last_completed_states is not None else lap_start_states)
+            for state, before in zip(states, rollback_states):
                 if state.status == DriverStatus.DNF and before.status == DriverStatus.RACING:
                     state.total_time = before.total_time
                     state.last_lap_time = before.last_lap_time
+                    if state.driver.id in lap_times:
+                        state.tire_laps = running_start_tire_laps[state.driver.id]
+                        state.driver.current_tire_laps = state.tire_laps
                     if state.tire_inventory is not None and state.driver.id in lap_times:
                         # Finite ledgers count completed tyre laps, just as the
                         # chronological engine does. Keep any paid fitting, but
                         # discard this failed crossing's provisional wear.
-                        state.tire_laps -= 1
-                        state.driver.current_tire_laps = state.tire_laps
                         pool = state.tire_inventory
                         current = pool.sets[pool.current_set_id]
                         if current.age > state.tire_laps:
@@ -548,15 +594,10 @@ class RaceSimulator(InventoryStrategyMixin):
             # cumulative clock for a later lap or the final classification.
             self._reconcile_racing_times(states)
 
-            # Check if red flag was just deployed
+            # Check if red flag was just deployed. Suspension setup happens
+            # after all completed-lap accounting below, once the authoritative
+            # leader crossing has been committed to the finish clock.
             red_flag_deployed_this_lap = any(e.event_type == EventType.RED_FLAG for e in lap_events)
-            if red_flag_deployed_this_lap:
-                # Handle red flag: bunch field and allow tire changes
-                self._classify_positions_before_neutralization(
-                    states,
-                    material_penalty_ids,
-                )
-                self._handle_red_flag_stop(states, current_weather, track, lap, defer_tire_fit=True)
 
             # Commit fastest laps only after all on-track incidents and race
             # control consequences for this lap have been applied.  In
@@ -590,11 +631,6 @@ class RaceSimulator(InventoryStrategyMixin):
                 ),
             )
 
-            # Preserve the final retirement lap's consequences, then stop.
-            # Later scheduled laps cannot produce events with no running cars.
-            if not any(state.status == DriverStatus.RACING for state in states):
-                break
-
             # A deployment during the lap disqualifies the whole lap, even
             # when the flag has already ended by this point (notably red flags).
             lap_was_neutralized = (
@@ -609,29 +645,58 @@ class RaceSimulator(InventoryStrategyMixin):
             consecutive_green_laps = 0 if lap_was_neutralized else consecutive_green_laps + 1
             has_two_green_laps |= consecutive_green_laps >= 2
 
+            # Preserve the final retirement lap's consequences, then stop.
+            # Later scheduled laps cannot produce events with no running cars.
+            # Update the green-lap streak first so a final red flag still
+            # disqualifies green-only points even when every car retires.
+            if not any(state.status == DriverStatus.RACING for state in states):
+                break
+
             leader = min((state for state in states if state.status == DriverStatus.RACING),
                          key=lambda state: state.position)
             final_lap = finish_clock.observe_leader_crossing(lap, leader.total_time)
             if lap >= final_lap:
                 break
 
-            # The initial weather snapshot was used unchanged on lap one.
-            # Evolve only when another lap will actually consume the result.
-            if lap < final_lap:
+            if red_flag_deployed_this_lap:
+                # The leader's completed crossing starts collection. Every
+                # active car's reconciled total_time is already a completed
+                # crossing clock, so the latest one determines pit-lane arrival.
+                active_states = [state for state in states
+                                 if state.status == DriverStatus.RACING]
+                collection_time = max(state.total_time for state in active_states)
+                resume = collection_time + self.red_flag_pause_seconds
+                finish_clock.begin_suspension(leader.total_time)
+                finish_clock.end_suspension(resume)
+                ordered_active_ids = tuple(
+                    state.driver.id
+                    for state in sorted(active_states, key=lambda state: state.position)
+                )
+                self.suspensions.append((leader.total_time, resume, ordered_active_ids))
+
+                # End red control before choosing the restart set. The restart
+                # lap consumes exactly one evolved weather snapshot; no
+                # running, service, or RNG work is charged during collection.
+                self.event_manager.end_red_flag()
                 current_weather = current_weather.evolve(self.weather_rng)
-                if red_flag_deployed_this_lap:
-                    restart_final_lap = forecast_final_lap(
-                        final_lap, lap, leader.total_time,
-                        observed_running_pace.get(leader.driver.id),
-                        finish_clock.time_limit_seconds,
-                    )
-                    restart_track = (track if restart_final_lap == track.total_laps else
-                                     track.model_copy(update={"total_laps": restart_final_lap}))
-                    self._fit_red_flag_tires(
-                        states, current_weather, restart_track, lap,
-                        **({"physical_total_laps": track.total_laps}
-                           if restart_final_lap < track.total_laps else {}),
-                    )
+                restart_final_lap = forecast_final_lap(
+                    final_lap, lap, leader.total_time,
+                    observed_running_pace.get(leader.driver.id),
+                    finish_clock.time_limit_seconds,
+                    next_lap_start_time=resume,
+                )
+                restart_track = (track if restart_final_lap == track.total_laps else
+                                 track.model_copy(update={"total_laps": restart_final_lap}))
+                self._fit_red_flag_tires(
+                    states, current_weather, restart_track, lap,
+                    **({"physical_total_laps": track.total_laps}
+                       if restart_final_lap < track.total_laps else {}),
+                )
+                pending_resume_time = resume
+            elif lap < final_lap:
+                # The initial weather snapshot was used unchanged on lap one.
+                # Evolve only when another lap will actually consume the result.
+                current_weather = current_weather.evolve(self.weather_rng)
 
         # Mark finished drivers
         for state in states:
@@ -2102,22 +2167,24 @@ class RaceSimulator(InventoryStrategyMixin):
         During a red flag:
         - All cars return to pit lane
         - Teams can change tires and make limited repairs
-        - Gaps are reset for restart
+
+        The live loop models collection and the shared restart clock itself.
+        This direct helper performs only free refits/repairs and leaves past
+        race clocks and physical order untouched.
 
         Args:
             states: Driver race states
             weather: Current weather conditions
             track: Race distance and tyre physics
             current_lap: Lap completed before suspension
-            defer_tire_fit: Live races fit after the existing restart weather update
+            defer_tire_fit: Skip fitting when a caller will apply it separately
         """
-        # Bunch the field - gaps are reset on red flag
-        self.event_manager.bunch_field(states)
-
         if not defer_tire_fit:
             self._fit_red_flag_tires(states, weather, track, current_lap)
 
-        # Keep race-control ordering unchanged; no stopped duration is modeled.
+        # Keep race-control ordering unchanged.  Clock advancement belongs to
+        # the live race loop, which records collection and pause explicitly;
+        # direct callers retain only the free-fit/repair behavior.
         self.event_manager.end_red_flag()
 
     def _fit_red_flag_tires(

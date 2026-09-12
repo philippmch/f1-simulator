@@ -22,6 +22,9 @@ for its assumptions and remaining limitations.
 
 Full safety cars close gaps through subsequent running, preserving completed
 lap times and pit-service accounting; see [queue timing and limits](docs/strategy-model.md#safety-car-queues-and-elapsed-time).
+Red flags collect the surviving field before a shared restart, preserving
+completed crossings and extending the finish deadline for the modeled wait;
+see [suspension timing](docs/strategy-model.md#red-flag-suspension-timing).
 
 Tyre pace follows the configured wear and cliff rates throughout a stint;
 the numerical grip floor does not stop degradation. See the
@@ -80,8 +83,8 @@ python examples/simulate_race.py --race "Italian Grand Prix" --simulations 500
 python examples/simulate_race.py --race 14 --scenarios dry,light_rain,heavy_rain
 ```
 
-The standard race model remains the default. To try individual car crossings,
-lapped finishes and shared red-flag restarts, choose **Lap-aware (experimental)**
+The standard race model remains the default. To try individual car crossings
+and lapped finishes, choose **Lap-aware (experimental)**
 in the dashboard or pass `--race-engine chronological` to the CLI. The API and
 Python `MonteCarloRunner` accept `race_engine="chronological"` (or `"standard"`).
 Results record the selected model; see [its assumptions and limits](docs/chronological-race-design.md).

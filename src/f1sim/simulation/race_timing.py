@@ -16,22 +16,37 @@ def forecast_final_lap(
     running_pace: float | None,
     time_limit_seconds: float,
     current_lap_time_modifier: float = 1.0,
+    *,
+    next_lap_start_time: float | None = None,
 ) -> int:
     """Estimate strategy distance without announcing or changing the finish.
 
     The upcoming lap uses current race control; subsequent laps assume green.
     Observed running pace excludes pit service and other elapsed-time losses.
     Without a usable observation, retain the scheduled strategy horizon.
+
+    ``crossing_time`` is the latest completed crossing used to determine
+    whether the time limit has already expired.  A caller projecting a restart
+    may provide ``next_lap_start_time`` separately when an elapsed suspension
+    places the upcoming lap well after that crossing.
     """
     values = (crossing_time, running_pace, time_limit_seconds, current_lap_time_modifier)
     if any(isinstance(value, bool) or not isinstance(value, Real)
            or not isfinite(value) for value in values):
         return scheduled_final_lap
+    if next_lap_start_time is not None and (
+        isinstance(next_lap_start_time, bool)
+        or not isinstance(next_lap_start_time, Real)
+        or not isfinite(next_lap_start_time)
+        or next_lap_start_time < crossing_time
+    ):
+        return scheduled_final_lap
     if running_pace <= 0 or current_lap_time_modifier <= 0 or crossing_time < 0:
         return scheduled_final_lap
     if crossing_time >= time_limit_seconds:
         return min(scheduled_final_lap, completed_lap + 1)
-    next_crossing = crossing_time + running_pace * current_lap_time_modifier
+    next_crossing = (crossing_time if next_lap_start_time is None else next_lap_start_time)
+    next_crossing += running_pace * current_lap_time_modifier
     additional = max(0, ceil((time_limit_seconds - next_crossing) / running_pace))
     return min(scheduled_final_lap, completed_lap + 2 + additional)
 

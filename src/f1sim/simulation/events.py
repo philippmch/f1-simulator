@@ -864,11 +864,12 @@ class EventManager:
         return True
 
     def bunch_field(self, driver_states: list) -> None:
-        """Apply the standard engine's instantaneous red-flag regrouping.
+        """Apply the legacy instantaneous red-flag regrouping helper.
 
-        Sets gaps to ~1 second without modeling elapsed suspension time.
-        Full safety cars instead close gaps through subsequent running;
-        this legacy clock reset is only used for standard red-flag restarts.
+        Native race execution records collection and pause time on an absolute
+        finish clock and never calls this helper.  It remains available for
+        compatibility with direct callers that explicitly request the old
+        compact-queue approximation.
 
         Args:
             driver_states: List of DriverRaceState objects
@@ -881,9 +882,8 @@ class EventManager:
             return
 
         # Leader stays unchanged; each following car is set to ~0.8-1.2s
-        # behind.  RaceSimulator classifies positions by elapsed time before
-        # calling this method, so a same-lap incident's position loss survives
-        # the gap reset even though ordinary clean gaps are closed here.
+        # behind. Direct callers must establish physical order and incident
+        # position losses before requesting this legacy gap reset.
         for i, state in enumerate(racing[1:], 1):
             gap_to_ahead = self.rng.uniform(0.8, 1.2)
             state.total_time = racing[i - 1].total_time + gap_to_ahead

@@ -151,6 +151,29 @@ def test_suspension_extends_finish_deadline_but_not_original_fuel_schedule(monke
     assert [sample[1] for sample in samples if sample[0] == "A"] == [1, 2, 3]
 
 
+def test_over_cap_pause_preserves_restart_distance_and_planning_horizon(monkeypatch):
+    monkeypatch.setattr("f1sim.simulation.race_timing.RACING_TIME_LIMIT_SECONDS", 180)
+    engine, run, samples, _, _, _ = setup(
+        monkeypatch, laps=10, pause=4000,
+    )
+    horizons = []
+
+    def should_pit(state, states, planning, lap, *args, **kwargs):
+        horizons.append((state.driver.id, lap, planning.total_laps))
+        return False
+
+    monkeypatch.setattr(engine.simulator, "_should_pit", should_pit)
+    results = run()
+
+    assert engine.suspensions == [(90, 4110, ("A", "B"))]
+    assert engine.timeline.time_limit_seconds == 3780
+    assert engine.timeline.final_lap == 3
+    assert [row.laps_completed for row in results] == [3, 3]
+    assert {(driver, lap, horizon) for driver, lap, horizon in horizons
+            if lap == 2} == {("A", 2, 3), ("B", 2, 3)}
+    assert [sample[2] for sample in samples if sample[1] == 2] == [4110, 4110]
+
+
 def test_repeated_suspensions_and_reuse_reset_barrier_and_duration(monkeypatch):
     engine, run, _, _, _, _ = setup(monkeypatch, laps=4, red=(1, 3))
     first = run()

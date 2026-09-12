@@ -107,8 +107,9 @@ announced final lap stays fixed. This follows the timing framework in
 [FIA sporting regulations B2.5.3, B5.14.2 and B5.15.2](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_b_sporting_-_iss_08_-_2026-08-05_7.pdf).
 Collection remains a lap-resolution approximation: it does not recalculate
 partially driven sectors at reduced speed. The model also omits the detailed
-restart formation procedure, abandonment and results countback. Production
-dispatch still uses its existing instantaneous red-flag abstraction.
+restart formation procedure, abandonment and results countback. The standard
+engine also uses collection plus a shared pause, but collects at the end of a
+synchronous lap; see [standard suspension timing](strategy-model.md#red-flag-suspension-timing).
 
 Running physics uses physical gaps for dirty air and Overtake Mode detection.
 The gap is estimated from the preceding on-track car's progress through its
@@ -232,8 +233,8 @@ speculative transactions.
 
 Elapsed crossing time must be monotonic and distinct from relative racing gaps.
 Both engines now use bounded future running for full-SC catch-up. The standard
-engine resolves a frozen post-pit queue once per shared lap; its red-flag
-regrouping still replaces gaps without an elapsed suspension timeline. The
+engine resolves a frozen post-pit queue once per shared lap and collects the
+field at completed lap crossings before a common red-flag restart. The
 experimental engine's pit merges and blocked-car reconciliation use physical
 ordering independently of completed distance; production migration must retain
 those distinctions. See [standard queue timing and limits](strategy-model.md#safety-car-queues-and-elapsed-time).

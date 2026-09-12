@@ -374,7 +374,7 @@ racing laps, starting with lap N+1. Rain-tyre crossover decisions retain priorit
 The race applies its usual between-lap weather update before selecting the free
 set, so that choice uses the conditions in which racing resumes. This avoids
 fitting a set for the completed lap's weather and then paying to replace it on
-the restart. It adds no weather update or modeled suspension duration.
+the restart. It adds no extra weather update during the modeled waiting period.
 
 The free change does not consume a paid stop or pit-plan slot. A new distinct
 slick can satisfy the compound-use requirement; repeating a slick remains an
@@ -388,8 +388,56 @@ Changing wheels and tyres during a suspension is permitted by B5.14.4(a)(vii) of
 the [FIA 2026 Sporting Regulations, Issue 08](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_b_sporting_-_iss_08_-_2026-08-05_7.pdf).
 Without a finite race pool, the model assumes a free fresh set is available.
 Finite pools restrict this selection to actual reusable sets and can retain
-the current set. The full suspension work procedure and elapsed suspension
-duration are not modeled.
+the current set. The full suspension work procedure is not modeled; elapsed
+waiting follows the shared restart described below.
+
+### Red-flag suspension timing
+
+The standard engine commits each completed crossing before collecting the
+field. For a red flag after lap N, the restart clock is the latest surviving
+car's lap-N crossing plus a fixed pause. Every surviving car starts lap N+1
+from that common clock in the retained physical order. Earlier crossings,
+incident losses and paid pit service remain unchanged; a retired car does not
+delay collection. This replaces the previous instantaneous gap reset, which
+could move a trailing car's cumulative time backwards.
+
+The default pause is 600 seconds, the same model assumption used by the
+chronological engine. Direct Python experiments can set
+`RaceSimulator(red_flag_pause_seconds=0)` or another finite nonnegative duration.
+This is not a prediction of incident clearance or weather recovery. The
+simulator's `suspensions` trace records each signal clock, common restart clock
+and surviving order, and resets for each race.
+
+In a controlled three-lap race with constant 90- and 110-second cars and a red
+flag after lap one, the original crossings remain 90 and 110 seconds. With the
+default pause, both cars restart at 710 seconds and finish at 890 and 930
+seconds. Their fastest laps remain 90 and 110 seconds.
+
+Collection and pause extend the existing two-hour finish threshold, with at
+most one hour of accumulated extension. An already announced final lap stays
+latched. Restart tyre selection and subsequent pit planning use the common
+resume clock and extended deadline; physical fuel still follows the original
+scheduled distance. A red flag at the actual scheduled or timed finish records
+the event but starts no suspension, fits no tyres and evolves no extra weather.
+
+Forecasts distinguish the last completed crossing from the next lap's release
+clock. If a long suspension exhausts the extension cap, merely resuming after
+the deadline does not count as a completed lap or a final-lap announcement.
+Both engines retain the crossing that triggers the announcement and the lap
+that follows it, subject to the scheduled distance and any existing signal.
+
+Waiting between completed laps consumes elapsed race time without consuming
+tyre laps, fuel-model laps, pit service or random draws. The next lap's recorded
+duration starts at release, so suspension waiting is not recurring running
+pace. A retirement on that lap retains the preceding completed crossing,
+including its original time and distance. Paid stops on the restart use the
+shared release clocks for the ordinary team service queue.
+
+The standard engine still resolves collection once per shared lap. It does
+not model partially completed sectors, cars held at a closed pit exit during
+collection, detailed restart formation, abandonment or results countback.
+The chronological engine schedules those individual crossings and pit exits,
+while retaining its own documented lap-resolution limitations.
 
 A conservative driver outside the top six can switch to the balanced profile
 after 40% of the scheduled race when following in modeled dirty air. The default
@@ -524,8 +572,7 @@ lane, service and queue losses remain in the stop ledger and lap accounting.
 The lap on which an SC countdown ends still uses its starting restrictions.
 
 This does not make the standard loop chronological: it still advances every
-survivor once per leading lap, and its red-flag regrouping still resets gaps
-without an elapsed suspension timeline. Pit optimizers retain their nominal
+survivor once per leading lap. Pit optimizers retain their nominal
 current SC multiplier and do not predict the field's full catch-up sequence or
 future SC duration. The experimental engine instead schedules individual
 crossings and pit exits. The engines share catch-up bounds, but their physical

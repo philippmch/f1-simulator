@@ -138,6 +138,7 @@ def test_full_race_free_set_runs_only_after_suspension_and_repairs_puncture(monk
                                Weather(change_probability=0), ["A"],
                                starting_tires={"A": TireCompound.MEDIUM})[0]
     assert result.pit_stops == 0
-    assert result.total_time == pytest.approx(277)
+    expected_pause = 600 if stop_lap == 2 else 0
+    assert result.total_time == pytest.approx(277 + expected_pause)
     assert len(result.strategy) == (2 if stop_lap == 2 else 1)
     assert observed == [(1, 0), (2, 1), (3, 0 if stop_lap == 2 else 2)]

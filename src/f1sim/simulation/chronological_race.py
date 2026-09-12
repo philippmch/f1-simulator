@@ -317,9 +317,15 @@ class ChronologicalRace:
                     # leader's announced lap number. Its next crossing wins.
                     laps_left = 0 if pending is not None else 1
                 else:
+                    resumed_after_suspension = (
+                        pending is None and self.timeline.total_suspension_seconds > 0
+                    )
+                    crossing_time = leader.total_time if resumed_after_suspension else flag_time
                     projected_final = forecast_final_lap(
-                        self.timeline.final_lap, anchor_lap, flag_time, leader_pace,
+                        self.timeline.final_lap, anchor_lap, crossing_time, leader_pace,
                         self.timeline.time_limit_seconds, next_modifier,
+                        **({"next_lap_start_time": now}
+                           if resumed_after_suspension else {}),
                     )
                     laps_left = max(0, projected_final - anchor_lap)
                 flag_time += laps_left * leader_pace
