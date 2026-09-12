@@ -48,7 +48,6 @@ def test_worn_set_low_cost_stop_can_still_be_taken(setup):
     assert simulator._should_pit(state, [state], track, 30, False,
                                 Weather(track_wetness=0.3))
     expected_rng = np.random.default_rng(2)
-    expected_rng.random()
     assert simulator.rng.random() == expected_rng.random()
 
 
@@ -67,12 +66,11 @@ def test_missing_distinct_compound_preserves_existing_weather_reaction(setup):
                                 Weather(track_wetness=0.21), 1000)
 
 
-def test_profitable_long_wet_stint_retains_existing_probability(setup):
+def test_profitable_long_wet_stint_uses_costs_without_reaction_draw(setup):
     simulator, state, track = setup
     assert simulator._should_pit(state, [state], track, 10, False,
                                 Weather(track_wetness=0.3, rain_intensity=0.3))
     expected_rng = np.random.default_rng(2)
-    expected_rng.random()
     assert simulator.rng.random() == expected_rng.random()
 
 

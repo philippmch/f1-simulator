@@ -1,4 +1,6 @@
-"""A consumed reactive damp pit schedule cannot replay its final window."""
+"""Damp cost decisions respect paid budgets and ignore obsolete pit windows."""
+
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -10,16 +12,8 @@ from f1sim.simulation.events import EventManager
 from f1sim.simulation.race import DriverRaceState, RaceSimulator, TeamStrategyArchetype
 
 
-class AlwaysPit:
-    def random(self):
-        return 0.0
-
-
 def fixture(plan, stops):
     sim = RaceSimulator(np.random.default_rng(42))
-    sim.rng = AlwaysPit()
-    # Slicks on a damp surface still use the reactive fallback windows.
-    # Complete-race tests below construct their own unpatched runners.
     state = DriverRaceState(
         Driver(id="A", name="A", team_id="A"), Car(team_id="A", team_name="A"),
         position=1, pit_stops=stops, tire_laps=1,
@@ -41,9 +35,9 @@ def test_consumed_schedule_cannot_request_another_fresh_set(plan, stops):
 
 
 @pytest.mark.parametrize("plan", [[], [20, 35]])
-def test_second_window_remains_available_before_second_stop(plan):
+def test_remaining_budget_allows_profitable_stop_regardless_of_plan(plan):
     sim, state, track, weather = fixture(plan, 1)
-    state.tire_laps = 18
+    state.tire_laps = 25
     track.pit_lane_delta = 1
     assert sim._should_pit(state, [state], track, 39, False, weather)
 
@@ -71,7 +65,7 @@ def test_planned_stop_is_vetoed_when_fresh_set_cannot_repay_pit_loss():
 
 def test_queue_cost_can_veto_an_otherwise_affordable_wet_stop():
     sim, state, track, weather = fixture([20, 35], 1)
-    state.tire_laps = 18
+    state.tire_laps = 25
     track.pit_lane_delta = 1
     assert sim._should_pit(state, [state], track, 35, False, weather)
     assert not sim._should_pit(state, [state], track, 35, False, weather,
@@ -85,13 +79,15 @@ def test_wet_cost_projection_preserves_original_fuel_distance(monkeypatch, inter
 
     def projection(*args, **kwargs):
         calls.append(kwargs)
-        return False
+        return SimpleNamespace(should_pit=lambda: False)
 
-    monkeypatch.setattr(sim, "_weather_stop_can_pay", projection)
+    monkeypatch.setattr("f1sim.simulation.race.plan_rain_transition", projection)
     assert not sim._should_pit(state, [state], track, 35, False, weather,
                                physical_total_laps=70, weather_intervals=intervals)
-    assert calls == [{"traffic_possible": False, "physical_total_laps": 70,
-                      "weather_intervals": intervals}]
+    assert len(calls) == 1
+    assert calls[0]["physical_total_laps"] == 70
+    assert calls[0]["weather_intervals"] == intervals
+    assert calls[0]["used_compounds"] == {TireCompound.SOFT, TireCompound.MEDIUM}
 
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])

@@ -82,35 +82,32 @@ def test_weather_scales_only_green_traffic_and_queue_cost_is_preserved(monkeypat
                          sim.event_manager.get_lap_time_modifier())]
 
 
-@pytest.mark.parametrize("behind,expected", [(None, False), (30, True)])
-def test_damp_slick_free_stop_window_uses_snapshot_gap(monkeypatch, behind, expected):
+@pytest.mark.parametrize("behind", [None, 30])
+def test_damp_slick_gap_behind_does_not_make_stop_free(monkeypatch, behind):
     sim, own, track, weather = fixture()
     weather.track_wetness = .19
     own.tire_compound_history = ["soft", "medium"]
     reject_old_gaps(monkeypatch, sim)
-    # Isolate the traffic trigger; a separate cost check can reject its stop.
-    monkeypatch.setattr(sim, "_weather_stop_can_pay", lambda *a, **k: True)
-    monkeypatch.setattr(sim, "rng", type("NoRandomStop", (), {"random": lambda self: 1})())
-    monkeypatch.setattr(sim, "_select_active_pit_plan", lambda *a, **k: [30])
-    assert sim._should_pit(
+    before = copy.deepcopy(sim.rng.bit_generator.state)
+    assert not sim._should_pit(
         own, [own], track, 15, True, weather,
         traffic_snapshot=StrategyTrafficSnapshot(None, behind, 0),
-    ) is expected
+    )
+    assert sim.rng.bit_generator.state == before
 
 
-@pytest.mark.parametrize("ahead,expected", [(None, False), (1, True)])
-def test_damp_slick_undercut_uses_snapshot_gap(monkeypatch, ahead, expected):
+@pytest.mark.parametrize("ahead", [None, 1])
+def test_damp_slick_gap_ahead_does_not_replace_projected_traffic_cost(monkeypatch, ahead):
     sim, own, track, weather = fixture()
     weather.track_wetness = .19
     own.tire_compound_history = ["soft", "medium"]
     reject_old_gaps(monkeypatch, sim)
-    monkeypatch.setattr(sim, "_weather_stop_can_pay", lambda *a, **k: True)
-    monkeypatch.setattr(sim, "rng", type("Threshold", (), {"random": lambda self: 0.3})())
-    monkeypatch.setattr(sim, "_select_active_pit_plan", lambda *a, **k: [20])
-    assert sim._should_pit(
+    before = copy.deepcopy(sim.rng.bit_generator.state)
+    assert not sim._should_pit(
         own, [own], track, 17, False, weather,
         traffic_snapshot=StrategyTrafficSnapshot(ahead, None, 0),
-    ) is expected
+    )
+    assert sim.rng.bit_generator.state == before
 
 
 def test_drying_track_rejects_costly_rain_refit_despite_large_gap(monkeypatch):

@@ -922,7 +922,14 @@ class RaceSimulator:
         """Decide if driver should pit this lap."""
         state.dry_pit_proposal = None
         state.weather_pit_proposal = None
-        rain_transition = (
+        clearly_dry = weather is None or (
+            weather.track_wetness < 0.08 and weather.rain_intensity < 0.15
+        )
+        mixed_slick = (weather is not None and lap > 1 and not clearly_dry
+                       and state.current_tire.compound in {
+                           TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
+                       })
+        rain_transition = mixed_slick or (
             weather is not None and lap > 1 and self._has_used_wet_compound(state)
             and state.current_tire.compound in {TireCompound.INTERMEDIATE, TireCompound.WET}
             and not self._rain_stint_can_be_planned(
@@ -976,9 +983,6 @@ class RaceSimulator:
             TeamStrategyArchetype.CONSERVATIVE: -0.1,
         }[strategy]
 
-        clearly_dry = weather is None or (
-            weather.track_wetness < 0.08 and weather.rain_intensity < 0.15
-        )
         dry_planning = clearly_dry and state.current_tire.compound in {
             TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
         }
@@ -986,9 +990,18 @@ class RaceSimulator:
         # must not exclude a faster legal schedule before it is evaluated.
         max_stops = (self._dry_stop_budget(state, track) if dry_planning
                      else self._ordinary_stop_budget(state, track))
+        mixed_surfaces = (tuple(projected_surfaces(
+            weather, track.total_laps - lap + 1, weather_intervals,
+        )) if mixed_slick else ())
+        if any(surface.track_wetness < .08 and surface.rain_intensity < .15
+               for surface in mixed_surfaces):
+            # Reserve later dry stops while the planner's damp allowance still
+            # limits elective stops on the current wet surface.
+            max_stops = max(max_stops, self._dry_stop_budget(state, track))
         if weather is not None and (
             weather.track_wetness > 0.3
             or state.current_tire.compound in {TireCompound.INTERMEDIATE, TireCompound.WET}
+            or any(surface.fresh_rain_compound() is not None for surface in mixed_surfaces)
         ):
             # Retain the rain-stint allowance while the surface dries. Dropping
             # it at 0.3 would block a forecast intermediate-to-slick transition.
@@ -1009,7 +1022,7 @@ class RaceSimulator:
         # penultimate-lap correction.
         if (
             lap >= max(2, track.total_laps)
-            and dry_rule_required
+            and dry_rule_required and not rain_transition
         ):
             return True
 
@@ -1084,6 +1097,7 @@ class RaceSimulator:
                 weather_intervals=weather_intervals,
                 **traffic_options,
                 **({
+                    "used_compounds": self._actually_used_compounds(state),
                     "remaining_dry_stops": max(
                         0, self._dry_stop_budget(state, track) - state.pit_stops,
                     ),
@@ -1477,7 +1491,9 @@ class RaceSimulator:
         elif (
             weather_proposal is not None and weather_proposal[0] == current_lap
             and weather_proposal[1] in {TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD}
-            and self._has_used_wet_compound(state)
+            and (self._has_used_wet_compound(state) or state.current_tire.compound in {
+                TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
+            })
         ):
             new_compound = weather_proposal[1]
         elif (

@@ -226,7 +226,8 @@ def _remember_transition(key, value):
 
 @lru_cache(maxsize=256)
 def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
-                     modifier, aero, physical, dry_budget, damp_budget, intervals=None, gaps=None):
+                     modifier, aero, physical, dry_budget, damp_budget, intervals=None, gaps=None,
+                     used_mask=8):
     models = snapshots[:3]
     weather_json, retained_json, tires_json = snapshots[3:]
     track = Track.model_validate_json(models[2])
@@ -254,18 +255,25 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
     def reduced(limit):
         return None if limit is None else max(0, limit - 1)
 
+    bits = {compound: (1 << index if index < 3 else 8)
+            for index, compound in enumerate(TireCompound)}
+
+    def legal(mask):
+        return bool(mask & 8) or (mask & 7).bit_count() >= 2
+
     def may_stop(offset, compound, left, dry, damp):
         if critical[compound][offset]:
             return True
         limit = dry if (surfaces[offset].track_wetness < .08
                         and surfaces[offset].rain_intensity < .15) else damp
         return left > 0 and (compound in (TireCompound.INTERMEDIATE, TireCompound.WET)
+                             or surfaces[offset].track_wetness > .3
                              or limit is None or limit > 0)
 
     def cache_key(state):
-        offset, compound, left, dry, damp = state
+        offset, compound, left, dry, damp, mask = state
         return (models, surface_json[offset], tires_json, current_lap + offset,
-                compound, left, dry, damp, physical, cadence_suffixes[offset])
+                compound, left, dry, damp, mask, physical, cadence_suffixes[offset])
 
     solved = {}
     dependencies = []
@@ -284,23 +292,27 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
                 return 0.0
         return solved[state]
 
-    def stint(start, compound, age, tire_json, left, dry, damp):
+    def stint(start, compound, age, tire_json, left, dry, damp, mask):
         row = _running_row(models, surface_json[start], tire_json, age,
                            current_lap + start, physical,
                            cadence_suffixes[start])
         total, best_cost = 0.0, inf
         # This set must run its fitting/current lap before any future stop.
         for offset in range(start, horizon):
-            if offset > start and may_stop(offset, compound, left, dry, damp):
+            if offset > start:
                 for candidate in candidates[offset]:
-                    if not critical[candidate][offset]:
+                    if (not critical[candidate][offset] and (
+                        may_stop(offset, compound, left, dry, damp)
+                        or (not legal(mask) and not mask & bits[candidate])
+                    )):
                         best_cost = min(best_cost, total + stop_cost + suffix((
-                            offset, candidate, max(0, left - 1), reduced(dry), reduced(damp),
+                            offset, candidate, max(0, left - 1), reduced(dry), reduced(damp), mask,
                         )))
             if critical[compound][offset]:
                 return best_cost
             total += row[offset - start]
-        return min(best_cost, total)
+            mask |= bits[compound]
+        return min(best_cost, total if legal(mask) else inf)
 
     def solve(initial):
         pending = [initial]
@@ -310,8 +322,8 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
                 pending.pop()
                 continue
             dependencies.clear()
-            offset, compound, left, dry, damp = state
-            value = stint(offset, compound, 0, fresh[compound], left, dry, damp)
+            offset, compound, left, dry, damp, mask = state
+            value = stint(offset, compound, 0, fresh[compound], left, dry, damp, mask)
             if dependencies:
                 pending.extend(dict.fromkeys(dependencies))
             else:
@@ -325,7 +337,7 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
     while True:
         dependencies.clear()
         wait = stint(0, retained.compound, tire_age, retained_json,
-                     budget, dry_budget, damp_budget)
+                     budget, dry_budget, damp_budget, used_mask)
         missing = tuple(dict.fromkeys(dependencies))
         if not missing:
             break
@@ -348,12 +360,15 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
 
     wait += first(retained_json, tire_age, gaps[0] if gaps else None)
     pit, compound = inf, None
-    if may_stop(0, retained.compound, budget, dry_budget, damp_budget):
+    if may_stop(0, retained.compound, budget, dry_budget, damp_budget) or not legal(used_mask):
         for candidate in candidates[0]:
-            if critical[candidate][0]:
+            if critical[candidate][0] or (
+                not may_stop(0, retained.compound, budget, dry_budget, damp_budget)
+                and (legal(used_mask) or used_mask & bits[candidate])
+            ):
                 continue
             state = (0, candidate, max(0, budget - 1),
-                     reduced(dry_budget), reduced(damp_budget))
+                     reduced(dry_budget), reduced(damp_budget), used_mask)
             # Consult shared cache before scheduling an uncached suffix.
             dependencies.clear()
             value = suffix(state)
@@ -373,6 +388,7 @@ def plan_rain_transition(
     active_aero_enabled: bool = True, physical_total_laps: int | None = None,
     weather_intervals: tuple[int, ...] | None = None,
     remaining_dry_stops: int | None = None, remaining_damp_stops: int | None = None,
+    used_compounds: set[TireCompound] | None = None,
     current_traffic_gaps: tuple[float | None, float | None] | None = None,
 ) -> RainTransitionDecision:
     """Plan bounded paid stops across rain/slick transitions under fixed rainfall.
@@ -382,7 +398,11 @@ def plan_rain_transition(
 
     A retained set may run while noncritical. Fresh fits follow the surface's
     rain-compound recommendation, or consider all slicks when it recommends
-    none. Only critical-set replacements may exceed the elective stop budget.
+    none. Critical replacements and required compound corrections may exceed
+    the elective stop budget. Explicit used_compounds records actual race use;
+    prior tyre wear gives no credit. Two slicks or actual rain-tyre use are
+    required at the finish. Slick callers must provide it; omitting it for
+    retained rain tyres preserves the legacy wet exemption.
     Every fit runs its fitting lap; future costs assume green clean air.
     Optional slick-state allowances count all paid fits from this decision,
     including earlier rain fits; they never reset on a compound transition.
@@ -397,8 +417,6 @@ def plan_rain_transition(
     if (isinstance(physical, bool) or not isinstance(physical, Integral)
             or physical < track.total_laps):
         raise ValueError("physical_total_laps must be an integer >= planning distance")
-    if current_tire.compound not in (TireCompound.INTERMEDIATE, TireCompound.WET):
-        raise ValueError("current_tire must be a rain compound")
     if (isinstance(additional_current_stop_cost, bool)
             or not isinstance(additional_current_stop_cost, Real)
             or not isfinite(additional_current_stop_cost)):
@@ -416,6 +434,22 @@ def plan_rain_transition(
             isinstance(value, bool) or not isinstance(value, Integral) or value < 0
         ):
             raise ValueError(f"{name} must be a nonnegative integer or None")
+    # None preserves the historical rain-only caller's assumed wet exemption.
+    if used_compounds is None and current_tire.compound in {
+        TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
+    }:
+        raise ValueError("used_compounds is required for a retained slick compound")
+    mask = 8 if used_compounds is None else 0
+    if used_compounds is not None:
+        if not isinstance(used_compounds, (set, frozenset, list, tuple)):
+            raise ValueError("used_compounds must contain valid tyre compounds")
+        for compound in used_compounds:
+            try:
+                compound = TireCompound(compound)
+            except (ValueError, TypeError) as exc:
+                raise ValueError("used_compounds must contain valid tyre compounds") from exc
+            mask |= {TireCompound.SOFT: 1, TireCompound.MEDIUM: 2,
+                     TireCompound.HARD: 4}.get(compound, 8)
     gaps = normalize_current_traffic_gaps(current_traffic_gaps)
     intervals = normalize_weather_intervals(
         track.total_laps - current_lap + 1, weather_intervals, weather=weather,
@@ -434,5 +468,5 @@ def plan_rain_transition(
         float(pit_lane_factor), float(additional_current_stop_cost),
         float(current_lap_time_modifier), active_aero_enabled, int(physical),
         None if remaining_dry_stops is None else int(remaining_dry_stops),
-        None if remaining_damp_stops is None else int(remaining_damp_stops), intervals, gaps,
+        None if remaining_damp_stops is None else int(remaining_damp_stops), intervals, gaps, mask,
     )

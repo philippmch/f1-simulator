@@ -106,3 +106,25 @@ def test_dry_explicit_schedule_accepts_compound_labels(dry_schedule_diagnostic):
         assert result["compounds"] == ["medium", "soft", "soft"]
     with pytest.raises(ValueError, match="engine"):
         run(case, "typo")
+
+
+def test_mixed_weather_policy_matches_executed_complete_schedules(monkeypatch):
+    diagnostic = runpy.run_path(str(Path(__file__).resolve().parents[1]
+                                   / "examples" / "check_mixed_weather_pit_schedules.py"))
+    monkeypatch.setattr("socket.socket.connect", lambda *args, **kwargs: pytest.fail("network"))
+    rows = diagnostic["compare_schedules"]()
+    assert len(rows) == 8
+    for case in diagnostic["CASES"]:
+        schedules = tuple(diagnostic["schedules"](case))
+        assert len(schedules) == len(set(schedules))
+        assert all(all(2 <= lap <= case["laps"] for lap, _ in schedule)
+                   for schedule in schedules)
+        pair = [row for row in rows if row["case"]["name"] == case["name"]]
+        assert pair[0]["selected"] == pair[1]["selected"]
+        for row in pair:
+            assert row["schedules_checked"] == len(schedules)
+            assert row["gap_seconds"] == pytest.approx(0, abs=1e-8)
+            assert row["selected"]["laps_completed"] == case["laps"]
+    worn = next(row for row in rows if row["case"]["name"] == "used_soft_steady_damp")
+    assert worn["selected"]["pit_laps"] == [2, 6]
+    assert worn["selected"]["compounds"] == ["soft", "soft", "medium"]

@@ -216,14 +216,15 @@ def test_lap_one_elective_guard_and_weather_priority(monkeypatch):
     assert simulator._should_pit(state, [state], _track(), 1, True, storm)
 
 
-def test_damp_fallback_retains_opening_guard():
+def test_damp_optimizer_can_use_early_safety_car_opportunity():
     state = _state("A", 1, 0)
     state.tire_laps = 15
     simulator = RaceSimulator()
     simulator.event_manager.safety_car_active = True
-    assert not simulator._should_pit(
+    assert simulator._should_pit(
         state, [state], _track(), 5, True, Weather(track_wetness=0.1)
     )
+    assert state.weather_pit_proposal is not None
 
 
 @pytest.mark.parametrize("modifier,factor", [(1.4, 0.55), (1.2, 0.75)])
