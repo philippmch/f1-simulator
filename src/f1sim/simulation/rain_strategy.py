@@ -276,73 +276,73 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
                 compound, left, dry, damp, mask, physical, cadence_suffixes[offset])
 
     solved = {}
-    dependencies = []
-
-    def suffix(state):
-        if state not in solved:
-            key = cache_key(state)
-            with _transition_suffix_lock:
-                value = _transition_suffixes.get(key)
-                if value is not None:
-                    _transition_suffixes.move_to_end(key)
-            if value is not None:
-                solved[state] = value
-            else:
-                dependencies.append(state)
-                return 0.0
-        return solved[state]
-
     def stint(start, compound, age, tire_json, left, dry, damp, mask):
         row = _running_row(models, surface_json[start], tire_json, age,
                            current_lap + start, physical,
                            cadence_suffixes[start])
         total, best_cost = 0.0, inf
         # This set must run its fitting/current lap before any future stop.
-        for offset in range(start, horizon):
-            if offset > start:
-                for candidate in candidates[offset]:
-                    if (not critical[candidate][offset] and (
-                        may_stop(offset, compound, left, dry, damp)
-                        or (not legal(mask) and not mask & bits[candidate])
-                    )):
-                        best_cost = min(best_cost, total + stop_cost + suffix((
-                            offset, candidate, max(0, left - 1), reduced(dry), reduced(damp), mask,
-                        )))
+        # A critical set cannot run that lap and earns no compound-use credit.
+        if critical[compound][start]:
+            return best_cost
+        total += row[0]
+        mask |= bits[compound]
+        compliant = legal(mask)
+        next_left, next_dry, next_damp = max(0, left - 1), reduced(dry), reduced(damp)
+        # Keeping this same set cannot change either its used-compound mask or
+        # the remaining stop allowances. Only the surface eligibility varies.
+        for offset in range(start + 1, horizon):
+            allowed = may_stop(offset, compound, left, dry, damp)
+            for candidate in candidates[offset]:
+                if (not critical[candidate][offset] and (
+                    allowed or (not compliant and not mask & bits[candidate])
+                )):
+                    value = yield (
+                        offset, candidate, next_left, next_dry, next_damp, mask,
+                    )
+                    best_cost = min(best_cost, total + stop_cost + value)
             if critical[compound][offset]:
                 return best_cost
             total += row[offset - start]
-            mask |= bits[compound]
-        return min(best_cost, total if legal(mask) else inf)
+        return min(best_cost, total if compliant else inf)
 
-    def solve(initial):
-        pending = [initial]
+    def evaluate(frame, initial=None):
+        # Suspend each stint at its unresolved edge. Rescanning a parent's
+        # earlier laps after each child would repeat both physics-row lookups
+        # and every previously visited edge. Offsets strictly increase, so this
+        # explicit DFS stack needs no recursion or in-progress cache entries.
+        pending = [(initial, frame)]
+        value = None
         while pending:
-            state = pending[-1]
-            if state in solved:
+            state, frame = pending[-1]
+            try:
+                child = frame.send(value)
+            except StopIteration as finished:
+                value = finished.value
+                if state is not None:
+                    solved[state] = value
+                    _remember_transition(cache_key(state), value)
                 pending.pop()
                 continue
-            dependencies.clear()
-            offset, compound, left, dry, damp, mask = state
-            value = stint(offset, compound, 0, fresh[compound], left, dry, damp, mask)
-            if dependencies:
-                pending.extend(dict.fromkeys(dependencies))
-            else:
-                solved[state] = value
-                _remember_transition(cache_key(state), value)
-                pending.pop()
-        return solved[initial]
+            if child in solved:
+                value = solved[child]
+                continue
+            key = cache_key(child)
+            with _transition_suffix_lock:
+                value = _transition_suffixes.get(key)
+                if value is not None:
+                    _transition_suffixes.move_to_end(key)
+            if value is not None:
+                solved[child] = value
+                continue
+            offset, compound, left, dry, damp, mask = child
+            pending.append((child, stint(
+                offset, compound, 0, fresh[compound], left, dry, damp, mask,
+            )))
+        return value
 
-    # First discover and solve all paid-fit suffixes needed by retaining the
-    # current set. Subsequent stop-now candidates reuse that same green cache.
-    while True:
-        dependencies.clear()
-        wait = stint(0, retained.compound, tire_age, retained_json,
-                     budget, dry_budget, damp_budget, used_mask)
-        missing = tuple(dict.fromkeys(dependencies))
-        if not missing:
-            break
-        for state in missing:
-            solve(state)
+    wait = evaluate(stint(0, retained.compound, tire_age, retained_json,
+                          budget, dry_budget, damp_budget, used_mask))
 
     def first(tire_json, age, gap):
         row = _running_row(models, weather_json, tire_json, age, current_lap, physical, intervals)
@@ -369,11 +369,10 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
                 continue
             state = (0, candidate, max(0, budget - 1),
                      reduced(dry_budget), reduced(damp_budget), used_mask)
-            # Consult shared cache before scheduling an uncached suffix.
-            dependencies.clear()
-            value = suffix(state)
-            if dependencies:
-                value = solve(state)
+            def root():
+                return (yield state)
+
+            value = evaluate(root())
             cost = (track.pit_lane_delta * lane + service + queue + value
                     + first(fresh[candidate], 0, gaps[1] if gaps else None))
             if cost < pit:

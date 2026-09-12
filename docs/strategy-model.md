@@ -820,3 +820,48 @@ does not incorrectly restrict the forecast's later dry phase. These synthetic
 results validate decisions within the model; they do not calibrate degradation
 or establish real-world strategy gains. The separate grip-floor limitation
 described above remains.
+
+## Planner performance benchmark
+
+`examples/benchmark_strategy_planning.py` measures complete synthetic races,
+including qualifying and adaptive pit decisions, without fetching provider data
+or writing files. The default uses 22 drivers, 53 laps and three consecutive
+seeds beginning at 42. Every driver starts on an explicit compound, with prior
+wear cycling through zero, six and twelve laps. Driver and car performance
+vary across the grid. Rainfall and weather condition remain fixed while surface
+wetness evolves; ordinary race incidents remain enabled.
+
+```powershell
+python examples/benchmark_strategy_planning.py --engine chronological --scenario steady_damp
+python examples/benchmark_strategy_planning.py --engine standard --scenario drying
+python examples/benchmark_strategy_planning.py --scenario wetting --trials 3
+python examples/benchmark_strategy_planning.py --scenario rain_transition --trials 3
+```
+
+Use `--drivers`, `--laps`, `--trials` and `--seed` to change workload size and
+the seed range. The scenarios start on soft tyres except `rain_transition`,
+which starts on intermediates. These synthetic inputs exercise the planner;
+they are not calibrated circuit or weather forecasts.
+
+JSON output includes individual trial times, the first trial, the mean of later
+trials, and their total. In a fresh command-line process, the first trial starts
+with cold strategy caches; later trials can reuse them. Output serialization
+and hashing are outside the timed interval. `outcome_sha256` covers race rows,
+qualifying rows, weather histories and event statistics across all trials,
+excluding timing and runtime provenance. Matching hashes establish exact output
+agreement for that workload, not equivalence for every possible input.
+
+Compare revisions with the same script, arguments, Python and dependencies on
+the same machine, using a fresh process for each run. Check the outcome hashes
+before interpreting speed changes. Run timing comparisons without competing
+CPU-heavy work, and repeat them to distinguish improvements from timing noise.
+Cache reuse, weather, driver inputs and race length can change the benefit;
+there is no hardware-independent timing threshold in the test suite.
+
+The transition solver suspends a stint while evaluating a missing future cost
+and resumes at that stop choice. This avoids rescanning earlier choices whenever
+a dependency is resolved. An explicit stack handles long horizons without
+Python recursion. Completed suffix costs retain the shared 8,192-entry bound,
+locking and fork reset. Working memory also includes per-plan completed states,
+active frames and their running-lap rows. The optimization preserves candidate
+order, cost arithmetic and modeled strategy rules.

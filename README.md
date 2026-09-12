@@ -379,6 +379,11 @@ both engines, reports the best executed alternative and needs no network.
 See [strategy diagnostics](docs/strategy-model.md) for the search bounds and
 model assumptions.
 
+Run `python examples/benchmark_strategy_planning.py` to time full-grid synthetic
+races offline. Select either engine and steady damp, drying, wetting or
+rain-to-slick scenarios. Compare the reported outcome hashes across revisions
+before interpreting timings; see [benchmark usage](docs/strategy-model.md#planner-performance-benchmark).
+
 For an interactive browser regression check, start the server and run
 `node tests/browser_dashboard.cjs` with Playwright installed and its Chromium
 browser available. `PLAYWRIGHT_MODULE` can point to an existing Playwright
