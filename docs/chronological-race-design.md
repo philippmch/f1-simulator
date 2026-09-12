@@ -231,11 +231,12 @@ reconstructed by trimming final results. The production loop's shallow
 speculative transactions.
 
 Elapsed crossing time must be monotonic and distinct from relative racing gaps.
-The production safety-car bunching code replaces trailing cars' `total_time`
-values to close gaps. The experimental engine instead uses the bounded future
-catch-up described above. Its pit merges and blocked-car reconciliation use
-physical ordering independently of completed distance; production migration
-must retain those distinctions.
+Both engines now use bounded future running for full-SC catch-up. The standard
+engine resolves a frozen post-pit queue once per shared lap; its red-flag
+regrouping still replaces gaps without an elapsed suspension timeline. The
+experimental engine's pit merges and blocked-car reconciliation use physical
+ordering independently of completed distance; production migration must retain
+those distinctions. See [standard queue timing and limits](strategy-model.md#safety-car-queues-and-elapsed-time).
 
 Pit arrivals require a persistent per-team service queue on the absolute
 timeline. Decisions use expected service; execution samples service once.

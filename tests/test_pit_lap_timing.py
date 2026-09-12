@@ -34,6 +34,14 @@ def test_fastest_pit_lap_records_actual_shared_box_losses(
     results = simulator.simulate_race(field, {"team": car}, track, Weather(), ["A", "B"])
     expected = [80 * lap_factor + 20 * lane_factor + 3,
                 80 * lap_factor + 20 * lane_factor + 6]
+    if neutralization == "safety_car_active":
+        # B pays its three-second queue, then recovers two seconds while
+        # catching A on track. Neither stationary nor queue time is erased.
+        expected[1] -= 2
+    assert [r.pit_stop_details[0]["queue_time"] for r in results] == [0, 3]
+    assert [r.pit_stop_details[0]["total_loss"] for r in results] == pytest.approx(
+        [20 * lane_factor + 3, 20 * lane_factor + 6],
+    )
     assert [r.fastest_lap for r in results] == pytest.approx(expected)
     assert [r.total_time for r in results] == pytest.approx([200 + t for t in expected])
     assert [r.pit_stops for r in results] == [1, 1]

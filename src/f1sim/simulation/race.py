@@ -11,6 +11,7 @@ from f1sim.simulation.events import EventManager, EventType, RaceEvent
 from f1sim.simulation.execution import validate_starting_tire_ages, validate_starting_tires
 from f1sim.simulation.inventory_race import InventoryStrategyMixin
 from f1sim.simulation.lap import LapSimulator
+from f1sim.simulation.neutralization import safety_car_running_time
 from f1sim.simulation.opening_strategy import dry_opening_policy_costs, opening_policy_costs
 from f1sim.simulation.overtaking import OvertakingModel
 from f1sim.simulation.pit_strategy import expected_stationary_time, plan_dry_stop
@@ -347,6 +348,8 @@ class RaceSimulator(InventoryStrategyMixin):
             )
             lap_started_neutralized = not lap_active_aero_enabled
             lap_restart = self.event_manager.is_restart_lap(lap)
+            lap_safety_car = self.event_manager.safety_car_active
+            lap_time_modifier = self.event_manager.get_lap_time_modifier()
 
             fastest_laps_before_lap = dict(fastest_laps)
             # Timing and track positions must describe the same completed
@@ -378,10 +381,11 @@ class RaceSimulator(InventoryStrategyMixin):
                 for state in drivers_pitting
             }
             traffic_gaps = lap_start_gaps
+            traffic_states = lap_start_states
             if pitting_ids:
-                # Merge only copies: every car sees the same rejoin traffic,
-                # while detection and the actual completed-lap merge retain
-                # their existing timing. This also frees followers of pitters.
+                # Freeze post-service clocks and positions so every car sees
+                # the same rejoin traffic. The full SC also uses this order
+                # for its running queue; mode detection remains pre-stop.
                 traffic_states = [replace(state) for state in states]
                 self._handle_pit_batch_position_changes(
                     [state for state in traffic_states if state.driver.id in pitting_ids],
@@ -423,10 +427,27 @@ class RaceSimulator(InventoryStrategyMixin):
                 )
 
                 observed_running_pace[state.driver.id] = lap_time
+                lap_times[state.driver.id] = lap_time
 
-                # Apply safety car modifier
-                lap_time *= self.event_manager.get_lap_time_modifier()
+            # A full SC closes gaps through this lap's running. Resolve the
+            # whole queue after every free pace is known, so input-list order
+            # cannot make a follower use the previous lap's leader pace.
+            if lap_safety_car:
+                lap_times = self._safety_car_lap_times(
+                    lap_times, traffic_states, lap_time_modifier,
+                )
+                queue_positions = {state.driver.id: state.position for state in traffic_states}
+                for state in states:
+                    if state.driver.id in lap_times:
+                        state.position = queue_positions[state.driver.id]
+            else:
+                lap_times = {driver_id: time * lap_time_modifier
+                             for driver_id, time in lap_times.items()}
 
+            for state in states:
+                if state.driver.id not in lap_times:
+                    continue
+                lap_time = lap_times[state.driver.id]
                 state.total_time += lap_time
                 # Pit loss already entered total_time before running this lap.
                 # Include it in the recorded lap too, without charging it twice
@@ -435,11 +456,11 @@ class RaceSimulator(InventoryStrategyMixin):
                 state.tire_laps += 1
                 state.driver.current_tire_laps = state.tire_laps
 
-                lap_times[state.driver.id] = lap_time
-
-            # Resolve the entire pit batch by actual post-stop clocks on every
-            # track. Pit-lane position changes do not require on-track passing.
-            self._handle_pit_batch_position_changes(drivers_pitting, states)
+            # Full-SC running already preserves the committed pit-exit order.
+            # Merging it again could let a pitter pass its blocker at an equal
+            # crossing time. Other laps resolve the batch by completed clocks.
+            if not lap_safety_car:
+                self._handle_pit_batch_position_changes(drivers_pitting, states)
 
             # Overtakes happen on the racing lap before race-control events
             # are resolved.  Their incidents therefore feed SC/VSC/red-flag
@@ -526,18 +547,6 @@ class RaceSimulator(InventoryStrategyMixin):
             # spend any excess pace waiting, rather than banking a faster
             # cumulative clock for a later lap or the final classification.
             self._reconcile_racing_times(states)
-
-            # Check if safety car was just deployed - bunch up the field
-            sc_deployed_this_lap = any(e.event_type == EventType.SAFETY_CAR for e in lap_events)
-            if sc_deployed_this_lap:
-                # Classify any same-lap incident consequences while elapsed
-                # times still contain their penalties.  Bunching then resets
-                # clean gaps without erasing the victim's position loss.
-                self._classify_positions_before_neutralization(
-                    states,
-                    material_penalty_ids,
-                )
-                self.event_manager.bunch_field(states)
 
             # Check if red flag was just deployed
             red_flag_deployed_this_lap = any(e.event_type == EventType.RED_FLAG for e in lap_events)
@@ -1909,6 +1918,42 @@ class RaceSimulator(InventoryStrategyMixin):
             behind.total_time = max(behind.total_time, ahead.total_time)
             behind.last_lap_time += blocked_time
 
+    def _safety_car_lap_times(
+        self,
+        free_lap_times: dict[str, float],
+        running_start_states: list[DriverRaceState],
+        modifier: float,
+    ) -> dict[str, float]:
+        """Form a queue using positive running time and committed pit exits.
+
+        The first car after the pit merge sets the common SC pace. Followers
+        close excess gaps at no faster than their own free pace, using the
+        preceding car's projected crossing so catch-up propagates down the
+        queue. A slower predecessor can impose additional blocked time.
+        Service and lane losses are already in the starting clocks; they are
+        never multiplied by the SC modifier or removed from a completed lap.
+        """
+        queue = sorted(
+            (state for state in running_start_states if state.driver.id in free_lap_times),
+            key=lambda state: state.position,
+        )
+        if not queue:
+            return {}
+        queue_pace = free_lap_times[queue[0].driver.id] * modifier
+        result = {}
+        ahead_crossing = None
+        for state in queue:
+            free = free_lap_times[state.driver.id]
+            nominal = max(free, queue_pace)
+            gap = (None if ahead_crossing is None else
+                   max(0.0, state.total_time + nominal - ahead_crossing))
+            running = safety_car_running_time(free, nominal, gap)
+            if ahead_crossing is not None:
+                running = max(running, ahead_crossing - state.total_time)
+            result[state.driver.id] = running
+            ahead_crossing = state.total_time + running
+        return result
+
     def _normalize_positions(
         self,
         states: list[DriverRaceState],
@@ -1968,7 +2013,7 @@ class RaceSimulator(InventoryStrategyMixin):
     ) -> None:
         """Apply explicit penalty position loss before a field gap reset.
 
-        A safety-car or red-flag bunching pass intentionally replaces the
+        The standard red-flag regrouping approximation replaces the
         absolute time gaps with a compact queue.  Track position is therefore
         authoritative for clean laps, including a valid overtake whose
         cumulative clock happens to be slower.  Only drivers carrying an

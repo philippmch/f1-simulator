@@ -20,6 +20,9 @@ damp tracks and transitions between slicks and rain tyres as the surface changes
 see [the strategy model and its limits](docs/strategy-model.md)
 for its assumptions and remaining limitations.
 
+Full safety cars close gaps through subsequent running, preserving completed
+lap times and pit-service accounting; see [queue timing and limits](docs/strategy-model.md#safety-car-queues-and-elapsed-time).
+
 Tyre pace follows the configured wear and cliff rates throughout a stint;
 the numerical grip floor does not stop degradation. See the
 [wear model and executed strategy checks](docs/tyre-wear.md).

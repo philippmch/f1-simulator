@@ -864,10 +864,11 @@ class EventManager:
         return True
 
     def bunch_field(self, driver_states: list) -> None:
-        """Bunch up the field behind safety car.
+        """Apply the standard engine's instantaneous red-flag regrouping.
 
-        Sets all gaps between cars to ~1 second, simulating
-        the field catching the safety car and forming a queue.
+        Sets gaps to ~1 second without modeling elapsed suspension time.
+        Full safety cars instead close gaps through subsequent running;
+        this legacy clock reset is only used for standard red-flag restarts.
 
         Args:
             driver_states: List of DriverRaceState objects

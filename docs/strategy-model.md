@@ -456,7 +456,8 @@ Neither engine models pit-lane congestion, crew setup time or unsafe releases.
 The recorded time for a stop lap includes the actual pit-lane, stationary and
 queue losses, so its clean running pace alone cannot earn a fastest lap. Those
 losses enter total race time only once. SC/VSC modifiers slow the running portion
-of the lap; stationary service and queue time are not multiplied by them. The
+of the lap, with full-SC catch-up bounded as described below; stationary service
+and queue time are not multiplied by them. The
 model attributes the entire stop loss to the lap on which service occurs, rather
 than splitting pit entry and exit across sector timing lines.
 
@@ -495,6 +496,40 @@ carry both gaps. Explicit older `StrategyTrafficSnapshot` instances containing
 only a scalar rejoin cost retain their additive behavior. The remaining reactive
 fallback uses the separate optimistic cost veto described below; it does not
 claim to optimize the observed rejoin gap.
+
+### Safety-car queues and elapsed time
+
+Both engines close full-safety-car gaps through subsequent running. Deploying
+an SC preserves the lap just completed, including incident penalties and paid
+pit losses. A final-lap deployment therefore preserves the actual finishing
+gap. VSC keeps the existing individual running-time multiplier without the
+SC catch-up model.
+
+In the standard engine, the frozen field after pit service determines the
+queue. Its first car sets the nominal pace using the existing 1.4 SC multiplier.
+Followers approach a one-second gap, bounded below by their own free-running
+lap time. Each follower uses its predecessor's projected crossing, so recovery
+propagates through several cars on the same lap. A car too slow to join the
+queue keeps losing ground; it can also hold up cars behind it. Compact gaps
+need not be widened, and physical order breaks equal-time ties. The one-second
+target and lap-resolution pace bounds are modeling assumptions, shared with
+the experimental engine, rather than a fitted SC speed profile.
+
+For example, two 90-second cars starting an SC lap 80 seconds apart take four
+laps to settle at the target gap. With the leader running 126-second laps,
+the follower runs 90, 90, 119 and 126 seconds; the gap becomes 44, 8, 1 and
+1 seconds. Every completed lap contributes its full recorded time. A pit stop
+can create additional gap that is subsequently recovered on track, while its
+lane, service and queue losses remain in the stop ledger and lap accounting.
+The lap on which an SC countdown ends still uses its starting restrictions.
+
+This does not make the standard loop chronological: it still advances every
+survivor once per leading lap, and its red-flag regrouping still resets gaps
+without an elapsed suspension timeline. Pit optimizers retain their nominal
+current SC multiplier and do not predict the field's full catch-up sequence or
+future SC duration. The experimental engine instead schedules individual
+crossings and pit exits. The engines share catch-up bounds, but their physical
+queue and pit-arrival approximations can produce different results.
 
 Clean air's relevance to an undercut is described in Formula 1's
 [pit-strategy analysis](https://www.formula1.com/en/latest/article/jolyon-palmers-analysis-singapore-and-the-art-of-undercutting.1NgVyVsZnHTDEA9wi0s5lW).

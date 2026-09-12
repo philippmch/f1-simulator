@@ -380,7 +380,7 @@ def test_overtake_incident_deploying_sc_keeps_penalty_and_fastest_lap() -> None:
         "b": Car(team_id="b", team_name="B", reliability=1.0),
     }
     lap_seen: list[int] = []
-    bunch_snapshots: list[tuple[dict[str, float], dict[str, float]]] = []
+    crossings: list[dict[str, tuple[float, float]]] = []
 
     simulator.lap_simulator.calculate_lap_time = (  # type: ignore[method-assign]
         lambda **kwargs: 90.0
@@ -408,15 +408,14 @@ def test_overtake_incident_deploying_sc_keeps_penalty_and_fastest_lap() -> None:
         return []
 
     simulator.event_manager.process_lap = fake_process_lap  # type: ignore[method-assign]
-    original_bunch = simulator.event_manager.bunch_field
+    original_update = simulator._update_positions
 
-    def capture_bunch(states: list[object]) -> None:
-        before = {state.driver.id: state.total_time for state in states}  # type: ignore[attr-defined]
-        original_bunch(states)
-        after = {state.driver.id: state.total_time for state in states}  # type: ignore[attr-defined]
-        bunch_snapshots.append((before, after))
+    def capture_crossing(states: list[DriverRaceState]) -> None:
+        original_update(states)
+        crossings.append({state.driver.id: (state.total_time, state.last_lap_time)
+                          for state in states})
 
-    simulator.event_manager.bunch_field = capture_bunch  # type: ignore[method-assign]
+    simulator._update_positions = capture_crossing  # type: ignore[method-assign]
     results = simulator.simulate_race(
         [driver_a, driver_b],
         cars,
@@ -426,15 +425,16 @@ def test_overtake_incident_deploying_sc_keeps_penalty_and_fastest_lap() -> None:
     )
 
     assert lap_seen[0] == 1
-    assert bunch_snapshots
-    before, after = bunch_snapshots[0]
-    ordered_after = sorted(after.values())
-    assert 0.8 <= ordered_after[1] - ordered_after[0] <= 1.2
+    assert len(crossings) == 3
+    for driver_id in ("A", "B"):
+        assert crossings[0][driver_id][0] == crossings[0][driver_id][1] > 90
+        for before, after in zip(crossings, crossings[1:]):
+            assert after[driver_id][0] - before[driver_id][0] == pytest.approx(after[driver_id][1])
     assert {result.position for result in results} == {1, 2}
     assert all(result.fastest_lap > 90.0 for result in results)
 
 
-def test_bunching_closes_clean_gap_after_incident_position_loss() -> None:
+def test_red_flag_regrouping_closes_clean_gap_after_incident_position_loss() -> None:
     drivers = [
         _driver("LEAD", team_id="lead"),
         _driver("VICTIM", team_id="victim"),
@@ -463,7 +463,7 @@ def test_bunching_closes_clean_gap_after_incident_position_loss() -> None:
     simulator = RaceSimulator(rng=np.random.default_rng(43))
 
     # The incident's elapsed-time penalty moves VICTIM behind CLEAN before
-    # the safety-car gap reset.  The large ordinary gap to LEAD should still
+    # the red-flag gap reset.  The large ordinary gap to LEAD should still
     # be closed by bunching rather than retained via a max() safeguard.
     simulator._classify_positions_before_neutralization(states, {"VICTIM"})
     assert [state.driver.id for state in sorted(states, key=lambda s: s.position)] == [
