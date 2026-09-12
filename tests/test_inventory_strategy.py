@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from math import inf
+from random import Random
 
 import numpy as np
 import pytest
@@ -215,3 +216,30 @@ def test_exhausted_worn_set_tails_match_physical_schedule_oracle(wetness, rain):
     result = plan_inventory_strategy(*args, pool, 1, **options)
     assert result.wait_cost == pytest.approx(expected[False], abs=1e-9)
     assert result.pit_now_cost == pytest.approx(expected[True], abs=1e-9)
+
+
+@pytest.mark.parametrize("seed", range(12))
+def test_search_bound_preserves_nonmonotone_clipped_schedule_optima(monkeypatch, seed):
+    args = fixture(*[(0., 0.), (.18, .35), (.3, 0.)][seed % 3])
+    args[2].total_laps = 5
+    args[2].pit_lane_delta = 0.
+    records = [{"compound": "soft", "age": 18},
+               {"compound": "hard", "age": 44},
+               {"compound": "intermediate", "age": 34}]
+    pool = TireInventory.from_sets(records)
+    pool.fit("set-1")
+    rng = Random(seed)
+    costs = {(lap, row["compound"], row["age"] + elapsed): max(60., rng.uniform(40., 130.))
+             for row in records for elapsed in range(5) for lap in range(1, 6)}
+
+    def running(self, driver, car, track, tire, weather, lap, *args, **kwargs):
+        return costs[lap, tire.compound.value, driver.current_tire_laps]
+
+    monkeypatch.setattr(LapSimulator, "calculate_lap_time", running)
+    options = dict(tire_age=18, remaining_stops=seed % 3,
+                   free_fit=seed % 2 == 0, used_compounds=(TireCompound.SOFT,))
+    expected, _ = exhaustive(args, pool, **options)
+    result = plan_inventory_strategy(*args, pool, 1, **options)
+    assert result.pit_now_cost == pytest.approx(expected[True], rel=0., abs=1e-9)
+    if not options["free_fit"]:
+        assert result.wait_cost == pytest.approx(expected[False], rel=0., abs=1e-9)

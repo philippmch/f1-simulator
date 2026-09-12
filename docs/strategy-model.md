@@ -850,9 +850,18 @@ python examples/benchmark_strategy_planning.py --scenario rain_transition --tria
 ```
 
 Use `--drivers`, `--laps`, `--trials` and `--seed` to change workload size and
-the seed range. The scenarios start on soft tyres except `rain_transition`,
-which starts on intermediates. These synthetic inputs exercise the planner;
+the seed range. With explicit openings, scenarios start on soft tyres except
+`rain_transition`, which starts on intermediates. `dry` begins with no rain or
+surface water. These synthetic inputs exercise the planner;
 they are not calibrated circuit or weather forecasts.
+
+`--inventory finite` gives each driver three reusable physical sets: soft aged
+five laps, fresh hard and intermediate aged four laps. Explicit starting ages
+then match the selected physical set. `--opening automatic` removes the opening
+override and includes native starting-set selection in the workload, for either
+finite or unlimited pools. These modes are recorded in benchmark version 2 JSON
+alongside the initial pools and overrides. See the
+[finite-pool search and benchmark notes](tyre-inventory.md#search-and-benchmark).
 
 JSON output includes individual trial times, the first trial, the mean of later
 trials, and their total. In a fresh command-line process, the first trial starts

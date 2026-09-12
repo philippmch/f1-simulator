@@ -64,6 +64,60 @@ Red-flag fittings are free changes and can retain the current physical set.
 They consume no paid stop. The physical-set ledger includes opening and later
 fittings that never complete a lap; these do not earn compound-use credit.
 
+## Search and benchmark
+
+Future planning groups interchangeable physical IDs by compound and age while
+retaining their number. Each set accumulates wear when it runs, including after
+removal and reuse. Search skips a replacement branch only when an optimistic
+remaining-time bound cannot improve the best cost already found.
+
+That bound starts with the cheapest reachable running cost on each future lap.
+For each physical set and age, it finds the smallest excess above that lap's
+baseline over eligible future surfaces. It then adds the cheapest distinct uses
+needed for the remaining distance. A set cannot supply its same age twice;
+identical sets each supply their own uses. Ignoring use order, ages already
+consumed earlier in the forecast and pit charges makes this a lower bound,
+not an executable strategy. It does not assume that older tyres are always
+slower, so lap-time floors and nonmonotone cost curves remain supported.
+Arithmetic rounds the bound down to protect nearly tied branches. Unchanged
+final stints also share a cost within each decision. These calculations remain
+local to the forecast and preserve its weather, fuel and race-control context.
+
+Automatic opening selection evaluates one deterministic policy path per distinct
+compound and prior age. Equivalent physical IDs receive the same score in their
+original order. The complete pool remains available throughout each path, and
+first-input tie-breaking remains unchanged. Actual races still replan as their
+traffic, weather, wear and control conditions change.
+
+The offline benchmark can include both finite inventory and automatic openings:
+
+```powershell
+python examples/benchmark_strategy_planning.py --engine standard --scenario wetting --inventory finite --opening automatic --drivers 4 --laps 53 --trials 1 --seed 42
+```
+
+Repeat with `--engine chronological`, or use `--opening explicit` to isolate
+running strategy from opening selection. Increase driver or trial counts after
+checking the smaller workload. Compare revisions using the same script and
+arguments in fresh processes without competing CPU-heavy work. The outcome hash
+covers complete race rows, including physical ledgers and final inventories,
+plus qualifying, weather and event results. Check equality before comparing
+timings; one matching workload does not prove equivalence for every input.
+
+A local 2026-09-12 checkpoint ran that four-driver, 53-lap command against
+revision `6a2d5a7` and the updated search in separate fresh processes,
+using the same script, Python and dependencies. Each measurement is one cold
+trial, so these are workload observations rather than general timing guarantees:
+
+| Engine | `6a2d5a7` seconds | Updated search seconds | Outcome hash prefix (both) |
+|---|---:|---:|---|
+| Standard | 62.278 | 37.489 | `f70f5842efd2` |
+| Chronological | 64.479 | 36.829 | `fb9b3db4e246` |
+
+The three benchmark sets are distinct, so those gains do not rely on duplicate
+opening candidates. Separate native-policy tests compare each equivalent ID's
+outcome independently and verify that three identical wet sets need one opening
+path while retaining all three physical sets.
+
 ## Saved inputs and audit records
 
 The input pool is saved separately from the final pool, in request/scenario

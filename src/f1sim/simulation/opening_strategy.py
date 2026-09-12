@@ -151,14 +151,22 @@ def _cached_inventory_policy_costs(driver_json, car_json, track_json, weather_js
     eligible = [item for item in records
                 if weather.tire_mismatch(TireCompound(item["compound"])) != "critical"]
     scores = []
+    equivalent_outcomes = {}
     # Finite-set policy uses deterministic costs throughout, so private lap
     # variation/events are unnecessary. The actual race RNG is untouched.
     for item in eligible or records:
-        laps, time = _policy_path_outcome(
-            driver, car, track, weather, TeamStrategyArchetype(strategy),
-            json.loads(tuning_json), json.loads(profiles_json), TireCompound(item["compound"]), 0,
-            tire_inventory=records, opening_set_id=item["id"],
-        )
+        key = (item["compound"], item.get("age", 0))
+        if key not in equivalent_outcomes:
+            # Only elapsed time and completed distance are returned. Fitting
+            # an equivalent identity leaves the same anonymous future pool;
+            # retain every physical record and the original score/tie order.
+            equivalent_outcomes[key] = _policy_path_outcome(
+                driver, car, track, weather, TeamStrategyArchetype(strategy),
+                json.loads(tuning_json), json.loads(profiles_json),
+                TireCompound(item["compound"]), 0,
+                tire_inventory=records, opening_set_id=item["id"],
+            )
+        laps, time = equivalent_outcomes[key]
         scores.append((item["id"], OpeningPolicyScore(-laps if time != inf else inf, time)))
     return tuple(scores)
 

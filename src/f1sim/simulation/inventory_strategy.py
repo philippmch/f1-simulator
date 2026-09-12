@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from functools import lru_cache
+from heapq import nsmallest
 from math import inf, isfinite, nextafter
 from numbers import Real
 
@@ -23,6 +24,38 @@ class InventoryDecision:
 
     def should_pit(self, timing_bias=0.0):
         return self.pit_now_cost < self.wait_cost + max(-.1, min(.1, timing_bias))
+
+
+def _conserved_wear_lower_bounds(horizon, initial_ages, critical, running):
+    """Bound future running cost while retaining unique physical-set/age uses.
+
+    Each lap's cheapest reachable cost is its baseline. A potential use gets
+    its cheapest excess above baseline over all eligible future laps. Taking
+    the cheapest distinct uses relaxes their order, earlier consumption and
+    all stop costs, but cannot reuse the same physical set at the same age.
+    Duplicate sets retain separate uses; identical running costs can be cached
+    by the caller. No assumption about age monotonicity is needed.
+    """
+    lower = [0.] * (horizon + 1)
+    residuals = [inf] * (len(initial_ages) * horizon)
+    baseline = 0.
+    for offset in range(horizon - 1, 0, -1):
+        eligible = [(index * horizon + elapsed, running(offset, compound, age + elapsed))
+                    for index, (compound, age) in enumerate(initial_ages)
+                    if not critical[compound][offset]
+                    for elapsed in range(offset + 1)]
+        minimum = min((cost for _, cost in eligible), default=inf)
+        if minimum == inf or baseline == inf:
+            baseline = lower[offset] = inf
+            continue
+        baseline = nextafter(minimum + baseline, -inf)
+        for slot, cost in eligible:
+            residuals[slot] = min(residuals[slot], nextafter(cost - minimum, -inf))
+        extra = 0.
+        for value in nsmallest(horizon - offset, residuals):
+            extra = nextafter(extra + value, -inf)
+        lower[offset] = max(baseline, nextafter(baseline + extra, -inf))
+    return tuple(lower)
 
 
 def plan_inventory_strategy(
@@ -108,9 +141,8 @@ def plan_inventory_strategy(
         )
         return value * current_lap_time_modifier if first else value
 
-    # Relax physical inventory conservation and all stop charges: at each
-    # future lap independently choose any age that any undamaged initial set
-    # could have reached. This is an optimistic lower bound, never a schedule.
+    # A physical set can run each completed age only once, even when removed
+    # and refitted. Keep multiplicity when constructing those potential uses.
     initial_ages = tuple((item.compound.value,
                           tire_age if item.id == inventory.current_set_id else item.age)
                          for item in inventory.sets.values()
@@ -118,13 +150,7 @@ def plan_inventory_strategy(
     @lru_cache(maxsize=1)
     def lower_bounds():
         # Plans without eligible future replacements need no relaxation table.
-        lower = [0.] * (horizon + 1)
-        for offset in range(horizon - 1, 0, -1):
-            minimum = min((running(offset, compound, age + elapsed)
-                           for compound, age in initial_ages if not critical[compound][offset]
-                           for elapsed in range(offset + 1)), default=inf)
-            lower[offset] = nextafter(minimum + lower[offset + 1], -inf)
-        return tuple(lower)
+        return _conserved_wear_lower_bounds(horizon, initial_ages, critical, running)
 
     def exchange(pool, index, current):
         return tuple(sorted(pool[:index] + pool[index + 1:] + (current,)))

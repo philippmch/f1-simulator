@@ -83,8 +83,8 @@ with the former capped curve can therefore produce different races after this
 model correction; retain the recorded code revision for historical reproduction.
 
 Finite-pool planning can take longer under the corrected curve because more
-replacement schedules remain competitive during exact search. Reusing the cost
-of identical final stints within each decision reduces repeated work, but does
-not remove this increase. Long forecasts and automatic opening selection still
-need particular care when sizing a Monte Carlo run; start with a small trial
-count as described in the [finite-pool guide](tyre-inventory.md).
+replacement schedules remain competitive during exact search. Local reuse of
+identical final stints and a bound that respects physical set ages reduce this
+work; see the [search and benchmark notes](tyre-inventory.md#search-and-benchmark).
+Long forecasts and automatic opening selection still need particular care when
+sizing a Monte Carlo run; start with a small trial count.
