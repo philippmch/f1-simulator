@@ -97,9 +97,15 @@ require an explicit compound for the same driver. Overrides apply to every
 selected weather scenario and are saved with the inputs for replay.
 
 Prior laps affect tyre wear, without adding race distance or satisfying the
-race's compound-use rules. All later replacement sets are fresh. Qualifying is
-unchanged; these inputs do not model tyre inventory, heat cycles or actual
-qualifying tyre allocations.
+race's compound-use rules. Replacement sets are fresh unless an explicit race
+pool is supplied. Qualifying remains independent of race sets.
+
+To constrain available race sets, fill **Race tyre sets (optional)** or add
+`--tire-inventory "VER=soft@5,medium,hard;NOR=soft,hard"`. The pool includes the
+opening set; an explicit opening choice must match its compound and age.
+Unlisted drivers keep unlimited sets. Removed undamaged sets can be reused
+with their accumulated wear. See [finite race tyre pools](docs/tyre-inventory.md)
+for Python/API inputs, exhausted-pool behavior and exported set ledgers.
 
 The same inputs and seed reproduce an overridden run, including across worker
 counts. Changing a tyre choice can change later random draws and race events;
@@ -152,8 +158,9 @@ require matching model code, dependencies and runtime behavior. Snapshots do not
 archive executable code or runtime monkeypatches, and replay does not claim to
 reproduce a real race. Ordinary live runs still fetch current-season inputs.
 
-New snapshots use schema version 2, or version 3 when opening tyre ages are
-specified. Version 3 requires `starting_tire_ages`; both versions require
+New snapshots use schema version 2, version 3 when opening tyre ages are
+specified, or version 4 for a nonempty finite race pool. Version 3 requires
+`starting_tire_ages`; version 4 also records `tire_inventory`. These versions require
 `rng_policy`, with new runs using `isolated_weather_v1`. Earlier installations
 reject unsupported schemas. Version 1 snapshots without a policy replay with
 `shared_v1`, which preserves

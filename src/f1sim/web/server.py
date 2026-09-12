@@ -25,6 +25,7 @@ from f1sim.simulation.execution import (
 )
 from f1sim.simulation.race import result_is_classified
 from f1sim.simulation.race_points import points_for_result
+from f1sim.simulation.tire_inventory import validate_tire_inventory
 from f1sim.web.capacity import RunCapacity
 
 _LOGGER = logging.getLogger(__name__)
@@ -66,6 +67,7 @@ class DashboardRunRequest:
     starting_tires: dict[str, str] | None = None
     weather_mode: str = "evolving"
     starting_tire_ages: dict[str, StrictInt] | None = None
+    tire_inventory: Any = None
 
 
 def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
@@ -75,6 +77,8 @@ def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
     validate_race_engine(request.race_engine)
     validate_starting_tires(request.starting_tires)
     validate_starting_tire_ages(request.starting_tire_ages, request.starting_tires)
+    validate_tire_inventory(request.tire_inventory, request.starting_tires,
+                            request.starting_tire_ages)
     current_season = _current_season()
     if isinstance(request.year, bool) or not isinstance(request.year, int):
         raise ValueError(f"Only the live {current_season} F1 season is available.")
@@ -167,6 +171,10 @@ def _serialize_race_result(result: Any) -> dict[str, Any]:
                      if getattr(result, "pit_laps", None) is not None else None),
         "pit_stop_details": ([dict(stop) for stop in result.pit_stop_details]
                              if getattr(result, "pit_stop_details", None) is not None else None),
+        "tire_set_history": ([dict(row) for row in result.tire_set_history]
+                             if getattr(result, "tire_set_history", None) is not None else None),
+        "tire_inventory": ([dict(row) for row in result.tire_inventory]
+                           if getattr(result, "tire_inventory", None) is not None else None),
         "fastest_lap": result.fastest_lap,
         "status": result.status.value,
         "laps_completed": getattr(result, "laps_completed", None),
@@ -475,6 +483,10 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
     track_stats = loader.get_track_stats(request.year, request.race)
 
     drivers = loader.create_drivers_from_stats(driver_stats)
+    tire_inventory = validate_tire_inventory(
+        request.tire_inventory, request.starting_tires, request.starting_tire_ages,
+        (d.id for d in drivers),
+    )
     starting_tires = validate_starting_tires(request.starting_tires, (d.id for d in drivers))
     starting_tire_ages = validate_starting_tire_ages(
         request.starting_tire_ages, starting_tires, (d.id for d in drivers),
@@ -512,6 +524,7 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
             weather=scenario.weather,
             seed=request.seed + idx * 1000,
             race_engine=request.race_engine,
+            **({"tire_inventory": tire_inventory} if tire_inventory else {}),
             **({"starting_tires": starting_tires} if starting_tires else {}),
             **({"starting_tire_ages": starting_tire_ages} if starting_tire_ages else {}),
         )
@@ -544,6 +557,7 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
         "scenarios": request.scenarios,
         "seed": request.seed,
         "race_engine": request.race_engine,
+        "tire_inventory": tire_inventory,
         "starting_tires": starting_tires,
         "starting_tire_ages": starting_tire_ages,
         "weather_mode": request.weather_mode,

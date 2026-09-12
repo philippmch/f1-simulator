@@ -85,6 +85,14 @@ def _seed_value(value: str) -> int:
     return parsed
 
 
+def _tire_inventory(value: str) -> dict:
+    from f1sim.simulation.tire_inventory import parse_tire_inventory_spec
+    try:
+        return parse_tire_inventory_spec(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
 def _starting_tires(value: str) -> tuple[dict[str, str], dict[str, int]]:
     overrides = {}
     ages = {}
@@ -184,7 +192,17 @@ def main() -> int:
         "--weather-mode", choices=("evolving", "fixed_rainfall"), default="evolving",
         help="Weather transitions: evolving (default) or fixed rainfall with evolving surface",
     )
+    parser.add_argument(
+        "--tire-inventory", type=_tire_inventory,
+        help="Race sets: VER=soft@5,medium,hard;NOR=soft,hard. Unlisted drivers unlimited.",
+    )
     args = parser.parse_args()
+    from f1sim.simulation.tire_inventory import validate_tire_inventory
+    try:
+        compounds, ages = args.starting_tires or ({}, {})
+        validate_tire_inventory(args.tire_inventory, compounds, ages)
+    except ValueError as exc:
+        parser.error(str(exc))
     print(f"Race model: {args.race_engine}")
     print(f"Weather mode: {args.weather_mode}")
     try:
@@ -242,6 +260,9 @@ def main() -> int:
     drivers = loader.create_drivers_from_stats(driver_stats)
     try:
         compounds, ages = args.starting_tires or ({}, {})
+        tire_inventory = validate_tire_inventory(
+            args.tire_inventory, compounds, ages, (d.id for d in drivers),
+        )
         starting_tires = validate_starting_tires(compounds, (d.id for d in drivers))
         starting_tire_ages = validate_starting_tire_ages(
             ages, starting_tires, (d.id for d in drivers),
@@ -289,6 +310,7 @@ def main() -> int:
             weather=scenario.weather,
             seed=scenario_seed,
             race_engine=args.race_engine,
+            **({"tire_inventory": tire_inventory} if tire_inventory else {}),
             **({"starting_tires": starting_tires} if starting_tires else {}),
             **({"starting_tire_ages": starting_tire_ages} if starting_tire_ages else {}),
         )

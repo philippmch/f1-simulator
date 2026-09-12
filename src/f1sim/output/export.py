@@ -158,6 +158,11 @@ class Exporter:
             Path to created file
         """
         filepath = self.output_dir / filename
+        inventory_fields = (['tire_set_history', 'tire_inventory'] if any(
+            getattr(row, 'tire_set_history', None) is not None
+            or getattr(row, 'tire_inventory', None) is not None
+            for race in results.race_results for row in race
+        ) else [])
 
         with open(filepath, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
@@ -166,6 +171,7 @@ class Exporter:
                 "total_time", "gap_to_leader", "pit_stops", "fastest_lap",
                 "status", "dnf_reason", "strategy", "laps_completed", "classified",
                 "pit_laps", "race_time_limited", "points_awarded",
+                *inventory_fields,
             ])
 
             for sim_idx, race_results in enumerate(results.race_results, 1):
@@ -189,6 +195,9 @@ class Exporter:
                         if getattr(result, "pit_laps", None) is not None else "",
                         str(getattr(result, "race_time_limited", False)).lower(),
                         points_for_result(result),
+                        *(json.dumps(getattr(result, key))
+                          if getattr(result, key, None) is not None else ""
+                          for key in inventory_fields),
                     ])
 
         return filepath
@@ -256,13 +265,51 @@ class Exporter:
             for index, race in enumerate(results.race_results, start=1) for result in race
         ]
 
+    @staticmethod
+    def _tire_set_ledgers(results: SimulationResults) -> list[dict]:
+        return [
+            {"simulation": index, "driver_id": result.driver_id,
+             **{key: ([dict(item) for item in getattr(result, key)]
+                      if getattr(result, key, None) is not None else None)
+                for key in ("tire_set_history", "tire_inventory")}}
+            for index, race in enumerate(results.race_results, 1) for result in race
+        ]
+
+    @staticmethod
+    def _tire_set_ledger_html(results: SimulationResults) -> str:
+        sections = []
+        for row in Exporter._tire_set_ledgers(results):
+            if row["tire_set_history"] is None:
+                continue
+            label = escape(f'Trial {row["simulation"]} · {row["driver_id"]}')
+            sections.append(f'<details><summary>{label}</summary>')
+            for key, caption, fields in (
+                ("tire_set_history", "Physical set fittings",
+                 ("lap", "kind", "set_id", "compound", "age_at_fit", "age_at_end", "laps_used")),
+                ("tire_inventory", "Final race set pool",
+                 ("id", "compound", "age", "current", "available", "unavailable")),
+            ):
+                sections.append('<div class="table-wrap" tabindex="0"><table><caption>'
+                                + caption + '</caption><thead><tr>'
+                                + ''.join('<th scope="col">' + field.replace('_', ' ')
+                                          + '</th>' for field in fields)
+                                + '</tr></thead><tbody>')
+                for record in row[key] or []:
+                    sections.append('<tr>' + ''.join(
+                        '<td>' + escape(str(record.get(field, 'Not recorded'))) + '</td>'
+                        for field in fields) + '</tr>')
+                sections.append('</tbody></table></div>')
+            sections.append('</details>')
+        return ''.join(sections) or '<p>No finite race set ledger recorded.</p>'
+
     def export_pit_stop_details_csv(
         self, results: SimulationResults, filename: str = "pit_stops.csv",
     ) -> Path:
         """Export modeled paid-stop components; free fittings have no rows."""
         fields = ["lap", "from_compound", "to_compound", "tire_age", "condition",
                   "rain_intensity", "track_wetness", "control", "lane_loss",
-                  "service_time", "queue_time", "total_loss"]
+                  "service_time", "queue_time", "total_loss",
+                  "from_set_id", "to_set_id", "incoming_tire_age"]
         filepath = self.output_dir / filename
         with filepath.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.writer(handle)
@@ -270,7 +317,7 @@ class Exporter:
             for row in self._pit_stop_details(results):
                 for stop in row["stops"] or []:
                     writer.writerow([row["simulation"], results.race_engine, row["driver_id"],
-                                     *(stop[field] for field in fields)])
+                                     *(stop.get(field, "") for field in fields)])
         return filepath
 
     def export_statistics_json(
@@ -294,6 +341,7 @@ class Exporter:
             "simulation_inputs": results.input_snapshot,
             "weather_histories": results.weather_histories,
             "pit_stop_details": self._pit_stop_details(results),
+            "tire_set_ledgers": self._tire_set_ledgers(results),
             "metadata": {
                 "num_simulations": results.num_simulations,
                 "track_name": results.track_name,
@@ -412,6 +460,7 @@ class Exporter:
                 "race_distance_statistics": results.get_race_distance_statistics(),
                 "weather_histories": results.weather_histories,
                 "pit_stop_details": self._pit_stop_details(results),
+                "tire_set_ledgers": self._tire_set_ledgers(results),
                 "strategy_statistics": results.get_strategy_statistics(),
                 "simulation_inputs": results.input_snapshot,
                 "team_championship_projection": results.get_team_championship_projection(),
@@ -540,6 +589,8 @@ class Exporter:
     Track: {track_text} · Simulations: {simulations_text} · Seed: {seed_text}
     · Race model: {engine_text}
     · Starting tyres: {starting_text}
+    Input race set pools:
+    {escape(json.dumps((results.input_snapshot or {}).get('tire_inventory', {})))}
   </div>
   <div class=\"grid\">
     <div class=\"card\" id=\"race-distance\"><h2>Race distance</h2>
@@ -553,6 +604,11 @@ class Exporter:
       changes; sequence length is not the paid-stop count. Shares use races with a
       recorded sequence. Frequency does not establish which strategy is fastest.</p>
       {strategy_html}
+    </div>
+    <div class="card" id="tire-set-ledgers"><h2>Race tyre sets</h2>
+      <p>Fittings include free changes and unrun sets. Ages include prior wear.
+      Removed undamaged sets remain reusable; qualifying uses separate sets.</p>
+      {self._tire_set_ledger_html(results)}
     </div>
     <div class=\"card\"><h2>Top 10 Win Probabilities</h2><div id=\"wins\"></div></div>
     <div class=\"card\"><h2>Team Points Projection (per race)</h2>

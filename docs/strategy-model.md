@@ -7,6 +7,11 @@ Rain-stint plans also consider compound transitions under persistent rainfall
 and the modeled surface response. These are conditional model calculations,
 not claims to find the fastest strategy for a real race.
 
+Unless a section says otherwise, the fresh-set projections below describe
+drivers with unlimited replacement sets. An explicit [finite race pool](tyre-inventory.md)
+uses a separate physical-set planner that retains set IDs and wear, constrains
+opening choices and replacements, and records an auditable fitting history.
+
 All team styles can evaluate up to three paid stops in dry running, using fewer
 when further tyre gains do not cover pit loss. Previous paid stops, including
 weather stops, count toward this budget; a required compound-correction stop
@@ -81,10 +86,11 @@ ages mean fresh sets. The upper bound limits inputs, not realistic tyre life.
 Prior laps enter the existing wear and strategy calculations but are separate
 from laps driven in this race. They do not add distance, satisfy dry-compound
 use or grant a wet-tyre exemption. A used opening set replaced before running
-does not create a fictitious stint. Paid stops and free red-flag changes fit
-fresh sets and reset the prior-wear offset. Qualifying remains independent.
-This models prior wear only, without tyre inventory, heat cycles or inferred
-real-world tyre allocations.
+does not create a fictitious stint. Without an explicit finite pool, paid stops
+and free red-flag changes fit fresh sets and reset the prior-wear offset.
+With a [finite race pool](tyre-inventory.md), fittings select actual available
+sets and preserve their wear, including reuse. Qualifying remains independent;
+heat cycles and real-world tyre allocations are not inferred.
 
 The optional `fixed_rainfall` weather mode helps isolate strategy behavior under
 unchanging rainfall. It prevents random condition transitions while retaining
@@ -148,7 +154,8 @@ retains the usual seeded qualifying/race generator and derives a separate
 weather generator from `SeedSequence(seed, spawn_key=(0x57454154,))`. That fixed
 namespace separates weather from race draws without advancing the race stream.
 `shared_v1` retains the former single generator. New snapshots use schema 2,
-or schema 3 when opening ages are specified, and require an explicit policy.
+schema 3 when opening ages are specified, or schema 4 for nonempty finite race
+pools, and require an explicit policy. Schema 4 records the initial inventory.
 Schema 3 also requires the age mapping, so older installations reject used-set
 runs instead of replaying them fresh. Replay and comparison still accept
 schemas 1 and 2 with fresh opening sets; schema 1 infers `shared_v1` when its
@@ -211,8 +218,8 @@ include physical inputs, tyre configuration, strategy settings and the race
 time limit; driver and team names do not affect them. This compares the
 existing single-car policy, not every possible timed pit schedule. It assumes
 constant weather condition and rainfall, no traffic or future interruptions,
-and unlimited tyre inventory. A multi-car race can have a different horizon
-as its leader and traffic determine the finish.
+and unlimited tyre inventory for drivers without an explicit pool. A multi-car
+race can have a different horizon as its leader and traffic determine the finish.
 Precautionary intermediates must also pass the same mismatch check used during
 the race. A rainy condition label with a sufficiently dry surface and low
 rainfall does not fit intermediates that would immediately require a paid
@@ -346,8 +353,10 @@ after the final lap adds no tyre stint or compound-use credit.
 
 Changing wheels and tyres during a suspension is permitted by B5.14.4(a)(vii) of
 the [FIA 2026 Sporting Regulations, Issue 08](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_b_sporting_-_iss_08_-_2026-08-05_7.pdf).
-The model assumes a free fresh set is available and does not model the full
-suspension work procedure, tyre inventory, or elapsed suspension duration.
+Without a finite race pool, the model assumes a free fresh set is available.
+Finite pools restrict this selection to actual reusable sets and can retain
+the current set. The full suspension work procedure and elapsed suspension
+duration are not modeled.
 
 A conservative driver outside the top six can switch to the balanced profile
 after 40% of the scheduled race when following in modeled dirty air. The default
@@ -696,10 +705,12 @@ Current aero eligibility and SC/VSC running factors apply only to the current
 lap; future laps assume green running. Cached costs in this path are absolute
 lap times, whereas the ordinary fast path reports tyre-relative costs. Costs
 from those two bases should not be compared across different model inputs.
-Neither planner forecasts random future weather changes or incidents, prices
-traffic beyond the immediate rejoin lap, limits the inventory of
-tyre sets, or jointly schedules both teammates' future stops. Those remain separate opportunities
-to improve strategy realism. Cost tables are bounded in-memory calculations;
+The unlimited-set planners described above do not constrain physical inventory.
+Drivers with an explicit pool use the separate [finite-set policy](tyre-inventory.md)
+for opening selection and later decisions. Neither policy forecasts random
+future weather changes or incidents, prices traffic beyond the immediate rejoin
+lap, or jointly schedules both teammates' future stops. Cost tables are bounded
+in-memory calculations;
 they do not persist provider data or consume simulation random draws.
 Static circuit profiles and car/circuit pace terms also use bounded, process-local
 caches keyed by their numerical inputs. Editing sector weights, passing

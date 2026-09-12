@@ -32,6 +32,12 @@ def build_fixture() -> dict:
         total_laps=12, base_lap_time=90, pit_lane_delta=20,
     )
     results, weather = {}, {}
+    inventory = {"S00": [
+        {"id": "set-1", "compound": "hard", "age": 5},
+        {"id": "set-2", "compound": "soft", "age": 0},
+        {"id": "set-3", "compound": "intermediate", "age": 0},
+        {"id": "set-4", "compound": "wet", "age": 0},
+    ]}
     for index, label in enumerate(("dry", "light_rain", "heavy_rain")):
         scenario = scenario_weather_from_label(Weather(change_probability=0), label)
         weather[label] = scenario.weather
@@ -40,6 +46,7 @@ def build_fixture() -> dict:
             race_engine="chronological",
             starting_tires={"S00": "hard", "S01": "soft"},
             starting_tire_ages={"S00": 5},
+            tire_inventory=inventory,
         ).run(num_simulations=10, parallel=False)
     payload = _summarize_scenario_results(results, scenario_weather=weather)
     payload["comparison_report_html"] = render_comparison_report(results)
@@ -52,6 +59,7 @@ def build_fixture() -> dict:
                  "weather_mode": "fixed_rainfall",
                  "starting_tires": {"S00": "hard", "S01": "soft"},
                  "starting_tire_ages": {"S00": 5},
+                 "tire_inventory": inventory,
                  "scenarios": "dry,light_rain,heavy_rain", "qualifying_mode": "simulated"},
     )
     return {

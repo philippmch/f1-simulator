@@ -1377,7 +1377,13 @@ input:focus-visible {
         <label class="control-label" for="startingTiresInput">Starting tyres (optional)</label>
         <input type="text" id="startingTiresInput" maxlength="512"
           placeholder="Auto · VER=soft@5, NOR=hard"
-          title="Driver=compound, optionally @prior laps (0–1000). Example: VER=soft@5 starts a soft set with five laps of wear. Unlisted drivers stay automatic; later stops fit fresh sets.">
+          title="Driver=compound, optionally @prior laps (0–1000). Example: VER=soft@5 starts a soft set with five laps of wear. Unlisted drivers stay automatic. Finite race pools below constrain all fittings.">
+      </div>
+      <div class="control-group">
+        <label class="control-label" for="tireInventoryInput">Race tyre sets (optional)</label>
+        <input type="text" id="tireInventoryInput" maxlength="16384"
+          placeholder="VER=soft@5,medium,hard;NOR=soft,hard"
+          title="All race sets including the opening set. Separate drivers with semicolons. Removed sets retain wear and can be reused. Qualifying is separate. Blank or unlisted drivers use unlimited sets.">
       </div>
       <div class="control-group">
         <label class="control-label" for="parallelSelect">Execution</label>
@@ -2223,6 +2229,27 @@ function buildRunPayload() {
   const simulations = Number(simulationsInput.value);
   const seed = Number(seedInput.value);
   const workersValue = workersInput.value.trim();
+  const tireInventory = Object.create(null);
+  const inventoryInput = document.getElementById('tireInventoryInput');
+  if (inventoryInput.value.trim()) {
+    try {
+      for (const group of inventoryInput.value.trim().split(/[;\n]/)) {
+        const parts = group.split('=');
+        const id = parts[0].trim();
+        if (parts.length !== 2 || !id || Object.hasOwn(tireInventory, id)) throw new Error();
+        const sets = parts[1].split(',');
+        if (sets.length < 1 || sets.length > 20) throw new Error();
+        tireInventory[id] = sets.map((entry, index) => {
+          const match = entry.trim().match(/^(soft|medium|hard|intermediate|wet)(?:@(\d+))?$/);
+          if (!match || Number(match[2] || 0) > 1000) throw new Error();
+          return {id: `set-${index + 1}`, compound: match[1], age: Number(match[2] || 0)};
+        });
+      }
+    } catch {
+      setStatusMessage('Race tyre sets: use VER=soft@5,medium,hard;NOR=soft,hard. Each driver needs 1–20 sets, with prior laps 0–1000.', 'error');
+      return null;
+    }
+  }
   const startingTires = Object.create(null);
   const startingTireAges = Object.create(null);
   const tyreInput = document.getElementById('startingTiresInput');
@@ -2254,6 +2281,7 @@ function buildRunPayload() {
     race_engine: document.getElementById('raceEngineSelect').value,
     starting_tires: startingTires,
     starting_tire_ages: startingTireAges,
+    tire_inventory: tireInventory,
     weather_mode: document.getElementById('weatherModeSelect').value,
     parallel: document.getElementById('parallelSelect').value === 'true',
     max_workers: workersValue ? Number(workersValue) : null,
@@ -2369,6 +2397,18 @@ function renderWeatherHistory(scenario) {
   </details>`;
 }
 
+function renderTireSetLedgers(race) {
+  const finite = race.filter(driver => Array.isArray(driver.tire_set_history));
+  if (!finite.length) return '';
+  const tables = finite.map(driver => {
+    const table = (records, fields, caption) => `<div class="results-table" tabindex="0"><table class="matrix-table"><caption>${caption}</caption><thead><tr>${fields.map(key => `<th scope="col">${escapeHtml(key.replaceAll('_', ' '))}</th>`).join('')}</tr></thead><tbody>${(records || []).map(row => `<tr>${fields.map(key => `<td>${escapeHtml(String(row[key] ?? 'Not recorded'))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    return `<h3>${escapeHtml(driver.driver_name || driver.driver_id)}</h3>`
+      + table(driver.tire_set_history, ['lap', 'kind', 'set_id', 'compound', 'age_at_fit', 'age_at_end', 'laps_used'], 'Physical set fittings')
+      + table(driver.tire_inventory, ['id', 'compound', 'age', 'current', 'available', 'unavailable'], 'Final race set pool');
+  }).join('');
+  return `<details class="probability-details" id="sampleTireSetLedgers"><summary>Race tyre sets during this trial</summary><p class="inline-note">Fittings include free changes and unrun sets. Ages include prior wear. Removed undamaged sets remain reusable; qualifying uses separate sets.</p>${tables}</details>`;
+}
+
 function renderPitStopDetails(race) {
   const seconds = value => typeof value === 'number' && Number.isFinite(value) && value >= 0
     ? `${value.toFixed(3)} s` : 'Not recorded';
@@ -2455,6 +2495,7 @@ function renderRace() {
           const age = (scenario.simulation_inputs?.starting_tire_ages || simResults.request?.starting_tire_ages || {})[id];
           return `${id}=${compound}${age ? `@${age}` : ''}`;
         }).join(', ') || 'Automatic')}</div>
+        <div class="race-meta">Input race set pools: ${escapeHtml(JSON.stringify(scenario.simulation_inputs?.tire_inventory || simResults.request?.tire_inventory || {}))} · Unlisted drivers unlimited</div>
         <div class="race-meta">${savedWeatherBehavior(scenario)}</div>
         <div class="race-meta">${escapeHtml(track.country || 'Unknown country')} &middot; Scenario ${escapeHtml(titleFromKey(name))}${topTeam ? ` &middot; Top constructor ${escapeHtml(topTeam[0])}` : ''}</div>
         <div class="meta-pills">${pills.map(pill => `<div class="meta-pill">${escapeHtml(pill)}</div>`).join('')}</div>
@@ -2515,7 +2556,7 @@ function renderRace() {
     `;
   });
 
-  html += '</div></div>' + renderPitStopDetails(race);
+  html += '</div></div>' + renderPitStopDetails(race) + renderTireSetLedgers(race);
   container.innerHTML = html;
 }
 

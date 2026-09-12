@@ -11,6 +11,7 @@ from f1sim.models import Car, Driver, Track, Weather
 from f1sim.simulation.execution import validate_starting_tire_ages
 from f1sim.simulation.race_points import POINTS_SYSTEM, points_for_result
 from f1sim.simulation.randomness import RNG_POLICIES
+from f1sim.simulation.tire_inventory import validate_tire_inventory
 
 
 def _integer(value, minimum=0):
@@ -22,7 +23,7 @@ def _snapshot(result):
     if not isinstance(snapshot, dict):
         return None
     version = snapshot.get("schema_version")
-    if not _integer(version, 1) or version not in (1, 2, 3):
+    if not _integer(version, 1) or version not in (1, 2, 3, 4):
         return None
     policy = snapshot.get("rng_policy", "shared_v1" if version == 1 else None)
     if policy not in RNG_POLICIES:
@@ -52,6 +53,12 @@ def _snapshot(result):
                 return None
             model.model_validate(snapshot[key])
         ids = [driver.id for driver in roster]
+        if version == 4 and not isinstance(snapshot.get("tire_inventory"), dict):
+            return None
+        if version < 4 and snapshot.get("tire_inventory"):
+            return None
+        inventory = validate_tire_inventory(snapshot.get("tire_inventory"),
+            snapshot.get("starting_tires"), snapshot.get("starting_tire_ages"), ids)
         if version == 3 and not isinstance(snapshot.get("starting_tire_ages"), dict):
             return None
         if version < 3 and snapshot.get("starting_tire_ages"):
@@ -63,7 +70,7 @@ def _snapshot(result):
     except (ValidationError, TypeError, ValueError):
         return None
     return ({key: snapshot[key] for key in ("drivers", "cars", "track", "weather", "runtime")}
-            | {"rng_policy": policy}, ids,
+            | {"rng_policy": policy, "tire_inventory": inventory}, ids,
             [driver.id for driver in roster if driver.team_id in cars])
 
 

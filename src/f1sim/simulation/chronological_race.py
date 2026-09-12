@@ -22,6 +22,7 @@ from f1sim.simulation.race import DriverRaceState, DriverStatus, RaceResult
 from f1sim.simulation.race_points import points_for_classification
 from f1sim.simulation.race_timing import RaceFinishTimeline, forecast_final_lap
 from f1sim.simulation.strategy_traffic import StrategyTrafficSnapshot
+from f1sim.simulation.tire_inventory import validate_tire_inventory
 from f1sim.simulation.validation import validate_unique_ids
 
 
@@ -68,12 +69,14 @@ class ChronologicalRace:
         self.order: list[str] = []
 
     def run(self, drivers, cars, track, weather, starting_grid, *, starting_tires=None,
-            starting_tire_ages=None):
+            starting_tire_ages=None, tire_inventory=None):
         validate_unique_ids([driver.id for driver in drivers], "driver")
         validate_unique_ids(starting_grid, "starting grid")
         starting_tires = validate_starting_tires(starting_tires, (d.id for d in drivers))
         ages = validate_starting_tire_ages(starting_tire_ages, starting_tires,
                                            (d.id for d in drivers))
+        inventories = validate_tire_inventory(tire_inventory, starting_tires, ages,
+                                              (d.id for d in drivers))
         self.track = track
         self.weather = weather.model_copy(deep=True)
         self.simulator.event_manager.reset()
@@ -88,9 +91,17 @@ class ChronologicalRace:
                 continue
             car = cars[driver.team_id]
             style = self.simulator._infer_team_strategy(car, track)
-            compound = ((starting_tires or {}).get(driver_id)
-                        or self.simulator._choose_starting_compound(style, track, self.weather,
-                                                                   driver, car))
+            inventory = selected_set = None
+            if driver_id in inventories:
+                inventory, selected_set = self.simulator._inventory_opening_set(
+                    driver, car, track, self.weather, style, inventories[driver_id],
+                    starting_tires.get(driver_id), ages.get(driver_id, 0),
+                )
+                compound = selected_set.compound
+            else:
+                compound = ((starting_tires or {}).get(driver_id)
+                            or self.simulator._choose_starting_compound(style, track, self.weather,
+                                                                       driver, car))
             driver.current_tire_laps = ages.get(driver_id, 0)
             plans = self.simulator._plan_pit_lap_options(style, track)
             self.states[driver_id] = DriverRaceState(
@@ -99,6 +110,10 @@ class ChronologicalRace:
                 tire_laps=ages.get(driver_id, 0), prior_tire_laps=ages.get(driver_id, 0),
                 strategy_archetype=style, planned_pit_laps=plans[0], pit_plan_options=plans,
             )
+            if inventory is not None:
+                self.simulator._initialize_inventory(
+                    self.states[driver_id], inventory, selected_set,
+                )
         self.timeline = RaceFinishTimeline(track.total_laps, self.states)
         self.order = list(self.states)
         self.pending = {}
@@ -150,7 +165,14 @@ class ChronologicalRace:
                 self._resume_if_collected(now)
         return self._results()
 
-    def _fit_red_flag_set(self, state, planning):
+    def _fit_red_flag_set(self, state, planning, weather_intervals=None):
+        if state.tire_inventory is not None:
+            self.simulator._refit_inventory_free(
+                state, planning, self.weather, state.laps_completed,
+                physical_total_laps=self.track.total_laps, weather_intervals=weather_intervals,
+            )
+            self.free_refits.remove(state.driver.id)
+            return
         compound = self.simulator._choose_red_flag_tire(
             state, self.weather, planning, state.laps_completed,
             physical_total_laps=self.track.total_laps,
@@ -190,16 +212,34 @@ class ChronologicalRace:
         self.red_waiting.clear()
         # Collection waits for all paid services; free restart fits reserve no box.
         self.expected_box_releases.clear()
+        # Freeze all restart forecasts before fitting or releasing any car.
+        # Collected services are finished; their old expected exits and the
+        # order in which new running is sampled cannot anchor these forecasts.
+        restart_plans = {}
+        for driver_id in self.order:
+            state = self.states[driver_id]
+            if state.tire_inventory is None:
+                continue
+            planning = self._planning_track(state, resume, restart=True)
+            restart_plans[driver_id] = (
+                planning, self._weather_intervals(state, resume, planning, restart=True),
+            )
         for driver_id in list(self.order):
             state = self.states[driver_id]
             pending = self.pending.get(driver_id)
             if pending is None:
-                self._start_lap(state, resume)
+                self._start_lap(state, resume, restart_planning=restart_plans.get(driver_id))
                 continue
             # This paid stop completed service while the exit was closed. Its
             # running has never been sampled. Fit the shared restart set and
             # release the existing lap without charging/sampling another stop.
-            self._fit_red_flag_set(state, self._planning_track(state, resume))
+            if driver_id in restart_plans:
+                self._fit_red_flag_set(state, *restart_plans[driver_id])
+            else:
+                self._fit_red_flag_set(state, self._planning_track(state, resume))
+            if state.status != DriverStatus.RACING:
+                self._retire(driver_id, resume, state.dnf_reason)
+                continue
             pending.tire = state.current_tire.model_copy(deep=True)
             pending.tire_age = state.tire_laps
             pending.generation += 1
@@ -214,7 +254,7 @@ class ChronologicalRace:
                                    next(self.serial), kind, driver_id,
                                    self.pending[driver_id].generation))
 
-    def _planning_track(self, state, now):
+    def _planning_track(self, state, now, *, restart=False):
         """Forecast an own-lap finish horizon without altering the actual flag.
 
         Use observed free running pace (excluding stops, incidents and blocking),
@@ -228,7 +268,7 @@ class ChronologicalRace:
         """
         horizon = self.timeline.final_lap
         own_pace = self.running_paces.get(state.driver.id)
-        flag_time = self._projected_flag_time(now)
+        flag_time = self._projected_flag_time(now, restart=restart)
         if own_pace is not None and flag_time is not None:
             modifier = self.simulator.event_manager.get_lap_time_modifier()
             remaining = max(1, 1 + ceil(
@@ -249,13 +289,13 @@ class ChronologicalRace:
             ))
         return None
 
-    def _projected_flag_time(self, now):
+    def _projected_flag_time(self, now, *, restart=False):
         """Expected leading finish crossing using the same horizon assumptions."""
         if self.timeline.chequered_time is not None:
             return self.timeline.chequered_time
         leader = self._forecast_leader()
         if leader is not None:
-            pending = self.pending.get(leader.driver.id)
+            pending = None if restart else self.pending.get(leader.driver.id)
             leader_pace = self.running_paces.get(leader.driver.id)
             modifier = self.simulator.event_manager.get_lap_time_modifier()
             if pending is not None:
@@ -288,7 +328,7 @@ class ChronologicalRace:
                 return flag_time
         return None
 
-    def _weather_intervals(self, state, now, planning):
+    def _weather_intervals(self, state, now, planning, *, restart=False):
         """Map projected leading weather updates onto future own-lap starts.
 
         Extrapolate observed free pace, with current control on the upcoming
@@ -300,7 +340,7 @@ class ChronologicalRace:
         leader = self._forecast_leader()
         if own_pace is None or leader is None:
             return None
-        pending = self.pending.get(leader.driver.id)
+        pending = None if restart else self.pending.get(leader.driver.id)
         leader_pace = self.running_paces.get(leader.driver.id)
         if leader_pace is None and pending is not None:
             leader_pace = pending.running or None
@@ -315,7 +355,7 @@ class ChronologicalRace:
         else:
             first_update = max(now, pending.expected_exit or now)
             first_update += leader_pace * modifier
-        flag_time = self._projected_flag_time(now)
+        flag_time = self._projected_flag_time(now, restart=restart)
         if flag_time is None:
             return None
         # Include an update at an equal-time own crossing: the leading
@@ -328,29 +368,44 @@ class ChronologicalRace:
             intervals.append(min(available, max(0, floor(elapsed + 1e-12) + 1)))
         return tuple(intervals)
 
-    def _start_lap(self, state, now):
+    def _start_lap(self, state, now, *, restart_planning=None):
         driver_id = state.driver.id
         if not self.timeline.can_start_next_lap(driver_id):
             return
         lap = state.laps_completed + 1
         control = self.simulator.event_manager
-        planning = self._planning_track(state, now)
+        planning, cadence = (restart_planning if restart_planning is not None else (
+            self._planning_track(state, now), None,
+        ))
+        if restart_planning is None:
+            cadence = self._weather_intervals(state, now, planning)
         if driver_id in self.free_refits:
-            self._fit_red_flag_set(state, planning)
+            self._fit_red_flag_set(state, planning, cadence)
+            if state.status != DriverStatus.RACING:
+                self._retire(driver_id, now, state.dnf_reason)
+                return
         # Completed service is observable; its future sampled duration is not.
         if self.box_releases.get(state.car.team_id, now) <= now:
             self.expected_box_releases.pop(state.car.team_id, None)
         delay = max(0.0, self.expected_box_releases.get(state.car.team_id, now) - now)
         active = [other for other in self.states.values() if other.status == DriverStatus.RACING]
+        traffic = self._strategy_traffic(state, now, delay)
         stop = state.force_pit_next_lap or self.simulator._should_pit(
             state, active, planning, lap, control.is_pit_window_open(), self.weather,
             additional_current_stop_cost=delay, physical_total_laps=self.track.total_laps,
-            traffic_snapshot=self._strategy_traffic(state, now, delay),
-            weather_intervals=self._weather_intervals(state, now, planning),
+            traffic_snapshot=traffic,
+            weather_intervals=cadence,
         )
         loss = 0.0
         expected_exit = None
         if stop:
+            if state.tire_inventory is not None and not self.simulator._prepare_inventory_pit(
+                state, planning, self.weather, lap, physical_total_laps=self.track.total_laps,
+                weather_intervals=cadence, current_traffic_gaps=traffic.current_traffic_gaps,
+                additional_current_stop_cost=delay,
+            ):
+                self._retire(driver_id, now, state.dnf_reason)
+                return
             expected_service = expected_stationary_time(state.car)
             self.expected_box_releases[state.car.team_id] = now + delay + expected_service
             expected_exit = (now + delay + expected_service
@@ -360,6 +415,9 @@ class ChronologicalRace:
                 arrival_time=now,
                 physical_total_laps=self.track.total_laps,
             )
+            if state.status != DriverStatus.RACING:
+                self._retire(driver_id, now, state.dnf_reason)
+                return
             state.pit_stops += 1
             state.pit_laps.append(lap)
             state.force_pit_next_lap = False
@@ -613,6 +671,7 @@ class ChronologicalRace:
                         return False
                     if incident.forces_pit_stop:
                         state.force_pit_next_lap = True
+                        self.simulator._damage_inventory_tire(state)
                     if incident.time_loss_seconds:
                         self._delay(driver_id, incident.time_loss_seconds)
                         return False
@@ -763,15 +822,17 @@ class ChronologicalRace:
                 points_awarded=points_for_classification(
                     position, classified, winner_laps, self.track.total_laps, self.has_two_green,
                 ),
+                **self.simulator._inventory_result_fields(state),
             ))
         return results
 
 
 def simulate_chronological_race(simulator, drivers, cars, track, weather, starting_grid,
                                 *, starting_tires=None, starting_tire_ages=None,
-                                red_flag_pause_seconds=600.0):
+                                red_flag_pause_seconds=600.0, tire_inventory=None):
     """Run the experimental engine explicitly; production dispatch is unchanged."""
     return ChronologicalRace(simulator, red_flag_pause_seconds=red_flag_pause_seconds).run(
         drivers, cars, track, weather, starting_grid, starting_tires=starting_tires,
         starting_tire_ages=starting_tire_ages,
+        tire_inventory=tire_inventory,
     )

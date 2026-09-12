@@ -9,6 +9,7 @@ from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather, Weathe
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.events import EventManager, EventType, RaceEvent
 from f1sim.simulation.execution import validate_starting_tire_ages, validate_starting_tires
+from f1sim.simulation.inventory_race import InventoryStrategyMixin
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.opening_strategy import dry_opening_policy_costs, opening_policy_costs
 from f1sim.simulation.overtaking import OvertakingModel
@@ -18,6 +19,7 @@ from f1sim.simulation.race_timing import RaceFinishClock, forecast_final_lap
 from f1sim.simulation.rain_strategy import plan_rain_stop, plan_rain_transition
 from f1sim.simulation.strategy_traffic import StrategyTrafficSnapshot
 from f1sim.simulation.surface_projection import projected_surfaces
+from f1sim.simulation.tire_inventory import TireInventory, validate_tire_inventory
 from f1sim.simulation.validation import validate_unique_ids
 from f1sim.simulation.weather_strategy import weather_stop_costs
 
@@ -73,6 +75,9 @@ class DriverRaceState:
     pit_stop_details: list[dict] = field(default_factory=list)
     weather_pit_proposal: tuple[int, TireCompound] | None = None
     prior_tire_laps: int = 0
+    tire_inventory: TireInventory | None = None
+    tire_set_history: list[dict] = field(default_factory=list)
+    inventory_pit_proposal: tuple[int, str | None] | None = None
 
     def __post_init__(self) -> None:
         """Seed tyre history from the driver's actual starting set."""
@@ -101,6 +106,8 @@ class RaceResult:
     race_time_limited: bool = False
     points_awarded: int | None = None
     pit_stop_details: list[dict] | None = None
+    tire_set_history: list[dict] | None = None
+    tire_inventory: list[dict] | None = None
 
 
 def result_is_classified(result: RaceResult) -> bool:
@@ -125,7 +132,7 @@ class RaceState:
     fastest_lap_driver: str | None = None
 
 
-class RaceSimulator:
+class RaceSimulator(InventoryStrategyMixin):
     """Simulates a full F1 race."""
 
     # A deployment is a meaningful burst rather than a free per-lap bonus.
@@ -210,6 +217,7 @@ class RaceSimulator:
         starting_grid: list[str],
         starting_tires: dict[str, TireCompound] | None = None,
         starting_tire_ages: dict[str, int] | None = None,
+        tire_inventory: dict[str, list[dict]] | None = None,
     ) -> list[RaceResult]:
         """Simulate a complete race.
 
@@ -229,6 +237,8 @@ class RaceSimulator:
         starting_tires = validate_starting_tires(starting_tires, (d.id for d in drivers))
         ages = validate_starting_tire_ages(starting_tire_ages, starting_tires,
                                            (d.id for d in drivers))
+        inventories = validate_tire_inventory(tire_inventory, starting_tires, ages,
+                                              (d.id for d in drivers))
         # Reset mutable driver state as well as event state.  Monte Carlo
         # workers may intentionally reuse model instances between simulations.
         for driver in drivers:
@@ -263,7 +273,14 @@ class RaceSimulator:
             # position rule.  Explicit caller overrides remain authoritative;
             # otherwise choose from the seeded RNG using the team strategy,
             # track stress and initial weather.
-            if starting_tires and driver_id in starting_tires:
+            inventory = selected_set = None
+            if driver_id in inventories:
+                inventory, selected_set = self._inventory_opening_set(
+                    driver, car, track, current_weather, strategy, inventories[driver_id],
+                    starting_tires.get(driver_id), ages.get(driver_id, 0),
+                )
+                tire_compound = selected_set.compound
+            elif starting_tires and driver_id in starting_tires:
                 tire_compound = starting_tires[driver_id]
             else:
                 tire_compound = self._choose_starting_compound(
@@ -290,6 +307,8 @@ class RaceSimulator:
                     active_pit_plan_index=0,
                 )
             )
+            if inventory is not None:
+                self._initialize_inventory(states[-1], inventory, selected_set)
 
         # An empty or unusable grid has no racing laps or race-control events.
         if not states:
@@ -305,6 +324,8 @@ class RaceSimulator:
         consecutive_green_laps = 0
         has_two_green_laps = False
         for lap in range(1, track.total_laps + 1):
+            if not any(state.status == DriverStatus.RACING for state in states):
+                break
             self._record_weather(lap, current_weather)
             leader = min((state for state in states if state.status == DriverStatus.RACING),
                          key=lambda state: state.position)
@@ -467,6 +488,7 @@ class RaceSimulator:
 
                         if event.forces_pit_stop and state.status == DriverStatus.RACING:
                             state.force_pit_next_lap = True
+                            self._damage_inventory_tire(state)
 
                         if state.driver.dnf:
                             state.status = DriverStatus.DNF
@@ -478,6 +500,16 @@ class RaceSimulator:
                 if state.status == DriverStatus.DNF and before.status == DriverStatus.RACING:
                     state.total_time = before.total_time
                     state.last_lap_time = before.last_lap_time
+                    if state.tire_inventory is not None and state.driver.id in lap_times:
+                        # Finite ledgers count completed tyre laps, just as the
+                        # chronological engine does. Keep any paid fitting, but
+                        # discard this failed crossing's provisional wear.
+                        state.tire_laps -= 1
+                        state.driver.current_tire_laps = state.tire_laps
+                        pool = state.tire_inventory
+                        current = pool.sets[pool.current_set_id]
+                        if current.age > state.tire_laps:
+                            pool.sets[current.id] = replace(current, age=state.tire_laps)
 
             # A post-lap incident can make the car that was physically ahead
             # slower on elapsed time than a car behind it.  Reclassify only
@@ -650,6 +682,7 @@ class RaceSimulator:
                         state.position, classified, winner_laps or 0, track.total_laps,
                         has_two_green_laps,
                     ),
+                    **self._inventory_result_fields(state),
                 )
             )
 
@@ -889,6 +922,10 @@ class RaceSimulator:
                 **({"physical_total_laps": physical_total_laps}
                    if physical_total_laps is not None else {}),
             ):
+                if state.tire_inventory is not None and not self._prepare_inventory_pit(
+                    state, track, weather, lap, physical_total_laps=physical_total_laps,
+                ):
+                    continue
                 pitting.append(state)
                 expected_releases[team] = arrival + delay + expected_stationary_time(state.car)
 
@@ -901,6 +938,8 @@ class RaceSimulator:
                 **({"physical_total_laps": physical_total_laps}
                    if physical_total_laps is not None else {}),
             )
+            if state.status != DriverStatus.RACING:
+                continue
             state.pit_stops += 1
             state.pit_laps.append(lap)
             state.force_pit_next_lap = False
@@ -922,6 +961,12 @@ class RaceSimulator:
         """Decide if driver should pit this lap."""
         state.dry_pit_proposal = None
         state.weather_pit_proposal = None
+        if state.tire_inventory is not None:
+            return self._should_pit_inventory(
+                state, all_states, track, lap, weather if weather is not None else Weather(),
+                additional_current_stop_cost, physical_total_laps,
+                traffic_snapshot, weather_intervals,
+            )
         clearly_dry = weather is None or (
             weather.track_wetness < 0.08 and weather.rain_intensity < 0.15
         )
@@ -1466,6 +1511,13 @@ class RaceSimulator:
         Returns:
             Time lost in seconds
         """
+        selected_set = None
+        if state.tire_inventory is not None:
+            if not self._prepare_inventory_pit(
+                state, track, weather, current_lap, physical_total_laps=physical_total_laps,
+            ):
+                return 0.0
+            selected_set = state.inventory_pit_proposal[1]
         # Pit lane time + stationary time.  Under a full safety car the field
         # is travelling much more slowly, so the relative pit-lane loss is
         # materially smaller; VSC provides a moderate reduction.  Stationary
@@ -1486,7 +1538,9 @@ class RaceSimulator:
         weather_proposal = state.weather_pit_proposal
         state.dry_pit_proposal = None
         state.weather_pit_proposal = None
-        if weather_compound is not None:
+        if selected_set is not None:
+            new_compound = state.tire_inventory.sets[selected_set].compound
+        elif weather_compound is not None:
             new_compound = weather_compound
         elif (
             weather_proposal is not None and weather_proposal[0] == current_lap
@@ -1542,7 +1596,16 @@ class RaceSimulator:
             "queue_time": float(queue_time),
             "total_loss": float(total_loss),
         })
-        self._fit_tire(state, new_compound)
+        if selected_set is not None:
+            state.pit_stop_details[-1].update(
+                from_set_id=state.tire_inventory.current_set_id,
+                to_set_id=selected_set,
+                incoming_tire_age=state.tire_inventory.sets[selected_set].age,
+            )
+            self._fit_inventory_tire(state, selected_set, current_lap, "pit")
+            state.inventory_pit_proposal = None
+        else:
+            self._fit_tire(state, new_compound)
 
         return total_loss
 
@@ -2024,6 +2087,12 @@ class RaceSimulator:
         # All drivers can change tires during red flag (free tire change)
         for state in states:
             if state.status != DriverStatus.RACING or current_lap >= track.total_laps:
+                continue
+
+            if state.tire_inventory is not None:
+                self._refit_inventory_free(
+                    state, track, weather, current_lap, physical_total_laps=physical_total_laps,
+                )
                 continue
 
             # Choose optimal tire for current conditions

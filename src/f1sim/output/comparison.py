@@ -1,5 +1,6 @@
 """Offline, descriptive comparison reports for saved simulation scenarios."""
 
+import json
 from enum import Enum
 from html import escape
 from math import isfinite
@@ -7,6 +8,7 @@ from numbers import Real
 
 from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.analysis.paired_comparison import paired_comparison_statistics
+from f1sim.output.export import Exporter
 
 
 def _text(value: object) -> str:
@@ -114,6 +116,7 @@ def render_comparison_report(
                 result.seed if result.seed is not None else "Not recorded",
                 _weather(result),
                 _starting_tires(result),
+                json.dumps((result.input_snapshot or {}).get("tire_inventory", {})),
             )
         ) + "</tr>")
         for driver_id, stats in result.driver_stats.items():
@@ -232,6 +235,13 @@ def render_comparison_report(
             + _paired_driver_table(driver_id, paired) + "</details>"
         )
 
+    inventory_sections = ''.join(
+        f'<details><summary>{_text(name)}</summary>'
+        + Exporter._tire_set_ledger_html(result) + '</details>'
+        for name, result in scenario_results.items()
+        if any(getattr(row, 'tire_set_history', None) is not None
+               for race in result.race_results for row in race)
+    )
     return """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -269,8 +279,9 @@ aria-label="Scenario context"><table><caption>Recorded run context</caption><the
 <th scope="col">Scenario</th><th scope="col">Track</th><th scope="col">Engine</th>
 <th scope="col">Requested trials</th><th scope="col">Base seed</th>
 <th scope="col">Initial weather</th>
-<th scope="col">Starting tyre overrides</th></tr></thead><tbody>""" + (
-        "".join(context) or '<tr><td colspan="7">No scenarios recorded</td></tr>'
+<th scope="col">Starting tyre overrides</th>
+<th scope="col">Input race set pools (unlisted drivers unlimited)</th></tr></thead><tbody>""" + (
+        "".join(context) or '<tr><td colspan="8">No scenarios recorded</td></tr>'
     ) + """</tbody></table></div><h2>Race distance</h2>
 <p>Shortened races and lapped finishes can change points and pit-stop counts.
 Winning distance uses finished P1 results with a recorded distance. Lapping
@@ -307,4 +318,6 @@ Legacy shared draws can change the weather when race decisions change.</p>""" + 
         if paired is not None else ""
     ) + (
         "".join(sections) or "<p>No driver outcomes recorded.</p>"
+    ) + (
+        '<h2>Race tyre set ledgers</h2>' + inventory_sections if inventory_sections else ''
     ) + "</main></body></html>"

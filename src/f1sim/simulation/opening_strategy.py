@@ -119,9 +119,54 @@ def _policy_path_cost(driver, car, track, weather, strategy, tuning, profiles, c
     )[1]
 
 
-def _policy_path_outcome(driver, car, track, weather, strategy, tuning, profiles, compound, seed):
+def inventory_opening_policy_costs(driver, car, track, weather, strategy, tuning, profiles,
+                                    records):
+    """Compare each physical opening set through the finite, timed race policy."""
+    from f1sim.simulation import race_timing
+
+    clean = driver.model_copy(deep=True)
+    clean.reset_race_state()
+    clean.id = clean.name = clean.team_id = "projection"
+    package = car.model_copy(update={"team_id": "projection", "team_name": "projection"})
+    snapshots = [clean.model_dump(), package.model_dump(), track.model_dump(), weather.model_dump(),
+                 tuning, profiles, records,
+                 {c.value: tire.model_dump() for c, tire in TIRE_COMPOUNDS.items()}]
+    return _cached_inventory_policy_costs(
+        *(json.dumps(value, sort_keys=True) for value in snapshots), strategy.value,
+        race_timing.RACING_TIME_LIMIT_SECONDS,
+    )
+
+
+@lru_cache(maxsize=128)
+def _cached_inventory_policy_costs(driver_json, car_json, track_json, weather_json,
+                                   tuning_json, profiles_json, records_json, tires_json,
+                                   strategy, racing_time_limit):
+    from f1sim.simulation.race import TeamStrategyArchetype
+
+    driver = Driver.model_validate_json(driver_json)
+    car = Car.model_construct(**json.loads(car_json))
+    track = Track.model_validate_json(track_json)
+    weather = Weather.model_validate_json(weather_json)
+    records = json.loads(records_json)
+    eligible = [item for item in records
+                if weather.tire_mismatch(TireCompound(item["compound"])) != "critical"]
+    scores = []
+    # Finite-set policy uses deterministic costs throughout, so private lap
+    # variation/events are unnecessary. The actual race RNG is untouched.
+    for item in eligible or records:
+        laps, time = _policy_path_outcome(
+            driver, car, track, weather, TeamStrategyArchetype(strategy),
+            json.loads(tuning_json), json.loads(profiles_json), TireCompound(item["compound"]), 0,
+            tire_inventory=records, opening_set_id=item["id"],
+        )
+        scores.append((item["id"], OpeningPolicyScore(-laps if time != inf else inf, time)))
+    return tuple(scores)
+
+
+def _policy_path_outcome(driver, car, track, weather, strategy, tuning, profiles, compound, seed,
+                          *, tire_inventory=None, opening_set_id=None):
     """Run one isolated existing pit policy with deterministic pace and mean service."""
-    from f1sim.simulation.race import DriverRaceState, RaceSimulator
+    from f1sim.simulation.race import DriverRaceState, DriverStatus, RaceSimulator
 
     simulator = RaceSimulator(np.random.default_rng(seed), tuning, profiles)
     local_driver = driver.model_copy(deep=True)
@@ -131,6 +176,11 @@ def _policy_path_outcome(driver, car, track, weather, strategy, tuning, profiles
                             current_tire=TIRE_COMPOUNDS[compound].model_copy(deep=True),
                             strategy_archetype=strategy, planned_pit_laps=plans[0],
                             pit_plan_options=plans)
+    if tire_inventory is not None:
+        from f1sim.simulation.tire_inventory import TireInventory
+
+        inventory = TireInventory.from_sets(tire_inventory)
+        simulator._initialize_inventory(state, inventory, inventory.sets[opening_set_id])
     projected = weather.model_copy(deep=True)
     finish_clock = RaceFinishClock(track.total_laps)
     final_lap = finish_clock.final_lap
@@ -153,6 +203,8 @@ def _policy_path_outcome(driver, car, track, weather, strategy, tuning, profiles
                 **({"physical_total_laps": track.total_laps}
                    if planning_final_lap < track.total_laps else {}),
             )
+            if state.status != DriverStatus.RACING:
+                return state.laps_completed, inf
             state.total_time += loss
             state.pit_stops += 1
             state.pit_laps.append(lap)

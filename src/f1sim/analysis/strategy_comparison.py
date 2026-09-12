@@ -1,6 +1,7 @@
 """Compare strategy and engine variants against saved inputs and seeds offline."""
 
 from collections.abc import Iterable
+from copy import deepcopy
 from numbers import Integral
 from pathlib import Path
 
@@ -59,6 +60,7 @@ def compare_saved_race_engines(
             starting_tires=runner.starting_tires.copy(),
             starting_tire_ages=runner.starting_tire_ages.copy(),
             rng_policy=runner.rng_policy if rng_policy is None else rng_policy,
+            tire_inventory=deepcopy(runner.tire_inventory),
         )
         results[label] = variant.run(
             int(num_simulations), parallel=parallel,
@@ -132,6 +134,7 @@ def compare_saved_starting_tires(
             seed=runner.base_seed, race_engine=runner.race_engine, starting_tires=overrides,
             starting_tire_ages=ages,
             rng_policy=runner.rng_policy if rng_policy is None else rng_policy,
+            tire_inventory=deepcopy(runner.tire_inventory),
         )
         results[label] = variant.run(
             int(num_simulations), parallel=parallel,

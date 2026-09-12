@@ -34,6 +34,7 @@ from f1sim.simulation.randomness import (
     validate_rng_policy,
     weather_rng_for_trial,
 )
+from f1sim.simulation.tire_inventory import validate_tire_inventory
 from f1sim.simulation.validation import validate_unique_ids
 
 
@@ -569,7 +570,8 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
 
     Args:
         args: Tuple of (drivers_data, cars_data, track_data, weather_data, seed,
-            race_engine, starting_tires, rng_policy). Legacy five/six/seven-item
+            race_engine, starting_tires, rng_policy, starting_tire_ages, tire_inventory).
+            Legacy five through nine-item calls remain supported; five/six/seven-item
             calls retain the shared random stream.
 
     Returns:
@@ -577,6 +579,7 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     """
     starting_tires = None
     starting_tire_ages = None
+    tire_inventory = None
     rng_policy = "shared_v1"
     if len(args) == 5:
         drivers_data, cars_data, track_data, weather_data, seed = args
@@ -589,9 +592,12 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     elif len(args) == 8:
         (drivers_data, cars_data, track_data, weather_data, seed,
          race_engine, starting_tires, rng_policy) = args
-    else:
+    elif len(args) == 9:
         (drivers_data, cars_data, track_data, weather_data, seed,
          race_engine, starting_tires, rng_policy, starting_tire_ages) = args
+    else:
+        (drivers_data, cars_data, track_data, weather_data, seed,
+         race_engine, starting_tires, rng_policy, starting_tire_ages, tire_inventory) = args
     race_engine = validate_race_engine(race_engine)
     rng_policy = validate_rng_policy(rng_policy)
 
@@ -603,6 +609,8 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     }
     ages = validate_starting_tire_ages(starting_tire_ages, opening_compounds,
                                        (d.id for d in drivers))
+    inventory = validate_tire_inventory(tire_inventory, opening_compounds, ages,
+                                        (d.id for d in drivers))
     cars = {k: Car.model_validate(v) for k, v in cars_data.items()}
     track = Track.model_validate(track_data)
     weather = Weather.model_validate(weather_data)
@@ -631,6 +639,7 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
         starting_grid=starting_grid,
         **({"starting_tires": opening_compounds} if opening_compounds else {}),
         **({"starting_tire_ages": ages} if ages else {}),
+        **({"tire_inventory": inventory} if inventory else {}),
     )
 
     # Collect event statistics
@@ -682,6 +691,7 @@ class MonteCarloRunner:
         starting_tires: dict[str, str | TireCompound] | None = None,
         rng_policy: str = DEFAULT_RNG_POLICY,
         starting_tire_ages: dict[str, int] | None = None,
+        tire_inventory: dict[str, list[dict]] | None = None,
     ):
         """Initialize Monte Carlo runner.
 
@@ -694,6 +704,7 @@ class MonteCarloRunner:
             race_engine: Standard lap loop or experimental chronological execution
             starting_tires: Explicit opening compounds by driver ID; omitted drivers use policy
             rng_policy: Versioned shared or independent weather random streams
+            tire_inventory: Finite reusable race sets for listed drivers; others unlimited
         """
         self.race_engine = validate_race_engine(race_engine)
         self.rng_policy = validate_rng_policy(rng_policy)
@@ -701,6 +712,10 @@ class MonteCarloRunner:
         self.starting_tires = validate_starting_tires(starting_tires, (d.id for d in drivers))
         self.starting_tire_ages = validate_starting_tire_ages(
             starting_tire_ages, self.starting_tires, (d.id for d in drivers),
+        )
+        self.tire_inventory = validate_tire_inventory(
+            tire_inventory, self.starting_tires, self.starting_tire_ages,
+            (d.id for d in drivers),
         )
         self.drivers = drivers
         self.cars = cars
@@ -751,13 +766,15 @@ class MonteCarloRunner:
 
         ages = validate_starting_tire_ages(self.starting_tire_ages, starting_tires,
                                            (d.id for d in self.drivers))
+        inventory = validate_tire_inventory(self.tire_inventory, starting_tires, ages,
+                                            (d.id for d in self.drivers))
         # Prepare serializable data for multiprocessing
         drivers_data = [d.model_dump() for d in self.drivers]
         cars_data = {k: v.model_dump() for k, v in self.cars.items()}
         track_data = self.track.model_dump()
         weather_data = self.weather.model_dump()
         input_snapshot = {
-            "schema_version": 3 if ages else 2,
+            "schema_version": 4 if inventory else 3 if ages else 2,
             "drivers": deepcopy(drivers_data),
             "cars": deepcopy(cars_data),
             "track": deepcopy(track_data),
@@ -767,6 +784,8 @@ class MonteCarloRunner:
             "runtime": simulation_runtime(),
         }
 
+        if inventory:
+            input_snapshot["tire_inventory"] = deepcopy(inventory)
         if ages:
             input_snapshot["starting_tire_ages"] = ages.copy()
         # Generate unique seeds for each simulation
@@ -774,7 +793,7 @@ class MonteCarloRunner:
 
         args_list = [
             (drivers_data, cars_data, track_data, weather_data, seed,
-             self.race_engine, starting_tires, rng_policy, ages)
+             self.race_engine, starting_tires, rng_policy, ages, deepcopy(inventory))
             for seed in seeds
         ]
 

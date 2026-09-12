@@ -61,6 +61,22 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       assert.equal(await page.evaluate(() => buildRunPayload()), null);
     }
     await page.locator('#startingTiresInput').fill(offline ? 'S00=hard@5, S01=soft' : '');
+    await page.locator('#tireInventoryInput').fill('S00=hard@1.5');
+    assert.equal(await page.evaluate(() => buildRunPayload()), null);
+    await page.locator('#tireInventoryInput').fill('S00=hard@5,soft,intermediate,wet');
+    assert.deepEqual(await page.evaluate(() => buildRunPayload().tire_inventory.S00), [
+      {id: 'set-1', compound: 'hard', age: 5}, {id: 'set-2', compound: 'soft', age: 0},
+      {id: 'set-3', compound: 'intermediate', age: 0}, {id: 'set-4', compound: 'wet', age: 0},
+    ]);
+    await page.locator('#tireInventoryInput').fill(offline ? 'S00=hard@5,soft,intermediate,wet' : '');
+    const ledgerHtml = await page.evaluate(() => renderTireSetLedgers([{
+      driver_id: 'S00', tire_set_history: [{lap: 1, kind: 'start',
+        set_id: '<img src=x onerror=alert(1)>', compound: 'hard', age_at_fit: 5,
+        age_at_end: 8, laps_used: 3}], tire_inventory: [{id: 'set-1',
+        compound: 'hard', age: 8, current: true, available: false, unavailable: false}],
+    }]));
+    assert(ledgerHtml.includes('&lt;img') && !ledgerHtml.includes('<img'));
+    assert(ledgerHtml.includes('Final race set pool') && ledgerHtml.includes('Physical set fittings'));
     await page.evaluate(() => setScenarioSelection(['dry', 'light_rain', 'heavy_rain']));
     const responsePromise = page.waitForResponse(response => response.url().endsWith('/api/run'));
     await page.locator('#btnRun').click();
@@ -68,6 +84,14 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     assert.equal(response.status(), 200);
     assert.equal(response.request().postDataJSON().race_engine, 'chronological');
     assert.equal(response.request().postDataJSON().weather_mode, 'fixed_rainfall');
+    if (offline) {
+      await page.locator('#sampleTireSetLedgers summary').click();
+      await page.locator('#sampleTireSetLedgers table').first().waitFor({state: 'visible'});
+      const setText = await page.locator('#sampleTireSetLedgers').innerText();
+      assert(setText.includes('set-1') && setText.includes('Physical set fittings'));
+      assert(setText.includes('Final race set pool'));
+      assert.deepEqual(response.request().postDataJSON().tire_inventory, fixture.payload.request.tire_inventory);
+    }
     assert.deepEqual(response.request().postDataJSON().starting_tires,
       offline ? {S00: 'hard', S01: 'soft'} : {});
     assert.deepEqual(response.request().postDataJSON().starting_tire_ages,
@@ -477,7 +501,11 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         for (const [name, scenario] of Object.entries(saved.scenarios)) {
           assert.deepEqual(scenario.simulation_inputs, payload.scenarios[name].simulation_inputs);
           assert.deepEqual(scenario.strategy_statistics, payload.scenarios[name].strategy_statistics);
-          assert.equal(scenario.simulation_inputs.schema_version, offline ? 3 : 2);
+          assert.equal(scenario.simulation_inputs.schema_version, offline ? 4 : 2);
+          if (offline) {
+            assert.deepEqual(scenario.simulation_inputs.tire_inventory, fixture.payload.request.tire_inventory);
+            assert(scenario.sample_race.find(row => row.driver_id === 'S00').tire_set_history.length);
+          }
           assert.equal(scenario.simulation_inputs.rng_policy, 'isolated_weather_v1');
         }
       } else if (extension === '.html') {
