@@ -51,125 +51,105 @@ def _clock_rain_stop(
     *, pit_lane_factor, additional_current_stop_cost, current_lap_time_modifier,
     active_aero_enabled, physical_total_laps, current_traffic_gaps, weather_clock,
 ):
-    """Evaluate same-compound rain actions on an externally timed weather clock."""
+    """Compare complete same-compound stints on the paid-stop weather clock."""
     gaps = normalize_current_traffic_gaps(current_traffic_gaps)
     horizon = track.total_laps - current_lap + 1
-    simulator = LapSimulator(np.random.default_rng(0))
     driver = driver.model_copy(deep=True)
     driver.reset_race_state()
-    clean = car.model_copy(deep=True)
+    driver.id = driver.name = driver.team_id = "projection"
+    clean = car.model_copy(update={"team_id": "projection", "team_name": "projection"})
+    models = tuple(model.model_dump_json() for model in (driver, clean, track))
+    retained_json = current_tire.model_dump_json()
+    fresh = TIRE_COMPOUNDS[current_tire.compound]
+    fresh_json = fresh.model_dump_json()
     service = expected_stationary_time(clean)
-
-    projected = {}
-    surface_updates = {}
-    branch_surfaces = {}
-
-    def surface(offset, paid_stops, stopped_first):
-        branch = (offset, paid_stops, stopped_first)
-        if branch in branch_surfaces:
-            return branch_surfaces[branch]
-        updates = weather_clock.updates(offset, paid_stops, stopped_first)
-        if updates not in projected:
-            value = weather
-            for _ in range(updates):
-                value = value.project_surface()
-            projected[updates] = value
-            surface_updates[id(value)] = updates
-        branch_surfaces[branch] = projected[updates]
-        return branch_surfaces[branch]
+    green_stop = track.pit_lane_delta + service
+    projected = [weather]
 
     @lru_cache(maxsize=None)
-    def cached_running(offset, tire_kind, age, updates, gap):
-        tire = current_tire if tire_kind == "retained" \
-            else TIRE_COMPOUNDS[current_tire.compound]
-        branch_surface = projected[updates]
-        driver.current_tire_laps = age
-        value = simulator.calculate_lap_time(
-            driver, clean, track, tire, branch_surface, current_lap + offset,
-            physical_total_laps, active_aero_enabled=(
-                active_aero_enabled if offset == 0 else True
-            ), sample_variation=False, gap_to_car_ahead=gap,
+    def row(offset, paid, stopped_first, retained=False):
+        first = weather_clock.updates(offset, paid, stopped_first)
+        while len(projected) <= first:
+            projected.append(projected[-1].project_surface())
+        intervals = tuple(
+            weather_clock.updates(index, paid, stopped_first) - first
+            for index in range(offset, horizon)
         )
-        return value * current_lap_time_modifier if offset == 0 else value
-
-    def running(offset, tire_kind, age, branch_surface, gap=None):
-        return cached_running(
-            offset, tire_kind, age, surface_updates[id(branch_surface)], gap,
+        return _running_row(
+            models, projected[first].model_dump_json(),
+            retained_json if retained else fresh_json,
+            tire_age if retained else 0, current_lap + offset,
+            physical_total_laps, intervals,
         )
 
-    suffix_cache = {}
+    cache = {}
 
-    def suffix(initial):
-        """Solve the offset-increasing suffix without recursion.
-
-        The weather clock makes this state a DAG: every action advances one
-        lap.  An explicit stack keeps long timed races independent of Python's
-        recursion limit while retaining the old memoized branch costs.
-        """
-        if initial in suffix_cache:
-            return suffix_cache[initial]
+    def future(initial):
+        """Every edge ends a stint, retaining every allowed stop schedule."""
+        if initial in cache:
+            return cache[initial]
         frames = [[initial, None, 0, inf]]
         while frames:
             state, actions, index, best = frames[-1]
-            if state in suffix_cache:
-                frames.pop()
-                continue
-            offset, age, paid_stops, stopped_first, fresh = state
             if actions is None:
-                if offset == horizon:
-                    # Let the normal completion path propagate this value to
-                    # the parent frame; popping here would lose the edge.
-                    frames[-1][1:] = [[], 0, 0.0]
-                    continue
-                branch_surface = surface(offset, paid_stops, stopped_first)
-                actions = [
-                    ((offset + 1, age + 1, paid_stops, stopped_first, fresh),
-                     running(offset, "fresh" if fresh else "retained", age,
-                             branch_surface))
-                ]
-                if paid_stops < remaining_stops:
-                    post_stopped = stopped_first or offset == 0
-                    post_surface = surface(offset, paid_stops + 1, post_stopped)
-                    stop = (track.pit_lane_delta + service
-                            + running(offset, "fresh", 0, post_surface))
-                    if offset == 0:
-                        stop += track.pit_lane_delta * (pit_lane_factor - 1.0)
-                        stop += additional_current_stop_cost
-                    actions.append((
-                        (offset + 1, 1, paid_stops + 1, post_stopped, True), stop,
-                    ))
-                frames[-1][1:] = [actions, 0, inf]
+                offset, paid, stopped_first = state
+                costs = row(offset, paid, stopped_first)
+                actions = []
+                prefix = 0.0
+                if paid < remaining_stops:
+                    for next_stop in range(offset + 1, horizon):
+                        prefix += costs[next_stop - offset - 1]
+                        actions.append(((next_stop, paid + 1, stopped_first),
+                                        prefix + green_stop))
+                frames[-1][1:] = [actions, 0, sum(costs)]
                 continue
             if index < len(actions):
-                child, edge = actions[index]
+                child, cost = actions[index]
                 frames[-1][2] += 1
-                if child in suffix_cache:
-                    frames[-1][3] = min(frames[-1][3], edge + suffix_cache[child])
+                if child in cache:
+                    frames[-1][3] = min(frames[-1][3], cost + cache[child])
                 else:
                     frames.append([child, None, 0, inf])
                 continue
-            suffix_cache[state] = best
+            cache[state] = best
             frames.pop()
             if frames:
                 parent = frames[-1]
-                # The parent advances its action index before descending.
-                child, edge = parent[1][parent[2] - 1]
-                parent[3] = min(parent[3], edge + suffix_cache[state])
-        return suffix_cache[initial]
+                _child, cost = parent[1][parent[2] - 1]
+                parent[3] = min(parent[3], cost + best)
+        return cache[initial]
 
-    first_surface = surface(0, 0, False)
-    wait = running(0, "retained", tire_age, first_surface,
-                   gaps[0] if gaps is not None else None)
-    wait += suffix((1, tire_age + 1, 0, False, False))
-    if remaining_stops == 0:
-        pit = inf
-    else:
-        post_surface = surface(0, 1, True)
+    simulator = LapSimulator(np.random.default_rng(0))
+
+    def first_running(tire, age, paid, stopped_first, gap):
+        first = weather_clock.updates(0, paid, stopped_first)
+        while len(projected) <= first:
+            projected.append(projected[-1].project_surface())
+        driver.current_tire_laps = age
+        return simulator.calculate_lap_time(
+            driver, clean, track, tire, projected[first], current_lap,
+            physical_total_laps, active_aero_enabled=active_aero_enabled,
+            sample_variation=False, gap_to_car_ahead=gap,
+        ) * current_lap_time_modifier
+
+    old = row(0, 0, False, True)
+    first_old = first_running(current_tire, tire_age, 0, False,
+                              gaps[0] if gaps is not None else None)
+    wait = first_old + sum(old[1:])
+    prefix = first_old
+    if remaining_stops:
+        for next_stop in range(1, horizon):
+            if next_stop > 1:
+                prefix += old[next_stop - 1]
+            wait = min(wait, prefix + green_stop + future((next_stop, 1, False)))
+    pit = inf
+    if remaining_stops:
+        fresh_row = row(0, 1, True)
+        first_fresh = first_running(fresh, 0, 1, True,
+                                    gaps[1] if gaps is not None else None)
         pit = (track.pit_lane_delta * pit_lane_factor + service
-               + additional_current_stop_cost
-               + running(0, "fresh", 0, post_surface,
-                         gaps[1] if gaps is not None else None)
-               + suffix((1, 1, 1, True, True)))
+               + additional_current_stop_cost + future((0, 1, True))
+               + first_fresh - fresh_row[0])
     return RainStopDecision(pit, wait)
 
 
@@ -190,23 +170,21 @@ def _clock_rain_transition(
     bits = {compound: (1 << index if index < 3 else 8)
             for index, compound in enumerate(TireCompound)}
 
-    projected = {}
+    projected = [weather]
     branch_surfaces = {}
-    surface_json = {}
+    surface_json = {id(weather): weather.model_dump_json()}
 
     def branch_surface(offset, paid_stops, stopped_first):
         branch = (offset, paid_stops, stopped_first)
         if branch in branch_surfaces:
             return branch_surfaces[branch]
         updates = weather_clock.updates(offset, paid_stops, stopped_first)
-        if updates not in projected:
-            value = weather
-            for _ in range(updates):
-                value = value.project_surface()
-            projected[updates] = value
+        while len(projected) <= updates:
+            value = projected[-1].project_surface()
+            projected.append(value)
+            surface_json[id(value)] = value.model_dump_json()
         value = projected[updates]
         branch_surfaces[branch] = value
-        surface_json[id(value)] = value.model_dump_json()
         return value
 
     @lru_cache(maxsize=None)

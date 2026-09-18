@@ -57,12 +57,12 @@ def _clock_inventory_strategy(
     def updates(offset, paid_stops, stopped_first):
         return weather_clock.updates(offset, paid_stops, stopped_first)
 
-    @lru_cache(maxsize=None)
+    surface_path = [weather]
+
     def projected_surface(updates):
-        value = weather
-        for _ in range(updates):
-            value = value.project_surface()
-        return value
+        while len(surface_path) <= updates:
+            surface_path.append(surface_path[-1].project_surface())
+        return surface_path[updates]
 
     @lru_cache(maxsize=None)
     def surface(offset, paid_stops, stopped_first):

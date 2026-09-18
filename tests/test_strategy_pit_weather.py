@@ -59,10 +59,12 @@ def event_surface(weather, clock, offset, paid, stopped_first):
 
 
 def exhaustive_same(driver, car, track, weather, tire, age, current_lap, budget, clock,
-                    *, queue=0.0, modifier=1.0, aero=True):
+                    *, queue=0.0, modifier=1.0, aero=True, lane=1.0,
+                    current_gaps=(None, None), physical_total_laps=None):
     simulator = LapSimulator(np.random.default_rng(7))
     horizon = track.total_laps - current_lap + 1
     values = [inf, inf]
+    physical = track.total_laps if physical_total_laps is None else physical_total_laps
 
     def visit(offset, fitted, tire_age, paid, total, first_stop):
         if offset == horizon:
@@ -71,7 +73,8 @@ def exhaustive_same(driver, car, track, weather, tire, age, current_lap, budget,
         before = event_surface(weather, clock, offset, paid, first_stop)
         driver.current_tire_laps = tire_age
         running = simulator.calculate_lap_time(
-            driver, car, track, fitted, before, current_lap + offset, track.total_laps,
+            driver, car, track, fitted, before, current_lap + offset, physical,
+            gap_to_car_ahead=current_gaps[0] if offset == 0 else None,
             active_aero_enabled=aero if offset == 0 else True,
             sample_variation=False,
         ) * (modifier if offset == 0 else 1.0)
@@ -84,11 +87,13 @@ def exhaustive_same(driver, car, track, weather, tire, age, current_lap, budget,
         # The stop runs the replacement on the post-delay surface.
         driver.current_tire_laps = 0
         fresh_running = simulator.calculate_lap_time(
-            driver, car, track, fresh, after, current_lap + offset, track.total_laps,
+            driver, car, track, fresh, after, current_lap + offset, physical,
+            gap_to_car_ahead=current_gaps[1] if offset == 0 else None,
             active_aero_enabled=aero if offset == 0 else True,
             sample_variation=False,
         ) * (modifier if offset == 0 else 1.0)
-        stop = (track.pit_lane_delta + expected_stationary_time(car)
+        stop = (track.pit_lane_delta * (lane if offset == 0 else 1)
+                + expected_stationary_time(car)
                 + (queue if offset == 0 else 0.0) + fresh_running)
         visit(offset + 1, fresh, 1, paid + 1, total + stop,
               first_stop or offset == 0)

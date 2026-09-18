@@ -44,23 +44,21 @@ def _clock_weather_stop_costs(
     driver.reset_race_state()
     clean = car.model_copy(deep=True)
     service = expected_stationary_time(clean)
-    projected = {}
+    projected = [weather]
     branch_surfaces = {}
-    surface_json = {}
+    surface_json = {id(weather): weather.model_dump_json()}
 
     def surface(offset, paid_stops, stopped_first):
         branch = (offset, paid_stops, stopped_first)
         if branch in branch_surfaces:
             return branch_surfaces[branch]
         updates = weather_clock.updates(offset, paid_stops, stopped_first)
-        if updates not in projected:
-            value = weather
-            for _ in range(updates):
-                value = value.project_surface()
-            projected[updates] = value
+        while len(projected) <= updates:
+            value = projected[-1].project_surface()
+            projected.append(value)
+            surface_json[id(value)] = value.model_dump_json()
         value = projected[updates]
         branch_surfaces[branch] = value
-        surface_json[id(value)] = value.model_dump_json()
         return value
 
     @lru_cache(maxsize=None)
