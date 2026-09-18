@@ -116,6 +116,24 @@ apply the observational exclusions above and are not calibration sample sizes:
 The JSON records the session identity and decoded-feed hashes so a later run
 can distinguish changed source data from changed normalization.
 
+A follow-up comparison on the same date required six consecutive candidate laps
+in the new stint after each reported stint transition. The first following lap,
+minus the median of following laps three through six, varied substantially by
+race: Canada's median was +1.843 seconds on mediums (13 windows) and +2.211 on
+softs (7); Italy's was +0.244 on mediums (6); Spain's was -0.317 on hards (13),
+-0.853 on softs (4), and -0.374 on mediums (6). These differences mix early-stint
+behaviour with subsequent wear, fuel burn, traffic and changing pace. They do
+not measure the initial pit-out warm-up loss.
+
+Requiring green, rain-free transition context and eligible preceding laps two
+and three laps before the transition left only one window each in Canada and
+Italy, and twelve in Spain. Extrapolating a linear trend from following laps
+three through six still produced widely varying early-lap residuals. This
+small, confounded sample does not identify a reliable compound-specific warm-up
+coefficient. The default physics therefore remains unchanged; adding a fixed
+outlap penalty from these comparisons would imply calibration the evidence
+does not support.
+
 Physical wear and thermal state must remain separate if this model is extended:
 a reused set retains its accumulated wear even when it needs to heat again.
 The same thermal response would need to be applied in actual laps, opening and

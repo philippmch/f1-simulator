@@ -19,6 +19,7 @@ from f1sim.simulation.execution import validate_starting_tire_ages, validate_sta
 from f1sim.simulation.finish_strategy import ReplacementOption, evaluate_finish_protection
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.neutralization import safety_car_running_time
+from f1sim.simulation.pit_service import expected_remaining_service
 from f1sim.simulation.pit_strategy import expected_stationary_time
 from f1sim.simulation.race import DriverRaceState, DriverStatus, RaceResult
 from f1sim.simulation.race_points import points_for_classification
@@ -54,6 +55,25 @@ class _PendingLap:
     safety_car: bool = False
     sc_queue_pace: float | None = None
     expected_exit: float | None = None
+
+
+@dataclass
+class _PitServiceRecord:
+    """One committed stop's observable service lifecycle.
+
+    The sampled start/end timestamps are retained for phase detection only.
+    Forecasts deliberately ignore a timestamp that lies in the future and
+    replace it with the conditional remaining-service expectation.
+    """
+
+    driver_id: str
+    team_id: str
+    lap: int
+    arrival_time: float
+    service_start: float
+    service_end: float
+    car: object
+    committed_lane_loss: float
 
 
 class ChronologicalRace:
@@ -124,6 +144,7 @@ class ChronologicalRace:
         self.serial = count()
         self.box_releases = {}
         self.expected_box_releases = {}
+        self.pit_service_records: list[_PitServiceRecord] = []
         self.fastest = {}
         self.running_paces = {}
         self.free_refits = set()
@@ -215,6 +236,7 @@ class ChronologicalRace:
         self.red_waiting.clear()
         # Collection waits for all paid services; free restart fits reserve no box.
         self.expected_box_releases.clear()
+        self.pit_service_records.clear()
         # Freeze all restart forecasts before fitting or releasing any car.
         # Collected services are finished; their old expected exits and the
         # order in which new running is sampled cannot anchor these forecasts.
@@ -306,7 +328,8 @@ class ChronologicalRace:
                 if leader_pace is None:
                     leader_pace = pending.running or None
                 if not pending.on_track and leader_pace is not None:
-                    flag_time = max(now, pending.expected_exit or now)
+                    expected_exit = self._pending_service_exit(leader.driver.id, pending, now)
+                    flag_time = max(now, expected_exit or now)
                     flag_time += leader_pace * modifier
                 anchor_lap = pending.lap
                 next_modifier = 1.0
@@ -337,6 +360,105 @@ class ChronologicalRace:
                 return flag_time
         return None
 
+    @staticmethod
+    def _remaining_service(car, elapsed):
+        """Return the conditional mean service still outstanding."""
+        return expected_remaining_service(car, elapsed)
+
+    def _team_service_records(self, team_id, records=None):
+        source = (getattr(self, "pit_service_records", ())
+                  if records is None else records)
+        return [record for record in source if record.team_id == team_id]
+
+    def _team_release_forecast(self, team_id, now, *, records=None):
+        """Estimate a team's box release using only service visible at ``now``."""
+        supplied = records is not None
+        team_records = [record for record in self._team_service_records(team_id, records)
+                        if record.arrival_time <= now]
+        if not team_records:
+            if supplied:
+                return now
+            return max(now, getattr(self, "expected_box_releases", {}).get(team_id, now))
+        release = now
+        for record in team_records:
+            if record.service_start <= now:
+                if record.service_end <= now:
+                    release = max(release, record.service_end)
+                else:
+                    elapsed = max(0.0, now - record.service_start)
+                    release = max(release, now + self._remaining_service(
+                        record.car, elapsed,
+                    ))
+            else:
+                # The future sampled queue/start timestamp is private.  A
+                # queued commitment consumes the ordinary expected service.
+                release = max(release, record.arrival_time)
+                release += expected_stationary_time(record.car)
+        return release
+
+    def _record_pit_service(self, state, lap, arrival_time, committed_lane_loss):
+        """Capture an actual stop lifecycle after execution has sampled it."""
+        details = state.pit_stop_details[-1] if state.pit_stop_details else None
+        if not isinstance(details, dict):
+            return
+        try:
+            queue_time = float(details["queue_time"])
+            service_time = float(details["service_time"])
+            queue_time = max(0.0, queue_time)
+            service_time = max(0.0, service_time)
+            service_start = float(arrival_time) + queue_time
+            service_end = service_start + service_time
+            lane_loss = float(committed_lane_loss)
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return
+        if any(not isfinite(value) for value in (
+            arrival_time, service_start, service_end, lane_loss,
+        )) or lane_loss < 0:
+            return
+        self.pit_service_records.append(_PitServiceRecord(
+            state.driver.id,
+            state.car.team_id,
+            lap,
+            float(arrival_time),
+            service_start,
+            service_end,
+            state.car.model_copy(deep=True),
+            lane_loss,
+        ))
+
+    def _pending_service_exit(self, driver_id, pending, now):
+        """Forecast one pending paid lap's track entry from observable service."""
+        if (isinstance(now, bool) or not isinstance(now, Real)
+                or not isfinite(now)):
+            return pending.expected_exit
+        all_records = list(getattr(self, "pit_service_records", ()))
+        target_indexes = [index for index, record in enumerate(all_records)
+                          if record.driver_id == driver_id and record.lap == pending.lap]
+        if not target_indexes:
+            return pending.expected_exit
+        target_index = target_indexes[-1]
+        record = all_records[target_index]
+        if record.arrival_time > now:
+            return pending.expected_exit
+        if record.service_start <= now:
+            if record.service_end <= now:
+                completion = record.service_end
+            else:
+                elapsed = max(0.0, now - record.service_start)
+                completion = now + self._remaining_service(record.car, elapsed)
+        else:
+            # Lifecycle records are appended in reservation order.  Use the
+            # ordered prefix before this stop so simultaneous team arrivals
+            # retain FIFO order even when their sampled future timestamps do
+            # not reveal that order.
+            prior = [item for item in all_records[:target_index]
+                     if item.team_id == record.team_id]
+            release = self._team_release_forecast(
+                record.team_id, now, records=prior,
+            )
+            completion = max(now, release) + expected_stationary_time(record.car)
+        return completion + record.committed_lane_loss
+
     def _weather_projection_clock(self, now, *, restart=False):
         """Return the frozen leading update clock used by strategy forecasts.
 
@@ -362,7 +484,8 @@ class ChronologicalRace:
         elif pending.on_track:
             first_update = max(now, pending.ready)
         else:
-            first_update = max(now, pending.expected_exit or now)
+            expected_exit = self._pending_service_exit(leader.driver.id, pending, now)
+            first_update = max(now, expected_exit or now)
             first_update += leader_pace * modifier
         flag_time = self._projected_flag_time(now, restart=restart)
         if (flag_time is None or not isfinite(flag_time)
@@ -546,9 +669,11 @@ class ChronologicalRace:
                 self._retire(driver_id, now, state.dnf_reason)
                 return
         # Completed service is observable; its future sampled duration is not.
-        if self.box_releases.get(state.car.team_id, now) <= now:
+        team = state.car.team_id
+        if self.box_releases.get(team, now) <= now:
             self.expected_box_releases.pop(state.car.team_id, None)
-        delay = max(0.0, self.expected_box_releases.get(state.car.team_id, now) - now)
+        forecast_release = self._team_release_forecast(team, now)
+        delay = max(0.0, forecast_release - now)
         active = [other for other in self.states.values() if other.status == DriverStatus.RACING]
         traffic = self._strategy_traffic(state, now, delay)
         stop = state.force_pit_next_lap or self.simulator._should_pit(
@@ -588,6 +713,12 @@ class ChronologicalRace:
             state.pit_stops += 1
             state.pit_laps.append(lap)
             state.force_pit_next_lap = False
+            self._record_pit_service(state, lap, now, expected_exit - (
+                now + delay + expected_service
+            ))
+            # Keep the old public ledger for diagnostics and synthetic callers;
+            # future decisions use the lifecycle records above when present.
+            self.expected_box_releases[team] = self._team_release_forecast(team, now)
             if driver_id in self.order:
                 self.order.remove(driver_id)
         snapshot = self.weather.model_copy(deep=True)
@@ -637,7 +768,8 @@ class ChronologicalRace:
         if pending.on_track:
             start, ready = pending.running_start, pending.ready
         else:
-            start = pending.expected_exit if pending.expected_exit is not None else pending.ready
+            expected_exit = self._pending_service_exit(driver_id, pending, now)
+            start = expected_exit if expected_exit is not None else pending.ready
             if now is not None:
                 start = max(now, start)
             ready = start + first_pace

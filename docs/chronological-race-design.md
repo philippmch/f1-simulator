@@ -246,6 +246,25 @@ draws. A trailing car can still pit or suffer an incident after the winner takes
 the flag and before its own finish. The winner's crossing therefore cannot be
 used as a global cutoff for all remaining car events.
 
+The chronological engine records each executed stop's arrival, service phase,
+car parameters and committed lane loss. Forecasts use those records as an
+observation at the current absolute time: a service still in progress uses the
+conditional expected remaining duration, while a queued commitment uses the
+stationary expected service. A sampled start or end time that lies in the
+future is never used to reveal its duration. Records are appended in team
+reservation order, so simultaneous arrivals retain FIFO release ordering. A
+completed red-flag collection clears the old service records because every
+remaining car is then released or fitted from the shared restart state. Small
+synthetic fixtures without lifecycle records may continue to provide their
+explicit expected exit or box-release fallback; real execution always uses the
+observed records.
+
+For the default service distribution, a teammate still in service after six
+seconds now contributes about 2.26 seconds of expected additional waiting.
+Previously its reservation had already expired and the planner priced zero
+queue delay. Actual waiting still uses the sampled completion time; the
+forecast does not know whether that stop will finish at eight seconds or later.
+
 Race-control countdowns and surface evolution cannot advance once per car.
 They need a shared race timeline, while mechanical exposure, tyre age, fuel and
 lap completion follow each individual car. Define the resolution of control
