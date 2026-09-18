@@ -12,7 +12,10 @@ from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.events import EventManager, EventType, RaceEvent
 from f1sim.simulation.execution import validate_starting_tire_ages, validate_starting_tires
-from f1sim.simulation.inventory_race import InventoryStrategyMixin
+from f1sim.simulation.inventory_race import (
+    InventoryStrategyMixin,
+    _timed_stop_budget_envelope,
+)
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.neutralization import safety_car_running_time
 from f1sim.simulation.opening_strategy import dry_opening_policy_costs, opening_policy_costs
@@ -1291,6 +1294,11 @@ class RaceSimulator(InventoryStrategyMixin):
             # Retain the rain-stint allowance while the surface dries. Dropping
             # it at 0.3 would block a forecast intermediate-to-slick transition.
             max_stops = max(max_stops, 4)
+        if rain_transition:
+            max_stops = _timed_stop_budget_envelope(
+                max_stops, self._dry_stop_budget(state, track),
+                self._ordinary_stop_budget(state, track), weather_clock,
+            )
 
         # The dry-race regulation is about two distinct slick compounds,
         # not simply a stop count.  Keep one additional stop available when

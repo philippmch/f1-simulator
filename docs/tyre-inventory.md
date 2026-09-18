@@ -91,7 +91,10 @@ timeline until its first future stop, charges that pit entry, then relaxes the
 remaining running costs as above. Taking the stronger bound avoids expanding
 unnecessary full-distance stint combinations without approximating tyre ages,
 weather timing or the selected strategy. Free restart fits add no elapsed pit
-time; future paid stops still advance their weather forecast.
+time; future paid stops still advance their weather forecast. Native callers
+reserve the dry and rain stop envelopes for those delayed branches while the
+planner continues to enforce the damp or dry allowance at the surface where
+each stop occurs.
 
 Automatic opening selection evaluates one deterministic policy path per distinct
 compound and prior age. Equivalent physical IDs receive the same score in their

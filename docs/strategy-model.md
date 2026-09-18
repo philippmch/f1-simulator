@@ -833,7 +833,9 @@ including on a drying surface below wetness 0.3. It no longer drops to the
 ordinary short-race allowance before an intermediate-to-slick stop. Slick-start
 projections also reserve this allowance when the projected surface calls for
 rain tyres, and reserve the three-stop dry allowance when drying will enable it.
-The current damp allowance still limits elective fits before that transition.
+With an externally timed weather clock, the caller keeps those dry and rain
+envelopes available even when a no-stop forecast remains damp; the current damp
+allowance still limits elective fits before the delayed transition.
 Previous paid stops count toward it; after fitting slicks, the applicable dry or damp
 policy determines subsequent decisions. The transition search counts all paid
 fits against the allowance and restricts later stops on slicks to the applicable

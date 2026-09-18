@@ -11,6 +11,19 @@ from f1sim.simulation.surface_projection import projected_surfaces
 from f1sim.simulation.tire_inventory import TireInventory
 
 
+def _timed_stop_budget_envelope(maximum, dry_limit, damp_limit, weather_clock):
+    """Keep delayed branches inside every weather-state stop allowance.
+
+    A paid stop can advance an external weather clock past a transition that
+    is absent from the no-stop forecast used by the caller. The planner still
+    applies ``dry_limit`` and ``damp_limit`` at each branch; this is only the
+    global search envelope, including the existing four-stop rain allowance.
+    """
+    if weather_clock is None:
+        return maximum
+    return max(maximum, dry_limit, damp_limit, 4)
+
+
 class InventoryStrategyMixin:
     """Finite-set execution shares the race's clocks, physics and stop limits."""
 
@@ -107,6 +120,9 @@ class InventoryStrategyMixin:
                 or any(surface.track_wetness > .3 or surface.fresh_rain_compound() is not None
                        for surface in surfaces)):
             maximum = max(maximum, 4)
+        maximum = _timed_stop_budget_envelope(
+            maximum, dry_limit, damp_limit, weather_clock,
+        )
         options = {}
         if weather_clock is not None:
             options["weather_clock"] = weather_clock

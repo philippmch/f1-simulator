@@ -21,6 +21,8 @@ def enumerate_sets(models, inventory, clock, options):
     sets = inventory.sets
     ids = [key for key in sets if key not in inventory.unavailable_ids]
     initial = inventory.current_set_id
+    current_lap = options.get("current_lap", 1)
+    horizon = track.total_laps - current_lap + 1
     ages = {key: item.age for key, item in sets.items()}
     ages[initial] = options["tire_age"]
     free = options["free_fit"]
@@ -39,7 +41,7 @@ def enumerate_sets(models, inventory, clock, options):
         return bool(used & {TireCompound.INTERMEDIATE, TireCompound.WET}) or len(used) >= 2
 
     def visit(offset, current, wear, used, left, dry, damp, delay, total, first):
-        if offset == track.total_laps:
+        if offset == horizon:
             if legal(used):
                 best[first] = min(best[first], total)
             return
@@ -70,7 +72,7 @@ def enumerate_sets(models, inventory, clock, options):
             gap = options["current_traffic_gaps"][int(paid)] if offset == 0 else None
             value = physics.calculate_lap_time(
                 driver, car, track, TIRE_COMPOUNDS[compound], running_surface,
-                offset + 1, options["physical_total_laps"], sample_variation=False,
+                current_lap + offset, options["physical_total_laps"], sample_variation=False,
                 gap_to_car_ahead=gap,
                 active_aero_enabled=options["active_aero_enabled"] if offset == 0 else True,
             )
