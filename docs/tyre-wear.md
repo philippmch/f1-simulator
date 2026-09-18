@@ -78,6 +78,44 @@ observations or thermal coefficients were obtained from that attempt. This
 records access at that checkpoint, not a claim that all historical data requires
 authentication.
 
+The official [Formula 1 timing archive](https://livetiming.formula1.com/static/2026/Index.json)
+provides an alternative source. An explicit diagnostic reads one completed race
+from the current UTC season, keeps the source feeds in memory, and prints JSON:
+
+```powershell
+python examples/check_tyre_evidence.py --meeting Canadian
+python examples/check_tyre_evidence.py --meeting Italian --include-laps
+```
+
+The report associates lap numbers and durations only when the timing feed
+reports them together. A missing time remains missing; a previous lap's duration
+is never carried forward. Tyre-stint metadata identifies reported compounds and
+prior wear, while pit, track-status and rainfall observations identify excluded
+laps. Missing required timing, compound, pit, control or rainfall context also
+excludes a lap. Optional metadata such as prior wear remains explicitly unknown
+when absent. The sparse lap-time fields inside
+the tyre-stint feed are not treated as a complete lap history.
+
+The remaining observations are candidates for further analysis, not isolated
+thermal measurements. They still contain fuel burn, traffic, energy deployment,
+driver variation and possible timing corrections. Feed timestamps describe
+reported events rather than precise tyre-fitting or temperature measurements.
+The report fits no warm-up or wear coefficients and does not alter race inputs
+or tyre presets. Unavailable, unfinished or mismatched archives produce an error
+rather than falling back to another season.
+
+On 2026-09-18, the diagnostic found the following coverage. Candidate counts
+apply the observational exclusions above and are not calibration sample sizes:
+
+| Race | Reported lap crossings | With a paired duration | Candidate laps |
+|---|---:|---:|---:|
+| Canada | 1,206 | 1,185 | 934 |
+| Italy | 1,052 | 1,029 | 908 |
+| Spain | 1,105 | 1,081 | 978 |
+
+The JSON records the session identity and decoded-feed hashes so a later run
+can distinguish changed source data from changed normalization.
+
 Physical wear and thermal state must remain separate if this model is extended:
 a reused set retains its accumulated wear even when it needs to heat again.
 The same thermal response would need to be applied in actual laps, opening and
