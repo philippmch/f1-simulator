@@ -74,6 +74,30 @@ including their cached future stints. The standard engine retains its ordinary
 one-update-per-lap projection. Pending physics and actual shared weather updates
 are unaffected by these forecasts.
 
+When the projected leader is another car, weather-cost planning also advances
+that clock through the candidate's own planned pit delays. A stop's compound is
+chosen using the pre-service surface, but its outlap and subsequent running use
+the delayed surface. Current queue, expected service and lane time contribute
+physical delay; later paid stops use expected green pit loss. Free restart fits
+add no delay. Traffic cost adjustments remain separate from elapsed time.
+This clock is shared by rain, weather-stop and finite-pool costs, with the same
+timing carried into damp fallback stint comparisons. The candidate's observed
+free pace and the external leading clock stay fixed within a forecast.
+
+The candidate leader keeps the existing own-lap projection: its pit time cannot
+create leading crossings while it is stationary. Initial decisions without an
+observed pace and unchanging surfaces also retain the existing path. Future
+changes of leader, random weather and changed free pace remain unknown; these
+cost comparisons do not change the actual finish boundary or fit tyres twice.
+
+In a controlled example, a 90-second leader next crosses at time 180 while a
+follower commits a stop at 170. Expected service plus a 22-second lane loss puts
+rejoin at 194.751. With wetness 0.44 and persistent rainfall 0.6 at the decision,
+the outlap uses projected wetness 0.472 rather than 0.44. The shared lap model
+prices the fresh intermediate outlap about 0.64 seconds slower. Under drying
+conditions, the correction can instead lower the outlap cost. These are model
+consistency checks, not measured real-world gains.
+
 Constant-pace tests compare every projected future surface with actual lap-start
 snapshots across faster, equal-pace and lapped cars, including timed finishes.
 With a 90-second leader and a 180-second follower under fixed rainfall, the

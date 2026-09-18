@@ -22,6 +22,7 @@ from f1sim.simulation.race_points import points_for_classification
 from f1sim.simulation.race_timing import RaceFinishClock, forecast_final_lap
 from f1sim.simulation.rain_strategy import plan_rain_stop, plan_rain_transition
 from f1sim.simulation.strategy_traffic import StrategyTrafficSnapshot
+from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.surface_projection import projected_surfaces
 from f1sim.simulation.tire_inventory import TireInventory, validate_tire_inventory
 from f1sim.simulation.validation import validate_unique_ids
@@ -1187,6 +1188,7 @@ class RaceSimulator(InventoryStrategyMixin):
         physical_total_laps: int | None = None,
         traffic_snapshot: StrategyTrafficSnapshot | None = None,
         weather_intervals: tuple[int, ...] | None = None,
+        weather_clock: StrategyWeatherClock | None = None,
     ) -> bool:
         """Decide if driver should pit this lap."""
         state.dry_pit_proposal = None
@@ -1195,7 +1197,7 @@ class RaceSimulator(InventoryStrategyMixin):
             return self._should_pit_inventory(
                 state, all_states, track, lap, weather if weather is not None else Weather(),
                 additional_current_stop_cost, physical_total_laps,
-                traffic_snapshot, weather_intervals,
+                traffic_snapshot, weather_intervals, weather_clock,
             )
         clearly_dry = weather is None or (
             weather.track_wetness < 0.08 and weather.rain_intensity < 0.15
@@ -1211,6 +1213,13 @@ class RaceSimulator(InventoryStrategyMixin):
                 state, track, weather, lap, weather_intervals,
             )
         )
+        # A stop can advance an externally anchored weather clock across a
+        # compound transition even when ordinary own-lap intervals do not.
+        if (weather_clock is not None and lap > 1
+                and state.current_tire.compound in {
+                    TireCompound.INTERMEDIATE, TireCompound.WET,
+                }):
+            rain_transition = True
         # CRITICAL: Force pit if tires are completely wrong for conditions
         if weather is not None:
             tire_mismatch = self._check_tire_weather_mismatch(state.current_tire, weather)
@@ -1223,6 +1232,7 @@ class RaceSimulator(InventoryStrategyMixin):
                     and not self._weather_stop_can_pay(
                         state, track, weather, lap, additional_current_stop_cost,
                         weather_intervals=weather_intervals,
+                        weather_clock=weather_clock,
                         traffic_possible=any(
                             other.status == DriverStatus.RACING
                             and other.driver.id != state.driver.id for other in all_states
@@ -1371,6 +1381,7 @@ class RaceSimulator(InventoryStrategyMixin):
                 physical_total_laps=physical_total_laps,
                 weather_intervals=weather_intervals,
                 **traffic_options,
+                **({"weather_clock": weather_clock} if weather_clock is not None else {}),
                 **({
                     "used_compounds": self._actually_used_compounds(state),
                     "remaining_dry_stops": max(
@@ -1399,6 +1410,7 @@ class RaceSimulator(InventoryStrategyMixin):
             return self._weather_stop_can_pay(
                 state, track, weather, lap, additional_current_stop_cost,
                 weather_intervals=weather_intervals,
+                weather_clock=weather_clock,
                 traffic_possible=any(
                     other.status == DriverStatus.RACING and other.driver.id != state.driver.id
                     for other in all_states
@@ -1580,6 +1592,8 @@ class RaceSimulator(InventoryStrategyMixin):
         current_lap: int,
         weather: Weather | None = None,
         *, physical_total_laps: int | None = None,
+        weather_intervals: tuple[int, ...] | None = None,
+        weather_clock: StrategyWeatherClock | None = None,
     ) -> TireCompound:
         """Choose a new slick compound while the dry-use rule is open."""
         slick_compounds = [
@@ -1593,6 +1607,8 @@ class RaceSimulator(InventoryStrategyMixin):
         return self._rank_stint_compounds(
             state, track, current_lap, available or slick_compounds,
             weather=weather, physical_total_laps=physical_total_laps,
+            weather_intervals=weather_intervals,
+            weather_clock=weather_clock,
         )
 
     @staticmethod
@@ -1624,27 +1640,77 @@ class RaceSimulator(InventoryStrategyMixin):
     def _choose_compound_for_next_stint(
         self, state: DriverRaceState, track: Track, current_lap: int,
         weather: Weather | None = None, *, physical_total_laps: int | None = None,
+        weather_intervals: tuple[int, ...] | None = None,
+        weather_clock: StrategyWeatherClock | None = None,
     ) -> TireCompound:
         """Rank fresh slicks using the same tyre pace as the actual race."""
         return self._rank_stint_compounds(
             state, track, current_lap,
             [TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD],
             weather=weather, physical_total_laps=physical_total_laps,
+            weather_intervals=weather_intervals,
+            weather_clock=weather_clock,
         )
+
+    def _projected_stint_weather(
+        self, weather: Weather, weather_clock: StrategyWeatherClock | None,
+        weather_intervals: tuple[int, ...] | None, target_stint: int,
+    ) -> tuple[Weather, tuple[int, ...] | None]:
+        """Rebase a paid-stop weather path onto the replacement's outlap.
+
+        ``weather`` is the observed entry snapshot.  A clock-aware stop first
+        advances that snapshot through the expected physical stop, then
+        supplies cumulative updates relative to the fresh set's outlap.  The
+        ordinary cadence path is retained for callers that have no paid-stop
+        clock.  Traffic costs are deliberately absent: they are strategy
+        prices, not physical elapsed time.
+        """
+        if target_stint <= 0:
+            return weather, ()
+        if weather_clock is not None:
+            if target_stint > len(weather_clock.lap_start_offsets):
+                return weather, None
+            try:
+                first = weather_clock.updates(0, 1, True)
+                counts = tuple(
+                    weather_clock.updates(offset, 1, True) - first
+                    for offset in range(target_stint)
+                )
+            except (TypeError, ValueError, OverflowError):
+                return weather, None
+            surface = weather
+            for _ in range(first):
+                surface = surface.project_surface()
+            return surface, counts
+        if weather_intervals is None or len(weather_intervals) < target_stint:
+            return weather, None
+        origin = weather_intervals[0]
+        surface = weather
+        for _ in range(origin):
+            surface = surface.project_surface()
+        return surface, tuple(value - origin for value in weather_intervals[:target_stint])
 
     def _rank_stint_compounds(
         self, state: DriverRaceState, track: Track, current_lap: int,
         available: list[TireCompound],
         *, weather: Weather | None = None, physical_total_laps: int | None = None,
+        weather_intervals: tuple[int, ...] | None = None,
+        weather_clock: StrategyWeatherClock | None = None,
     ) -> TireCompound:
         target_stint = self._next_stint_laps(state, track, current_lap)
+        stint_weather, stint_intervals = self._projected_stint_weather(
+            weather if weather is not None else Weather(), weather_clock, weather_intervals,
+            target_stint,
+        )
         costs = {
             compound: self.lap_simulator.projected_stint_lap_cost(
                 state.driver, state.car, track, TIRE_COMPOUNDS[compound], target_stint,
-                current_lap, weather if weather is not None else Weather(),
+                current_lap, stint_weather,
                 physical_total_laps=physical_total_laps,
                 current_lap_time_modifier=self.event_manager.get_lap_time_modifier(),
                 active_aero_enabled=self.event_manager.is_active_aero_allowed(),
+                **({"weather_intervals": stint_intervals}
+                   if stint_intervals is not None else {}),
             ) for compound in available
         }
         fastest = min(available, key=costs.__getitem__)
@@ -1730,6 +1796,8 @@ class RaceSimulator(InventoryStrategyMixin):
         arrival_time: float | None = None,
         sample_service: bool = True,
         physical_total_laps: int | None = None,
+        weather_intervals: tuple[int, ...] | None = None,
+        weather_clock: StrategyWeatherClock | None = None,
     ) -> float:
         """Execute pit stop and return total time lost.
 
@@ -1745,6 +1813,7 @@ class RaceSimulator(InventoryStrategyMixin):
         if state.tire_inventory is not None:
             if not self._prepare_inventory_pit(
                 state, track, weather, current_lap, physical_total_laps=physical_total_laps,
+                weather_intervals=weather_intervals, weather_clock=weather_clock,
             ):
                 return 0.0
             selected_set = state.inventory_pit_proposal[1]
@@ -1801,6 +1870,7 @@ class RaceSimulator(InventoryStrategyMixin):
                 track,
                 current_lap,
                 weather, physical_total_laps=physical_total_laps,
+                weather_intervals=weather_intervals, weather_clock=weather_clock,
             )
         else:
             new_compound = self._choose_compound_for_next_stint(
@@ -1808,6 +1878,7 @@ class RaceSimulator(InventoryStrategyMixin):
                 track,
                 current_lap,
                 weather, physical_total_laps=physical_total_laps,
+                weather_intervals=weather_intervals, weather_clock=weather_clock,
             )
 
         total_loss = pit_lane_time + stationary_time + queue_time
@@ -2424,6 +2495,7 @@ class RaceSimulator(InventoryStrategyMixin):
         additional_current_stop_cost: float = 0.0, *, traffic_possible: bool = True,
         physical_total_laps: int | None = None,
         weather_intervals: tuple[int, ...] | None = None,
+        weather_clock: StrategyWeatherClock | None = None,
     ) -> bool:
         """Compare an optimistic paid-refit plan with retaining while safe."""
         costs = weather_stop_costs(
@@ -2436,6 +2508,7 @@ class RaceSimulator(InventoryStrategyMixin):
             traffic_possible=traffic_possible,
             physical_total_laps=physical_total_laps,
             weather_intervals=weather_intervals,
+            **({"weather_clock": weather_clock} if weather_clock is not None else {}),
         )
         return costs.pit_now_cost < costs.stay_cost
 

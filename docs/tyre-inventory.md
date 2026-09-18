@@ -83,6 +83,16 @@ Arithmetic rounds the bound down to protect nearly tied branches. Unchanged
 final stints also share a cost within each decision. These calculations remain
 local to the forecast and preserve its weather, fuel and race-control context.
 
+For externally timed chronological weather, each paid stop also advances the
+candidate's weather clock. The running-cost bound considers the reachable
+delayed surfaces, including compulsory stops after the elective allowance is
+exhausted. A second bound retains the current set's exact wear and surface
+timeline until its first future stop, charges that pit entry, then relaxes the
+remaining running costs as above. Taking the stronger bound avoids expanding
+unnecessary full-distance stint combinations without approximating tyre ages,
+weather timing or the selected strategy. Free restart fits add no elapsed pit
+time; future paid stops still advance their weather forecast.
+
 Automatic opening selection evaluates one deterministic policy path per distinct
 compound and prior age. Equivalent physical IDs receive the same score in their
 original order. The complete pool remains available throughout each path, and

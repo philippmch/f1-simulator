@@ -6,6 +6,7 @@ import numpy as np
 
 from f1sim.models import Car, Driver, Tire, Track, Weather
 from f1sim.models.tire import TireCompound
+from f1sim.simulation.surface_projection import projected_surfaces
 
 # The execution floor is an absolute fraction of the circuit reference lap.
 # Keep it in one place so deterministic forecasts use exactly the same lower
@@ -264,17 +265,24 @@ class LapSimulator:
         self, driver: Driver, car: Car, track: Track, tire: Tire, laps: int,
         current_lap: int, weather: Weather, *, physical_total_laps: int | None = None,
         current_lap_time_modifier: float = 1.0, active_aero_enabled: bool = True,
+        weather_intervals: tuple[int, ...] | None = None,
     ) -> float:
         """Fresh-set running time, including the lap floor and projected surface.
 
         Fuel follows the physical race distance even when strategy plans to an
         earlier finish. Only the upcoming lap uses current race control; later
         laps assume green running. No future incidents or traffic are forecast.
+        ``weather_intervals`` optionally supplies cumulative deterministic
+        surface-update counts for each projected lap, starting at zero.
         """
         projected_driver = driver.model_copy(deep=True)
+        surfaces = (projected_surfaces(weather, laps, weather_intervals)
+                    if weather_intervals is not None else None)
         surface = weather.model_copy(deep=True)
         total = 0.0
         for age in range(laps):
+            if surfaces is not None:
+                surface = surfaces[age]
             projected_driver.current_tire_laps = age
             total += self.calculate_lap_time(
                 projected_driver, car, track, tire, surface, current_lap + age,
@@ -282,7 +290,8 @@ class LapSimulator:
                 active_aero_enabled=active_aero_enabled if age == 0 else True,
                 sample_variation=False,
             ) * (current_lap_time_modifier if age == 0 else 1.0)
-            surface = surface.project_surface()
+            if surfaces is None:
+                surface = surface.project_surface()
         return total
 
     @classmethod

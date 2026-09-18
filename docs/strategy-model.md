@@ -51,11 +51,23 @@ control on the upcoming lap and green running thereafter. Without usable pace
 observations it retains one update per own lap. Rainfall and condition remain
 fixed, and no future weather draws are consumed.
 
-The projected lap-start schedule assumes continued observed pace and no further
-stops. A chosen stop, tyre change, battle or later intervention can change those
-start times and the car's finishing distance; the forecast is recalculated at
-its next decision. Matching the shared weather cadence does not establish an
-optimal complete strategy or predict a real weather forecast.
+When another car supplies the chronological forecast's leading clock, rain,
+weather-stop and finite-pool costs also account for the candidate's own planned
+paid stops. Retaining a tyre starts running immediately; fitting a replacement
+starts after expected lane, service and any observed queue delay. Each later
+paid stop adds its expected green-running pit loss to subsequent projected
+starts. Traffic-related cost adjustments do not advance this physical clock.
+The compound choice uses conditions before service, while its running cost uses
+the projected surface at rejoin; the execution still fits just once.
+
+The external leading clock remains fixed under these comparisons. A candidate
+that is itself the projected leader, including a single-car race, retains the
+own-lap projection so its stationary pit time cannot invent weather updates.
+The forecasts do not resolve future changes of leader, tyre-dependent changes
+in free pace, battles or interventions. They retain the current planning
+distance and are recalculated at the next decision; stop timing can still change
+actual finishing distance. Matching the shared weather cadence does not
+establish an optimal complete strategy or predict real weather.
 
 The forecast is recalculated as the race develops. It does not change the
 actual finish controller, predict future stops or weather, or guarantee a

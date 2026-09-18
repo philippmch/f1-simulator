@@ -25,6 +25,7 @@ from f1sim.simulation.race import DriverRaceState, DriverStatus, RaceResult
 from f1sim.simulation.race_points import points_for_classification
 from f1sim.simulation.race_timing import RaceFinishTimeline, forecast_final_lap
 from f1sim.simulation.strategy_traffic import StrategyTrafficSnapshot
+from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.surface_projection import projected_surfaces
 from f1sim.simulation.tire_inventory import validate_tire_inventory
 from f1sim.simulation.validation import validate_unique_ids
@@ -189,11 +190,15 @@ class ChronologicalRace:
                 self._resume_if_collected(now)
         return self._results()
 
-    def _fit_red_flag_set(self, state, planning, weather_intervals=None):
+    def _fit_red_flag_set(
+        self, state, planning, weather_intervals=None,
+        weather_clock: StrategyWeatherClock | None = None,
+    ):
         if state.tire_inventory is not None:
             self.simulator._refit_inventory_free(
                 state, planning, self.weather, state.laps_completed,
                 physical_total_laps=self.track.total_laps, weather_intervals=weather_intervals,
+                weather_clock=weather_clock,
             )
             self.free_refits.remove(state.driver.id)
             return
@@ -246,8 +251,11 @@ class ChronologicalRace:
             if state.tire_inventory is None:
                 continue
             planning = self._planning_track(state, resume, restart=True)
+            cadence = self._weather_intervals(state, resume, planning, restart=True)
             restart_plans[driver_id] = (
-                planning, self._weather_intervals(state, resume, planning, restart=True),
+                planning, cadence,
+                (self._strategy_weather_clock(state, resume, planning, 0.0, restart=True)
+                 if cadence is not None else None),
             )
         for driver_id in list(self.order):
             state = self.states[driver_id]
@@ -518,6 +526,50 @@ class ChronologicalRace:
             intervals.append(min(available, max(0, floor(elapsed + 1e-12) + 1)))
         return tuple(intervals)
 
+    def _strategy_weather_clock(self, state, now, planning, queue_delay, *, restart=False):
+        """Build a paid-stop-aware clock only from an external observed leader."""
+        leader = self._forecast_leader()
+        if leader is None or leader.driver.id == state.driver.id:
+            return None
+        own_pace = self.running_paces.get(state.driver.id)
+        projection = self._weather_projection_clock(now, restart=restart)
+        modifier = self.simulator.event_manager.get_lap_time_modifier()
+        if (own_pace is None or not isfinite(own_pace) or own_pace <= 0
+                or projection is None or not isfinite(modifier) or modifier <= 0):
+            return None
+        # A constant surface has no branch-dependent weather state to price.
+        # Keeping the legacy interval/cache path here also avoids turning a
+        # forced stop in steady dry or steady-rain conditions into a new
+        # weather-transition branch.
+        if self.weather.track_wetness == self.weather.rain_intensity:
+            return None
+        first_update, leader_pace, available = projection
+        horizon = planning.total_laps - state.laps_completed
+        if horizon < 1 or not isfinite(first_update - now):
+            return None
+        offsets = [0.0]
+        for offset in range(1, horizon):
+            value = own_pace * (modifier + offset - 1)
+            if not isfinite(value):
+                return None
+            offsets.append(value)
+        service = expected_stationary_time(state.car)
+        current_delay = (
+            service + self.track.pit_lane_delta * self.simulator._pit_lane_factor()
+            + queue_delay
+        )
+        future_delay = service + self.track.pit_lane_delta
+        if (not isfinite(current_delay) or current_delay < 0
+                or not isfinite(future_delay) or future_delay < 0):
+            return None
+        try:
+            return StrategyWeatherClock(
+                tuple(offsets), first_update - now, leader_pace, available,
+                current_delay, future_delay,
+            )
+        except ValueError:
+            return None
+
     def _projected_surface_at(self, absolute_time, *, now, restart=False):
         """Return a frozen persistent-rain surface at an absolute entry time."""
         clock = self._weather_projection_clock(now, restart=restart)
@@ -658,13 +710,16 @@ class ChronologicalRace:
             return
         lap = state.laps_completed + 1
         control = self.simulator.event_manager
-        planning, cadence = (restart_planning if restart_planning is not None else (
-            self._planning_track(state, now), None,
-        ))
+        if restart_planning is None:
+            planning, cadence, weather_clock = self._planning_track(state, now), None, None
+        else:
+            planning = restart_planning[0]
+            cadence = restart_planning[1] if len(restart_planning) > 1 else None
+            weather_clock = restart_planning[2] if len(restart_planning) > 2 else None
         if restart_planning is None:
             cadence = self._weather_intervals(state, now, planning)
         if driver_id in self.free_refits:
-            self._fit_red_flag_set(state, planning, cadence)
+            self._fit_red_flag_set(state, planning, cadence, weather_clock)
             if state.status != DriverStatus.RACING:
                 self._retire(driver_id, now, state.dnf_reason)
                 return
@@ -676,13 +731,18 @@ class ChronologicalRace:
         delay = max(0.0, forecast_release - now)
         active = [other for other in self.states.values() if other.status == DriverStatus.RACING]
         traffic = self._strategy_traffic(state, now, delay)
+        restart = restart_planning is not None
+        if weather_clock is None and cadence is not None:
+            weather_clock = self._strategy_weather_clock(
+                state, now, planning, delay, restart=restart,
+            )
         stop = state.force_pit_next_lap or self.simulator._should_pit(
             state, active, planning, lap, control.is_pit_window_open(), self.weather,
             additional_current_stop_cost=delay, physical_total_laps=self.track.total_laps,
             traffic_snapshot=traffic,
             weather_intervals=cadence,
+            weather_clock=weather_clock,
         )
-        restart = restart_planning is not None
         if stop and not state.force_pit_next_lap and self._protect_elective_finish_distance(
             state, planning, now, delay, traffic, restart=restart,
         ):
@@ -695,6 +755,7 @@ class ChronologicalRace:
                 state, planning, self.weather, lap, physical_total_laps=self.track.total_laps,
                 weather_intervals=cadence, current_traffic_gaps=traffic.current_traffic_gaps,
                 additional_current_stop_cost=delay,
+                weather_clock=weather_clock,
             ):
                 self._retire(driver_id, now, state.dnf_reason)
                 return
@@ -706,6 +767,8 @@ class ChronologicalRace:
                 state, planning, self.weather, lap, pit_box_releases=self.box_releases,
                 arrival_time=now,
                 physical_total_laps=self.track.total_laps,
+                weather_intervals=cadence,
+                weather_clock=weather_clock,
             )
             if state.status != DriverStatus.RACING:
                 self._retire(driver_id, now, state.dnf_reason)

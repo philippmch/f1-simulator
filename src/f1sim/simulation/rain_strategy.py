@@ -16,6 +16,7 @@ from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.pit_strategy import expected_stationary_time
 from f1sim.simulation.strategy_traffic import normalize_current_traffic_gaps
+from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.surface_projection import (
     normalize_weather_intervals,
     projected_surfaces,
@@ -36,6 +37,342 @@ class RainStopDecision:
 def _nonnegative(value, name):
     if isinstance(value, bool) or not isinstance(value, Real) or not isfinite(value) or value < 0:
         raise ValueError(f"{name} must be finite and nonnegative")
+
+
+def _validate_weather_clock(weather_clock, horizon):
+    if weather_clock is not None:
+        if not isinstance(weather_clock, StrategyWeatherClock):
+            raise ValueError("weather_clock must be a StrategyWeatherClock")
+        weather_clock.validate_horizon(horizon)
+
+
+def _clock_rain_stop(
+    driver, car, track, weather, current_tire, tire_age, current_lap, remaining_stops,
+    *, pit_lane_factor, additional_current_stop_cost, current_lap_time_modifier,
+    active_aero_enabled, physical_total_laps, current_traffic_gaps, weather_clock,
+):
+    """Evaluate same-compound rain actions on an externally timed weather clock."""
+    gaps = normalize_current_traffic_gaps(current_traffic_gaps)
+    horizon = track.total_laps - current_lap + 1
+    simulator = LapSimulator(np.random.default_rng(0))
+    driver = driver.model_copy(deep=True)
+    driver.reset_race_state()
+    clean = car.model_copy(deep=True)
+    service = expected_stationary_time(clean)
+
+    projected = {}
+    surface_updates = {}
+    branch_surfaces = {}
+
+    def surface(offset, paid_stops, stopped_first):
+        branch = (offset, paid_stops, stopped_first)
+        if branch in branch_surfaces:
+            return branch_surfaces[branch]
+        updates = weather_clock.updates(offset, paid_stops, stopped_first)
+        if updates not in projected:
+            value = weather
+            for _ in range(updates):
+                value = value.project_surface()
+            projected[updates] = value
+            surface_updates[id(value)] = updates
+        branch_surfaces[branch] = projected[updates]
+        return branch_surfaces[branch]
+
+    @lru_cache(maxsize=None)
+    def cached_running(offset, tire_kind, age, updates, gap):
+        tire = current_tire if tire_kind == "retained" \
+            else TIRE_COMPOUNDS[current_tire.compound]
+        branch_surface = projected[updates]
+        driver.current_tire_laps = age
+        value = simulator.calculate_lap_time(
+            driver, clean, track, tire, branch_surface, current_lap + offset,
+            physical_total_laps, active_aero_enabled=(
+                active_aero_enabled if offset == 0 else True
+            ), sample_variation=False, gap_to_car_ahead=gap,
+        )
+        return value * current_lap_time_modifier if offset == 0 else value
+
+    def running(offset, tire_kind, age, branch_surface, gap=None):
+        return cached_running(
+            offset, tire_kind, age, surface_updates[id(branch_surface)], gap,
+        )
+
+    suffix_cache = {}
+
+    def suffix(initial):
+        """Solve the offset-increasing suffix without recursion.
+
+        The weather clock makes this state a DAG: every action advances one
+        lap.  An explicit stack keeps long timed races independent of Python's
+        recursion limit while retaining the old memoized branch costs.
+        """
+        if initial in suffix_cache:
+            return suffix_cache[initial]
+        frames = [[initial, None, 0, inf]]
+        while frames:
+            state, actions, index, best = frames[-1]
+            if state in suffix_cache:
+                frames.pop()
+                continue
+            offset, age, paid_stops, stopped_first, fresh = state
+            if actions is None:
+                if offset == horizon:
+                    # Let the normal completion path propagate this value to
+                    # the parent frame; popping here would lose the edge.
+                    frames[-1][1:] = [[], 0, 0.0]
+                    continue
+                branch_surface = surface(offset, paid_stops, stopped_first)
+                actions = [
+                    ((offset + 1, age + 1, paid_stops, stopped_first, fresh),
+                     running(offset, "fresh" if fresh else "retained", age,
+                             branch_surface))
+                ]
+                if paid_stops < remaining_stops:
+                    post_stopped = stopped_first or offset == 0
+                    post_surface = surface(offset, paid_stops + 1, post_stopped)
+                    stop = (track.pit_lane_delta + service
+                            + running(offset, "fresh", 0, post_surface))
+                    if offset == 0:
+                        stop += track.pit_lane_delta * (pit_lane_factor - 1.0)
+                        stop += additional_current_stop_cost
+                    actions.append((
+                        (offset + 1, 1, paid_stops + 1, post_stopped, True), stop,
+                    ))
+                frames[-1][1:] = [actions, 0, inf]
+                continue
+            if index < len(actions):
+                child, edge = actions[index]
+                frames[-1][2] += 1
+                if child in suffix_cache:
+                    frames[-1][3] = min(frames[-1][3], edge + suffix_cache[child])
+                else:
+                    frames.append([child, None, 0, inf])
+                continue
+            suffix_cache[state] = best
+            frames.pop()
+            if frames:
+                parent = frames[-1]
+                # The parent advances its action index before descending.
+                child, edge = parent[1][parent[2] - 1]
+                parent[3] = min(parent[3], edge + suffix_cache[state])
+        return suffix_cache[initial]
+
+    first_surface = surface(0, 0, False)
+    wait = running(0, "retained", tire_age, first_surface,
+                   gaps[0] if gaps is not None else None)
+    wait += suffix((1, tire_age + 1, 0, False, False))
+    if remaining_stops == 0:
+        pit = inf
+    else:
+        post_surface = surface(0, 1, True)
+        pit = (track.pit_lane_delta * pit_lane_factor + service
+               + additional_current_stop_cost
+               + running(0, "fresh", 0, post_surface,
+                         gaps[1] if gaps is not None else None)
+               + suffix((1, 1, 1, True, True)))
+    return RainStopDecision(pit, wait)
+
+
+def _clock_rain_transition(
+    driver, car, track, weather, current_tire, tire_age, current_lap, remaining_stops,
+    *, pit_lane_factor, additional_current_stop_cost, current_lap_time_modifier,
+    active_aero_enabled, physical_total_laps, remaining_dry_stops,
+    remaining_damp_stops, used_mask, current_traffic_gaps, weather_clock,
+):
+    """Evaluate rain/slick transitions while paid stops move an external clock."""
+    gaps = normalize_current_traffic_gaps(current_traffic_gaps)
+    horizon = track.total_laps - current_lap + 1
+    simulator = LapSimulator(np.random.default_rng(0))
+    driver = driver.model_copy(deep=True)
+    driver.reset_race_state()
+    clean = car.model_copy(deep=True)
+    service = expected_stationary_time(clean)
+    bits = {compound: (1 << index if index < 3 else 8)
+            for index, compound in enumerate(TireCompound)}
+
+    projected = {}
+    branch_surfaces = {}
+    surface_json = {}
+
+    def branch_surface(offset, paid_stops, stopped_first):
+        branch = (offset, paid_stops, stopped_first)
+        if branch in branch_surfaces:
+            return branch_surfaces[branch]
+        updates = weather_clock.updates(offset, paid_stops, stopped_first)
+        if updates not in projected:
+            value = weather
+            for _ in range(updates):
+                value = value.project_surface()
+            projected[updates] = value
+        value = projected[updates]
+        branch_surfaces[branch] = value
+        surface_json[id(value)] = value.model_dump_json()
+        return value
+
+    @lru_cache(maxsize=None)
+    def running(offset, tire_key, compound, age, gap_kind, surface_json):
+        tire = current_tire if tire_key == "retained" else TIRE_COMPOUNDS[compound]
+        driver.current_tire_laps = age
+        branch_surface = Weather.model_validate_json(surface_json)
+        value = simulator.calculate_lap_time(
+            driver, clean, track, tire, branch_surface,
+            current_lap + offset, physical_total_laps,
+            active_aero_enabled=(active_aero_enabled if offset == 0 else True),
+            sample_variation=False,
+            gap_to_car_ahead=(
+                gaps[gap_kind] if gaps is not None and gap_kind in (0, 1) else None
+            ),
+        )
+        return value * current_lap_time_modifier if offset == 0 else value
+
+    def run(offset, tire_key, compound, age, branch_surface, gap_kind=-1):
+        if isinstance(compound, TireCompound):
+            compound = compound.value
+        elif isinstance(compound, Tire):
+            compound = compound.compound.value
+        return running(offset, tire_key, compound, age, gap_kind,
+                       surface_json[id(branch_surface)])
+
+    def legal(mask):
+        return bool(mask & 8) or (mask & 7).bit_count() >= 2
+
+    def reduced(value):
+        return None if value is None else max(0, value - 1)
+
+    solve_cache = {}
+
+    def solve(initial):
+        """Evaluate the transition DAG with an explicit stack."""
+        if initial in solve_cache:
+            return solve_cache[initial]
+        frames = [[initial, None, 0, inf]]
+        while frames:
+            state, actions, index, best = frames[-1]
+            if state in solve_cache:
+                frames.pop()
+                continue
+            (offset, tire_key, compound, age, left, dry, damp, used,
+             paid_stops, stopped_first) = state
+            if actions is None:
+                if offset == horizon:
+                    # Keep the terminal value in the frame so the common
+                    # completion path can add its incoming edge.
+                    frames[-1][1:] = [[], 0, 0.0 if legal(used) else inf]
+                    continue
+                before = branch_surface(offset, paid_stops, stopped_first)
+                current = TireCompound(compound)
+                critical = before.tire_mismatch(current) == "critical"
+                actions = []
+                if not critical:
+                    actions.append((
+                        (offset + 1, tire_key, compound, age + 1, left, dry, damp,
+                         used | bits[current], paid_stops, stopped_first),
+                        run(offset, tire_key, current, age, before),
+                    ))
+                rain = before.fresh_rain_compound()
+                candidates = ((rain,) if rain is not None else (
+                    TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
+                ))
+                limit = dry if before.track_wetness < .08 and before.rain_intensity < .15 else damp
+                allowed = (critical or (left > 0 and (
+                    current in (TireCompound.INTERMEDIATE, TireCompound.WET)
+                    or before.track_wetness > .3 or limit is None or limit > 0
+                )))
+                compliant = legal(used)
+                if allowed or not compliant:
+                    for candidate in candidates:
+                        if before.tire_mismatch(candidate) == "critical":
+                            continue
+                        if not allowed and (compliant or used & bits[candidate]):
+                            continue
+                        after_paid = paid_stops + 1
+                        after = branch_surface(offset, after_paid, stopped_first)
+                        actions.append((
+                            (offset + 1, candidate.value, candidate.value, 1,
+                             max(0, left - 1), reduced(dry), reduced(damp),
+                             used | bits[candidate], after_paid, stopped_first),
+                            track.pit_lane_delta + service
+                            + run(offset, candidate.value, candidate, 0, after),
+                        ))
+                frames[-1][1:] = [actions, 0, inf]
+                continue
+            if index < len(actions):
+                child, edge = actions[index]
+                frames[-1][2] += 1
+                if child in solve_cache:
+                    frames[-1][3] = min(frames[-1][3], edge + solve_cache[child])
+                else:
+                    frames.append([child, None, 0, inf])
+                continue
+            solve_cache[state] = best
+            frames.pop()
+            if frames:
+                parent = frames[-1]
+                child, edge = parent[1][parent[2] - 1]
+                parent[3] = min(parent[3], edge + solve_cache[state])
+        return solve_cache[initial]
+
+    first = branch_surface(0, 0, False)
+    wait = inf
+    if first.tire_mismatch(current_tire.compound) != "critical":
+        wait = run(0, "retained", current_tire.compound, tire_age, first, 0)
+        wait += solve((1, "retained", current_tire.compound.value, tire_age + 1,
+                       remaining_stops, remaining_dry_stops, remaining_damp_stops,
+                       used_mask | bits[current_tire.compound], 0, False))
+
+    pit = inf
+    selected = None
+    rain = first.fresh_rain_compound()
+    candidates = ((rain,) if rain is not None else (
+        TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
+    ))
+    critical = first.tire_mismatch(current_tire.compound) == "critical"
+    limit = remaining_dry_stops if first.track_wetness < .08 and first.rain_intensity < .15 \
+        else remaining_damp_stops
+    allowed = critical or (remaining_stops > 0 and (
+        current_tire.compound in (TireCompound.INTERMEDIATE, TireCompound.WET)
+        or first.track_wetness > .3 or limit is None or limit > 0
+    ))
+    compliant = legal(used_mask)
+    if allowed or not compliant:
+        for candidate in candidates:
+            if first.tire_mismatch(candidate) == "critical":
+                continue
+            if not allowed and (compliant or used_mask & bits[candidate]):
+                continue
+            after = branch_surface(0, 1, True)
+            cost = (track.pit_lane_delta * pit_lane_factor + service
+                    + additional_current_stop_cost
+                    + run(0, candidate.value, candidate, 0, after, 1))
+            cost += solve((1, candidate.value, candidate.value, 1,
+                           max(0, remaining_stops - 1),
+                           reduced(remaining_dry_stops), reduced(remaining_damp_stops),
+                           used_mask | bits[candidate], 1, True))
+            if cost < pit:
+                pit, selected = cost, candidate
+    return RainTransitionDecision(pit, wait, selected)
+
+
+def _clock_same_rain_stint(weather, current_tire, weather_clock):
+    """Return whether a transition forecast has no legal compound crossover.
+
+    The transition planner has a much larger state space because every
+    projected surface can introduce a slick or alternate rain candidate.  If
+    the external clock can only reach surfaces that continue to recommend the
+    fitted rain compound, and that compound never becomes critical, its
+    transition state graph is exactly the same-compound stop graph.  Keep this
+    check bounded by the clock's capped update count; a future crossover still
+    uses the full transition solver.
+    """
+    if current_tire.compound not in (TireCompound.INTERMEDIATE, TireCompound.WET):
+        return False
+    surface = weather
+    for _ in range(weather_clock.max_updates + 1):
+        if (surface.fresh_rain_compound() != current_tire.compound
+                or surface.tire_mismatch(current_tire.compound) == "critical"):
+            return False
+        surface = surface.project_surface()
+    return True
 
 
 @lru_cache(maxsize=4096)
@@ -138,6 +475,7 @@ def plan_rain_stop(
     active_aero_enabled: bool = True, physical_total_laps: int | None = None,
     weather_intervals: tuple[int, ...] | None = None,
     current_traffic_gaps: tuple[float | None, float | None] | None = None,
+    weather_clock: StrategyWeatherClock | None = None,
 ) -> RainStopDecision:
     """Compare stopping now with driving at least one lap before any stop.
 
@@ -176,6 +514,17 @@ def plan_rain_stop(
     intervals = normalize_weather_intervals(
         track.total_laps - current_lap + 1, weather_intervals, weather=weather,
     )
+    horizon = track.total_laps - current_lap + 1
+    _validate_weather_clock(weather_clock, horizon)
+    if weather_clock is not None:
+        return _clock_rain_stop(
+            driver, car, track, weather, current_tire, int(tire_age), int(current_lap),
+            min(int(remaining_stops), horizon), pit_lane_factor=float(pit_lane_factor),
+            additional_current_stop_cost=float(additional_current_stop_cost),
+            current_lap_time_modifier=float(current_lap_time_modifier),
+            active_aero_enabled=active_aero_enabled, physical_total_laps=int(physical),
+            current_traffic_gaps=current_traffic_gaps, weather_clock=weather_clock,
+        )
     clean = driver.model_copy(deep=True)
     clean.reset_race_state()
     # Lap physics reads performance attributes, never names or identifiers.
@@ -389,6 +738,7 @@ def plan_rain_transition(
     remaining_dry_stops: int | None = None, remaining_damp_stops: int | None = None,
     used_compounds: set[TireCompound] | None = None,
     current_traffic_gaps: tuple[float | None, float | None] | None = None,
+    weather_clock: StrategyWeatherClock | None = None,
 ) -> RainTransitionDecision:
     """Plan bounded paid stops across rain/slick transitions under fixed rainfall.
 
@@ -453,6 +803,43 @@ def plan_rain_transition(
     intervals = normalize_weather_intervals(
         track.total_laps - current_lap + 1, weather_intervals, weather=weather,
     )
+    horizon = track.total_laps - current_lap + 1
+    _validate_weather_clock(weather_clock, horizon)
+    if weather_clock is not None:
+        # An unrecorded rain fit can still allow a compound-rule correction
+        # beyond the elective budget. The same-compound solver has no mask,
+        # so leave that case with the general transition solver.
+        compliant = bool(mask & 8) or (mask & 7).bit_count() >= 2
+        if ((remaining_stops > 0 or compliant)
+                and _clock_same_rain_stint(weather, current_tire, weather_clock)):
+            same_compound = _clock_rain_stop(
+                driver, car, track, weather, current_tire, int(tire_age), int(current_lap),
+                min(int(remaining_stops), horizon),
+                pit_lane_factor=float(pit_lane_factor),
+                additional_current_stop_cost=float(additional_current_stop_cost),
+                current_lap_time_modifier=float(current_lap_time_modifier),
+                active_aero_enabled=active_aero_enabled, physical_total_laps=int(physical),
+                current_traffic_gaps=current_traffic_gaps, weather_clock=weather_clock,
+            )
+            return RainTransitionDecision(
+                same_compound.pit_now_cost,
+                same_compound.wait_cost,
+                (current_tire.compound
+                 if same_compound.pit_now_cost < inf else None),
+            )
+        return _clock_rain_transition(
+            driver, car, track, weather, current_tire, int(tire_age), int(current_lap),
+            min(int(remaining_stops), horizon), pit_lane_factor=float(pit_lane_factor),
+            additional_current_stop_cost=float(additional_current_stop_cost),
+            current_lap_time_modifier=float(current_lap_time_modifier),
+            active_aero_enabled=active_aero_enabled, physical_total_laps=int(physical),
+            remaining_dry_stops=(None if remaining_dry_stops is None
+                                 else int(remaining_dry_stops)),
+            remaining_damp_stops=(None if remaining_damp_stops is None
+                                  else int(remaining_damp_stops)),
+            used_mask=mask, current_traffic_gaps=current_traffic_gaps,
+            weather_clock=weather_clock,
+        )
     clean = driver.model_copy(deep=True)
     clean.reset_race_state()
     clean.id = clean.name = clean.team_id = "projection"

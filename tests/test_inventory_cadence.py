@@ -22,12 +22,13 @@ def test_forced_puncture_keeps_observed_cadence_and_rejoin_snapshot(monkeypatch)
         return start(state, now, **kwargs)
 
     def inspect(state, track, weather, lap, **kwargs):
-        if state.driver.id == "B" and lap == 2 and kwargs.get("weather_intervals"):
+        if (state.driver.id == "B" and lap == 2 and kwargs.get("weather_intervals")
+                and state.inventory_pit_proposal is None):
             cadence = kwargs["weather_intervals"]
             assert cadence == (0, 2, 4)
             expected = engine.simulator._plan_inventory(
                 state, track, weather, lap, force_stop=True, **kwargs)
-            ordinary_options = dict(kwargs, weather_intervals=None)
+            ordinary_options = dict(kwargs, weather_intervals=None, weather_clock=None)
             ordinary = engine.simulator._plan_inventory(
                 state, track, weather, lap, force_stop=True, **ordinary_options)
             assert expected.set_id == "set-2"

@@ -6,6 +6,7 @@ import numpy as np
 
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.lap import LapSimulator
+from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.surface_projection import projected_surfaces
 from f1sim.simulation.tire_inventory import TireInventory
 
@@ -91,7 +92,8 @@ class InventoryStrategyMixin:
 
     def _plan_inventory(self, state, track, weather, lap, *, physical_total_laps=None,
                         weather_intervals=None, additional_current_stop_cost=0,
-                        current_traffic_gaps=None, force_stop=False, free_fit=False):
+                        current_traffic_gaps=None, force_stop=False, free_fit=False,
+                        weather_clock: StrategyWeatherClock | None = None):
         from f1sim.simulation.inventory_strategy import plan_inventory_strategy
 
         surfaces = projected_surfaces(weather, track.total_laps - lap + 1, weather_intervals)
@@ -105,6 +107,9 @@ class InventoryStrategyMixin:
                 or any(surface.track_wetness > .3 or surface.fresh_rain_compound() is not None
                        for surface in surfaces)):
             maximum = max(maximum, 4)
+        options = {}
+        if weather_clock is not None:
+            options["weather_clock"] = weather_clock
         return plan_inventory_strategy(
             state.driver, state.car, track, weather, state.tire_inventory, lap,
             tire_age=state.tire_laps, remaining_stops=max(0, maximum - state.pit_stops),
@@ -118,6 +123,7 @@ class InventoryStrategyMixin:
             physical_total_laps=physical_total_laps, weather_intervals=weather_intervals,
             current_traffic_gaps=current_traffic_gaps, force_stop=force_stop, free_fit=free_fit,
             require_compound_rule=(physical_total_laps or track.total_laps) > 1,
+            **options,
         )
 
     def _inventory_immediate_set(self, state, track, weather, lap, *, free_fit=False,
@@ -156,7 +162,8 @@ class InventoryStrategyMixin:
 
     def _should_pit_inventory(self, state, all_states, track, lap, weather,
                               additional_current_stop_cost=0, physical_total_laps=None,
-                              traffic_snapshot=None, weather_intervals=None):
+                              traffic_snapshot=None, weather_intervals=None,
+                              weather_clock: StrategyWeatherClock | None = None):
         from f1sim.simulation.race import TeamStrategyArchetype
 
         state.inventory_pit_proposal = None
@@ -191,7 +198,7 @@ class InventoryStrategyMixin:
             state, track, weather, lap, physical_total_laps=physical_total_laps,
             weather_intervals=weather_intervals,
             additional_current_stop_cost=additional_current_stop_cost + traffic_cost,
-            current_traffic_gaps=gaps, force_stop=compulsory,
+            current_traffic_gaps=gaps, force_stop=compulsory, weather_clock=weather_clock,
         )
         bias = ({TeamStrategyArchetype.AGGRESSIVE: .1, TeamStrategyArchetype.BALANCED: 0,
                  TeamStrategyArchetype.CONSERVATIVE: -.1}[state.strategy_archetype]
@@ -203,7 +210,8 @@ class InventoryStrategyMixin:
 
     def _prepare_inventory_pit(self, state, track, weather, lap, *, physical_total_laps=None,
                                weather_intervals=None, current_traffic_gaps=None,
-                               additional_current_stop_cost=0):
+                               additional_current_stop_cost=0,
+                               weather_clock: StrategyWeatherClock | None = None):
         """Select an actual available set before reserving or sampling service."""
         inventory = state.tire_inventory
         proposal = state.inventory_pit_proposal
@@ -216,6 +224,7 @@ class InventoryStrategyMixin:
                 physical_total_laps=physical_total_laps, weather_intervals=weather_intervals,
                 current_traffic_gaps=current_traffic_gaps,
                 additional_current_stop_cost=additional_current_stop_cost,
+                weather_clock=weather_clock,
             )
             selected = decision.set_id or self._inventory_immediate_set(
                 state, track, weather, lap, physical_total_laps=physical_total_laps,
@@ -227,11 +236,13 @@ class InventoryStrategyMixin:
         return True
 
     def _refit_inventory_free(self, state, track, weather, current_lap, *,
-                              physical_total_laps=None, weather_intervals=None):
+                              physical_total_laps=None, weather_intervals=None,
+                              weather_clock: StrategyWeatherClock | None = None):
         lap = current_lap + 1
         decision = self._plan_inventory(
             state, track, weather, lap, free_fit=True,
             physical_total_laps=physical_total_laps, weather_intervals=weather_intervals,
+            weather_clock=weather_clock,
         )
         selected = decision.set_id or self._inventory_immediate_set(
             state, track, weather, lap, free_fit=True, physical_total_laps=physical_total_laps,
