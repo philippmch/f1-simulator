@@ -7,6 +7,16 @@ import numpy as np
 from f1sim.models import Car, Driver, Tire, Track, Weather
 from f1sim.models.tire import TireCompound
 
+# The execution floor is an absolute fraction of the circuit reference lap.
+# Keep it in one place so deterministic forecasts use exactly the same lower
+# bound as sampled race laps.
+MIN_LAP_TIME_FRACTION = 0.95
+
+
+def minimum_lap_time(track: Track) -> float:
+    """Return the shared absolute lower bound for a green lap on ``track``."""
+    return track.base_lap_time * MIN_LAP_TIME_FRACTION
+
 
 @lru_cache(maxsize=128)
 def _track_profile_from_values(
@@ -194,8 +204,7 @@ class LapSimulator:
         lap_time += mismatch_penalty  # Add after multiplier (flat penalty)
 
         # Ensure minimum realistic lap time
-        min_lap_time = track.base_lap_time * 0.95
-        return max(min_lap_time, lap_time)
+        return max(minimum_lap_time(track), lap_time)
 
     @staticmethod
     def weather_pace_multiplier(driver: Driver, car: Car, weather: Weather) -> float:

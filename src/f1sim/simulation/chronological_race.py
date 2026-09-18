@@ -13,15 +13,18 @@ from itertools import count
 from math import ceil, floor, isfinite
 from numbers import Real
 
-from f1sim.models.tire import TIRE_COMPOUNDS
+from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
 from f1sim.simulation.events import EventType, RaceEvent
 from f1sim.simulation.execution import validate_starting_tire_ages, validate_starting_tires
+from f1sim.simulation.finish_strategy import ReplacementOption, evaluate_finish_protection
+from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.neutralization import safety_car_running_time
 from f1sim.simulation.pit_strategy import expected_stationary_time
 from f1sim.simulation.race import DriverRaceState, DriverStatus, RaceResult
 from f1sim.simulation.race_points import points_for_classification
 from f1sim.simulation.race_timing import RaceFinishTimeline, forecast_final_lap
 from f1sim.simulation.strategy_traffic import StrategyTrafficSnapshot
+from f1sim.simulation.surface_projection import projected_surfaces
 from f1sim.simulation.tire_inventory import validate_tire_inventory
 from f1sim.simulation.validation import validate_unique_ids
 
@@ -334,6 +337,42 @@ class ChronologicalRace:
                 return flag_time
         return None
 
+    def _weather_projection_clock(self, now, *, restart=False):
+        """Return the frozen leading update clock used by strategy forecasts.
+
+        The tuple is ``(first_update_time, observed_leader_pace,
+        available_updates)``.  Keeping this calculation shared means a finish
+        forecast at an expected pit exit sees precisely the same persistent
+        rainfall cadence as the existing own-lap ``weather_intervals`` path.
+        """
+        leader = self._forecast_leader()
+        if leader is None or not isfinite(now):
+            return None
+        pending = None if restart else self.pending.get(leader.driver.id)
+        leader_pace = self.running_paces.get(leader.driver.id)
+        if leader_pace is None and pending is not None:
+            leader_pace = pending.running or None
+        if (leader_pace is None or not isfinite(leader_pace) or leader_pace <= 0):
+            return None
+        modifier = self.simulator.event_manager.get_lap_time_modifier()
+        if not isfinite(modifier) or modifier <= 0:
+            return None
+        if pending is None:
+            first_update = now + leader_pace * modifier
+        elif pending.on_track:
+            first_update = max(now, pending.ready)
+        else:
+            first_update = max(now, pending.expected_exit or now)
+            first_update += leader_pace * modifier
+        flag_time = self._projected_flag_time(now, restart=restart)
+        if (flag_time is None or not isfinite(flag_time)
+                or not isfinite(first_update)):
+            return None
+        # Include updates before an equal-time crossing, but never evolve the
+        # surface at the chequered crossing itself.
+        available = max(0, ceil((flag_time - first_update) / leader_pace - 1e-12))
+        return first_update, leader_pace, available
+
     def _weather_intervals(self, state, now, planning, *, restart=False):
         """Map projected leading weather updates onto future own-lap starts.
 
@@ -343,36 +382,152 @@ class ChronologicalRace:
         pace changes are unknown. The winner's crossing produces no update.
         """
         own_pace = self.running_paces.get(state.driver.id)
-        leader = self._forecast_leader()
-        if own_pace is None or leader is None:
+        clock = self._weather_projection_clock(now, restart=restart)
+        if (own_pace is None or not isfinite(own_pace) or own_pace <= 0
+                or clock is None):
             return None
-        pending = None if restart else self.pending.get(leader.driver.id)
-        leader_pace = self.running_paces.get(leader.driver.id)
-        if leader_pace is None and pending is not None:
-            leader_pace = pending.running or None
-        if any(pace is None or not isfinite(pace) or pace <= 0
-               for pace in (own_pace, leader_pace)):
-            return None
+        first_update, leader_pace, available = clock
         modifier = self.simulator.event_manager.get_lap_time_modifier()
-        if pending is None:
-            first_update = now + leader_pace * modifier
-        elif pending.on_track:
-            first_update = max(now, pending.ready)
-        else:
-            first_update = max(now, pending.expected_exit or now)
-            first_update += leader_pace * modifier
-        flag_time = self._projected_flag_time(now, restart=restart)
-        if flag_time is None:
-            return None
-        # Include an update at an equal-time own crossing: the leading
-        # distance has scheduler priority. Exclude the chequered crossing.
-        available = max(0, ceil((flag_time - first_update) / leader_pace - 1e-12))
         intervals = [0]
         for offset in range(1, planning.total_laps - state.laps_completed):
             start = now + own_pace * (modifier + offset - 1)
             elapsed = (start - first_update) / leader_pace
             intervals.append(min(available, max(0, floor(elapsed + 1e-12) + 1)))
         return tuple(intervals)
+
+    def _projected_surface_at(self, absolute_time, *, now, restart=False):
+        """Return a frozen persistent-rain surface at an absolute entry time."""
+        clock = self._weather_projection_clock(now, restart=restart)
+        if clock is None or not isfinite(absolute_time):
+            return None
+        first_update, leader_pace, available = clock
+        elapsed = (absolute_time - first_update) / leader_pace
+        updates = min(available, max(0, floor(elapsed + 1e-12) + 1))
+        return projected_surfaces(self.weather, 2, (0, updates))[-1]
+
+    @staticmethod
+    def _clear_one_lap_pit_proposals(state):
+        """Drop native planner proposals when a finish guard vetoes a stop."""
+        state.dry_pit_proposal = None
+        state.weather_pit_proposal = None
+        state.inventory_pit_proposal = None
+
+    def _finish_protection_skip_reason(self, state, *, restart=False, now=None):
+        """Return why the bounded elective-stop guard must remain inactive."""
+        control = self.simulator.event_manager
+        if state.force_pit_next_lap:
+            return "forced stop"
+        if (control.safety_car_active or control.vsc_active or control.red_flag_active):
+            return "race control active"
+        if now is None or not isfinite(now):
+            return "invalid current time"
+        if self._forecast_leader() is state:
+            return "candidate is projected leader"
+        if self.weather.tire_mismatch(state.current_tire.compound) == "critical":
+            return "current tire is critical"
+        inventory = state.tire_inventory
+        if inventory is not None:
+            if inventory.current_set_id in inventory.unavailable_ids:
+                return "current inventory set unavailable"
+            if not self.simulator._stay_satisfies_tire_rule(state):
+                return "compound rule unresolved"
+        elif not self.simulator._stay_satisfies_tire_rule(state):
+            return "compound rule unresolved"
+        if self._weather_projection_clock(now, restart=restart) is None:
+            return "missing weather forecast"
+        return None
+
+    def _finish_replacement_options(self, state, *, lap):
+        """Use a known native replacement, or retain an optimistic option set."""
+        inventory = state.tire_inventory
+        if inventory is not None:
+            proposal = state.inventory_pit_proposal
+            if proposal is not None and proposal[0] == lap:
+                selected = next((item for item in inventory.replacements()
+                                 if item.id == proposal[1]), None)
+                if (selected is not None
+                        and self.weather.tire_mismatch(selected.compound) != "critical"):
+                    return (ReplacementOption(selected.compound, selected.age, selected.id),)
+            return tuple(ReplacementOption(item.compound, item.age, item.id)
+                         for item in inventory.replacements())
+
+        # Execution's precedence is weather-required compound, then the
+        # weather planner's selected slick, then the dry planner's selected
+        # slick.  Calling none of the fallback rankers here avoids policy/DP
+        # work and leaves an unknown fallback optimistically unbounded.
+        weather_compound = self.simulator._choose_weather_compound(self.weather)
+        if weather_compound is not None:
+            return (ReplacementOption(weather_compound),)
+        weather_proposal = state.weather_pit_proposal
+        if (weather_proposal is not None and weather_proposal[0] == lap
+                and weather_proposal[1] in {
+                    TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
+                } and (
+                    self.simulator._has_used_wet_compound(state)
+                    or state.current_tire.compound in {
+                        TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
+                    }
+                )):
+            return (ReplacementOption(weather_proposal[1]),)
+        dry_proposal = state.dry_pit_proposal
+        if (dry_proposal is not None and dry_proposal[0] == lap
+                and self.weather.track_wetness < 0.08
+                and self.weather.rain_intensity < 0.15):
+            return (ReplacementOption(dry_proposal[1]),)
+        return None
+
+    def _protect_elective_finish_distance(
+        self, state, planning, now, delay, traffic, *, restart=False,
+    ):
+        """Return whether a native elective stop should be vetoed."""
+        reason = self._finish_protection_skip_reason(state, restart=restart, now=now)
+        if reason is not None:
+            return False
+        flag_time = self._projected_flag_time(now, restart=restart)
+        if flag_time is None or not isfinite(flag_time):
+            return False
+        physical_total = self.track.total_laps
+        # ``planning`` is an observed-pace strategy horizon.  The protection
+        # must retain the actual scheduled cap so a fast bound cannot be
+        # hidden by that estimate before it reaches the projected flag.
+        max_lap = self.track.total_laps
+        if (not isinstance(max_lap, int) or max_lap < state.laps_completed + 1
+                or not isinstance(physical_total, int) or physical_total < max_lap):
+            return False
+        replacements = self._finish_replacement_options(state, lap=state.laps_completed + 1)
+        # An empty finite pool is decided by native preparation/retirement;
+        # there is no optimistic stop path to compare here.
+        if replacements is not None and not replacements:
+            return False
+        modifier = self.simulator.event_manager.get_lap_time_modifier()
+        gap = traffic.gap_ahead if traffic is not None else None
+        result = evaluate_finish_protection(
+            state.driver,
+            state.car,
+            self.track,
+            state.current_tire,
+            state.tire_laps,
+            state.laps_completed + 1,
+            self.weather,
+            now,
+            flag_time,
+            max_lap,
+            # Forecast work must not call the live execution simulator: test
+            # instrumentation and its RNG belong solely to actual laps.
+            lap_simulator=LapSimulator(),
+            physical_total_laps=physical_total,
+            expected_lane_loss=(self.track.pit_lane_delta
+                                * self.simulator._pit_lane_factor()),
+            expected_service_time=expected_stationary_time(state.car),
+            expected_queue_delay=delay,
+            current_lap_time_modifier=modifier,
+            observed_gap=gap,
+            replacements=replacements,
+            projected_surface_at=lambda absolute: self._projected_surface_at(
+                absolute, now=now, restart=restart,
+            ),
+        )
+        return result.veto
 
     def _start_lap(self, state, now, *, restart_planning=None):
         driver_id = state.driver.id
@@ -402,6 +557,12 @@ class ChronologicalRace:
             traffic_snapshot=traffic,
             weather_intervals=cadence,
         )
+        restart = restart_planning is not None
+        if stop and not state.force_pit_next_lap and self._protect_elective_finish_distance(
+            state, planning, now, delay, traffic, restart=restart,
+        ):
+            self._clear_one_lap_pit_proposals(state)
+            stop = False
         loss = 0.0
         expected_exit = None
         if stop:

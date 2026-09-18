@@ -63,6 +63,26 @@ globally optimal timed strategy. After a timed announcement, the next leading
 crossing remains authoritative even if a lapped driver inherits the lead.
 Original scheduled fuel distance remains separate from all strategy horizons.
 
+Before committing an elective stop, the chronological engine also checks whether
+the stop would sacrifice a completed lap under the projected leading finish.
+It compares a mean-pace continuation on the fitted tyre with an optimistic stop
+continuation: expected lane, service and queue time, a mean outlap, then later
+laps at the lap model's minimum time without further pit or traffic losses.
+Both paths end at their first crossing at or after the same projected flag, or
+at the original scheduled distance. A stop is cancelled only when retaining the
+tyre remains feasible and completes more laps than this optimistic stop path.
+Equal-distance decisions retain the ordinary strategy planner's choice.
+
+This check uses persistent rainfall and the shared leading weather clock at
+projected track-entry times, including the expected pit exit. It consumes no
+future weather or service draws and does not fit or reserve physical tyre sets.
+Forced repairs, critical tyre mismatch, unavailable fitted sets and unresolved
+compound-use requirements remain under the existing compulsory-stop rules.
+The check also remains inactive under race control, for the projected leader,
+or without a usable forecast. It protects distance under these conditional
+mean-pace assumptions; it does not guarantee the sampled race outcome or solve
+the complete timed strategy problem.
+
 Pit-rejoin traffic uses the same projected finish time, even before the timed
 finish is announced. Each rival remains traffic until its own projected final
 crossing; lapped cars can therefore remain after the leader takes the flag.

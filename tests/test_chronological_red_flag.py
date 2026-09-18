@@ -23,8 +23,15 @@ def setup(monkeypatch, *, pause=600, laps=3, red=(1,), paces=None, pit=False):
     monkeypatch.setattr(control, "_check_mechanical_failure", lambda *a: None)
     monkeypatch.setattr(control, "_check_random_incident", lambda *a, **kw: None)
     monkeypatch.setattr(Weather, "evolve", lambda self, rng: self.model_copy(deep=True))
-    monkeypatch.setattr(simulator, "_should_pit", lambda state, states, track, lap, *a, **k:
-                        pit and state.driver.id == "B" and lap == 2)
+    def scripted_stop(state, states, track, lap, *args, **kwargs):
+        # This fixture exercises service across a red flag, so the stop is
+        # required independently of the elective strategy's finish forecast.
+        stop = pit and state.driver.id == "B" and lap == 2
+        if stop:
+            state.force_pit_next_lap = True
+        return stop
+
+    monkeypatch.setattr(simulator, "_should_pit", scripted_stop)
     samples, services, fits, attempts = [], [], [], []
 
     def physics(driver, car, track, tire, weather, lap, total_laps, **kwargs):
