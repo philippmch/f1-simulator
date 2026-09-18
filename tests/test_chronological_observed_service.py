@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from test_chronological_planning_information import setup as planning_setup
 
 from f1sim.models import Car
 from f1sim.simulation.chronological_race import (
@@ -12,7 +13,6 @@ from f1sim.simulation.chronological_race import (
 )
 from f1sim.simulation.pit_strategy import expected_stationary_time
 from f1sim.simulation.race import RaceSimulator
-from tests.test_chronological_planning_information import setup as planning_setup
 
 
 def lifecycle_fixture():
