@@ -12,8 +12,14 @@ import pytest
 
 from f1sim.analysis.pace_evaluation import (
     _aggregate,
+    _aggregate_team_metrics,
+    _aggregate_teammate_gaps,
+    _component_variant_metrics,
     _constructor_standings,
     _metrics,
+    _neutral_driver_stats,
+    _team_median_metrics,
+    _teammate_gap_metrics,
     evaluate_qualifying_pace,
 )
 from f1sim.data import CurrentSeasonDataError, CurrentSeasonDataLoader
@@ -262,6 +268,197 @@ def test_metrics_handle_ties_missing_samples_and_scale_invariance():
     assert math.isfinite(aggregate["relative_pace_mae_pct"])
 
 
+def _component_rows(
+    values: list[tuple[str, str, float, float, float | None]],
+) -> list[dict]:
+    return [
+        {
+            "driver_id": driver_id,
+            "team_id": team_id,
+            "predicted_seconds": predicted,
+            "observed_q1_seconds": observed,
+            "previous_q1_seconds": previous,
+        }
+        for driver_id, team_id, predicted, observed, previous in values
+    ]
+
+
+def test_component_team_and_teammate_metrics_use_explicit_denominators():
+    rows = _component_rows([
+        ("A1", "A", 100.0, 100.0, 99.0),
+        ("A2", "A", 101.0, 102.0, 101.0),
+        ("A3", "A", 102.0, 104.0, 103.0),
+        ("B1", "B", 98.0, 98.0, 97.0),
+    ])
+    teams = _team_median_metrics(rows)
+    gaps = _teammate_gap_metrics(rows)
+    assert teams["teams"] == 2
+    assert gaps["teammate_pairs"] == 3
+    assert gaps["comparable_pairs"] == 3
+    assert gaps["pairwise_concordance"] == 1.0
+    assert gaps["mean_abs_predicted_gap_pct"] == pytest.approx(
+        4 / 100.5 * 100 / 3,
+    )
+
+    one_team = _team_median_metrics(rows[:3])
+    one_team_gaps = _teammate_gap_metrics(rows[:3])
+    assert one_team["teams"] == 1 and one_team["rank_mae"] is None
+    assert one_team_gaps["teammate_pairs"] == 3
+    aggregate_teams = _aggregate_team_metrics([teams, one_team])
+    aggregate_gaps = _aggregate_teammate_gaps([gaps, one_team_gaps])
+    assert aggregate_teams["team_observations"] == 2
+    assert aggregate_gaps["teammate_pairs"] == 6
+
+
+def test_component_teammate_metrics_handle_ties_scale_and_empty_cohorts():
+    tied = _component_rows([
+        ("A1", "A", 100.0, 100.0, None),
+        ("A2", "A", 100.0, 102.0, None),
+    ])
+    scaled = _component_rows([
+        (row["driver_id"], row["team_id"], row["predicted_seconds"] * 2,
+         row["observed_q1_seconds"] * 2, None)
+        for row in tied
+    ])
+    tied_metrics = _teammate_gap_metrics(tied)
+    assert tied_metrics["pairwise_concordance"] == 0.5
+    assert tied_metrics["gap_mae_pct"] == pytest.approx(
+        tied_metrics["mean_abs_observed_gap_pct"],
+    )
+    assert _teammate_gap_metrics(scaled) == pytest.approx(tied_metrics)
+    empty = _team_median_metrics([])
+    assert empty["teams"] == 0 and empty["rank_mae"] is None
+    assert _teammate_gap_metrics([]) == {
+        "gap_mae_pct": None,
+        "mean_abs_predicted_gap_pct": None,
+        "mean_abs_observed_gap_pct": None,
+        "teammate_pairs": 0,
+        "comparable_pairs": 0,
+        "pairwise_concordance": None,
+    }
+
+
+def test_component_variant_metrics_keep_paired_cohort_and_baseline_separate():
+    rows = _component_rows([
+        ("A1", "A", 100.0, 100.0, 101.0),
+        ("A2", "A", 101.0, 102.0, None),
+    ])
+    metrics = _component_variant_metrics(rows, ["A1", "A2"])
+    paired = metrics["paired_comparison"]
+    assert paired["driver_ids"] == ["A1"]
+    assert paired["model"]["drivers"] == 1
+    assert paired["previous_q1"]["drivers"] == 1
+    assert paired["paired_team_medians"]["teams"] == 1
+    assert paired["previous_q1_team_medians"]["teams"] == 1
+    assert paired["paired_teammate_gaps"]["teammate_pairs"] == 0
+    assert paired["previous_q1_teammate_gaps"]["teammate_pairs"] == 0
+
+
+def test_neutral_component_driver_assumptions_are_explicit_in_wet_conditions(fixture):
+    loader, _, _, _ = fixture
+    stats = loader._build_driver_stats(
+        year=YEAR,
+        target_event=loader._calendar[1],
+        roster=[
+            {"id": "A1", "name": "A1", "team_name": "a"},
+            {"id": "A2", "name": "A2", "team_name": "a"},
+        ],
+        driver_standings=[], constructor_standings=[], race_rows=[], quali_rows=[],
+        target_qualifying_rows=[], track_weight=0.0, form_weight=0.0, quali_weight=0.0,
+    )
+    neutral = _neutral_driver_stats(stats)
+    assert {
+        (
+            item.driver_skill_rating, item.consistency_rating,
+            item.wet_skill_modifier, item.overtaking_skill, item.tire_management,
+        )
+        for item in neutral.values()
+    } == {(0.92, 0.968, 0.9936, 0.90, 0.968)}
+
+
+def test_components_are_opt_in_and_do_not_add_fetches_or_mutate_loader(fixture):
+    loader, results, qualifying, calls = fixture
+    loader._driver_stats = {"sentinel": "live"}
+    loader._track_stats = {"circuit2": "live target calibration"}
+    before_sources = copy.deepcopy((results, qualifying, loader._driver_stats, loader._track_stats))
+    report = evaluate_qualifying_pace(loader, YEAR, target_race=2, include_components=True)
+    assert len(calls) == 1 and all(f"/{YEAR}/1/" in url for url in calls)
+    assert (results, qualifying, loader._driver_stats, loader._track_stats) == before_sources
+    fold = report["folds"][0]
+    assert set(fold["components"]) == {
+        "assumptions", "constructor_prior", "team_form", "full_model",
+    }
+    assert fold["components"]["full_model"]["model"] == fold["model"]
+    assert fold["components"]["full_model"]["predictions"] == fold["predictions"]
+    paired_ids = fold["paired_comparison"]["driver_ids"]
+    for name in ("constructor_prior", "team_form", "full_model"):
+        component = fold["components"][name]
+        assert component["paired_comparison"]["driver_ids"] == paired_ids
+        assert "paired_team_medians" in component["paired_comparison"]
+        assert "previous_q1_teammate_gaps" in component["paired_comparison"]
+
+
+def test_component_predictions_ignore_target_and_future_performance(fixture):
+    loader, results, qualifying, _ = fixture
+    before = evaluate_qualifying_pace(loader, YEAR, target_race=2, include_components=True)
+    for rows in (results, qualifying):
+        for record in rows:
+            if record["round"] >= 2:
+                record["Q1"] = "2:00.000"
+                record["position"] = "22"
+                record["FastestLap"] = {"AverageSpeed": {"speed": "999"},
+                                         "Time": {"time": "0:01.000"}}
+    after = evaluate_qualifying_pace(loader, YEAR, target_race=2, include_components=True)
+    for name in ("constructor_prior", "team_form", "full_model"):
+        first = before["folds"][0]["components"][name]["predictions"]
+        second = after["folds"][0]["components"][name]["predictions"]
+        for previous, current in zip(first, second):
+            assert {
+                key: value for key, value in previous.items()
+                if key not in {"observed_q1_seconds", "previous_q1_seconds"}
+            } == {
+                key: value for key, value in current.items()
+                if key not in {"observed_q1_seconds", "previous_q1_seconds"}
+            }
+
+
+def test_constructor_prior_stays_fixed_when_prior_pace_changes_but_team_reacts(
+    fixture, monkeypatch,
+):
+    loader, results, qualifying, _ = fixture
+    def equal_standings(url):
+        payload = standings(1)
+        for row_data in payload["MRData"]["StandingsTable"]["StandingsLists"][0][
+            "ConstructorStandings"
+        ]:
+            row_data["points"] = "20"
+        return payload
+
+    monkeypatch.setattr(loader, "_fetch_json", equal_standings)
+    before = evaluate_qualifying_pace(loader, YEAR, target_race=2, include_components=True)
+    for rows in (results, qualifying):
+        for record in rows:
+            if record["round"] == 1 and record["Driver"]["code"] in {"A1", "A2"}:
+                record["Q1"] = "2:00.000"
+                record["FastestLap"] = {"AverageSpeed": {"speed": "50"},
+                                         "Time": {"time": "0:01.000"}}
+    after = evaluate_qualifying_pace(loader, YEAR, target_race=2, include_components=True)
+    before_components = before["folds"][0]["components"]
+    after_components = after["folds"][0]["components"]
+    before_prior = [
+        row["predicted_seconds"]
+        for row in before_components["constructor_prior"]["predictions"]
+    ]
+    after_prior = [
+        row["predicted_seconds"]
+        for row in after_components["constructor_prior"]["predictions"]
+    ]
+    assert before_prior == after_prior
+    assert [row["predicted_seconds"] for row in before_components["team_form"]["predictions"]] != [
+        row["predicted_seconds"] for row in after_components["team_form"]["predictions"]
+    ]
+
+
 @pytest.mark.parametrize("form", [-1, True, 25, 1.5])
 def test_form_validation_precedes_fetches(fixture, form):
     loader, _, _, calls = fixture
@@ -284,6 +481,35 @@ def test_cli_emits_single_report_with_the_selected_scenario(fixture, monkeypatch
     assert report["weather_assumption"]["condition"] == scenario
     assert report["weather_assumption"]["change_probability"] == 0
     assert report["folds"][0]["round"] == 2
+
+
+def test_cli_components_are_opt_in_and_report_all_variants(fixture, monkeypatch, capsys):
+    loader, _, _, _ = fixture
+    path = Path(__file__).resolve().parents[1] / "examples" / "evaluate_qualifying_pace.py"
+    spec = importlib.util.spec_from_file_location("pace_components_cli", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "CurrentSeasonDataLoader", lambda **kwargs: loader)
+    monkeypatch.setattr(sys, "argv", [str(path), "--race", "2", "--components"])
+    module.main()
+    report = json.loads(capsys.readouterr().out)
+    assert set(report["folds"][0]["components"]) == {
+        "assumptions", "constructor_prior", "team_form", "full_model",
+    }
+
+
+def test_cli_default_report_has_no_component_diagnostic(fixture, monkeypatch, capsys):
+    loader, _, _, _ = fixture
+    path = Path(__file__).resolve().parents[1] / "examples" / "evaluate_qualifying_pace.py"
+    spec = importlib.util.spec_from_file_location("pace_default_cli", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "CurrentSeasonDataLoader", lambda **kwargs: loader)
+    monkeypatch.setattr(sys, "argv", [str(path), "--race", "2"])
+    module.main()
+    report = json.loads(capsys.readouterr().out)
+    assert "components" not in report["folds"][0]
+    assert "components" not in report["aggregate"]
 
 
 def test_cli_failure_prints_no_partial_json(fixture, monkeypatch, capsys):

@@ -8,6 +8,7 @@ It does not use the live simulator's current-strength snapshot for a past target
 python examples/evaluate_qualifying_pace.py --race 13
 python examples/evaluate_qualifying_pace.py --race "Italian Grand Prix"
 python examples/evaluate_qualifying_pace.py
+python examples/evaluate_qualifying_pace.py --components
 python examples/evaluate_qualifying_pace.py --form-races 5 --scenario light_rain
 ```
 
@@ -83,6 +84,51 @@ denominators and the number of scored folds. Driver observations repeat across
 races and are not independent samples for a confidence interval. No statistical
 significance, predicted winning odds or optimal race strategy is claimed.
 
+## Separating team and driver evidence
+
+Use `--components` to compare three fixed model variants on the same held-out
+entrants: constructor points alone with neutral drivers, the current team model
+with neutral drivers, and the full current model. All variants use the actual
+noise-free qualifying lap simulator and the same weather and compound choices.
+The diagnostic does not fit weights or change the live simulation.
+
+The neutral driver uses skill 0.92 (the rating formula's zero-residual
+intercept), consistency and tyre management 0.968, wet-skill modifier 0.9936,
+and overtaking skill 0.90. The latter attributes are fixed diagnostic
+assumptions based on the loader's default dispersion, so driver evidence
+cannot re-enter through wet-weather pace. This is a residual ablation, not
+the loader's no-evidence skill fallback of 0.90. Constructor-only cars use
+the existing rating builder with all pace-evidence weights set to zero;
+constructor normalization is not reimplemented in the evaluator.
+
+Alongside field-wide scores, it measures team-median pace and gaps between
+teammates. Team medians use only drivers with usable target Q1 times, with the
+same drivers included for every variant. A team with one observed driver can
+contribute a team median but cannot supply a teammate comparison. Teams with
+more than two observed drivers contribute every distinct teammate pair.
+Team ranking and relative-pace scores require at least two observed teams and
+normalize across those team medians. A single observed team can still provide
+usable teammate-gap evidence.
+
+Teammate gap error compares signed predicted and observed gaps, each divided
+by its own scoring cohort's median lap time, in percentage points. The report
+also gives mean absolute predicted and observed gaps: small errors alone can
+hide a model that predicts almost no separation. Ordering accuracy excludes
+observed ties and gives half credit to predicted ties. Missing comparisons
+remain undefined, rather than becoming zero error.
+
+The previous-Q1 baseline is compared on the common cohort with both target and
+previous Q1 observations. Its cohort can be smaller than the main component
+evaluation. Aggregate team errors are weighted by team observations, teammate
+gap errors by teammate pairs, and ordering accuracy by non-tied observed pairs.
+These are repeated observations across events, not independent samples.
+
+Component differences show where the current predictions come from; they do
+not establish intrinsic driver ability or causal car performance. In particular,
+an overall field score can improve while teammate predictions deteriorate.
+Changes chosen after inspecting these results need fresh validation before
+claiming better predictive accuracy.
+
 ## Current-season snapshot, 9 September 2026
 
 The initial evaluator at revision `30fed16`, using the default dry scenario
@@ -116,6 +162,42 @@ had one entrant without a usable Q1 time. These measurements describe the
 available scoring cohorts, not a complete field at every event. The report
 records each cohort and the 19 provider URLs used for this collection. Provider
 revisions can change a subsequent run.
+
+## Component snapshot, 19 September 2026
+
+The unchanged pace model at revision `164be5e`, evaluated with the component
+diagnostic in dry weather and a three-round form window, scored 302 driver
+observations across 14 events. The table uses the common previous-Q1 cohort:
+278 driver observations across 13 events, 143 team observations and 135
+teammate pairs. All variants used the same provider responses, held in memory;
+no weights or lap coefficients were fitted. The existing full-model and
+baseline scores matched the earlier collection that day exactly.
+
+| Paired metric | Constructor prior | Team form | Full model | Previous Q1 |
+|---|---:|---:|---:|---:|
+| Driver rank MAE (places) | 2.996 | 3.018 | 3.122 | 3.086 |
+| Relative pace error (percentage points) | 0.6618 | 0.6614 | 0.6608 | 0.5017 |
+| Team rank MAE (places) | 1.308 | 1.287 | 1.343 | 1.371 |
+| Team relative pace error (percentage points) | 0.6168 | 0.6164 | 0.6157 | 0.4346 |
+| Teammate gap error (percentage points) | 0.4033 | 0.4033 | 0.3974 | 0.5987 |
+| Mean absolute predicted teammate gap (percentage points) | 0.0000 | 0.0000 | 0.0310 | 0.4184 |
+| Teammate ordering accuracy | 50.00% | 50.00% | 62.22% | 48.15% |
+
+The mean absolute observed teammate gap was 0.4033 percentage points. The
+neutral-driver variants predict tied teammates and receive half credit for
+ordering; their gap error is therefore a useful zero-gap reference. The full
+model improves slightly on that reference and orders teammates better than
+previous Q1 here, but its predicted gaps are much smaller than observed.
+
+Constructor points dominate the team predictions: adding team form changes
+relative pace error very little. The full model orders team medians slightly
+better than previous Q1 but estimates their separation less accurately.
+Adding driver evidence worsens overall rank error relative to the neutral
+variants while slightly improving pace error. These mixed outcomes identify
+calibration questions; they do not justify removing driver differences or
+scaling all pace gaps by one factor. Q1 conditions and run quality remain
+uncontrolled, and later completed rounds are needed to validate changes
+chosen after inspecting this snapshot.
 
 ## Interpretation limits
 
