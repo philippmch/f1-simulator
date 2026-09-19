@@ -342,10 +342,9 @@ class ConsoleOutput:
 
         print("\nPosition Distribution:")
         dist = results.get_position_distribution(driver_id)
-        for pos in range(1, 21):
-            if pos in dist:
-                bar = "#" * int(dist[pos] / 2)
-                print(f"  P{pos:2d}: {dist[pos]:5.1f}% {bar}")
+        for pos in sorted(dist):
+            bar = "#" * int(dist[pos] / 2)
+            print(f"  P{pos:2d}: {dist[pos]:5.1f}% {bar}")
 
         pct = results.get_position_percentiles(driver_id)
         if pct:
@@ -387,13 +386,14 @@ class ConsoleOutput:
         scenario_results: dict[str, SimulationResults],
         top_n: int = 10,
     ) -> None:
-        """Print cross-scenario comparison table of win probabilities."""
+        """Show every scenario's entrants, ordered by top-N finish probabilities."""
         if not scenario_results:
             print("No scenario results to compare")
             return
 
         print("\n" + "=" * 80)
         print("SCENARIO COMPARISON (WIN PROBABILITIES)")
+        print("All scenario entrants; -- means no recorded results for that driver.")
         print("=" * 80)
 
         scenario_names = list(scenario_results.keys())
@@ -401,14 +401,30 @@ class ConsoleOutput:
         print(header)
         print("-" * 80)
 
-        first_results = scenario_results[scenario_names[0]]
-        top_drivers = list(first_results.get_top_n_finish_probabilities(top_n).keys())[:12]
+        top_finish_probabilities = {
+            name: result.get_top_n_finish_probabilities(top_n)
+            for name, result in scenario_results.items()
+        }
+        win_probabilities = {
+            name: result.get_win_probabilities()
+            for name, result in scenario_results.items()
+        }
+        drivers = []
+        seen_drivers = set()
+        for probabilities in top_finish_probabilities.values():
+            for driver_id in probabilities:
+                if driver_id not in seen_drivers:
+                    seen_drivers.add(driver_id)
+                    drivers.append(driver_id)
 
-        for driver_id in top_drivers:
+        for driver_id in drivers:
             row = driver_id.ljust(18)
             for scenario in scenario_names:
-                probs = scenario_results[scenario].get_win_probabilities()
-                row += f"{probs.get(driver_id, 0.0):13.1f}% "
+                stats = scenario_results[scenario].driver_stats.get(driver_id)
+                if stats is None or not stats.positions:
+                    row += f"{'--':>14} "
+                else:
+                    row += f"{win_probabilities[scenario].get(driver_id, 0.0):13.1f}% "
             print(row)
 
         ConsoleOutput._print_suspension_context(scenario_results)
