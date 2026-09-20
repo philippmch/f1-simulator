@@ -65,16 +65,36 @@ def _clock_rain_stop(
     service = expected_stationary_time(clean)
     green_stop = track.pit_lane_delta + service
     projected = [weather]
+    native_clock = type(weather_clock) is StrategyWeatherClock
+    absolute_updates = {}
+
+    def schedule(paid, stopped_first):
+        key = (paid, stopped_first)
+        values = absolute_updates.get(key)
+        if values is None:
+            values = tuple(
+                weather_clock.updates(index, paid, stopped_first)
+                for index in range(horizon)
+            )
+            absolute_updates[key] = values
+        return values
 
     @lru_cache(maxsize=None)
     def row(offset, paid, stopped_first, retained=False):
-        first = weather_clock.updates(offset, paid, stopped_first)
+        if native_clock:
+            updates = schedule(paid, stopped_first)
+            first = updates[offset]
+        else:
+            first = weather_clock.updates(offset, paid, stopped_first)
         while len(projected) <= first:
             projected.append(projected[-1].project_surface())
-        intervals = tuple(
-            weather_clock.updates(index, paid, stopped_first) - first
-            for index in range(offset, horizon)
-        )
+        if native_clock:
+            intervals = tuple(updates[index] - first for index in range(offset, horizon))
+        else:
+            intervals = tuple(
+                weather_clock.updates(index, paid, stopped_first) - first
+                for index in range(offset, horizon)
+            )
         return _running_row(
             models, projected[first].model_dump_json(),
             retained_json if retained else fresh_json,
@@ -122,7 +142,8 @@ def _clock_rain_stop(
     simulator = LapSimulator(np.random.default_rng(0))
 
     def first_running(tire, age, paid, stopped_first, gap):
-        first = weather_clock.updates(0, paid, stopped_first)
+        first = (schedule(paid, stopped_first)[0] if native_clock
+                 else weather_clock.updates(0, paid, stopped_first))
         while len(projected) <= first:
             projected.append(projected[-1].project_surface())
         driver.current_tire_laps = age

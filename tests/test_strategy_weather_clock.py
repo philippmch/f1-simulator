@@ -3,9 +3,10 @@
 from dataclasses import FrozenInstanceError
 from math import isclose
 
+import numpy as np
 import pytest
 
-from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
+from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock, _nonnegative_integer
 
 
 def _clock(**overrides) -> StrategyWeatherClock:
@@ -129,3 +130,22 @@ def test_clock_reproduces_external_leader_event_timeline() -> None:
 
     assert [clock.updates(offset, 0) for offset in range(3)] == [0, 2, 3]
     assert isclose(clock.current_stop_delay, 24.750946)
+
+
+def test_nonnegative_integer_accepts_large_builtin_int_and_rejects_negative():
+    value = int("1000000")
+
+    assert _nonnegative_integer(value, "value") == 1000000
+    with pytest.raises(ValueError, match="nonnegative integer"):
+        _nonnegative_integer(-1, "value")
+
+
+@pytest.mark.parametrize("value", [True, 1.0, np.int64(-1)])
+def test_nonnegative_integer_rejects_invalid_or_negative_integral_inputs(value):
+    with pytest.raises(ValueError, match="nonnegative integer"):
+        _nonnegative_integer(value, "value")
+
+
+@pytest.mark.parametrize("value", [np.int64(3), np.uint64(3)])
+def test_nonnegative_integer_accepts_numpy_integral_fallback(value):
+    assert _nonnegative_integer(value, "value") == 3

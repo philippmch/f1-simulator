@@ -186,10 +186,11 @@ describe yielding at the first opportunity, with allowance for the next straight
 The engine has no sector geometry, so it does not model that wait, noncompliance
 or penalties, or add an uncalibrated time loss for yielding.
 
-Production dispatch remains unchanged while entry-point integration and
-end-to-end contracts are validated for chronological execution. Detailed restart
-formation and abandonment remain model limitations, rather than features of the
-existing production loop that have not yet been migrated.
+Chronological execution is integrated with the runner, process workers, CLI,
+API, dashboard, exports and replay, but remains opt-in. The standard engine is
+still the default while runtime cost and model readiness are assessed. Detailed
+restart formation and abandonment remain model limitations, rather than
+features of the existing production loop that have not yet been migrated.
 The existing minor-contact time losses and personal spin/puncture/crash outcomes
 are already reused; a richer damage-severity model would improve both engines
 rather than close a migration gap.
@@ -247,13 +248,20 @@ distance cap; A retains all four completed laps.
 
 ## Remaining integration
 
-The experimental scheduler distinguishes a lap's immutable starting conditions
-from consequences committed during that lap. Production migration still needs
-the complete strategy, race-control and battle behavior on this timeline.
-Tyre history, service draws, energy, incidents and fastest laps cannot be
-reconstructed by trimming final results. The production loop's shallow
+The opt-in scheduler already invokes strategy, race-control and battle behavior
+on its individual-car timeline. It distinguishes a lap's immutable starting
+conditions from consequences committed during that lap. Tyre history, service
+draws, energy, incidents and fastest laps are recorded during execution rather
+than reconstructed by trimming final results. The standard loop's shallow
 `replace(state)` snapshots share mutable driver state and cannot serve as
 speculative transactions.
+
+A future default change must coordinate the runner, CLI, API and dashboard;
+changing an omitted API request field also changes behavior for existing
+clients. Saved replay must retain its recorded engine, and legacy worker tuples
+and output metadata without an engine must retain their standard interpretation.
+Opt-in integration alone does not establish acceptable runtime across weather
+and inventory workloads or empirical calibration.
 
 Elapsed crossing time must be monotonic and distinct from relative racing gaps.
 Both engines now use bounded future running for full-SC catch-up. The standard

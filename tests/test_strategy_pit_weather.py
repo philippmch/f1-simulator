@@ -1,5 +1,6 @@
 """Independent small-schedule checks for externally timed strategy weather."""
 
+from collections import Counter
 from copy import deepcopy
 from math import inf
 
@@ -276,6 +277,76 @@ def test_clocked_rain_stop_matches_explicit_timeline_and_reverses_choice():
     )
     assert discounted.pit_now_cost == pytest.approx(actual.pit_now_cost - 5)
     assert discounted.wait_cost == pytest.approx(actual.wait_cost)
+
+
+def test_clocked_rain_stop_reuses_native_update_schedules_per_plan(monkeypatch):
+    driver, car, track, weather = models(laps=5, lane=10)
+    tire = TIRE_COMPOUNDS[TireCompound.INTERMEDIATE].model_copy()
+    clock = clock_for(track, horizon=4)
+    horizon = track.total_laps - 2 + 1
+    original = StrategyWeatherClock.updates
+    calls = []
+
+    def counted(clock_value, offset, paid_stops, stopped_first=False):
+        calls.append((offset, paid_stops, stopped_first))
+        return original(clock_value, offset, paid_stops, stopped_first)
+
+    monkeypatch.setattr(StrategyWeatherClock, "updates", counted)
+    actual = plan_rain_stop(
+        driver, car, track, weather, tire, 39, 2, 2, weather_clock=clock,
+    )
+    expected = exhaustive_same(
+        deepcopy(driver), car, track, weather, tire, 39, 2, 2, clock,
+    )
+
+    assert actual.pit_now_cost == pytest.approx(expected[0])
+    assert actual.wait_cost == pytest.approx(expected[1])
+    counts = Counter((paid, stopped_first) for _, paid, stopped_first in calls)
+    assert len(counts) >= 3
+    assert len(calls) == horizon * len(counts)
+    assert all(count == horizon for count in counts.values())
+    assert all(
+        {(offset, paid, stopped_first) for offset, paid, stopped_first in calls
+         if (paid, stopped_first) == state}
+        == {(offset, *state) for offset in range(horizon)}
+        for state in counts
+    )
+
+    calls.clear()
+    repeated = plan_rain_stop(
+        driver, car, track, weather, tire, 39, 2, 2, weather_clock=clock,
+    )
+    assert repeated == actual
+    assert len(calls) == horizon * len(counts)
+
+
+def test_clocked_rain_stop_preserves_uncached_subclass_clock_queries():
+    driver, car, track, weather = models(laps=5, lane=10)
+    tire = TIRE_COMPOUNDS[TireCompound.INTERMEDIATE].model_copy()
+    base = clock_for(track, horizon=4)
+    calls = []
+
+    class CountingClock(StrategyWeatherClock):
+        def updates(self, *args, **kwargs):
+            calls.append((args, kwargs))
+            return super().updates(*args, **kwargs)
+
+    clock = CountingClock(
+        base.lap_start_offsets, base.first_update_after, base.update_interval,
+        base.max_updates, base.current_stop_delay, base.future_stop_delay,
+    )
+    actual = plan_rain_stop(
+        driver, car, track, weather, tire, 39, 2, 2, weather_clock=clock,
+    )
+
+    # The native base clock makes one full-horizon query per state (20 calls
+    # for this fixture); an override must keep the legacy repeated queries.
+    assert actual.pit_now_cost < inf
+    assert len(calls) > 20
+    native = plan_rain_stop(
+        driver, car, track, weather, tire, 39, 2, 2, weather_clock=base,
+    )
+    assert actual == native
 
 
 def test_clocked_planners_preserve_inputs_and_custom_retained_tire():

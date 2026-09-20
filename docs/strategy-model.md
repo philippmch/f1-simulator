@@ -577,8 +577,11 @@ The chronological engine carries reservations across individual car lap starts
 and resets them for each race; cars on different laps can share the box.
 Its planning reservations and projections of pitting rivals use expected
 service separately from the sampled execution queue. Once service has visibly
-completed, a stale expected reservation cannot keep the box occupied. Estimates
-do not infer the remaining duration of an ongoing unusually slow stop.
+completed, a stale expected reservation cannot keep the box occupied. While a
+service is visibly still in progress, the chronological forecast uses its
+conditional expected remaining duration given the service time already
+observed. It does not read the sampled future completion time. A queued stop
+whose service has not started retains the stationary expected service.
 Neither engine models pit-lane congestion, crew setup time or unsafe releases.
 
 The recorded time for a stop lap includes the actual pit-lane, stationary and
@@ -933,6 +936,12 @@ those values, the driver's wet skill and the car's wet performance form the
 cache key. Changed inputs and custom weather methods therefore remain visible.
 This avoids repeating identical weather arithmetic across tyre ages and search
 branches without changing the search, floating-point formulas or random draws.
+Timed same-compound rain searches also reuse the native clock's absolute update
+schedule for each paid-stop count and first-stop choice within one planning
+call. Stints use the corresponding relative suffix, preserving repeated and
+skipped weather updates. The schedules are discarded with that call; they do
+not shorten the horizon, limit the search or cache mutable weather models.
+Custom clock subclasses retain their ordinary query path.
 
 Run `python examples/check_stint_choices.py` for a deterministic synthetic
 comparison of fallback stint choices against actual lap calculations over short,

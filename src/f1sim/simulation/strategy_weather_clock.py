@@ -28,6 +28,10 @@ def _positive_finite(value, name: str) -> float:
 
 
 def _nonnegative_integer(value, name: str) -> int:
+    if type(value) is int:
+        if value < 0:
+            raise ValueError(f"{name} must be a nonnegative integer")
+        return value
     if isinstance(value, bool) or not isinstance(value, Integral) or value < 0:
         raise ValueError(f"{name} must be a nonnegative integer")
     return int(value)
