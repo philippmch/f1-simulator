@@ -22,6 +22,10 @@ from f1sim.analysis.pace_evaluation import (
     _teammate_gap_metrics,
     evaluate_qualifying_pace,
 )
+from f1sim.analysis.qualifying_history import (
+    build_historical_q1_events,
+    recent_team_q1_predictions,
+)
 from f1sim.data import CurrentSeasonDataError, CurrentSeasonDataLoader
 
 YEAR = datetime.now(timezone.utc).year
@@ -354,6 +358,152 @@ def test_component_variant_metrics_keep_paired_cohort_and_baseline_separate():
     assert paired["previous_q1_teammate_gaps"]["teammate_pairs"] == 0
 
 
+def test_recent_team_q1_uses_fixed_window_and_native_fallback_without_future_data():
+    history = [
+        {"round": 1, "status": "scored", "teams": {
+            "old": {"q1_count": 2, "residual": 0.01},
+            "a": {"q1_count": 2, "residual": 0.01},
+        }},
+        {"round": 2, "status": "scored", "teams": {
+            "a": {"q1_count": 2, "residual": 0.03},
+        }},
+        {"round": 3, "status": "scored", "teams": {
+            "a": {"q1_count": 2, "residual": 0.02},
+        }},
+        {"round": 4, "status": "scored", "teams": {
+            "a": {"q1_count": 2, "residual": 0.04},
+        }},
+        {"round": 6, "status": "scored", "teams": {
+            "a": {"q1_count": 2, "residual": 0.90},
+        }},
+    ]
+    native = [
+        {"driver_id": "A1", "team_id": "a", "predicted_seconds": 103.0},
+        {"driver_id": "A2", "team_id": "a", "predicted_seconds": 103.0},
+        {"driver_id": "C1", "team_id": "new", "predicted_seconds": 97.0},
+        {"driver_id": "C2", "team_id": "new", "predicted_seconds": 97.0},
+    ]
+    candidate, metadata = recent_team_q1_predictions(native, history, target_round=5)
+    values = {row["driver_id"]: row["predicted_seconds"] for row in candidate}
+    assert metadata["training_rounds"] == [2, 3, 4]
+    assert metadata["source_coverage"]["a"]["rounds"] == [2, 3, 4]
+    assert metadata["source_coverage"]["new"]["source"] == (
+        "native_full_model_team_residual"
+    )
+    assert metadata["fallback_teams"] == ["new"]
+    assert values == {"A1": 103.0, "A2": 103.0, "C1": 97.0, "C2": 97.0}
+
+    future_changed = copy.deepcopy(history)
+    future_changed[-1]["teams"]["a"]["residual"] = 9.0
+    changed, changed_metadata = recent_team_q1_predictions(
+        native, future_changed, target_round=5,
+    )
+    assert changed == candidate
+    assert changed_metadata == metadata
+
+
+def test_recent_team_q1_cold_start_returns_exact_native_predictions():
+    native = [
+        {"driver_id": "A1", "team_id": "a", "predicted_seconds": 100.123456789},
+        {"driver_id": "A2", "team_id": "a", "predicted_seconds": 101.0},
+    ]
+    candidate, metadata = recent_team_q1_predictions(native, [], target_round=1)
+    assert candidate == native
+    assert metadata["training_rounds"] == []
+    assert metadata["candidate_fallback"] is None
+    assert metadata["source_coverage"]["a"]["source"] == (
+        "native_full_model_team_residual"
+    )
+
+
+def test_historical_q1_event_gate_reports_coverage_and_q1_usability(fixture):
+    loader, results, qualifying, _ = fixture
+    events = build_historical_q1_events(loader, loader._calendar, results, qualifying)
+    assert [event["round"] for event in events] == [1, 2, 3]
+    assert all(event["status"] == "scored" for event in events)
+    assert events[0]["usable_q1_count"] == 4
+    assert events[0]["result_coverage"] is True
+    assert events[0]["q1_coverage"] is True
+
+    tied_qualifying = copy.deepcopy(qualifying)
+    for record in tied_qualifying:
+        if record["round"] == 1:
+            record["Q1"] = "1:00.000"
+    tied = build_historical_q1_events(loader, loader._calendar, results, tied_qualifying)
+    assert tied[0]["status"] == "scored"
+    assert tied[0]["teams"]["a"]["residual"] == 0
+
+    one_q1 = copy.deepcopy(qualifying)
+    for record in one_q1:
+        if record["round"] == 1 and record["Driver"]["code"] != "A1":
+            record["Q1"] = None
+    incomplete = build_historical_q1_events(loader, loader._calendar, results, one_q1)
+    assert incomplete[0]["status"] == "insufficient_q1_times"
+    assert incomplete[0]["usable_q1_count"] == 1
+
+    prefix = build_historical_q1_events(
+        loader, loader._calendar, results, qualifying, before_round=3,
+    )
+    assert [event["round"] for event in prefix] == [1, 2]
+
+
+def test_history_component_matches_single_target_and_isolation_rules(fixture):
+    loader, results, qualifying, _ = fixture
+    all_report = evaluate_qualifying_pace(loader, YEAR, include_components=True)
+    target_report = evaluate_qualifying_pace(
+        loader, YEAR, target_race=2, include_components=True,
+    )
+    all_fold = next(fold for fold in all_report["folds"] if fold["round"] == 2)
+    target_fold = target_report["folds"][0]
+    all_component = all_fold["components"]["recent_team_q1"]
+    target_component = target_fold["components"]["recent_team_q1"]
+    assert all_component == target_component
+
+    before = copy.deepcopy(target_component)
+    for rows in (results, qualifying):
+        for record in rows:
+            if record["round"] >= 2:
+                record["Q1"] = "2:00.000"
+                record["FastestLap"] = {"AverageSpeed": {"speed": "999"}}
+    changed = evaluate_qualifying_pace(
+        loader, YEAR, target_race=2, include_components=True,
+    )["folds"][0]["components"]["recent_team_q1"]
+    for before_row, changed_row in zip(before["predictions"], changed["predictions"]):
+        assert {
+            key: value for key, value in before_row.items()
+            if key not in {"observed_q1_seconds", "previous_q1_seconds"}
+        } == {
+            key: value for key, value in changed_row.items()
+            if key not in {"observed_q1_seconds", "previous_q1_seconds"}
+        }
+    assert before["forecast"] == changed["forecast"]
+
+    for record in qualifying:
+        if record["round"] == 2:
+            record["Q1"] = None
+    missing = evaluate_qualifying_pace(
+        loader, YEAR, target_race=2, include_components=True,
+    )["folds"][0]["components"]["recent_team_q1"]
+    assert before["forecast"] == missing["forecast"]
+    assert [row["predicted_seconds"] for row in before["predictions"]] == [
+        row["predicted_seconds"] for row in missing["predictions"]
+    ]
+
+
+def test_history_component_does_not_change_default_report_or_fetches(fixture):
+    loader, _, _, calls = fixture
+    before = evaluate_qualifying_pace(loader, YEAR, target_race=2)
+    before_calls = list(calls)
+    with_components = evaluate_qualifying_pace(
+        loader, YEAR, target_race=2, include_components=True,
+    )
+    after = evaluate_qualifying_pace(loader, YEAR, target_race=2)
+    assert before == after
+    assert "components" not in before["folds"][0]
+    assert "components" in with_components["folds"][0]
+    assert len(calls) == len(before_calls) + 2
+
+
 def test_neutral_component_driver_assumptions_are_explicit_in_wet_conditions(fixture):
     loader, _, _, _ = fixture
     stats = loader._build_driver_stats(
@@ -386,16 +536,22 @@ def test_components_are_opt_in_and_do_not_add_fetches_or_mutate_loader(fixture):
     assert (results, qualifying, loader._driver_stats, loader._track_stats) == before_sources
     fold = report["folds"][0]
     assert set(fold["components"]) == {
-        "assumptions", "constructor_prior", "team_form", "full_model",
+        "assumptions", "constructor_prior", "team_form", "full_model", "recent_team_q1",
     }
     assert fold["components"]["full_model"]["model"] == fold["model"]
     assert fold["components"]["full_model"]["predictions"] == fold["predictions"]
     paired_ids = fold["paired_comparison"]["driver_ids"]
-    for name in ("constructor_prior", "team_form", "full_model"):
+    for name in ("constructor_prior", "team_form", "full_model", "recent_team_q1"):
         component = fold["components"][name]
         assert component["paired_comparison"]["driver_ids"] == paired_ids
         assert "paired_team_medians" in component["paired_comparison"]
         assert "previous_q1_teammate_gaps" in component["paired_comparison"]
+    first = evaluate_qualifying_pace(loader, YEAR, target_race=1, include_components=True)
+    first_components = first["folds"][0]["components"]
+    assert first_components["recent_team_q1"]["predictions"] == (
+        first_components["full_model"]["predictions"]
+    )
+    assert first_components["recent_team_q1"]["forecast"]["training_rounds"] == []
 
 
 def test_component_predictions_ignore_target_and_future_performance(fixture):
@@ -409,7 +565,7 @@ def test_component_predictions_ignore_target_and_future_performance(fixture):
                 record["FastestLap"] = {"AverageSpeed": {"speed": "999"},
                                          "Time": {"time": "0:01.000"}}
     after = evaluate_qualifying_pace(loader, YEAR, target_race=2, include_components=True)
-    for name in ("constructor_prior", "team_form", "full_model"):
+    for name in ("constructor_prior", "team_form", "full_model", "recent_team_q1"):
         first = before["folds"][0]["components"][name]["predictions"]
         second = after["folds"][0]["components"][name]["predictions"]
         for previous, current in zip(first, second):
@@ -494,7 +650,7 @@ def test_cli_components_are_opt_in_and_report_all_variants(fixture, monkeypatch,
     module.main()
     report = json.loads(capsys.readouterr().out)
     assert set(report["folds"][0]["components"]) == {
-        "assumptions", "constructor_prior", "team_form", "full_model",
+        "assumptions", "constructor_prior", "team_form", "full_model", "recent_team_q1",
     }
 
 
@@ -510,6 +666,20 @@ def test_cli_default_report_has_no_component_diagnostic(fixture, monkeypatch, ca
     report = json.loads(capsys.readouterr().out)
     assert "components" not in report["folds"][0]
     assert "components" not in report["aggregate"]
+
+
+def test_component_forecasts_allow_an_empty_completed_season(fixture):
+    loader, results, _, calls = fixture
+    results.clear()
+    report = evaluate_qualifying_pace(loader, YEAR, include_components=True)
+    assert report["folds"] == []
+    assert calls == []
+    for name in ("constructor_prior", "team_form", "full_model", "recent_team_q1"):
+        aggregate = report["aggregate"]["components"][name]
+        assert aggregate["model"]["scored_folds"] == 0
+        assert aggregate["model"]["rank_mae"] is None
+        assert aggregate["teammate_gaps"]["teammate_pairs"] == 0
+    json.dumps(report, allow_nan=False)
 
 
 def test_cli_failure_prints_no_partial_json(fixture, monkeypatch, capsys):

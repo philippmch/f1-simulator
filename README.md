@@ -339,7 +339,8 @@ For qualifying pace evaluation, run
 completed current-season events). This compares predictions built from earlier
 rounds with target Q1 times and a previous-Q1 baseline. Add `--components` to
 separate constructor, team-form and driver contributions, including team pace
-and teammate-gap errors. See the
+and teammate-gap errors, and compare an experimental forecast based on earlier
+team Q1 times. See the
 [evaluation scope and metrics](docs/pace-evaluation.md); this separate diagnostic
 does not change live ratings or simulate a historical race.
 

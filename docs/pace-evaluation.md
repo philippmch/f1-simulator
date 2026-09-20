@@ -88,7 +88,7 @@ significance, predicted winning odds or optimal race strategy is claimed.
 
 Use `--components` to compare three fixed model variants on the same held-out
 entrants: constructor points alone with neutral drivers, the current team model
-with neutral drivers, and the full current model. All variants use the actual
+with neutral drivers, and the full current model. These three variants use the actual
 noise-free qualifying lap simulator and the same weather and compound choices.
 The diagnostic does not fit weights or change the live simulation.
 
@@ -128,6 +128,40 @@ not establish intrinsic driver ability or causal car performance. In particular,
 an overall field score can improve while teammate predictions deteriorate.
 Changes chosen after inspecting these results need fresh validation before
 claiming better predictive accuracy.
+
+### Experimental forecast from earlier team Q1 times
+
+The component report also includes `recent_team_q1`, a separate experimental
+forecast. It replaces the native model's team spacing with the median observed
+team Q1 residual from the last three earlier scored events. Each earlier
+event's team median is divided by that event's field Q1 median before combining
+events, so different circuit lap lengths are not compared as raw seconds.
+Historical team assignments remain attached to their original observations.
+Scored history requires at least two usable Q1 times as well as the evaluator's
+entrant/result identity coverage check. This does not guarantee a complete Q1
+field: the report retains historical coverage, and sparse Q1 labels can make
+the estimated field median less representative.
+
+The history window is fixed at three events, independently of `--form-races`,
+which still controls the native rating model. It selects earlier scoreable
+evaluation targets, not the native model's form-eligibility window. A team
+missing from that window
+uses its native model contribution. The report records each team's evidence
+rounds and fallback, so a prediction without historical observations is not
+presented as measured pace. No-history forecasts preserve native times exactly.
+
+The forecast retains the native model's differences between teammates. It
+constructs predictions for the complete target roster before selecting usable
+target Q1 labels for scoring. Target times, missing target labels, and later
+events cannot influence that prediction map. Selecting one target with `--race`
+uses the same earlier evidence as evaluating that target in an all-event run.
+
+This is a transformation of noise-free model predictions, not another native
+car-rating variant. Its prediction rows retain native car and driver ratings
+for reference; those ratings alone do not produce the transformed times.
+It does not modify live qualifying, race pace, wet performance, or constructor
+ratings. The method was chosen after inspecting this season's errors and
+requires prospective validation before claiming future predictive improvement.
 
 ## Current-season snapshot, 9 September 2026
 
@@ -198,6 +232,37 @@ calibration questions; they do not justify removing driver differences or
 scaling all pace gaps by one factor. Q1 conditions and run quality remain
 uncontrolled, and later completed rounds are needed to validate changes
 chosen after inspecting this snapshot.
+
+## Earlier-team-Q1 experiment, 20 September 2026
+
+A fixed three-event team-history forecast was tested using the derived data
+collected on 19 September, with the native model at revision `e875202`.
+Rounds 1–3 were designated warmup before inspecting the candidate scores.
+The primary comparison below covers rounds 4–14: 237 matched driver
+observations, 121 team observations, and 116 teammate pairs. Lower errors
+are better; pace and gap errors are in percentage points.
+
+| Paired metric | Native model | Earlier team Q1 | Previous Q1 |
+|---|---:|---:|---:|
+| Driver rank MAE (places) | 3.1814 | 3.0295 | 3.1561 |
+| Relative pace MAE | 0.6803 | 0.4586 | 0.5134 |
+| Team rank MAE (places) | 1.4215 | 1.5207 | 1.4050 |
+| Team relative pace MAE | 0.6318 | 0.4142 | 0.4445 |
+| Teammate gap MAE | 0.4141 | 0.4141 | 0.6032 |
+
+The candidate improved overall driver ranking and pace spacing in this
+sample, while team-median ranking worsened. Teammate gaps were essentially
+unchanged because the forecast retains native within-team differences.
+Relative pace error was lower than the native model in 10 of the 11 primary
+events and lower than previous Q1 in 7; the improvement was not universal.
+This is a promising qualifying forecast, not evidence for changing global
+car ratings or wet/race pace. Q1 run quality and weather remain uncontrolled,
+and choosing this hypothesis after seeing the dataset limits the strength
+of its apparent improvement. There was no coefficient search or fitting.
+
+The evaluator includes this forecast so later events can test the same fixed
+method. It reports all eligible events by default; the dated table above is
+the explicitly selected primary subset, not the all-event aggregate.
 
 ## Interpretation limits
 

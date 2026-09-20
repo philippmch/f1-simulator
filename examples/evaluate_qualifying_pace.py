@@ -21,7 +21,7 @@ def main():
     parser.add_argument("--scenario", choices=("dry", "light_rain", "heavy_rain"), default="dry")
     parser.add_argument(
         "--components", action="store_true",
-        help="Include constructor, team-form and full-model pace diagnostics",
+        help="Include pace components and an experimental forecast from earlier team Q1 times",
     )
     parser.add_argument("--fetch-budget", type=float, default=120,
                         help="Total live fetch budget in seconds (1–300)")

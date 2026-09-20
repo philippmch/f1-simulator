@@ -12,6 +12,10 @@ from statistics import median
 
 import numpy as np
 
+from f1sim.analysis.qualifying_history import (
+    build_historical_q1_events,
+    recent_team_q1_predictions,
+)
 from f1sim.data.current import CurrentSeasonDataError, CurrentSeasonDataLoader, _parse_time_seconds
 from f1sim.models import Weather
 from f1sim.models.tire import TIRE_COMPOUNDS
@@ -211,6 +215,31 @@ def _component_assumptions() -> dict:
                 "driver": "full_model_stats",
                 "cars": "full_model_stats",
                 "stats_weights": {"track": 0.0, "form": 0.3, "qualifying": 0.2},
+            },
+            "recent_team_q1": {
+                "source": "experimental transformation of full_model predictions",
+                "history_window_events": 3,
+                "history_selection": "three most recent earlier scored events",
+                "scored_event_gate": (
+                    "evaluator identity/result coverage plus at least two usable Q1 labels; "
+                    "Q1 field coverage is reported, not required"
+                ),
+                "form_races_independent": True,
+                "team_identity": "historical qualifying row identity as recorded",
+                "team_residual": "median(team Q1 median / event field Q1 median - 1)",
+                "within_team_residual": (
+                    "native full_model prediction relative to target team median"
+                ),
+                "missing_team_fallback": "native full_model team contribution",
+                "candidate_formula": (
+                    "native full-field median * (1 + historical team residual + "
+                    "native within-team residual)"
+                ),
+                "prediction_labels_used": False,
+                "caveat": (
+                    "Retrospective evidence selected after inspecting this dataset; "
+                    "not prospective validation or a production rating."
+                ),
             },
         },
         "qualifying_simulation": {
@@ -481,6 +510,17 @@ def evaluate_qualifying_pace(
         if int(targets[0]["round"]) not in completed:
             raise ValueError("Evaluation requires a completed current-season target")
     calendar_rounds = {int(event["round"]) for event in events}
+    historical_q1 = (
+        build_historical_q1_events(
+            loader,
+            events,
+            results,
+            qualifying,
+            before_round=max(int(event["round"]) for event in targets),
+        )
+        if include_components and targets
+        else []
+    )
     folds = []
     for event in sorted(targets, key=lambda row: int(row["round"])):
         target = int(event["round"])
@@ -541,6 +581,14 @@ def evaluate_qualifying_pace(
         predictions = _qualifying_predictions(
             drivers, cars, stats, track, weather, simulator, labels, previous,
         )
+        recent_team_q1_candidate = None
+        recent_team_q1_metadata = None
+        if include_components:
+            recent_team_q1_candidate, recent_team_q1_metadata = (
+                recent_team_q1_predictions(
+                    predictions, historical_q1, target,
+                )
+            )
         scored = [row for row in predictions if row["observed_q1_seconds"] is not None]
         paired = [row for row in scored if row["previous_q1_seconds"] is not None]
         obs = [row["observed_q1_seconds"] for row in scored]
@@ -579,6 +627,7 @@ def evaluate_qualifying_pace(
                     team_neutral_stats, track, weather, simulator, labels, previous,
                 ),
                 "full_model": predictions,
+                "recent_team_q1": recent_team_q1_candidate,
             }
             scored_ids = [row["driver_id"] for row in scored]
             fold["components"] = {
@@ -588,6 +637,7 @@ def evaluate_qualifying_pace(
                     for name, rows in variant_predictions.items()
                 },
             }
+            fold["components"]["recent_team_q1"]["forecast"] = recent_team_q1_metadata
         folds.append(fold)
     provenance = loader.get_provenance()
     aggregate = {
@@ -602,7 +652,9 @@ def evaluate_qualifying_pace(
             "assumptions": _component_assumptions(),
             **{
                 name: _aggregate_component_variant(folds, name)
-                for name in ("constructor_prior", "team_form", "full_model")
+                for name in (
+                    "constructor_prior", "team_form", "full_model", "recent_team_q1",
+                )
             },
         }
     return {
