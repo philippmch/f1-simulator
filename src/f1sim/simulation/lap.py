@@ -58,6 +58,29 @@ def _track_car_delta_from_values(
     return reference_lap_time * (0.006 * downforce_delta + 0.008 * straight_delta)
 
 
+@lru_cache(maxsize=1024)
+def _weather_pace_multiplier_from_values(
+    weather_multiplier: float,
+    wet_severity: float,
+    wet_skill_modifier: float,
+    wet_performance: float,
+) -> float:
+    """Cache the scalar weather term without retaining mutable model objects."""
+    # Wet skill develops with exposure rather than switching on the
+    # separate boolean threshold used for race rules and tyre safety.
+    wet_adjustment = 1.0 + (1.0 - wet_skill_modifier) * 0.02 * wet_severity
+    weather_multiplier *= wet_adjustment
+
+    # Wet-performance is a car-package property, distinct from the driver's
+    # ability to find grip. Include rain intensity as a signal even before
+    # wetness crosses the tyre-change threshold.
+    if wet_severity > 0.0:
+        car_wet_penalty = (1.0 - wet_performance) * wet_severity * 0.06
+        weather_multiplier *= 1.0 + float(np.clip(car_wet_penalty, 0.0, 0.06))
+
+    return weather_multiplier
+
+
 class LapSimulator:
     """Calculates realistic lap times with all contributing factors."""
 
@@ -210,23 +233,14 @@ class LapSimulator:
     @staticmethod
     def weather_pace_multiplier(driver: Driver, car: Car, weather: Weather) -> float:
         """Shared weather scaling for actual laps and tyre-relative pace."""
-        # Weather effect
-        weather_multiplier = weather.lap_time_multiplier()
-
-        wet_severity = weather.wet_severity()
-        # Wet skill develops with exposure rather than switching on at the
-        # separate boolean threshold used for race rules and tyre safety.
-        wet_adjustment = 1.0 + (1.0 - driver.wet_skill_modifier) * 0.02 * wet_severity
-        weather_multiplier *= wet_adjustment
-
-        # Wet-performance is a car-package property, distinct from the
-        # driver's ability to find grip.  Include rain intensity as a signal
-        # even before wetness crosses the tyre-change threshold.
-        if wet_severity > 0.0:
-            car_wet_penalty = (1.0 - car.wet_performance) * wet_severity * 0.06
-            weather_multiplier *= 1.0 + float(np.clip(car_wet_penalty, 0.0, 0.06))
-
-        return weather_multiplier
+        # Call model helpers on every invocation so mutable models and custom
+        # weather implementations remain visible to the scalar cache.
+        return _weather_pace_multiplier_from_values(
+            weather.lap_time_multiplier(),
+            weather.wet_severity(),
+            driver.wet_skill_modifier,
+            car.wet_performance,
+        )
 
     @classmethod
     def tire_weather_pace_contribution(

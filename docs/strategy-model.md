@@ -897,6 +897,12 @@ Static circuit profiles and car/circuit pace terms also use bounded, process-loc
 caches keyed by their numerical inputs. Editing sector weights, passing
 opportunities, car ratings or reference pace produces a new calculation; no
 mutable model objects or sampled lap outcomes are retained by these caches.
+Weather pace scaling likewise reuses bounded, process-local scalar results.
+Each call still evaluates the weather model's multiplier and wet severity;
+those values, the driver's wet skill and the car's wet performance form the
+cache key. Changed inputs and custom weather methods therefore remain visible.
+This avoids repeating identical weather arithmetic across tyre ages and search
+branches without changing the search, floating-point formulas or random draws.
 
 Run `python examples/check_stint_choices.py` for a deterministic synthetic
 comparison of fallback stint choices against actual lap calculations over short,
