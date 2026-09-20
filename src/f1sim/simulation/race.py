@@ -2516,17 +2516,68 @@ class RaceSimulator(InventoryStrategyMixin):
     def _choose_red_flag_tire(
         self, state: DriverRaceState, weather: Weather, track: Track, current_lap: int,
         *, physical_total_laps: int | None = None,
+        weather_intervals: tuple[int, ...] | None = None,
+        weather_clock: StrategyWeatherClock | None = None,
     ) -> TireCompound:
-        """Price a free set from the next lap, including future paid dry stops."""
+        """Price a free set from the next lap, including future paid stops."""
         remaining_laps = track.total_laps - current_lap
         if remaining_laps <= 0:
             return state.current_tire.compound
-        weather_compound = self._choose_weather_compound(weather)
-        if weather_compound is not None:
-            return weather_compound
+        # Keep the inexpensive dry forecast when the whole no-stop weather
+        # path stays clearly dry. A cadence or external clock can reveal a
+        # future crossover even when the current snapshot still permits slicks.
+        projected = projected_surfaces(weather, remaining_laps, weather_intervals)
+        transition_forecast = any(
+            surface.track_wetness >= .08 or surface.rain_intensity >= .15
+            for surface in projected
+        ) or (weather_clock is not None and weather.rain_intensity >= .08)
 
         used = self._used_slick_compounds(state)
         wet_exemption = self._has_used_wet_compound(state)
+
+        if transition_forecast:
+            actual_used = self._actually_used_compounds(state)
+            dry_limit = self._dry_stop_budget(state, track)
+            damp_limit = self._ordinary_stop_budget(state, track)
+
+            def transition_cost(compound: TireCompound) -> float:
+                # A free fit is usable whenever it is not currently critical;
+                # its future suitability and every paid replacement remain in
+                # the transition planner's bounded weather graph.
+                if weather.tire_mismatch(compound) == "critical":
+                    return float("inf")
+                maximum = damp_limit
+                if any(surface.track_wetness < .08
+                       and surface.rain_intensity < .15 for surface in projected):
+                    maximum = max(maximum, dry_limit)
+                if (compound in {TireCompound.INTERMEDIATE, TireCompound.WET}
+                        or any(surface.track_wetness > .3
+                               or surface.fresh_rain_compound() is not None
+                               for surface in projected)):
+                    maximum = max(maximum, 4)
+                maximum = _timed_stop_budget_envelope(
+                    maximum, dry_limit, damp_limit, weather_clock,
+                )
+                remaining_stops = max(0, maximum - state.pit_stops)
+                return plan_rain_transition(
+                    state.driver, state.car, track, weather,
+                    TIRE_COMPOUNDS[compound], 0, current_lap + 1,
+                    remaining_stops,
+                    current_lap_time_modifier=self.event_manager.get_lap_time_modifier(),
+                    active_aero_enabled=self.event_manager.is_active_aero_allowed(),
+                    physical_total_laps=physical_total_laps,
+                    weather_intervals=weather_intervals,
+                    remaining_dry_stops=max(0, dry_limit - state.pit_stops),
+                    remaining_damp_stops=max(0, damp_limit - state.pit_stops),
+                    used_compounds=actual_used | {compound},
+                    weather_clock=weather_clock,
+                ).wait_cost
+
+            candidates = [compound for compound in TireCompound
+                          if weather.tire_mismatch(compound) != "critical"]
+            if candidates:
+                return min(candidates, key=transition_cost)
+
         budget_limit = (
             self._dry_stop_budget(state, track)
             if weather.track_wetness < 0.08 and weather.rain_intensity < 0.15

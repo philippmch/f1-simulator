@@ -205,6 +205,8 @@ class ChronologicalRace:
         compound = self.simulator._choose_red_flag_tire(
             state, self.weather, planning, state.laps_completed,
             physical_total_laps=self.track.total_laps,
+            **({"weather_intervals": weather_intervals} if weather_intervals is not None else {}),
+            **({"weather_clock": weather_clock} if weather_clock is not None else {}),
         )
         self.simulator._fit_tire(state, compound)
         state.force_pit_next_lap = False
@@ -248,8 +250,6 @@ class ChronologicalRace:
         restart_plans = {}
         for driver_id in self.order:
             state = self.states[driver_id]
-            if state.tire_inventory is None:
-                continue
             planning = self._planning_track(state, resume, restart=True)
             cadence = self._weather_intervals(state, resume, planning, restart=True)
             restart_plans[driver_id] = (
@@ -266,10 +266,7 @@ class ChronologicalRace:
             # This paid stop completed service while the exit was closed. Its
             # running has never been sampled. Fit the shared restart set and
             # release the existing lap without charging/sampling another stop.
-            if driver_id in restart_plans:
-                self._fit_red_flag_set(state, *restart_plans[driver_id])
-            else:
-                self._fit_red_flag_set(state, self._planning_track(state, resume))
+            self._fit_red_flag_set(state, *restart_plans[driver_id])
             if state.status != DriverStatus.RACING:
                 self._retire(driver_id, resume, state.dnf_reason)
                 continue

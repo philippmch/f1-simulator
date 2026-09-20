@@ -404,8 +404,9 @@ effect on race results and exclude later on-track traffic and free fittings.
 Fresh weather tyre selection shares the slick-mismatch crossover: above 0.2
 surface wetness or 0.4 rain intensity, a stop fits intermediates; above 0.7
 surface wetness, it fits full wets. These values are normalized model parameters,
-not measured millimetres of water. Starts and red-flag restarts use the same
-selection. Below those fresh-selection thresholds, automatic openings compare
+not measured millimetres of water. Automatic openings use these thresholds;
+free red-flag refits compare usable sets over the remaining projected weather
+as described below. Below those fresh-selection thresholds, automatic openings compare
 intermediates with slick policies whenever intermediates are not critically
 mismatched (surface water at least 0.08 or rainfall at least 0.15), using numeric
 conditions consistently across labels. Without driver/car projection context,
@@ -427,16 +428,32 @@ their mismatch penalty on a wet surface. Each attempt assumes a fresh set;
 weather remains fixed across Q1, Q2 and Q3. Qualifying does not model tyre
 inventory, track evolution, traffic or a changing-weather session strategy.
 
-During a red-flag suspension, dry tyre selection compares all fresh slicks over
+During a red-flag suspension, tyre selection compares usable fresh sets over
 the remaining race, including any later paid stops that the stop budget permits.
-It uses the same tyre pace and wear model as ordinary dry planning. The free set
+Clearly dry projections retain the ordinary dry planner. Otherwise, each
+currently noncritical compound is evaluated through the same fixed-rainfall,
+evolving-surface projection as ordinary transition planning. A free intermediate
+can therefore avoid a later paid stop as the track wets; a usable slick can
+avoid fitting intermediates just before the surface dries. Future paid fits
+still obey the ordinary weather-selection rules and stop allowances. The free set
 must run at least one lap before another stop; future service and pit-lane time
 are priced as green running. A suspension after lap N leaves `total_laps - N`
-racing laps, starting with lap N+1. Rain-tyre crossover decisions retain priority.
+racing laps, starting with lap N+1. Critically mismatched free candidates are excluded.
 The race applies its usual between-lap weather update before selecting the free
 set, so that choice uses the conditions in which racing resumes. This avoids
 fitting a set for the completed lap's weather and then paying to replace it on
 the restart. It adds no extra weather update during the modeled waiting period.
+The chronological engine freezes every car's restart horizon and weather
+clock before fitting or releasing the first car. This includes a car whose
+paid service finished while the pit exit was closed; old service forecasts and
+release order cannot change the free-tyre projection.
+
+`python examples/check_weather_restart_choices.py` compares these choices with
+separately executed alternatives in both engines, under increasing rain,
+drying, steady damp, worsening rain, steady wet and dry restart conditions.
+The synthetic runs use mean lap pace, expected service and no incidents after
+the suspension. They test consistency with the model, not real-race gains or
+the optimality of every possible future stop schedule.
 
 The free change does not consume a paid stop or pit-plan slot. A new distinct
 slick can satisfy the compound-use requirement; repeating a slick remains an

@@ -73,17 +73,34 @@ def test_exhausted_compliant_budget_does_not_open_fourth_elective_stop(history):
     assert not RaceSimulator()._should_pit(state, [state], track, 25, False, Weather())
 
 
-@pytest.mark.parametrize("wetness,expected", [(0, 2), (0.1, 0)])
-def test_free_restart_projection_uses_dry_budget_only_in_clear_dry(monkeypatch, wetness, expected):
+@pytest.mark.parametrize("wetness", [0, 0.1])
+def test_free_restart_projection_preserves_spent_stops_in_weather_budgets(monkeypatch, wetness):
     import f1sim.simulation.race as race_module
 
     state, track = fixture(50, 1)
     observed = []
+    transitions = []
+    transition = race_module.plan_rain_transition
 
     def capture(*args, **kwargs):
         observed.append(args[6])
         return plan_dry_stop(*args, **kwargs)
 
     monkeypatch.setattr(race_module, "plan_dry_stop", capture)
+
+    def capture_transition(*args, **kwargs):
+        transitions.append((args[4].compound, args[7], kwargs))
+        return transition(*args, **kwargs)
+
+    monkeypatch.setattr(race_module, "plan_rain_transition", capture_transition)
     RaceSimulator()._choose_red_flag_tire(state, Weather(track_wetness=wetness), track, 25)
-    assert observed == [expected] * 3
+    if wetness == 0:
+        assert observed == [2] * 3
+        assert transitions == []
+    else:
+        assert observed == []
+        assert len(transitions) == 4  # Three slicks and a currently usable intermediate.
+        for compound, total, options in transitions:
+            assert total == (3 if compound == TireCompound.INTERMEDIATE else 2)
+            assert options["remaining_dry_stops"] == 2
+            assert options["remaining_damp_stops"] == 0

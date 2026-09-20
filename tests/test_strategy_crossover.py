@@ -54,7 +54,7 @@ def test_stable_damp_race_does_not_repeat_mismatch_stops(monkeypatch):
     (0.41, 0.0, TireCompound.INTERMEDIATE),
     (0.2001, 0.0, TireCompound.INTERMEDIATE),
 ])
-def test_all_fresh_tyre_choices_fit_crossover_conditions(wetness, rain, expected):
+def test_paid_and_opening_crossovers_leave_free_refits_usable(wetness, rain, expected):
     simulator = RaceSimulator(rng=np.random.default_rng(5))
     weather = Weather(track_wetness=wetness, rain_intensity=rain, change_probability=0)
     previous = TireCompound.WET if wetness == 0.41 else TireCompound.MEDIUM
@@ -64,7 +64,8 @@ def test_all_fresh_tyre_choices_fit_crossover_conditions(wetness, rain, expected
     simulator._execute_pit_stop(state, make_track(), weather, 10)
     assert state.current_tire.compound == expected
     assert simulator._check_tire_weather_mismatch(state.current_tire, weather) == "ok"
-    assert simulator._choose_red_flag_tire(state, weather, make_track(), 10) == expected
+    free = simulator._choose_red_flag_tire(state, weather, make_track(), 10)
+    assert weather.tire_mismatch(free) != "critical"
     assert simulator._choose_starting_compound(
         TeamStrategyArchetype.BALANCED, make_track(), weather,
     ) == expected

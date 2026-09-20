@@ -106,10 +106,21 @@ def test_all_race_planners_forward_weather_and_keep_traffic_separate_from_queue(
     assert dirty.pit_now_cost - clean.pit_now_cost == pytest.approx(.25 * factor)
     assert dirty.wait_cost == clean.wait_cost
     simulator._choose_committed_dry_compound(state, track, 20, weather)
+    transitions = []
+    transition = race_module.plan_rain_transition
+
+    def capture_transition(*args, **kwargs):
+        transitions.append((args, kwargs))
+        return transition(*args, **kwargs)
+
+    monkeypatch.setattr(race_module, "plan_rain_transition", capture_transition)
     simulator._choose_red_flag_tire(state, weather, track, 20)
     assert simulator.rng.bit_generator.state == before
-    assert len(observed) == 7  # One decision, three paid and three free set choices.
+    assert len(observed) == 4  # One current dry decision and three paid set choices.
     assert all(kwargs["tire_pace_multiplier"] == factor for _, kwargs in observed)
+    # The free refit now follows increasing surface water through full weather physics.
+    assert len(transitions) == 3
+    assert all(args[3] is weather for args, _ in transitions)
     opening_inputs = []
     original_opening = race_module.dry_opening_policy_costs
 

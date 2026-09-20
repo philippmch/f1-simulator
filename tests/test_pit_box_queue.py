@@ -172,4 +172,5 @@ def test_red_flag_free_changes_do_not_sample_or_charge_shared_box(monkeypatch):
     sim._handle_red_flag_stop([a, b], Weather(track_wetness=0.8, rain_intensity=0.8), track(), 10)
     assert [a.total_time, b.total_time] == [100, 100]
     assert [a.pit_stops, b.pit_stops] == [0, 0]
-    assert all(s.current_tire.compound == TireCompound.WET for s in [a, b])
+    assert all(s.current_tire.compound in {TireCompound.INTERMEDIATE, TireCompound.WET}
+               and s.tire_laps == 0 for s in [a, b])
