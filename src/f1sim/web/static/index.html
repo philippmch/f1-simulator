@@ -1556,7 +1556,6 @@ const SCENARIO_PRESETS = [
 ];
 
 const TIRE_LABELS = { soft: 'S', medium: 'M', hard: 'H', inter: 'I', wet: 'W' };
-const RELIABILITY_COMPONENTS = ['engine', 'gearbox', 'electrical', 'cooling', 'brakes'];
 
 let simResults = null;
 let backendConnected = false;
@@ -2044,25 +2043,22 @@ function renderCarTable(ratings) {
 
 function renderReliabilityTable(scenario) {
   const rates = scenario.mechanical_failure_component_rates || {};
-  const suggestions = scenario.mechanical_tuning_suggestions || {};
-  const adjustments = scenario.reliability_adjustment_recommendations || {};
-  const components = RELIABILITY_COMPONENTS.filter(component => (
-    component in rates || component in suggestions || component in adjustments
-  ));
+  const components = Object.entries(rates)
+    .sort(([, left], [, right]) => toNumber(right) - toNumber(left))
+    .map(([component]) => component);
 
   if (!components.length) {
-    return '<div class="inline-note">No mechanical failure calibration data was returned for this run.</div>';
+    return '<div class="inline-note">No mechanical failure shares are recorded for this run; component shares are unknown. No reference component shares are configured, so calibration and tuning recommendations are unavailable.</div>';
   }
 
   return `
+    <p class="inline-note">Observed simulated failure shares only. No reference component shares are configured, so calibration and tuning recommendations are unavailable.</p>
     <div class="stats-table-wrap">
       <table class="metrics-table">
         <thead>
           <tr>
             <th>Component</th>
             <th>Observed Share</th>
-            <th>Suggestion</th>
-            <th>Adjustment</th>
           </tr>
         </thead>
         <tbody>
@@ -2070,8 +2066,6 @@ function renderReliabilityTable(scenario) {
             <tr>
               <td>${escapeHtml(titleFromKey(component))}</td>
               <td>${formatPercent(toNumber(rates[component]) * 100, 1)}</td>
-              <td>${escapeHtml(titleFromKey(suggestions[component] || 'n/a'))}</td>
-              <td>${formatSigned(adjustments[component] || 0, 3)}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -2945,7 +2939,7 @@ function renderStats() {
       </div>
 
       <div class="stat-card">
-        <div class="stat-card-title">Reliability Calibration</div>
+        <div class="stat-card-title">Mechanical Failures</div>
         ${renderReliabilityTable(scenario)}
       </div>
 

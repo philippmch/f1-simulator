@@ -54,7 +54,11 @@ def test_console_api_and_exports_share_event_denominator_and_empty_advice(tmp_pa
     console = capsys.readouterr().out
     assert "Event-rate denominator: 4 trials" in console
     assert "25.0% of races" in console
-    assert "Calibration delta: Not recorded" in console
+    assert "No reference component shares are configured" in console
+    assert "share unknown" in console
+    assert "Calibration delta: Not recorded" not in console
+    assert "vs target" not in console
+    assert "Suggested tuning" not in console
     assert "decrease reliability" not in console
     exporter = Exporter(tmp_path)
     saved = json.loads(exporter.export_statistics_json(observed).read_text(encoding="utf-8"))
@@ -65,6 +69,55 @@ def test_console_api_and_exports_share_event_denominator_and_empty_advice(tmp_pa
     for payload in (saved, combined, shown):
         assert payload["event_rate_trials"] == 4
         assert payload["event_rates"] == observed.get_event_rates()
-    for payload in (saved, shown):
+    for payload in (saved, combined, shown):
+        assert payload["mechanical_failure_breakdown"] == {"engine": 0}
+        assert payload["mechanical_failure_component_rates"] == {}
+        assert payload["mechanical_tuning_suggestions"] == {}
+        assert payload["reliability_adjustment_recommendations"] == {}
+
+
+@pytest.mark.parametrize(
+    ("breakdown", "expected_rates"),
+    [
+        (
+            {"engine": 2, "gearbox": 2, "electrical": 2, "cooling": 2, "brakes": 2},
+            {"engine": .2, "gearbox": .2, "electrical": .2, "cooling": .2, "brakes": .2},
+        ),
+        (
+            {"engine": 5, "gearbox": 3, "electrical": 1},
+            {"engine": 5 / 9, "gearbox": 3 / 9, "electrical": 1 / 9},
+        ),
+    ],
+)
+def test_automatic_reports_preserve_observed_shares_without_reference_advice(
+    tmp_path, capsys, monkeypatch, breakdown, expected_rates,
+):
+    observed = result()
+    observed.event_stats.mechanical_failure_breakdown = breakdown
+
+    def unexpected_advice(*args, **kwargs):
+        pytest.fail("automatic reporting must not request reference-based advice")
+
+    monkeypatch.setattr(observed, "get_mechanical_tuning_suggestions", unexpected_advice)
+    monkeypatch.setattr(observed, "get_reliability_adjustment_recommendations", unexpected_advice)
+
+    ConsoleOutput.print_monte_carlo_summary(observed)
+    console = capsys.readouterr().out
+    assert "No reference component shares are configured" in console
+    assert "observed share" in console
+    assert "vs target" not in console
+    assert "Calibration delta" not in console
+    assert "Suggested tuning" not in console
+
+    exporter = Exporter(tmp_path)
+    saved = json.loads(exporter.export_statistics_json(observed).read_text(encoding="utf-8"))
+    combined = json.loads(exporter.export_scenario_comparison_json(
+        {"partial": observed},
+    ).read_text(encoding="utf-8"))["scenarios"]["partial"]
+    shown = _summarize_scenario_results({"partial": observed})["scenarios"]["partial"]
+
+    for payload in (saved, combined, shown):
+        assert payload["mechanical_failure_breakdown"] == breakdown
+        assert payload["mechanical_failure_component_rates"] == expected_rates
         assert payload["mechanical_tuning_suggestions"] == {}
         assert payload["reliability_adjustment_recommendations"] == {}

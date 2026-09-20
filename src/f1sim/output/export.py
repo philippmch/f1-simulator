@@ -373,26 +373,11 @@ class Exporter:
             "team_championship_projection": results.get_team_championship_projection(),
             "mechanical_failure_breakdown": results.event_stats.mechanical_failure_breakdown,
             "mechanical_failure_component_rates": results.get_mechanical_failure_component_rates(),
-            "mechanical_tuning_suggestions": results.get_mechanical_tuning_suggestions(
-                {
-                    "engine": 0.34,
-                    "gearbox": 0.22,
-                    "electrical": 0.18,
-                    "cooling": 0.14,
-                    "brakes": 0.12,
-                }
-            ),
-            "reliability_adjustment_recommendations": (
-                results.get_reliability_adjustment_recommendations(
-                    {
-                        "engine": 0.34,
-                        "gearbox": 0.22,
-                        "electrical": 0.18,
-                        "cooling": 0.14,
-                        "brakes": 0.12,
-                    }
-                )
-            ),
+            # Retain the fields for consumers of older statistics JSON.  Automatic
+            # outputs have no configured reference shares, so there is no basis for
+            # calibration or reliability-change recommendations.
+            "mechanical_tuning_suggestions": {},
+            "reliability_adjustment_recommendations": {},
             "driver_statistics": self._driver_statistics(results),
         }
 
@@ -474,6 +459,14 @@ class Exporter:
                 "strategy_statistics": results.get_strategy_statistics(),
                 "simulation_inputs": results.input_snapshot,
                 "team_championship_projection": results.get_team_championship_projection(),
+                "mechanical_failure_breakdown": results.event_stats.mechanical_failure_breakdown,
+                "mechanical_failure_component_rates": (
+                    results.get_mechanical_failure_component_rates()
+                ),
+                # Keep comparison JSON aligned with single-run JSON while retaining
+                # compatibility for consumers that already read these keys.
+                "mechanical_tuning_suggestions": {},
+                "reliability_adjustment_recommendations": {},
             }
 
         with open(filepath, "w", encoding="utf-8") as f:

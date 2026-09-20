@@ -48,6 +48,12 @@ def build_fixture() -> dict:
             starting_tire_ages={"S00": 5},
             tire_inventory=inventory,
         ).run(num_simulations=10, parallel=False)
+        # Exercise the reliability table with observed simulated shares.  The
+        # dashboard must render these observations without a reference split.
+        results[label].event_stats.mechanical_failure_breakdown = {
+            "engine": 2,
+            "gearbox": 1,
+        }
     payload = _summarize_scenario_results(results, scenario_weather=weather)
     payload["comparison_report_html"] = render_comparison_report(results)
     ratings = _serialize_ratings_snapshot(drivers, cars, {})

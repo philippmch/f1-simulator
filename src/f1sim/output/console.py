@@ -269,41 +269,32 @@ class ConsoleOutput:
             f"({avg_incidents:.2f}/race)"
         )
 
+        print("\n  Mechanical Failure Breakdown:")
         if event_stats.mechanical_failure_breakdown:
-            print("\n  Mechanical Failure Breakdown:")
             component_rates = results.get_mechanical_failure_component_rates()
-            expected_component_rates = {
-                "engine": 0.34,
-                "gearbox": 0.22,
-                "electrical": 0.18,
-                "cooling": 0.14,
-                "brakes": 0.12,
-            }
             for component, count in sorted(
                 event_stats.mechanical_failure_breakdown.items(),
                 key=lambda x: x[1],
                 reverse=True,
             ):
-                observed_pct = component_rates.get(component, 0.0) * 100
-                expected_pct = expected_component_rates.get(component, 0.0) * 100
+                observed_pct = component_rates.get(component)
+                share_text = (
+                    f"{observed_pct * 100:5.1f}% observed share"
+                    if observed_pct is not None else
+                    "share unknown"
+                )
                 print(
                     f"    - {component:<10} {count:4d} "
-                    f"({observed_pct:5.1f}% vs target {expected_pct:5.1f}%)"
-                )
-
-            delta = results.get_mechanical_calibration_delta(expected_component_rates)
-            delta_text = "Not recorded" if delta is None else f"{delta * 100:.1f}%"
-            print(f"    Calibration delta: {delta_text}")
-
-            suggestions = results.get_mechanical_tuning_suggestions(expected_component_rates)
-            adjustments = results.get_reliability_adjustment_recommendations(
-                expected_component_rates
+                    f"({share_text})"
             )
-            print("    Suggested tuning:")
-            for component, action in suggestions.items():
-                delta = adjustments.get(component, 0.0)
-                sign = "+" if delta >= 0 else ""
-                print(f"      - {component:<10} {action:<22} ({sign}{delta:.3f})")
+            if not component_rates:
+                print("    Component shares: unknown (no mechanical failures observed)")
+        else:
+            print("    No mechanical failures observed; component shares are unknown")
+        print(
+            "    No reference component shares are configured; observed shares are "
+            "descriptive only."
+        )
 
         ConsoleOutput._print_suspension_context(results)
 

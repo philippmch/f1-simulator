@@ -1,6 +1,6 @@
 # Mechanical reliability and observed retirement evidence
 
-Updated 2026-09-09.
+Updated 2026-09-20.
 
 Live runs use a nominal mechanical reliability of 0.95 for each car and component.
 This is a model assumption. It is not estimated from the fraction of cars that
@@ -75,3 +75,23 @@ Analytic regression tests check full and partial survival across race lengths,
 the endpoints, stress and heat responses, and unchanged random-draw ownership.
 This verifies that the model implements its stated parameters; it does not
 validate the 0.95 prior against real hardware failures.
+
+## Component attribution and reporting
+
+After a mechanical failure is sampled, the failing component is selected with
+weights `max(1e-6, 1 - component reliability)`. Equal component inputs therefore
+give equal attribution probabilities: 20% each for the five live-default
+components. These are model probabilities, not observed real-world cause shares.
+
+Reports show the counts and shares of simulated mechanical failures. They do
+not compare them with an assumed reference split or recommend reliability
+changes without reference evidence. The automatic JSON tuning and adjustment
+fields remain empty for compatibility. A missing failure sample does not imply
+zero mechanical risk or establish the relative shares of failure causes.
+
+The Python analysis helpers still accept explicitly supplied reference shares
+for component-share differences and tuning suggestions. Those comparisons are
+conditional on the caller's reference; they do not validate that reference or
+automatically change any car input. Deriving a reference from the simulator's
+own configured weights would check internal consistency, not real-world
+calibration.

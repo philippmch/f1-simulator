@@ -972,10 +972,14 @@ remains zero. Normal runs with every entrant observed in every trial are unchang
 Event rates use the event ledger's recorded trial count when available. Legacy
 aggregates without that count retain their nominal requested count; exports and
 dashboard responses expose the denominator as `event_rate_trials`. Console and
-dashboard event summaries show it alongside the rates. An empty mechanical
-failure sample has no component-share calibration delta (`None` in Python) and
-produces no tuning suggestions or reliability adjustments. An absence of observed
-failures cannot establish the relative proportions of failure components.
+dashboard event summaries show it alongside the rates. Mechanical breakdowns
+report simulated counts and shares. Automatic reports have no configured
+reference component shares, so they provide no calibration delta, tuning
+suggestions or reliability adjustments. Python analysis helpers retain explicit
+caller-supplied reference comparisons; with an empty failure sample their
+calibration delta is `None` and their advice is empty. An absence of observed
+failures cannot establish the relative proportions of failure components. See
+[mechanical reliability](mechanical-reliability.md#component-attribution-and-reporting).
 
 The dashboard statistics and HTML reports include mean winning distance,
 lapped finishers, time-limited races and races without a winner. Statistics JSON,

@@ -191,6 +191,18 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       assert(payload.scenarios.heavy_rain.strategy_statistics.S00.strategies.every(row => row.compounds[0] === 'wet'));
     }
     await page.locator('#tab-stats').click();
+    const reliabilityCard = page.locator('.stat-card').filter({hasText: 'Mechanical Failures'}).first();
+    if (offline) {
+      const reliabilityText = await reliabilityCard.innerText();
+      assert(reliabilityText.includes('Observed simulated failure shares only'));
+      assert(reliabilityText.includes('No reference component shares are configured'));
+      assert(reliabilityText.includes('Engine') && reliabilityText.includes('66.7%'));
+      assert(reliabilityText.includes('Gearbox') && reliabilityText.includes('33.3%'));
+      assert.deepEqual((await reliabilityCard.locator('th').allTextContents())
+        .map(text => text.trim()), ['Component', 'Observed Share']);
+      assert(!reliabilityText.includes('Suggestion'));
+      assert(!reliabilityText.includes('Adjustment'));
+    }
     await page.locator('#probabilityIntervals summary').click();
     const statistics = Object.values(payload.scenarios)[0].driver_statistics;
     const distance = Object.values(payload.scenarios)[0].race_distance_statistics;

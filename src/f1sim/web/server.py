@@ -36,14 +36,6 @@ def _current_season() -> int:
 
     return datetime.now(timezone.utc).year
 
-_EXPECTED_COMPONENT_RATES: dict[str, float] = {
-    "engine": 0.34,
-    "gearbox": 0.22,
-    "electrical": 0.18,
-    "cooling": 0.14,
-    "brakes": 0.12,
-}
-
 _MIN_DASHBOARD_SIMULATIONS = 10
 _MAX_DASHBOARD_SIMULATIONS = 1000
 _MAX_DASHBOARD_WORKERS = 16
@@ -426,20 +418,10 @@ def _summarize_scenario_results(
                 default={},
             )
             or {},
-            "mechanical_tuning_suggestions": _safe_call(
-                results,
-                "get_mechanical_tuning_suggestions",
-                _EXPECTED_COMPONENT_RATES,
-                default={},
-            )
-            or {},
-            "reliability_adjustment_recommendations": _safe_call(
-                results,
-                "get_reliability_adjustment_recommendations",
-                _EXPECTED_COMPONENT_RATES,
-                default={},
-            )
-            or {},
+            # Keep compatibility fields in the dashboard payload, but do not
+            # infer a target split or recommend changes from simulated outcomes.
+            "mechanical_tuning_suggestions": {},
+            "reliability_adjustment_recommendations": {},
             "runtime_seconds": meta.get("runtime_seconds"),
             "event_rate_trials": _safe_call(results, "get_event_rate_trials", default=None),
             "simulations_per_second": meta.get("simulations_per_second"),

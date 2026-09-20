@@ -20,7 +20,11 @@ def test_comparison_statistics_match_single_export_with_observed_denominators(tm
     combined = json.loads(exporter.export_scenario_comparison_json(
         {"first": result},
     ).read_text(encoding="utf-8"))["scenarios"]["first"]
-    for key in ("driver_statistics", "probability_intervals", "pit_stop_statistics", "event_rates"):
+    for key in (
+        "driver_statistics", "probability_intervals", "pit_stop_statistics", "event_rates",
+        "mechanical_failure_breakdown", "mechanical_failure_component_rates",
+        "mechanical_tuning_suggestions", "reliability_adjustment_recommendations",
+    ):
         assert combined[key] == single[key]
     assert combined["num_simulations"] == 100
     assert combined["driver_statistics"]["A"]["recorded_races"] == 4
