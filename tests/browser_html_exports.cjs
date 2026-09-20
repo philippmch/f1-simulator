@@ -113,6 +113,12 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     const signed = value => `${value < 0 ? '' : '+'}${value.toFixed(3)}`;
     assert(pairedText.includes(signed(stats.mean_points_difference)));
     assert(pairedText.includes(`SE ${stats.points_difference_standard_error.toFixed(3)} points`));
+    assert(pairedText.includes(
+      `DNF rate SE ${stats.dnf_rate_difference_standard_error_percentage_points.toFixed(3)} pp`));
+    assert(pairedText.includes(`Both finished: ${stats.both_finished_races}`));
+    assert(pairedText.includes(`Both DNFs: ${stats.both_dnf_races}`));
+    assert(pairedText.includes(`Reference-only DNF: ${stats.reference_only_dnf_races}`));
+    assert(pairedText.includes(`Variant-only DNF: ${stats.variant_only_dnf_races}`));
     assert(pairedText.includes(`${stats.more_points_races} / ${stats.equal_points_races} / ${stats.fewer_points_races}`));
     assert(pairedText.includes('(0 excluded pairs)'));
     for (const width of [390, 1440]) {

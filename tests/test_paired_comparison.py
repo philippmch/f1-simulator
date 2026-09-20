@@ -62,7 +62,10 @@ def test_paired_variance_and_operational_dnf_are_independent_of_awards():
         variant_mean_points=31 / 3, mean_points_difference=-1.,
         points_difference_standard_error=sqrt(7), more_points_races=1,
         equal_points_races=1, fewer_points_races=1, reference_dnfs=0,
-        variant_dnfs=1, dnf_rate_difference_percentage_points=100 / 3,
+        variant_dnfs=1, both_finished_races=2, both_dnf_races=0,
+        reference_only_dnf_races=0, variant_only_dnf_races=1,
+        dnf_rate_difference_percentage_points=100 / 3,
+        dnf_rate_difference_standard_error_percentage_points=100 / 3,
     )
     assert (reference, variant) == before
     json.dumps(stats, allow_nan=False)
@@ -74,9 +77,47 @@ def test_zero_one_and_constant_pairs(awards, se):
     actual = compare(reference, variant)
     if awards:
         assert actual["driver_statistics"]["A"]["points_difference_standard_error"] == se
+        assert actual["driver_statistics"]["A"][
+            "dnf_rate_difference_standard_error_percentage_points"
+        ] == se
     else:
         assert actual["status"] == "unavailable"
         assert actual["available_seed_pairs"] == 0
+
+
+def test_joint_retirement_counts_and_rate_se_retain_paired_statuses():
+    aligned_reference, aligned_variant = result([12] * 4), result([12] * 4)
+    swapped_reference, swapped_variant = result([12] * 4), result([12] * 4)
+    for sample in (aligned_reference, aligned_variant, swapped_reference):
+        for index in (0, 1):
+            sample.race_results[index][0].status = "dnf"
+    for index in (2, 3):
+        swapped_variant.race_results[index][0].status = "dnf"
+
+    aligned = compare(aligned_reference, aligned_variant)["driver_statistics"]["A"]
+    swapped = compare(swapped_reference, swapped_variant)["driver_statistics"]["A"]
+
+    assert (aligned["reference_dnfs"], aligned["variant_dnfs"]) == (2, 2)
+    assert (swapped["reference_dnfs"], swapped["variant_dnfs"]) == (2, 2)
+    assert aligned["dnf_rate_difference_percentage_points"] == 0
+    assert swapped["dnf_rate_difference_percentage_points"] == 0
+    assert aligned["dnf_rate_difference_standard_error_percentage_points"] == 0
+    assert swapped["dnf_rate_difference_standard_error_percentage_points"] == pytest.approx(
+        100 / sqrt(3)
+    )
+    assert (
+        aligned["both_finished_races"], aligned["both_dnf_races"],
+        aligned["reference_only_dnf_races"], aligned["variant_only_dnf_races"],
+    ) == (2, 2, 0, 0)
+    assert (
+        swapped["both_finished_races"], swapped["both_dnf_races"],
+        swapped["reference_only_dnf_races"], swapped["variant_only_dnf_races"],
+    ) == (0, 0, 2, 2)
+    for stats in (aligned, swapped):
+        assert sum(stats[key] for key in (
+            "both_finished_races", "both_dnf_races",
+            "reference_only_dnf_races", "variant_only_dnf_races",
+        )) == stats["paired_races"] == 4
 
 
 def test_overlapping_offset_seeds_use_recorded_counts_and_not_declared_denominator():
@@ -143,6 +184,11 @@ def test_invalid_driver_observations_are_excluded(bad):
     assert actual["excluded_pairs"] == 1
     assert actual["mean_points_difference"] is None
     assert actual["dnf_rate_difference_percentage_points"] is None
+    assert actual["dnf_rate_difference_standard_error_percentage_points"] is None
+    assert all(actual[key] == 0 for key in (
+        "both_finished_races", "both_dnf_races",
+        "reference_only_dnf_races", "variant_only_dnf_races",
+    ))
 
 
 def test_qualifying_missing_duplicate_and_missing_driver_exclusions():

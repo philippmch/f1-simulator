@@ -27,8 +27,10 @@ class ConsoleOutput:
         print(f"\nPaired changes compared with {reference_scenario}")
         print("Positive points changes mean more points; "
               "positive DNF changes mean more retirements.")
-        print("SE estimates sampling error, not a confidence interval. "
+        print("SE estimates sampling error, not a confidence interval, for points and DNF rates. "
               "Zero SE does not prove equality.")
+        print("Joint DNF counts describe paired outcomes; they do not identify retirement causes "
+              "or causal effects.")
         ConsoleOutput._print_suspension_context(results)
         for label, comparison in paired["variants"].items():
             print(f"{label}:")
@@ -51,6 +53,16 @@ class ConsoleOutput:
                 print(f"{driver:<12} {stats['paired_races']:>5} {stats['excluded_pairs']:>9} "
                       f"{stats['mean_points_difference']:>+14.3f} {error_text:>6} "
                       f"{counts:>18} {stats['dnf_rate_difference_percentage_points']:>+11.1f} pp")
+                dnf_error = stats["dnf_rate_difference_standard_error_percentage_points"]
+                dnf_error_text = (
+                    f"{dnf_error:.3f} pp" if dnf_error is not None
+                    else "needs at least 2 pairs"
+                )
+                print(f"  DNF rate SE: {dnf_error_text}; "
+                      f"both finished={stats['both_finished_races']}, "
+                      f"both DNF={stats['both_dnf_races']}, "
+                      f"reference-only DNF={stats['reference_only_dnf_races']}, "
+                      f"variant-only DNF={stats['variant_only_dnf_races']}")
 
     @staticmethod
     def print_qualifying_results(results: list[QualifyingResult]) -> None:

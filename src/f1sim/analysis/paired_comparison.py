@@ -153,6 +153,7 @@ def _observation(race, driver):
 def _driver_statistics(observations, available):
     count = len(observations)
     differences = [variant[0] - reference[0] for reference, variant in observations]
+    dnf_differences = [variant[1] - reference[1] for reference, variant in observations]
     reference_dnfs = sum(reference[1] for reference, _ in observations)
     variant_dnfs = sum(variant[1] for _, variant in observations)
     return {
@@ -165,8 +166,23 @@ def _driver_statistics(observations, available):
         "equal_points_races": sum(value == 0 for value in differences),
         "fewer_points_races": sum(value < 0 for value in differences),
         "reference_dnfs": reference_dnfs, "variant_dnfs": variant_dnfs,
+        "both_finished_races": sum(
+            reference[1] == 0 and variant[1] == 0 for reference, variant in observations
+        ),
+        "both_dnf_races": sum(
+            reference[1] == 1 and variant[1] == 1 for reference, variant in observations
+        ),
+        "reference_only_dnf_races": sum(
+            reference[1] == 1 and variant[1] == 0 for reference, variant in observations
+        ),
+        "variant_only_dnf_races": sum(
+            reference[1] == 0 and variant[1] == 1 for reference, variant in observations
+        ),
         "dnf_rate_difference_percentage_points": (
             (variant_dnfs - reference_dnfs) * 100 / count if count else None
+        ),
+        "dnf_rate_difference_standard_error_percentage_points": (
+            100 * stdev(dnf_differences) / sqrt(count) if count > 1 else None
         ),
     }
 

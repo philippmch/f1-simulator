@@ -82,6 +82,21 @@ def _paired_driver_table(driver_id: str, paired: dict | None) -> str:
             continue
         error = stats["points_difference_standard_error"]
         error_text = f"SE {error:.3f} points" if error is not None else "SE needs at least 2 pairs"
+        dnf_error = stats["dnf_rate_difference_standard_error_percentage_points"]
+        dnf_error_text = (
+            f"DNF rate SE {dnf_error:.3f} pp" if dnf_error is not None
+            else "DNF rate SE needs at least 2 pairs"
+        )
+        joint_counts = (
+            f'<span class="interval joint-count">Both finished: '
+            f'{stats["both_finished_races"]}</span>'
+            f'<span class="interval joint-count">Both DNFs: '
+            f'{stats["both_dnf_races"]}</span>'
+            f'<span class="interval joint-count">Reference-only DNF: '
+            f'{stats["reference_only_dnf_races"]}</span>'
+            f'<span class="interval joint-count">Variant-only DNF: '
+            f'{stats["variant_only_dnf_races"]}</span>'
+        )
         rows.append(
             prefix + f'<td>{stats["paired_races"]} '
             f'<span class="interval">({stats["excluded_pairs"]} excluded pairs)</span></td>'
@@ -89,7 +104,9 @@ def _paired_driver_table(driver_id: str, paired: dict | None) -> str:
             f'<span class="interval">{error_text}</span></td>'
             f'<td>{stats["more_points_races"]} / {stats["equal_points_races"]} / '
             f'{stats["fewer_points_races"]}</td>'
-            f'<td>{stats["dnf_rate_difference_percentage_points"]:+.1f} pp</td></tr>'
+            f'<td>{stats["dnf_rate_difference_percentage_points"]:+.1f} pp '
+            f'<span class="interval">{dnf_error_text}</span>'
+            f'{joint_counts}</td></tr>'
         )
     return (
         '<div class="table-wrap" tabindex="0" role="region" '
@@ -290,6 +307,7 @@ summary { cursor: pointer; padding: 16px; overflow-wrap: anywhere; }
 summary:hover { color: #9cbbff; }
 :focus-visible { outline: 3px solid #9cbbff; outline-offset: 2px; }
 .interval { display: block; color: #b6c0ff; white-space: nowrap; font-size: .875rem; }
+.joint-count { white-space: normal; }
 </style></head><body><main><h1>Simulation comparison</h1>
 <p>Scenarios appear in supplied order. Check their context and saved inputs when
 comparing outcomes.</p>
@@ -346,8 +364,11 @@ failures; other race processes continue sharing the race stream.</p>""" + (
         f'<p>Paired changes compare each choice with {_text(reference_scenario)} using '
         'overlapping recorded trial seeds, matching saved models and qualifying. '
         'Positive points changes mean more points; positive retirement changes mean more DNFs. '
-        'SE is the estimated standard error of the mean points change, not a 95% interval. '
-        'Zero observed variation does not prove the choices equivalent. Missing, invalid or '
+        'SEs estimate sampling error, not confidence intervals: the points SE applies to the '
+        'mean points change and the DNF rate SE applies to the DNF rate change. Zero observed '
+        'variation does not prove the choices equivalent. Joint DNF counts describe paired '
+        'status outcomes but do not identify retirement causes or causal effects. Missing, '
+        'invalid or '
         'unmatched results are excluded with their counts. Adaptive race events can differ.</p>'
         if paired is not None else ""
     ) + (

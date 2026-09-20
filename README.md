@@ -203,8 +203,13 @@ estimated standard error (SE), how many paired trials earned more/equal/fewer
 points, and the retirement-rate change. Positive points changes mean more points;
 positive retirement changes mean more DNFs. These use shared recorded trial
 seeds and matching qualifying, with their own paired and excluded counts.
-SE describes sampling error in the mean difference; it is not a confidence
-interval, and zero observed variation does not establish equivalent strategies.
+The retirement comparison also shows how many pairs finished in both runs,
+retired in both, or retired only in the reference or variant, plus the paired
+retirement-rate change's SE in percentage points. Equal retirement rates can
+hide different outcomes in individual trials. These counts do not identify
+the causes of a retirement. SE describes sampling error in the mean difference;
+it is not a confidence interval, and zero observed variation does not establish
+equivalent strategies.
 One paired observation has no estimable SE.
 
 Combined exports retain these summaries in `paired_comparisons`. Pairing requires

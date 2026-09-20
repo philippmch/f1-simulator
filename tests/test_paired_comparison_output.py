@@ -44,10 +44,26 @@ def test_console_json_html_and_replay_share_paired_summary(tmp_path, capsys, eng
     assert "Changes for 0 compared with hard" in report
     assert f'{stats["mean_points_difference"]:+.3f}' in report
     assert f'SE {stats["points_difference_standard_error"]:.3f} points' in report
+    assert (
+        f'DNF rate SE {stats["dnf_rate_difference_standard_error_percentage_points"]:.3f} pp'
+        in report
+    )
+    assert f'Both finished: {stats["both_finished_races"]}' in report
+    assert f'Both DNFs: {stats["both_dnf_races"]}' in report
+    assert f'Reference-only DNF: {stats["reference_only_dnf_races"]}' in report
+    assert f'Variant-only DNF: {stats["variant_only_dnf_races"]}' in report
     ConsoleOutput.print_paired_comparison(variants, "hard", driver_id="0")
     printed = capsys.readouterr().out
     assert "Paired changes compared with hard" in printed
     assert f'{stats["mean_points_difference"]:+.3f}' in printed
+    assert (
+        f'DNF rate SE: {stats["dnf_rate_difference_standard_error_percentage_points"]:.3f} pp'
+        in printed
+    )
+    assert f'both finished={stats["both_finished_races"]}' in printed
+    assert f'both DNF={stats["both_dnf_races"]}' in printed
+    assert f'reference-only DNF={stats["reference_only_dnf_races"]}' in printed
+    assert f'variant-only DNF={stats["variant_only_dnf_races"]}' in printed
     assert "not a confidence interval" in printed
     replay = replay_saved_simulation(combined, simulation=2, scenario="soft")
     assert replay.race_results == [variants["soft"].race_results[1]]

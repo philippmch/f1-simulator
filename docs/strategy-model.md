@@ -254,6 +254,20 @@ an optimal-strategy ranking. Points use explicit distance-adjusted awards when
 recorded, including classified retirements; legacy rows use classification-based
 scoring. Operational DNFs are counted separately. Positive retirement-rate
 changes mean more retirements and are expressed in percentage points.
+Joint retirement counts distinguish pairs where both finish, both retire, only
+the reference retires, or only the variant retires. They sum to the driver's
+usable paired count and include classified retirements as DNFs. Matching
+retirement rates can otherwise hide completely different trial outcomes.
+
+For the retirement-rate difference, each paired observation is
+`d_i = variant_dnf_i - reference_dnf_i`, with values -1, 0 or 1. Its SE is
+`100 * stdev(d_i) / sqrt(n)` in percentage points, using the sample standard
+deviation and the same usable pairs as the reported rate difference. It is
+absent below two pairs. This retains the observed association between paired
+outcomes; treating the two marginal retirement rates as independent would lose
+that information. Neither the joint counts nor this SE identify retirement
+causes or establish a strategy's causal effect. The same sampling and
+zero-variation limitations as the points SE apply.
 These calculations do not consume simulation randomness or rerun races.
 
 JSON `paired_comparisons` and the HTML paired tables are opt-in through the
