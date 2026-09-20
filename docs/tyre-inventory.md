@@ -60,6 +60,14 @@ Finite-pool planning adds work for each distinct driver, set age and forecast.
 Automatic opening selection also compares complete policy paths. Start with a
 small trial count when checking a new pool before running a large ensemble.
 
+If no complete forecast is feasible, a required stop can still choose the
+available set with the lowest predicted next-lap time. For a timed paid stop,
+that fallback uses the projected surface after expected lane, service and queue
+time, matching the main planner's outlap calculation. Eligibility remains based
+on observed conditions at commitment. Free red-flag refits have no paid-stop
+delay. The fallback does not claim that the chosen set can finish the race;
+later decisions use updated conditions and the remaining physical inventory.
+
 Red-flag fittings are free changes and can retain the current physical set.
 They consume no paid stop. The physical-set ledger includes opening and later
 fittings that never complete a lap; these do not earn compound-use credit.

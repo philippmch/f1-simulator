@@ -1,15 +1,17 @@
 """Physical tyre conservation through both native race execution paths."""
 
 from copy import deepcopy
+from math import inf
 
 import numpy as np
 import pytest
 
-from f1sim.models import Car, Driver, Track, Weather
+from f1sim.models import Car, Driver, TireCompound, Track, Weather
 from f1sim.simulation.chronological_race import ChronologicalRace
 from f1sim.simulation.events import EventManager, EventType, RaceEvent
 from f1sim.simulation.pit_strategy import expected_stationary_time
 from f1sim.simulation.race import DriverRaceState, DriverStatus, RaceSimulator
+from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.tire_inventory import TireInventory
 
 
@@ -168,6 +170,79 @@ def state_with_pool(records, selected, age):
     state.tire_laps = state.driver.current_tire_laps = age
     track = Track(id="T", name="T", country="T", total_laps=8, base_lap_time=90)
     return sim, state, track
+
+
+def clocked_inventory_fallback(records=None, wetness=.31):
+    records = records or [
+        {"id": "old", "compound": "wet", "age": 20},
+        {"id": "W", "compound": "wet", "age": 0},
+        {"id": "I", "compound": "intermediate", "age": 10},
+    ]
+    sim, state, track = state_with_pool(records, "old", 21)
+    track.total_laps = 12
+    sim._damage_inventory_tire(state)
+    weather = Weather(track_wetness=wetness, rain_intensity=0, change_probability=0)
+    delay = track.pit_lane_delta + expected_stationary_time(state.car)
+    clock = StrategyWeatherClock(
+        tuple(90. * index for index in range(11)), 5., 90., 20, delay, delay,
+    )
+    return sim, state, track, weather, clock
+
+
+def test_clocked_inventory_fallback_ranks_post_service_weather_without_mutation():
+    sim, state, track, weather, clock = clocked_inventory_fallback()
+    before_models = deepcopy((state.driver, state.car, track, weather))
+    before_inventory = deepcopy(state.tire_inventory.__dict__)
+    before_rng = deepcopy(sim.rng.bit_generator.state)
+
+    decision = sim._plan_inventory(
+        state, track, weather, 2, force_stop=True, weather_clock=clock,
+    )
+    assert decision.pit_now_cost == inf
+    assert decision.wait_cost == inf
+    assert decision.set_id is None
+
+    assert sim._inventory_immediate_set(state, track, weather, 2) == "W"
+    post_stop_weather, _ = sim._projected_stint_weather(weather, clock, None, 1)
+    assert post_stop_weather.track_wetness == pytest.approx(.28)
+    assert sim._inventory_immediate_set(
+        state, track, weather, 2, weather_clock=clock,
+    ) == "I"
+
+    assert sim._prepare_inventory_pit(
+        state, track, weather, 2, weather_clock=clock,
+    )
+    assert state.inventory_pit_proposal == (2, "I")
+    assert (state.driver, state.car, track, weather) == before_models
+    assert state.tire_inventory.__dict__ == before_inventory
+    assert sim.rng.bit_generator.state == before_rng
+
+
+def test_inventory_fallback_without_clock_and_free_fit_keep_entry_weather():
+    sim, state, track, weather, clock = clocked_inventory_fallback()
+    assert sim._inventory_immediate_set(state, track, weather, 2) == "W"
+    assert sim._inventory_immediate_set(
+        state, track, weather, 2, free_fit=True, weather_clock=clock,
+    ) == "W"
+
+    assert sim._refit_inventory_free(
+        state, track, weather, 1, weather_clock=clock,
+    )
+    assert state.tire_inventory.current_set_id == "W"
+
+
+def test_clocked_fallback_does_not_make_entry_critical_set_eligible():
+    sim, state, track, weather, clock = clocked_inventory_fallback([
+        {"id": "old", "compound": "wet", "age": 20},
+        {"id": "S", "compound": "soft", "age": 0},
+        {"id": "I", "compound": "intermediate", "age": 10},
+    ], wetness=.46)
+    post_stop_weather, _ = sim._projected_stint_weather(weather, clock, None, 1)
+    assert weather.tire_mismatch(TireCompound.SOFT) == "critical"
+    assert post_stop_weather.tire_mismatch(TireCompound.SOFT) != "critical"
+    assert sim._inventory_immediate_set(
+        state, track, weather, 2, weather_clock=clock,
+    ) == "I"
 
 
 def test_free_refit_can_retain_only_usable_set_without_resetting_wear():

@@ -143,7 +143,8 @@ class InventoryStrategyMixin:
         )
 
     def _inventory_immediate_set(self, state, track, weather, lap, *, free_fit=False,
-                                 physical_total_laps=None):
+                                 physical_total_laps=None,
+                                 weather_clock: StrategyWeatherClock | None = None):
         """Survive the next lap if no complete forecast is feasible.
 
         Later weather or finish changes can invalidate today's complete plan.
@@ -164,12 +165,17 @@ class InventoryStrategyMixin:
             return None
         driver = state.driver.model_copy(deep=True)
         simulator = LapSimulator(np.random.default_rng(0))
+        ranking_weather = weather
+        if weather_clock is not None and not free_fit:
+            ranking_weather, _ = self._projected_stint_weather(
+                weather, weather_clock, None, 1,
+            )
 
         def cost(item):
             driver.current_tire_laps = (state.tire_laps if item.id == inventory.current_set_id
                                        else item.age)
             return simulator.calculate_lap_time(
-                driver, state.car, track, TIRE_COMPOUNDS[item.compound], weather,
+                driver, state.car, track, TIRE_COMPOUNDS[item.compound], ranking_weather,
                 lap, physical_total_laps or track.total_laps, sample_variation=False,
                 active_aero_enabled=self.event_manager.is_active_aero_allowed(),
             )
@@ -244,6 +250,7 @@ class InventoryStrategyMixin:
             )
             selected = decision.set_id or self._inventory_immediate_set(
                 state, track, weather, lap, physical_total_laps=physical_total_laps,
+                weather_clock=weather_clock,
             )
         if selected is None:
             self._retire_without_inventory_tire(state)
