@@ -210,6 +210,7 @@ class ChronologicalRace:
         )
         self.simulator._fit_tire(state, compound)
         state.force_pit_next_lap = False
+        state.pit_decision_context = None
         state.dry_pit_proposal = None
         state.weather_pit_proposal = None
         self.free_refits.remove(state.driver.id)
@@ -583,6 +584,7 @@ class ChronologicalRace:
         state.dry_pit_proposal = None
         state.weather_pit_proposal = None
         state.inventory_pit_proposal = None
+        state.pit_decision_context = None
 
     def _finish_protection_skip_reason(self, state, *, restart=False, now=None):
         """Return why the bounded elective-stop guard must remain inactive."""
@@ -736,7 +738,12 @@ class ChronologicalRace:
             weather_clock = self._strategy_weather_clock(
                 state, now, planning, delay, restart=restart,
             )
-        stop = state.force_pit_next_lap or self.simulator._should_pit(
+        forced_repair = state.force_pit_next_lap
+        if forced_repair:
+            # Forced execution bypasses policy; stale elective context must
+            # not survive to the forced record.
+            state.pit_decision_context = None
+        stop = forced_repair or self.simulator._should_pit(
             state, active, planning, lap, control.is_pit_window_open(), self.weather,
             additional_current_stop_cost=delay, physical_total_laps=self.track.total_laps,
             traffic_snapshot=traffic,

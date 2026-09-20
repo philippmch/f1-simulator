@@ -204,17 +204,20 @@ def test_restart_paid_stops_share_common_arrival_and_box_queue(monkeypatch):
         {"lap": 2, "from_compound": "soft", "to_compound": "soft",
          "tire_age": 0, "condition": "dry", "rain_intensity": 0.0,
          "track_wetness": 0.0, "control": "green", "lane_loss": 20.0,
-         "service_time": 3.0, "queue_time": 0.0, "total_loss": 23.0},
+         "service_time": 3.0, "queue_time": 0.0, "total_loss": 23.0,
+         "decision_reason": None, "forecast_saving_seconds": None},
     ]
     assert by_driver["B"].pit_stop_details == [
         {"lap": 1, "from_compound": "medium", "to_compound": "soft",
          "tire_age": 0, "condition": "dry", "rain_intensity": 0.0,
          "track_wetness": 0.0, "control": "green", "lane_loss": 20.0,
-         "service_time": 3.0, "queue_time": 0.0, "total_loss": 23.0},
+         "service_time": 3.0, "queue_time": 0.0, "total_loss": 23.0,
+         "decision_reason": None, "forecast_saving_seconds": None},
         {"lap": 2, "from_compound": "medium", "to_compound": "medium",
          "tire_age": 0, "condition": "dry", "rain_intensity": 0.0,
          "track_wetness": 0.0, "control": "green", "lane_loss": 20.0,
-         "service_time": 3.0, "queue_time": 3.0, "total_loss": 26.0},
+         "service_time": 3.0, "queue_time": 3.0, "total_loss": 26.0,
+         "decision_reason": None, "forecast_saving_seconds": None},
     ]
 
 

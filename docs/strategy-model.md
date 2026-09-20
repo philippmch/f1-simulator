@@ -390,7 +390,23 @@ The dashboard shows these observations for its selected trial. Statistics and
 comparison JSON retain per-trial, per-driver records; the bundle's pit-stops CSV
 has one row per paid stop with one-based trial numbers. Legacy JSON uses null for
 unknown details and an empty list for a known zero stops; neither produces CSV
-stop rows. These records describe executed stops, not inferred decision reasons.
+stop rows.
+
+New paid-stop records also retain `decision_reason`, captured when the policy
+accepts the stop: forced tyre replacement, critical weather mismatch, a weather
+reaction, the compound-use requirement, a dry/rain/finite-set forecast, or a
+neutralization/planned window. A custom policy that supplies no context leaves
+the reason unknown; historical reasons are not reconstructed from tyre choices
+or conditions. The dashboard shows this context beside each selected-trial stop,
+and JSON and pit-stops CSV preserve it for every trial.
+
+For a forecast decision, `forecast_saving_seconds` is the modeled cost of waiting
+minus the cost of stopping, including the planner's remaining strategy and current
+Overtake Mode adjustment. It is not a measured gain or a causal comparison of race
+results. A slightly negative value can be accepted by the strategy's timing bias.
+Compulsory/reactive decisions and nonfinite comparisons have no reported saving.
+Missing context is null in JSON, blank in CSV, and “Not recorded” in the dashboard.
+Free refits and vetoed pit proposals produce no paid-stop decision record.
 
 Aggregate `pit_loss_statistics` reports each driver's mean total, lane, service
 and queue loss per race with complete details, plus queued-stop counts and the

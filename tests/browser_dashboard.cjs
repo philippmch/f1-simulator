@@ -134,18 +134,25 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
           ...row, pit_stop_details: i === 0 ? null : i === 1 ? [] : [{lap: 4,
             from_compound: '<img src=x onerror="window.pitInjected=true">', to_compound: 'hard',
             tire_age: 3, condition: 'dry', rain_intensity: 0, track_wetness: 0,
-            control: 'green', lane_loss: 22, service_time: 3, queue_time: 2, total_loss: 27}],
+            control: 'green', lane_loss: 22, service_time: 3, queue_time: 2, total_loss: 27,
+            decision_reason: 'dry_forecast', forecast_saving_seconds: -0.05}],
         }));
         renderRace();
       });
       await page.locator('#samplePitStopDetails summary').click();
       const pitText = await page.locator('#samplePitStopDetails').innerText();
       for (const label of ['Pit-stop details not recorded', 'No paid stops', '27.000 s',
-        'Lane 22.000 s', 'Service 3.000 s', 'Queue 2.000 s', '3 completed laps']) {
+        'Lane 22.000 s', 'Service 3.000 s', 'Queue 2.000 s', '3 completed laps',
+        'Dry strategy forecast', 'Forecast advantage: -0.050 s']) {
         assert(pitText.includes(label), `Missing paid-stop detail: ${label}`);
       }
       assert.equal(await page.locator('#samplePitStopDetails img').count(), 0);
       assert.equal(await page.evaluate(() => Boolean(window.pitInjected)), false);
+      const legacyDecisions = await page.evaluate(() => renderPitStopDetails([{driver_id: 'Legacy',
+        pit_stop_details: [{decision_reason: '<img src=x onerror="window.pitInjected=true">',
+          forecast_saving_seconds: Infinity}]}]));
+      assert(legacyDecisions.includes('Forecast advantage: Not recorded'));
+      assert(!legacyDecisions.includes('<img'));
       await page.evaluate(() => {
         getScenarioEntry().data.sample_race = savedPitSample;
         delete window.savedPitSample;
@@ -465,8 +472,14 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       for (const tab of ['race', 'qualifying', 'stats', 'scenarios']) {
         await page.locator(`#tab-${tab}`).click();
         if (tab === 'stats') await page.locator('#pitLossDetails').evaluate(node => { node.open = true; });
+        if (tab === 'race') await page.locator('#samplePitStopDetails').evaluate(node => { node.open = true; });
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
           `${tab} overflows at ${width}px`);
+        if (tab === 'race' && process.env.F1SIM_SCREENSHOTS && [390, 1440].includes(width)) {
+          await page.locator('#samplePitStopDetails').screenshot({
+            path: path.join(process.env.F1SIM_SCREENSHOTS, `pit-decisions-${width}.png`),
+          });
+        }
         if (tab === 'scenarios') {
           assert(await page.locator('#compareChart .bar-track').first().evaluate(
             node => node.getBoundingClientRect().height >= 10), 'Win bars must have visible height');

@@ -36,7 +36,7 @@ def test_paid_stop_exports_and_selected_trial(tmp_path, engine):
         assert exported["race_engine"] == engine
         for key, value in stop.items():
             assert (float(exported[key]) if isinstance(value, (int, float))
-                    else exported[key]) == value
+                    else exported[key]) == ("" if value is None else value)
     assert "pit stops CSV" in files["runs_index_html"].read_text(encoding="utf-8")
     assert json.loads(files["statistics_json"].read_text(encoding="utf-8"))[
         "pit_stop_details"] == expected

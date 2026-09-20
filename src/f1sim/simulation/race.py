@@ -87,6 +87,10 @@ class DriverRaceState:
     tire_inventory: TireInventory | None = None
     tire_set_history: list[dict] = field(default_factory=list)
     inventory_pit_proposal: tuple[int, str | None] | None = None
+    # One-lap planner metadata consumed by the next paid stop.  This remains
+    # ephemeral so a veto, free refit, or direct execution cannot inherit an
+    # old proposal and present it as a new policy decision.
+    pit_decision_context: dict[str, object] | None = None
 
     def __post_init__(self) -> None:
         """Seed tyre history from the driver's actual starting set."""
@@ -268,6 +272,30 @@ class RaceSimulator(InventoryStrategyMixin):
             "rain_intensity": float(weather.rain_intensity),
             "track_wetness": float(weather.track_wetness),
         })
+
+    @staticmethod
+    def _decision_forecast_saving(decision) -> float | None:
+        """Return a finite planner saving when the decision exposes both costs."""
+        wait_cost = getattr(decision, "wait_cost", None)
+        pit_cost = getattr(decision, "pit_now_cost", None)
+        if (isinstance(wait_cost, bool) or not isinstance(wait_cost, Real)
+                or isinstance(pit_cost, bool) or not isinstance(pit_cost, Real)):
+            return None
+        try:
+            saving = float(wait_cost) - float(pit_cost)
+        except (OverflowError, TypeError, ValueError):
+            return None
+        return saving if isfinite(saving) else None
+
+    def _capture_pit_decision_context(
+        self, state: DriverRaceState, lap: int, reason: str, decision=None,
+    ) -> None:
+        """Attach metadata to one accepted policy decision until execution."""
+        state.pit_decision_context = {
+            "lap": int(lap),
+            "decision_reason": reason,
+            "forecast_saving_seconds": self._decision_forecast_saving(decision),
+        }
 
     def simulate_race(
         self,
@@ -1045,7 +1073,12 @@ class RaceSimulator(InventoryStrategyMixin):
                 delay,
                 expected_losses,
             )
-            should_pit = state.force_pit_next_lap or self._should_pit(
+            forced_repair = state.force_pit_next_lap
+            if forced_repair:
+                # A forced stop bypasses policy evaluation.  Any proposal
+                # left by an earlier veto must not label this execution.
+                state.pit_decision_context = None
+            should_pit = forced_repair or self._should_pit(
                 state, lap_start_states, track, lap,
                 self.event_manager.is_pit_window_open(), weather=weather,
                 additional_current_stop_cost=delay,
@@ -1203,6 +1236,7 @@ class RaceSimulator(InventoryStrategyMixin):
         """Decide if driver should pit this lap."""
         state.dry_pit_proposal = None
         state.weather_pit_proposal = None
+        state.pit_decision_context = None
         observed_gap = (self._get_gap_to_car_ahead(state, all_states)
                         if traffic_snapshot is None else traffic_snapshot.gap_ahead)
         mode_active = self._strategy_overtake_mode_active(
@@ -1240,6 +1274,7 @@ class RaceSimulator(InventoryStrategyMixin):
         if weather is not None:
             tire_mismatch = self._check_tire_weather_mismatch(state.current_tire, weather)
             if tire_mismatch == "critical":
+                self._capture_pit_decision_context(state, lap, "critical_weather")
                 return True  # Must pit immediately
             elif tire_mismatch == "suboptimal" and not rain_transition:
                 dry_rule_satisfied = self._stay_satisfies_tire_rule(state)
@@ -1260,6 +1295,7 @@ class RaceSimulator(InventoryStrategyMixin):
                 ):
                     return False
                 if self.rng.random() < 0.7:
+                    self._capture_pit_decision_context(state, lap, "weather_reaction")
                     return True  # Should pit soon
 
         if self.event_manager.red_flag_active:
@@ -1331,6 +1367,7 @@ class RaceSimulator(InventoryStrategyMixin):
             lap >= max(2, track.total_laps)
             and dry_rule_required and not rain_transition
         ):
+            self._capture_pit_decision_context(state, lap, "compound_requirement")
             return True
 
         # Elective stops need at least one lap on the starting set. Weather
@@ -1387,6 +1424,7 @@ class RaceSimulator(InventoryStrategyMixin):
             }[strategy]
             if decision.should_pit(timing_bias):
                 state.dry_pit_proposal = (lap, decision.compound)
+                self._capture_pit_decision_context(state, lap, "dry_forecast", decision)
                 return True
             return False
 
@@ -1431,6 +1469,7 @@ class RaceSimulator(InventoryStrategyMixin):
             if decision.should_pit():
                 if rain_transition:
                     state.weather_pit_proposal = (lap, decision.compound)
+                self._capture_pit_decision_context(state, lap, "rain_forecast", decision)
                 return True
             return False
 
@@ -1460,10 +1499,20 @@ class RaceSimulator(InventoryStrategyMixin):
         if pit_window_open and state.tire_laps > 10 and state.pit_stops < max_stops:
             # If we have a free stop window (big gap behind), almost always take it.
             if gap_behind is not None and gap_behind > track.pit_lane_delta * 0.85:
-                return wet_stop_can_pay()
+                accepted = wet_stop_can_pay()
+                if accepted:
+                    self._capture_pit_decision_context(
+                        state, lap, "neutralization_window",
+                    )
+                return accepted
             window_prob = np.clip(0.85 + strategy_bias, 0.55, 0.98)
             if self.rng.random() < window_prob:
-                return wet_stop_can_pay()
+                accepted = wet_stop_can_pay()
+                if accepted:
+                    self._capture_pit_decision_context(
+                        state, lap, "neutralization_window",
+                    )
+                return accepted
 
         # Prefer explicit planned pit laps when available for current stint.
         active_plan = self._select_active_pit_plan(state, weather, lap, gap_ahead, track=track)
@@ -1555,7 +1604,10 @@ class RaceSimulator(InventoryStrategyMixin):
                 self.strategy_tuning["pit_prob_min"],
                 self.strategy_tuning["pit_prob_max"],
             ):
-                return wet_stop_can_pay()
+                accepted = wet_stop_can_pay()
+                if accepted:
+                    self._capture_pit_decision_context(state, lap, "planned_window")
+                return accepted
 
         return False
 
@@ -1846,6 +1898,31 @@ class RaceSimulator(InventoryStrategyMixin):
         Returns:
             Time lost in seconds
         """
+        forced_repair = bool(state.force_pit_next_lap)
+        decision_context = state.pit_decision_context
+        # Consume the proposal before any execution-side replanning.  A
+        # failed preparation or later direct call must not reuse it.
+        state.pit_decision_context = None
+        decision_reason = "forced_repair" if forced_repair else None
+        forecast_saving = None
+        if not forced_repair and isinstance(decision_context, dict):
+            if decision_context.get("lap") == int(current_lap):
+                candidate_reason = decision_context.get("decision_reason")
+                if candidate_reason in {
+                    "critical_weather", "weather_reaction", "compound_requirement",
+                    "dry_forecast", "rain_forecast", "inventory_forecast",
+                    "neutralization_window", "planned_window", "forced_repair",
+                }:
+                    decision_reason = candidate_reason
+                    candidate_saving = decision_context.get("forecast_saving_seconds")
+                    if (isinstance(candidate_saving, Real)
+                            and not isinstance(candidate_saving, bool)):
+                        try:
+                            candidate_saving = float(candidate_saving)
+                        except (OverflowError, TypeError, ValueError):
+                            candidate_saving = None
+                        if candidate_saving is not None and isfinite(candidate_saving):
+                            forecast_saving = candidate_saving
         selected_set = None
         if state.tire_inventory is not None:
             if not self._prepare_inventory_pit(
@@ -1933,6 +2010,8 @@ class RaceSimulator(InventoryStrategyMixin):
             "service_time": float(stationary_time),
             "queue_time": float(queue_time),
             "total_loss": float(total_loss),
+            "decision_reason": decision_reason,
+            "forecast_saving_seconds": forecast_saving,
         })
         if selected_set is not None:
             state.pit_stop_details[-1].update(
@@ -2510,6 +2589,7 @@ class RaceSimulator(InventoryStrategyMixin):
             # The sole modeled forced-stop cause is a puncture. A free fresh
             # set resolves it without charging another stop on the restart.
             state.force_pit_next_lap = False
+            state.pit_decision_context = None
             state.dry_pit_proposal = None
             state.weather_pit_proposal = None
 

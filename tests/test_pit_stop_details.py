@@ -36,7 +36,8 @@ def test_stop_snapshots_actual_cost_age_weather_and_queue(monkeypatch, control, 
     assert stop == {"lap": 13, "from_compound": "medium", "to_compound": "wet",
                     "tire_age": 12, "condition": "heavy_rain", "rain_intensity": .8,
                     "track_wetness": .9, "control": control, "lane_loss": 22 * factor,
-                    "service_time": 3.5, "queue_time": 3.0, "total_loss": loss}
+                    "service_time": 3.5, "queue_time": 3.0, "total_loss": loss,
+                    "decision_reason": None, "forecast_saving_seconds": None}
     assert loss == stop["lane_loss"] + stop["service_time"] + stop["queue_time"]
     assert releases == {"A": 106.5}
     weather.track_wetness = 0

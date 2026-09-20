@@ -317,7 +317,8 @@ class Exporter:
         fields = ["lap", "from_compound", "to_compound", "tire_age", "condition",
                   "rain_intensity", "track_wetness", "control", "lane_loss",
                   "service_time", "queue_time", "total_loss",
-                  "from_set_id", "to_set_id", "incoming_tire_age"]
+                  "from_set_id", "to_set_id", "incoming_tire_age",
+                  "decision_reason", "forecast_saving_seconds"]
         filepath = self.output_dir / filename
         with filepath.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.writer(handle)

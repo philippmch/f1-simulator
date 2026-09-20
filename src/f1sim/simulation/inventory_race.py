@@ -102,6 +102,7 @@ class InventoryStrategyMixin:
         state.driver.dnf = True
         state.driver.dnf_reason = state.dnf_reason
         state.inventory_pit_proposal = None
+        state.pit_decision_context = None
 
     def _plan_inventory(self, state, track, weather, lap, *, physical_total_laps=None,
                         weather_intervals=None, additional_current_stop_cost=0,
@@ -192,6 +193,7 @@ class InventoryStrategyMixin:
         from f1sim.simulation.race import TeamStrategyArchetype
 
         state.inventory_pit_proposal = None
+        state.pit_decision_context = None
         if self.event_manager.red_flag_active:
             return False
         gap = (self._get_gap_to_car_ahead(state, all_states) if traffic_snapshot is None
@@ -236,6 +238,23 @@ class InventoryStrategyMixin:
                 if weather.track_wetness < .08 and weather.rain_intensity < .15 else 0)
         if compulsory or decision.should_pit(bias):
             state.inventory_pit_proposal = (lap, decision.set_id)
+            critical_weather = weather.tire_mismatch(state.current_tire.compound) == "critical"
+            unavailable = inventory.current_set_id in inventory.unavailable_ids
+            compound_requirement = (
+                lap >= max(2, track.total_laps)
+                and not self._stay_satisfies_tire_rule(state)
+            )
+            if critical_weather:
+                reason = "critical_weather"
+            elif unavailable:
+                reason = "forced_repair"
+            elif compound_requirement:
+                reason = "compound_requirement"
+            else:
+                reason = "inventory_forecast"
+            self._capture_pit_decision_context(
+                state, lap, reason, None if compulsory else decision,
+            )
             return True
         return False
 
@@ -270,6 +289,7 @@ class InventoryStrategyMixin:
     def _refit_inventory_free(self, state, track, weather, current_lap, *,
                               physical_total_laps=None, weather_intervals=None,
                               weather_clock: StrategyWeatherClock | None = None):
+        state.pit_decision_context = None
         lap = current_lap + 1
         decision = self._plan_inventory(
             state, track, weather, lap, free_fit=True,
