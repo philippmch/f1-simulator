@@ -46,11 +46,17 @@ def _weather(result: SimulationResults) -> str:
     if isinstance(condition, Enum):
         condition = condition.value
     policy = snapshot.get("rng_policy", "shared_v1")
-    randomness = (
-        "independent of race decisions" if policy == "isolated_weather_v1"
-        else "shared with race events (legacy)" if policy == "shared_v1"
-        else "not recorded"
-    )
+    if isinstance(policy, str) and policy == "isolated_weather_v1":
+        randomness = "independent of race decisions"
+    elif isinstance(policy, str) and policy == "isolated_weather_mechanical_v1":
+        randomness = (
+            "independent of race decisions; stable per-driver mechanical draws; changed heat, "
+            "risk or exposure can change failures; other events share the race stream"
+        )
+    elif isinstance(policy, str) and policy == "shared_v1":
+        randomness = "shared with race events (legacy)"
+    else:
+        randomness = "not recorded"
     return (f'{condition}; rain {percent("rain_intensity")}; '
             f'surface wetness {percent("track_wetness")}; '
             f'weather change {percent("change_probability")}/lap; '
@@ -333,7 +339,10 @@ Equal seeds do not freeze later race events.</p>
 <p>With independent weather draws, matching weather inputs and seeds give the
 same sequence over shared weather-update intervals. Those intervals can occur
 at different elapsed times, and a shorter race records a shorter sequence.
-Legacy shared draws can change the weather when race decisions change.</p>""" + (
+Legacy shared draws can change the weather when race decisions change.</p>
+<p>When mechanical isolation is selected, each driver's mechanical draws stay
+stable by own lap. Heat, risk inputs and actual exposure can still change
+failures; other race processes continue sharing the race stream.</p>""" + (
         f'<p>Paired changes compare each choice with {_text(reference_scenario)} using '
         'overlapping recorded trial seeds, matching saved models and qualifying. '
         'Positive points changes mean more points; positive retirement changes mean more DNFs. '

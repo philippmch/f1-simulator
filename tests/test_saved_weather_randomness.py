@@ -38,7 +38,9 @@ def save(tmp_path, result, legacy=False):
 
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])
-@pytest.mark.parametrize("policy", ["shared_v1", "isolated_weather_v1"])
+@pytest.mark.parametrize(
+    "policy", ["shared_v1", "isolated_weather_v1", "isolated_weather_mechanical_v1"],
+)
 def test_serial_process_and_second_trial_replay(tmp_path, monkeypatch, engine, policy):
     source = runner(engine, policy)
     serial = source.run(3, parallel=False)
@@ -66,8 +68,11 @@ def test_serial_process_and_second_trial_replay(tmp_path, monkeypatch, engine, p
 
 
 @pytest.mark.parametrize("comparison", ["tyres", "engines"])
-@pytest.mark.parametrize("policy", ["shared_v1", "isolated_weather_v1"])
-@pytest.mark.parametrize("override", [None, "isolated_weather_v1"])
+@pytest.mark.parametrize(
+    "policy", ["shared_v1", "isolated_weather_v1", "isolated_weather_mechanical_v1"],
+)
+@pytest.mark.parametrize("override", [None, "isolated_weather_v1",
+                                      "isolated_weather_mechanical_v1"])
 def test_comparison_policy_inheritance_override_and_replay(
     tmp_path, monkeypatch, comparison, policy, override,
 ):
@@ -84,7 +89,7 @@ def test_comparison_policy_inheritance_override_and_replay(
     assert {r.input_snapshot["rng_policy"] for r in results.values()} == {effective}
     first, second = results.values()
     assert first.qualifying_results == second.qualifying_results
-    if effective == "isolated_weather_v1":
+    if effective in {"isolated_weather_v1", "isolated_weather_mechanical_v1"}:
         for a, b in zip(first.weather_histories, second.weather_histories, strict=True):
             count = min(len(a), len(b))
             assert count > 1
@@ -152,6 +157,43 @@ def test_cli_upgrades_legacy_weather_and_exports_replayable_inputs(tmp_path, com
         assert replay.weather_histories == payload["weather_histories"]
 
 
+@pytest.mark.parametrize("command", ["compare_starting_tyres.py", "compare_race_engines.py"])
+def test_cli_explicit_mechanical_policy_exports_and_replays(tmp_path, command):
+    path = save(tmp_path, runner(policy="shared_v1").run(1, parallel=False), legacy=True)
+    script = Path(__file__).parents[1] / "examples" / command
+    output = tmp_path / "mechanical-comparison"
+    args = [sys.executable, str(script), str(path), "--simulations", "1",
+            "--rng-policy", "isolated_weather_mechanical_v1", "--export",
+            "--output-dir", str(output)]
+    if command == "compare_starting_tyres.py":
+        args.extend(["--driver", "0", "--compounds", "soft,hard"])
+    completed = subprocess.run(args, capture_output=True, text=True, check=False)
+    assert completed.returncode == 0, completed.stderr
+    assert "stable per-driver mechanical draws" in completed.stdout
+    exported = list(output.glob("*statistics.json"))
+    assert len(exported) == 2
+    for saved in exported:
+        payload = json.loads(saved.read_text(encoding="utf-8"))
+        assert payload["simulation_inputs"]["rng_policy"] == (
+            "isolated_weather_mechanical_v1"
+        )
+        replay = replay_saved_simulation(saved)
+        assert replay.input_snapshot["rng_policy"] == "isolated_weather_mechanical_v1"
+
+
+@pytest.mark.parametrize("command", ["compare_starting_tyres.py", "compare_race_engines.py"])
+def test_cli_rng_policy_and_independent_weather_are_mutually_exclusive(tmp_path, command):
+    path = save(tmp_path, runner().run(1, parallel=False))
+    script = Path(__file__).parents[1] / "examples" / command
+    args = [sys.executable, str(script), str(path), "--rng-policy", "shared_v1",
+            "--independent-weather"]
+    if command == "compare_starting_tyres.py":
+        args.extend(["--driver", "0"])
+    completed = subprocess.run(args, capture_output=True, text=True, check=False)
+    assert completed.returncode == 2
+    assert "not allowed with argument" in completed.stderr
+
+
 def test_html_context_identifies_weather_randomness_and_legacy():
     result = runner().run(1, parallel=False)
     assert "weather draws independent of race decisions" in render_comparison_report({"x": result})
@@ -160,3 +202,7 @@ def test_html_context_identifies_weather_randomness_and_legacy():
     assert "weather draws shared with race events (legacy)" in report
     result.input_snapshot["rng_policy"] = {"bad": "policy"}
     assert "weather draws not recorded" in render_comparison_report({"x": result})
+    result.input_snapshot["rng_policy"] = "isolated_weather_mechanical_v1"
+    report = render_comparison_report({"x": result})
+    assert "stable per-driver mechanical draws" in report
+    assert "heat, risk or exposure can change failures" in report

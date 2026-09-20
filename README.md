@@ -176,8 +176,10 @@ specified, or version 4 for a nonempty finite race pool. Version 3 requires
 `rng_policy`, with new runs using `isolated_weather_v1`. Earlier installations
 reject unsupported schemas. Version 1 snapshots without a policy replay with
 `shared_v1`, which preserves
-the former shared weather/race draw sequence. Python callers can select
-either policy with `MonteCarloRunner(..., rng_policy=...)`.
+the former shared weather/race draw sequence. Python callers can select a policy
+with `MonteCarloRunner(..., rng_policy=...)`. The opt-in
+`isolated_weather_mechanical_v1` policy also holds mechanical draws stable for
+each trial seed, driver ID and own lap. It leaves the default policy unchanged.
 
 Compare one driver's opening choices against the same saved inputs, offline:
 
@@ -229,8 +231,17 @@ by default. Add `--independent-weather` to compare older saved inputs under
 independent weather draws. The policy applies to every variant and is recorded
 in each exported snapshot; the source file is unchanged. Python comparison
 functions accept `rng_policy="isolated_weather_v1"` for the same override.
-The console and HTML report identify whether weather draws are independent
-of race decisions or shared with race events.
+Use `--rng-policy isolated_weather_mechanical_v1` to isolate both weather and
+mechanical draws, or `--rng-policy` with either older policy to select it
+explicitly. This option and `--independent-weather` are mutually exclusive.
+The console and HTML report identify the draw behavior. Stable mechanical draws
+do not guarantee identical failures: heat, risk inputs and laps actually driven
+still matter. Pace, incidents, battles and pit-service draws remain coupled to
+race decisions; this is not a way to freeze every event between strategies.
+
+```powershell
+python examples/compare_starting_tyres.py output/saved_statistics.json --driver VER --compounds soft,hard --rng-policy isolated_weather_mechanical_v1 --export
+```
 
 You can also compare the Standard and experimental Lap-aware engines against
 the same saved models, weather behavior, starting tyres and base seed:

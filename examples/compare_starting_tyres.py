@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from f1sim.analysis.strategy_comparison import compare_saved_starting_tires
 from f1sim.output import ConsoleOutput, Exporter
+from f1sim.simulation.randomness import RNG_POLICIES
 
 
 def _simulations(value: str) -> int:
@@ -42,8 +43,15 @@ def main() -> int:
                         help="Trials per choice (1-1000, default: 100)")
     parser.add_argument("--parallel", action="store_true", help="Use process workers")
     parser.add_argument("--max-workers", type=_workers)
-    parser.add_argument("--independent-weather", action="store_true",
-                        help="Use independent weather draws, including for older saved inputs")
+    policy_group = parser.add_mutually_exclusive_group()
+    policy_group.add_argument(
+        "--rng-policy", choices=RNG_POLICIES,
+        help="Select the versioned random-stream policy for all comparison variants",
+    )
+    policy_group.add_argument(
+        "--independent-weather", action="store_true",
+        help="Use independent weather draws, including for older saved inputs",
+    )
     parser.add_argument("--export", action="store_true",
                         help="Write unique bundles and comparison JSON")
     parser.add_argument("--output-dir", type=Path, default=Path("output/strategy-comparisons"))
@@ -52,22 +60,35 @@ def main() -> int:
     reference = args.reference.strip().lower() if args.reference is not None else compounds[0]
     if reference not in compounds:
         parser.error("reference must be one of the selected compounds")
+    rng_policy = args.rng_policy or (
+        "isolated_weather_v1" if args.independent_weather else None
+    )
     try:
         results = compare_saved_starting_tires(
             args.path, args.driver, compounds, scenario=args.scenario,
             num_simulations=args.simulations, parallel=args.parallel, max_workers=args.max_workers,
-            rng_policy="isolated_weather_v1" if args.independent_weather else None,
+            rng_policy=rng_policy,
         )
         first = next(iter(results.values()))
         print(f"{first.track_name} | driver: {args.driver} | model: {first.race_engine}")
         print(f"{args.simulations} trials per choice | seeds {first.seed}–"
               f"{first.seed + args.simulations - 1}")
         print("Same saved inputs; only this driver's opening choice changes.")
-        print("Weather draws: " + (
-            "independent of race decisions (shared sequence by weather interval)."
-            if first.input_snapshot["rng_policy"] == "isolated_weather_v1"
-            else "shared with race events (legacy); strategy can change later weather."
-        ))
+        policy = first.input_snapshot.get("rng_policy")
+        if isinstance(policy, str) and policy == "isolated_weather_v1":
+            weather_draws = "independent of race decisions (shared sequence by weather interval)."
+        elif isinstance(policy, str) and policy == "isolated_weather_mechanical_v1":
+            weather_draws = (
+                "independent of race decisions (shared sequence by weather interval); "
+                "stable per-driver mechanical draws by lap. "
+                "Heat, risk inputs and exposure can still change failures; other events "
+                "share the race stream."
+            )
+        elif isinstance(policy, str) and policy == "shared_v1":
+            weather_draws = "shared with race events (legacy); strategy can change later weather."
+        else:
+            weather_draws = "not recorded."
+        print("Weather draws: " + weather_draws)
         print("Equal seeds do not freeze later race events. "
               "Intervals measure sampling uncertainty.")
         print("Choice       Trials     Win % [95% range]       Podium %   DNF %   Points/race")

@@ -76,6 +76,16 @@ the endpoints, stress and heat responses, and unchanged random-draw ownership.
 This verifies that the model implements its stated parameters; it does not
 validate the 0.95 prior against real hardware failures.
 
+For saved-input strategy comparisons, the optional
+`isolated_weather_mechanical_v1` random-stream policy gives each trial seed,
+driver ID and own lap stable mechanical draws. Unrelated race draws therefore
+cannot move a driver's hazard or component draw. Risk still uses the car,
+weather and exposure supplied by the race engine, so this does not force the
+same retirement when a strategy changes those inputs. It changes neither the
+reliability assumptions nor their empirical support. The default
+`isolated_weather_v1` and legacy `shared_v1` policies retain their existing draw
+ownership for replay compatibility.
+
 ## Component attribution and reporting
 
 After a mechanical failure is sampled, the failing component is selected with

@@ -192,10 +192,26 @@ Schema 3 also requires the age mapping, so older installations reject used-set
 runs instead of replaying them fresh. Replay and comparison still accept
 schemas 1 and 2 with fresh opening sets; schema 1 infers `shared_v1` when its
 policy field is absent. Unknown policies are rejected.
-Comparisons inherit the saved policy unless `--independent-weather` is supplied
-(or the Python `rng_policy` override). This changes all variants together and
-records the new policy for replay. Direct `RaceSimulator` callers retain their
-shared generator unless they supply a separate `weather_rng`.
+The opt-in `isolated_weather_mechanical_v1` policy retains that weather namespace
+and derives mechanical draws separately for each trial seed, stable driver ID
+and own lap. The driver ID is UTF-8 encoded and SHA-256 hashed; the full digest
+is split into eight little-endian unsigned 32-bit words. The mechanical
+generator uses `SeedSequence(seed, spawn_key=(0x4d454348, *driver_words, lap))`.
+This versioned layout does not depend on Python's process-specific hash seed.
+Unrelated race draws and driver processing order cannot shift those draws.
+The hazard check and, when needed, component selection use the derived
+generator. The hazard formula and component weights are unchanged. Only laps
+actually driven receive checks; changes in heat, risk inputs or exposure can
+still change failures. Other race processes continue to share the race stream,
+so this does not isolate all causes of a strategy's outcome or guarantee a lower
+sampling error. Existing policies and the default remain unchanged.
+
+Comparisons inherit the saved policy unless `--rng-policy`,
+`--independent-weather` (the convenience option for `isolated_weather_v1`), or
+the Python `rng_policy` override is supplied. The two CLI options are mutually
+exclusive. An override changes all variants together and records the policy
+for replay. Direct `RaceSimulator` callers retain shared mechanical and weather
+draws unless they supply the corresponding generator hooks.
 
 Combined JSON exports retain each scenario's observed driver counts, rate
 intervals, points per observed race and paid-stop statistics. The offline HTML

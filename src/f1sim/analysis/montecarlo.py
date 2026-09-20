@@ -32,6 +32,7 @@ from f1sim.simulation.race_points import POINTS_SYSTEM as POINTS_SYSTEM
 from f1sim.simulation.race_points import points_for_result
 from f1sim.simulation.randomness import (
     DEFAULT_RNG_POLICY,
+    mechanical_rng_factory_for_trial,
     validate_rng_policy,
     weather_rng_for_trial,
 )
@@ -652,9 +653,16 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     starting_grid = quali_sim.get_starting_grid(quali_results)
 
     # Run race
-    race_sim = RaceSimulator(
-        rng=rng, weather_rng=weather_rng_for_trial(seed, rng, rng_policy),
-    )
+    race_kwargs = {
+        "rng": rng,
+        "weather_rng": weather_rng_for_trial(seed, rng, rng_policy),
+    }
+    mechanical_rng_factory = mechanical_rng_factory_for_trial(seed, rng_policy)
+    if mechanical_rng_factory is not None:
+        # Keep the keyword absent for old policies so legacy monkeypatched
+        # RaceSimulator constructors remain source-compatible.
+        race_kwargs["mechanical_rng_factory"] = mechanical_rng_factory
+    race_sim = RaceSimulator(**race_kwargs)
     simulate = (
         ChronologicalRace(race_sim).run
         if race_engine == "chronological" else race_sim.simulate_race

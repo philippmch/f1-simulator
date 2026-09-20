@@ -6,6 +6,7 @@ from enum import Enum
 import numpy as np
 
 from f1sim.models import Car, Driver, Track, Weather
+from f1sim.simulation.randomness import MechanicalRngFactory
 
 # Broad model priors, not precise estimates from the small observed race sample.
 # Background interruptions cover unmodelled major crashes/track blockages.
@@ -49,13 +50,20 @@ class RaceEvent:
 class EventManager:
     """Manages race events and their effects."""
 
-    def __init__(self, rng: np.random.Generator | None = None):
+    def __init__(
+        self,
+        rng: np.random.Generator | None = None,
+        *,
+        mechanical_rng_factory: MechanicalRngFactory | None = None,
+    ):
         """Initialize the event manager.
 
         Args:
             rng: Random number generator
+            mechanical_rng_factory: Optional stable per-driver/per-lap generator factory
         """
         self.rng = rng if rng is not None else np.random.default_rng()
+        self.mechanical_rng_factory = mechanical_rng_factory
         self.events: list[RaceEvent] = []
         self.safety_car_active = False
         self.safety_car_laps_remaining = 0
@@ -349,14 +357,18 @@ class EventManager:
         Returns event if failure occurred.
         """
         failure_prob = self._mechanical_failure_probability(car, track, weather, lap)
+        mechanical_rng = (
+            self.mechanical_rng_factory(driver.id, lap)
+            if self.mechanical_rng_factory is not None else self.rng
+        )
 
-        if self.rng.random() < failure_prob:
+        if mechanical_rng.random() < failure_prob:
             components = car.component_reliability_map()
             component_keys = list(components.keys())
             # Lower reliability component => higher failure chance.
             raw_weights = np.array([max(1e-6, 1.0 - components[k]) for k in component_keys])
             probs = raw_weights / raw_weights.sum()
-            failing_component = str(self.rng.choice(component_keys, p=probs))
+            failing_component = str(mechanical_rng.choice(component_keys, p=probs))
 
             failure_labels = {
                 "engine": "engine failure",

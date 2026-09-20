@@ -24,6 +24,7 @@ from f1sim.simulation.pit_strategy import expected_stationary_time, plan_dry_sto
 from f1sim.simulation.race_points import points_for_classification
 from f1sim.simulation.race_timing import RaceFinishClock, forecast_final_lap
 from f1sim.simulation.rain_strategy import plan_rain_stop, plan_rain_transition
+from f1sim.simulation.randomness import MechanicalRngFactory
 from f1sim.simulation.strategy_traffic import StrategyTrafficSnapshot
 from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.surface_projection import projected_surfaces
@@ -196,6 +197,7 @@ class RaceSimulator(InventoryStrategyMixin):
         strategy_profiles: dict[str, dict[str, float]] | None = None,
         *,
         weather_rng: np.random.Generator | None = None,
+        mechanical_rng_factory: MechanicalRngFactory | None = None,
         red_flag_pause_seconds: float = 600.0,
     ):
         """Initialize race simulator.
@@ -204,6 +206,7 @@ class RaceSimulator(InventoryStrategyMixin):
             rng: Random number generator
             strategy_tuning: Optional strategy threshold overrides
             weather_rng: Independent weather stream; omitted callers share rng
+            mechanical_rng_factory: Optional per-driver/per-lap mechanical stream factory
             red_flag_pause_seconds: Suspension pause after field collection
         """
         if (isinstance(red_flag_pause_seconds, bool)
@@ -217,7 +220,10 @@ class RaceSimulator(InventoryStrategyMixin):
         self.weather_history: list[dict] = []
         self.lap_simulator = LapSimulator(rng=self.rng)
         self.overtaking_model = OvertakingModel(rng=self.rng)
-        self.event_manager = EventManager(rng=self.rng)
+        event_manager_kwargs = {"rng": self.rng}
+        if mechanical_rng_factory is not None:
+            event_manager_kwargs["mechanical_rng_factory"] = mechanical_rng_factory
+        self.event_manager = EventManager(**event_manager_kwargs)
         self.strategy_tuning = {
             "conservative_switch_gap": 2.0,
             "conservative_switch_race_progress": 0.4,
