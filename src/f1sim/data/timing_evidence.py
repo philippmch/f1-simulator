@@ -77,6 +77,7 @@ class _StintSnapshot:
     display_time: str
     states: dict[int, dict[str, Any]]
     active_index: int | None
+    metadata_conflicts: frozenset[int] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -382,9 +383,23 @@ def _merge_stints(states: dict[int, dict[str, Any]], value: Any) -> set[int]:
     return changed
 
 
+def _known_stint_metadata(raw: Mapping[str, Any]) -> tuple[tuple[str, Any], ...]:
+    """Return normalized metadata fields that can establish a correction."""
+    values: list[tuple[str, Any]] = []
+    compound = _normalise_compound(_lookup(raw, "Compound"))
+    if compound is not None:
+        values.append(("compound", compound))
+    prior_wear = _start_laps(_lookup(raw, "StartLaps"))
+    if prior_wear is not None:
+        values.append(("prior_wear", prior_wear))
+    return tuple(values)
+
+
 def _record_stints(rows: Sequence[_Row]) -> dict[str, list[_StintSnapshot]]:
     snapshots: dict[str, list[_StintSnapshot]] = {}
     states_by_driver: dict[str, dict[int, dict[str, Any]]] = {}
+    metadata_by_driver: dict[str, dict[int, dict[str, set[Any]]]] = {}
+    conflicts_by_driver: dict[str, set[int]] = {}
     for row in rows:
         payload = row.payload
         lines = _driver_lines(payload)
@@ -398,7 +413,19 @@ def _record_stints(rows: Sequence[_Row]) -> dict[str, list[_StintSnapshot]]:
                 continue
             driver = str(raw_driver)
             states = states_by_driver.setdefault(driver, {})
-            _merge_stints(states, value)
+            changed = _merge_stints(states, value)
+            metadata = metadata_by_driver.setdefault(driver, {})
+            conflicts = conflicts_by_driver.setdefault(driver, set())
+            for index in changed:
+                raw = states.get(index)
+                if raw is None:
+                    continue
+                seen = metadata.setdefault(index, {})
+                for field_name, field_value in _known_stint_metadata(raw):
+                    values = seen.setdefault(field_name, set())
+                    values.add(field_value)
+                    if len(values) > 1:
+                        conflicts.add(index)
             active_index = max(states) if states else None
             snapshots.setdefault(driver, []).append(
                 _StintSnapshot(
@@ -406,6 +433,7 @@ def _record_stints(rows: Sequence[_Row]) -> dict[str, list[_StintSnapshot]]:
                     row.display_time,
                     {index: dict(item) for index, item in states.items()},
                     active_index,
+                    frozenset(conflicts),
                 )
             )
     return snapshots
@@ -718,6 +746,7 @@ def normalize_timing_evidence(feeds: Mapping[str, str | bytes]) -> dict[str, Any
     conflicting_duplicates = 0
     for driver, state in sorted(drivers.items()):
         snapshots = stint_snapshots.get(driver, [])
+        corrected_stints = snapshots[-1].metadata_conflicts if snapshots else frozenset()
         for lap_number, crossing in sorted(state.crossings.items()):
             if lap_number <= 0:
                 continue
@@ -765,6 +794,9 @@ def normalize_timing_evidence(feeds: Mapping[str, str | bytes]) -> dict[str, Any
             compound = end_stint.compound if end_stint is not None else None
             prior_wear = end_stint.prior_wear if end_stint is not None else None
             stint = end_stint.index if end_stint is not None else None
+            if ((start_stint is not None and start_stint.index in corrected_stints)
+                    or (end_stint is not None and end_stint.index in corrected_stints)):
+                _append_reason(reasons, "stint_metadata_corrected")
             if start_stint is None or end_stint is None:
                 _append_reason(reasons, "missing_stint_compound")
             else:
@@ -894,6 +926,11 @@ def normalize_timing_evidence(feeds: Mapping[str, str | bytes]) -> dict[str, Any
                 "Only laps with explicit duration, consecutive crossing evidence, known "
                 "unchanged stint compound, green status, zero reported rainfall, and no "
                 "pit exposure are eligible."
+            ),
+            (
+                "Stint metadata corrections are detected retrospectively; every lap "
+                "touching a corrected stint index, including laps before the correction "
+                "was observed, is excluded."
             ),
         ],
     }

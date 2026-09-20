@@ -162,12 +162,16 @@ def _normalise_text(value: Any) -> str:
 
 
 def _as_float(value: Any, default: float | None = None) -> float | None:
-    try:
-        if value is None or value == "":
-            return default
-        return float(value)
-    except (TypeError, ValueError):
+    """Coerce a provider number without accepting booleans or non-finite data."""
+    if isinstance(value, bool) or value is None:
         return default
+    if isinstance(value, str) and not value.strip():
+        return default
+    try:
+        parsed = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return default
+    return parsed if math.isfinite(parsed) else default
 
 
 def _as_int(value: Any, default: int | None = None) -> int | None:
@@ -209,21 +213,49 @@ def _parse_time_seconds(value: Any) -> float | None:
     if value is None:
         return None
     if isinstance(value, Mapping):
+        # Preserve the provider's historical lower-case/upper-case alias
+        # fallback for blank or missing lower-case values.
         value = value.get("time") or value.get("Time")
-    if isinstance(value, (int, float)):
-        return float(value) if value > 0 else None
+    if not isinstance(value, str):
+        parsed = _as_float(value)
+        return parsed if parsed is not None and parsed > 0.0 else None
     text = str(value).strip()
-    if not text or text.startswith("+") or text.lower() in {"nan", "none"}:
+    if not text or text.startswith("+"):
         return None
-    try:
-        parts = text.split(":")
-        if len(parts) == 3:
-            return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
-        if len(parts) == 2:
-            return float(parts[0]) * 60 + float(parts[1])
-        return float(text)
-    except ValueError:
+    if ":" not in text:
+        parsed = _as_float(text)
+        return parsed if parsed is not None and parsed > 0.0 else None
+
+    parts = text.split(":")
+    if len(parts) not in {2, 3}:
         return None
+    if not re.fullmatch(r"[0-9]+", parts[0]):
+        return None
+    if len(parts) == 2:
+        if not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", parts[1]):
+            return None
+        try:
+            first = float(parts[0])
+            seconds = float(parts[1])
+        except (OverflowError, ValueError):
+            return None
+        if seconds >= 60.0:
+            return None
+        parsed = first * 60.0 + seconds
+    else:
+        if (not re.fullmatch(r"[0-9]+", parts[1])
+                or not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", parts[2])):
+            return None
+        try:
+            hours = float(parts[0])
+            minutes = float(parts[1])
+            seconds = float(parts[2])
+        except (OverflowError, ValueError):
+            return None
+        if minutes >= 60.0 or seconds >= 60.0:
+            return None
+        parsed = hours * 3600.0 + minutes * 60.0 + seconds
+    return parsed if math.isfinite(parsed) and parsed > 0.0 else None
 
 
 def _first(mapping: Mapping[str, Any], *keys: str, default: Any = None) -> Any:

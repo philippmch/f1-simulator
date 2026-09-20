@@ -162,6 +162,102 @@ def test_stint_list_then_indexed_patch_uses_start_laps_as_reported_metadata() ->
     assert "stint_change_mid_lap" in lap3["exclusions"]
 
 
+@pytest.mark.parametrize("correction,late_only,lap_three_compound", [
+    ({"Compound": "M"}, False, "MEDIUM"),
+    ({"StartLaps": 3}, False, "HARD"),
+    ({"Compound": "M", "StartLaps": 3}, False, "MEDIUM"),
+    ({"Compound": "M", "StartLaps": 3}, True, "HARD"),
+])
+def test_repeated_stint_index_corrections_exclude_touching_laps_retrospectively(
+    correction, late_only, lap_three_compound,
+) -> None:
+    def line(lap: int, duration: str | None = None) -> dict:
+        return _driver(lap, duration)["Lines"]["1"]
+
+    timing = _timing(
+        ("00:00:00.000", {"Lines": {"1": line(1), "2": line(1)}}),
+        ("00:01:30.000", {"Lines": {"1": line(2, "1:30.000"),
+                                      "2": line(2, "1:30.000")}}),
+        ("00:03:00.000", {"Lines": {"1": line(3, "1:30.000"),
+                                      "2": line(3, "1:30.000")}}),
+        ("00:04:30.000", {"Lines": {"1": line(4, "1:30.000"),
+                                      "2": line(4, "1:30.000")}}),
+        ("00:06:00.000", {"Lines": {"1": line(5, "1:30.000"),
+                                      "2": line(5, "1:30.000")}}),
+        ("00:07:30.000", {"Lines": {"1": line(6, "1:30.000"),
+                                      "2": line(6, "1:30.000")}}),
+        ("00:09:00.000", {"Lines": {"1": line(7, "1:30.000"),
+                                      "2": line(7, "1:30.000")}}),
+        ("00:10:30.000", {"Lines": {"1": line(8, "1:30.000"),
+                                      "2": line(8, "1:30.000")}}),
+    )
+    app = _stream(
+        (
+            "00:00:00.000",
+            {
+                "Lines": {
+                    "1": {"Stints": [{"Compound": "H", "StartLaps": 0}]},
+                    "2": {"Stints": [{"Compound": "H", "StartLaps": 0}]},
+                }
+            },
+        ),
+        (
+            "00:01:30.000",
+            {
+                "Lines": {
+                    "1": {"Stints": {"0": {"TotalLaps": 1}}},
+                    "2": {"Stints": {"0": {"Compound": "HARD", "StartLaps": 0}}},
+                }
+            },
+        ),
+        (
+            "00:03:00.000",
+            {"Lines": {"1": {"Stints": {"0": {} if late_only else correction}}}},
+        ),
+        (
+            "00:04:30.000",
+            {"Lines": {"1": {"Stints": {"1": {"Compound": "S"}}}}},
+        ),
+        (
+            "00:05:00.000",
+            {"Lines": {"1": {"Stints": {"1": {"StartLaps": 0}}}}},
+        ),
+        (
+            "00:06:00.000",
+            {"Lines": {"1": {"Stints": {"0": correction if late_only else {
+                "Compound": "H", "StartLaps": 0,
+            }}}}},
+        ),
+        (
+            "00:07:30.000",
+            {"Lines": {"1": {"Stints": {"2": {"Compound": "S", "StartLaps": 0}}}}},
+        ),
+    )
+    report = normalize_timing_evidence(_feeds(timing, app=app))
+    driver_one = [lap for lap in report["laps"] if lap["driver_number"] == 1]
+    driver_two = [lap for lap in report["laps"] if lap["driver_number"] == 2]
+
+    # Even a correction first arriving after stint 1 becomes active excludes
+    # all earlier laps touching index 0. A later reversion cannot undo it.
+    assert all(
+        "stint_metadata_corrected" in _lap({"laps": driver_one}, lap_number)["exclusions"]
+        for lap_number in (1, 2, 3, 4)
+    )
+    assert _lap({"laps": driver_one}, 2)["compound"] == "HARD"
+    assert _lap({"laps": driver_one}, 3)["compound"] == lap_three_compound
+    assert _lap({"laps": driver_one}, 5)["eligible"] is True
+    assert "stint_metadata_corrected" not in _lap({"laps": driver_one}, 5)["exclusions"]
+    assert "stint_metadata_corrected" not in _lap({"laps": driver_one}, 6)["exclusions"]
+    assert _lap({"laps": driver_one}, 7)["eligible"] is True
+
+    # The unrelated driver's alias-only repeat is harmless, and its index 0
+    # never inherits driver 1's correction.
+    assert all("stint_metadata_corrected" not in lap["exclusions"] for lap in driver_two)
+    assert _lap({"laps": driver_two}, 2)["eligible"] is True
+    assert report["summary"]["exclusion_counts"]["stint_metadata_corrected"] == 4
+    assert any("before the correction" in text for text in report["limitations"])
+
+
 def test_pit_in_and_pit_out_inside_interval_exclude_lap() -> None:
     timing = _timing(
         ("00:00:00.000", _driver(1, InPit=False)),

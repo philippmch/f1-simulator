@@ -96,6 +96,14 @@ excludes a lap. Optional metadata such as prior wear remains explicitly unknown
 when absent. The sparse lap-time fields inside
 the tyre-stint feed are not treated as a complete lap history.
 
+Repeated updates to an existing stint can correct earlier tyre metadata. If
+the same driver's stint index reports conflicting known compounds or prior-wear
+values, all laps touching that stint are excluded with
+`stint_metadata_corrected`, including laps before the correction arrived. The
+report retains the observed values without interpreting a correction as a new
+physical tyre fitting. Filling previously missing metadata, repeating the same
+value, and updating accumulated stint laps do not trigger this exclusion.
+
 The remaining observations are candidates for further analysis, not isolated
 thermal measurements. They still contain fuel burn, traffic, energy deployment,
 driver variation and possible timing corrections. Feed timestamps describe
@@ -115,6 +123,11 @@ apply the observational exclusions above and are not calibration sample sizes:
 
 The JSON records the session identity and decoded-feed hashes so a later run
 can distinguish changed source data from changed normalization.
+
+A 2026-09-20 refresh of Italy returned identical decoded-feed hashes. The
+stint-correction safeguard excluded 54 laps touching corrected metadata; 45
+had previously been eligible. Candidate coverage therefore fell from 908 to
+863 without changing any source observations or fitting tyre coefficients.
 
 A follow-up comparison on the same date required six consecutive candidate laps
 in the new stint after each reported stint transition. The first following lap,

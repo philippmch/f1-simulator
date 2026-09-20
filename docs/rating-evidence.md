@@ -36,6 +36,16 @@ coverage. Likewise, `qualifying_samples` counts selected qualifying rows; it
 does not count usable same-session teammate comparisons. The evaluator's
 observed labels and previous-Q1 baseline always require Q1 explicitly.
 
+Provider lap durations must be finite and positive throughout the loader,
+including fastest laps used for the circuit reference pace and generic
+qualifying coverage. Booleans, gap strings such as `+5.3`, nonfinite numbers,
+and malformed clock components are missing evidence, not usable lap times.
+Clock-form seconds and hours-form minutes must be below 60. If a completed
+race supplies no valid fastest lap, the circuit keeps its venue-profile pace.
+Other numeric evidence, including average speed, points and coordinates,
+also rejects booleans and nonfinite values; valid signed coordinates remain
+supported. Existing missing-evidence defaults and weighting rules still apply.
+
 These comparisons cannot remove traffic, tyre choice, run timing or weather
 changes within a session. They also cannot establish whether a driver used
 the car's full available pace.
