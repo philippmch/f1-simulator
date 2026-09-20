@@ -191,6 +191,7 @@ def test_faithful_late_native_stop_is_vetoed_by_real_mean_physics(monkeypatch):
 
 def decision_snapshot(monkeypatch):
     engine = ChronologicalRace(RaceSimulator(np.random.default_rng(42)))
+    engine.control_intervals = 0
     engine.track = Track(id="t", name="T", country="T", total_laps=10,
                          base_lap_time=100, pit_lane_delta=80)
     engine.weather = Weather()

@@ -633,6 +633,19 @@ traffic costs and are compared again before selecting the fitted set. Queue
 delay remains an independent pit cost. Future laps retain the existing
 green, clean-air assumptions and cached cost tables.
 
+Native current-lap stay-out projections also account for an available Overtake Mode
+burst. Eligibility uses the observed gap, remaining energy and the engine's
+current race-control and weather conditions. The gain passes through the shared
+lap physics, including its minimum time floor, rather than being subtracted as
+an unconditional bonus. A paid-stop candidate receives no deployment benefit,
+matching race execution. Future laps assume no deployment because future gaps
+and energy use are unknown. Evaluating a strategy consumes neither energy nor
+random draws; actual running still owns deployment and recharge.
+The chronological finish-distance protection includes the same eligible first
+retained lap. Its optimistic paid-stop bound and later laps keep their existing
+assumptions. Direct standalone planner calls have no live energy or deployment
+snapshot and retain their no-deployment baseline.
+
 For direct Python calls, `current_traffic_gaps=(stay_gap, rejoin_gap)` supplies
 these first-lap observations to the three planners; a gap of `None` means clear
 air. Omitting the option preserves the existing clean-air calculation and

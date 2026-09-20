@@ -136,6 +136,7 @@ def evaluate_finish_protection(
     expected_queue_delay: float = 0.0,
     current_lap_time_modifier: float = 1.0,
     observed_gap: float | None = None,
+    current_overtake_mode_active: bool = False,
     replacements: Iterable[ReplacementOption] | None = None,
     projected_surface_at: Callable[[float], Weather] | None = None,
 ) -> FinishProtectionResult:
@@ -230,7 +231,9 @@ def evaluate_finish_protection(
                         int(physical),
                         gap_to_car_ahead=(first_gap if lap_number == current_lap else None),
                         active_aero_enabled=True,
-                        overtake_mode_active=False,
+                        overtake_mode_active=(current_overtake_mode_active
+                                              and not future_green_floor
+                                              and lap_number == current_lap),
                         sample_variation=False,
                     )
                 except (TypeError, ValueError, OverflowError, AttributeError):

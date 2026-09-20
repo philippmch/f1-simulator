@@ -697,6 +697,9 @@ class ChronologicalRace:
             expected_queue_delay=delay,
             current_lap_time_modifier=modifier,
             observed_gap=gap,
+            current_overtake_mode_active=self.simulator._strategy_overtake_mode_active(
+                state, self.track, self.control_intervals + 1, self.weather, gap,
+            ),
             replacements=replacements,
             projected_surface_at=lambda absolute: self._projected_surface_at(
                 absolute, now=now, restart=restart,
@@ -742,6 +745,9 @@ class ChronologicalRace:
             traffic_snapshot=traffic,
             weather_intervals=cadence,
             weather_clock=weather_clock,
+            current_overtake_mode_allowed=control.is_overtake_mode_allowed(
+                self.control_intervals + 1, self.weather,
+            ),
         )
         if stop and not state.force_pit_next_lap and self._protect_elective_finish_distance(
             state, planning, now, delay, traffic, restart=restart,

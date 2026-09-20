@@ -185,7 +185,10 @@ class InventoryStrategyMixin:
     def _should_pit_inventory(self, state, all_states, track, lap, weather,
                               additional_current_stop_cost=0, physical_total_laps=None,
                               traffic_snapshot=None, weather_intervals=None,
-                              weather_clock: StrategyWeatherClock | None = None):
+                              weather_clock: StrategyWeatherClock | None = None,
+                              current_overtake_mode_active=False):
+        from dataclasses import replace
+
         from f1sim.simulation.race import TeamStrategyArchetype
 
         state.inventory_pit_proposal = None
@@ -222,6 +225,12 @@ class InventoryStrategyMixin:
             additional_current_stop_cost=additional_current_stop_cost + traffic_cost,
             current_traffic_gaps=gaps, force_stop=compulsory, weather_clock=weather_clock,
         )
+        mode_gain = self._strategy_mode_gain(
+            state, track, weather, lap, current_overtake_mode_active,
+            gaps[0] if gaps is not None else None, physical_total_laps,
+        )
+        if mode_gain:
+            decision = replace(decision, wait_cost=decision.wait_cost - mode_gain)
         bias = ({TeamStrategyArchetype.AGGRESSIVE: .1, TeamStrategyArchetype.BALANCED: 0,
                  TeamStrategyArchetype.CONSERVATIVE: -.1}[state.strategy_archetype]
                 if weather.track_wetness < .08 and weather.rain_intensity < .15 else 0)

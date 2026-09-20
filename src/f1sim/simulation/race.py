@@ -1198,15 +1198,22 @@ class RaceSimulator(InventoryStrategyMixin):
         traffic_snapshot: StrategyTrafficSnapshot | None = None,
         weather_intervals: tuple[int, ...] | None = None,
         weather_clock: StrategyWeatherClock | None = None,
+        current_overtake_mode_allowed: bool | None = None,
     ) -> bool:
         """Decide if driver should pit this lap."""
         state.dry_pit_proposal = None
         state.weather_pit_proposal = None
+        observed_gap = (self._get_gap_to_car_ahead(state, all_states)
+                        if traffic_snapshot is None else traffic_snapshot.gap_ahead)
+        mode_active = self._strategy_overtake_mode_active(
+            state, track, lap, weather, observed_gap, current_overtake_mode_allowed,
+        )
         if state.tire_inventory is not None:
             return self._should_pit_inventory(
                 state, all_states, track, lap, weather if weather is not None else Weather(),
                 additional_current_stop_cost, physical_total_laps,
                 traffic_snapshot, weather_intervals, weather_clock,
+                current_overtake_mode_active=mode_active,
             )
         clearly_dry = weather is None or (
             weather.track_wetness < 0.08 and weather.rain_intensity < 0.15
@@ -1246,6 +1253,7 @@ class RaceSimulator(InventoryStrategyMixin):
                             other.status == DriverStatus.RACING
                             and other.driver.id != state.driver.id for other in all_states
                         ),
+                        **({"current_overtake_mode_active": True} if mode_active else {}),
                         **({"physical_total_laps": physical_total_laps}
                            if physical_total_laps is not None else {}),
                     )
@@ -1365,6 +1373,13 @@ class RaceSimulator(InventoryStrategyMixin):
                 **traffic_options,
                 current_set_used=state.tire_laps > state.prior_tire_laps,
             )
+            mode_gain = self._strategy_mode_gain(
+                state, track, weather, lap, mode_active,
+                traffic_options.get("current_traffic_gaps", (None, None))[0],
+                physical_total_laps,
+            )
+            if mode_gain:
+                decision = replace(decision, wait_cost=decision.wait_cost - mode_gain)
             timing_bias = {
                 TeamStrategyArchetype.AGGRESSIVE: 0.1,
                 TeamStrategyArchetype.BALANCED: 0.0,
@@ -1406,6 +1421,13 @@ class RaceSimulator(InventoryStrategyMixin):
                     ),
                 } if rain_transition else {}),
             )
+            mode_gain = self._strategy_mode_gain(
+                state, track, weather, lap, mode_active,
+                traffic_options.get("current_traffic_gaps", (None, None))[0],
+                physical_total_laps,
+            )
+            if mode_gain:
+                decision = replace(decision, wait_cost=decision.wait_cost - mode_gain)
             if decision.should_pit():
                 if rain_transition:
                     state.weather_pit_proposal = (lap, decision.compound)
@@ -1429,6 +1451,7 @@ class RaceSimulator(InventoryStrategyMixin):
                     other.status == DriverStatus.RACING and other.driver.id != state.driver.id
                     for other in all_states
                 ),
+                **({"current_overtake_mode_active": True} if mode_active else {}),
                 **({"physical_total_laps": physical_total_laps}
                    if physical_total_laps is not None else {}),
             )
@@ -1999,6 +2022,35 @@ class RaceSimulator(InventoryStrategyMixin):
 
         return None
 
+    def _strategy_overtake_mode_active(
+        self, state, track, lap, weather, gap, mode_allowed=None,
+    ) -> bool:
+        """Read current deployment eligibility without consuming the energy store."""
+        allowed = (self.event_manager.is_overtake_mode_allowed(lap, weather)
+                   if mode_allowed is None else mode_allowed)
+        return bool(allowed and gap is not None
+                    and gap <= track.overtake_mode_detection_gap
+                    and float(np.clip(state.overtake_mode_energy, 0.0, 1.0)) + 1e-12
+                    >= self.OVERTAKE_MODE_DEPLOYMENT_COST)
+
+    def _strategy_mode_gain(
+        self, state, track, weather, lap, active, gap, physical_total_laps=None,
+    ) -> float:
+        """Exact retained first-lap gain; future laps and paid stops receive none."""
+        if not active:
+            return 0.0
+        driver = state.driver.model_copy(deep=True)
+        driver.current_tire_laps = state.tire_laps
+        physics = LapSimulator(np.random.default_rng(0))
+        args = (driver, state.car, track, state.current_tire,
+                weather if weather is not None else Weather(), lap,
+                track.total_laps if physical_total_laps is None else physical_total_laps)
+        options = dict(gap_to_car_ahead=gap, sample_variation=False,
+                       active_aero_enabled=self.event_manager.is_active_aero_allowed())
+        without = physics.calculate_lap_time(*args, **options, overtake_mode_active=False)
+        deployed = physics.calculate_lap_time(*args, **options, overtake_mode_active=True)
+        return (without - deployed) * self.event_manager.get_lap_time_modifier()
+
     def _deploy_overtake_mode_if_eligible(
         self,
         state: DriverRaceState,
@@ -2510,6 +2562,7 @@ class RaceSimulator(InventoryStrategyMixin):
         physical_total_laps: int | None = None,
         weather_intervals: tuple[int, ...] | None = None,
         weather_clock: StrategyWeatherClock | None = None,
+        current_overtake_mode_active: bool = False,
     ) -> bool:
         """Compare an optimistic paid-refit plan with retaining while safe."""
         costs = weather_stop_costs(
@@ -2524,7 +2577,11 @@ class RaceSimulator(InventoryStrategyMixin):
             weather_intervals=weather_intervals,
             **({"weather_clock": weather_clock} if weather_clock is not None else {}),
         )
-        return costs.pit_now_cost < costs.stay_cost
+        gain = self._strategy_mode_gain(
+            state, track, weather, current_lap, current_overtake_mode_active,
+            0.0 if traffic_possible else None, physical_total_laps,
+        )
+        return costs.pit_now_cost < costs.stay_cost - gain
 
     @staticmethod
     def _choose_weather_compound(weather: Weather) -> TireCompound | None:
