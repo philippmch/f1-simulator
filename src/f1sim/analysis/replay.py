@@ -12,6 +12,17 @@ from f1sim.models import Car, Driver, Track, Weather
 from f1sim.simulation.execution import validate_race_engine
 
 
+def _validate_saved_model(model_type, value):
+    """Validate a model using the JSON representation saved in an export.
+
+    Strict Python validation rejects JSON enum strings and arrays used for
+    tuple fields.  Re-parsing the already decoded value as JSON keeps those
+    standard JSON representations while preventing pydantic from coercing
+    booleans or quoted numbers into numeric model fields.
+    """
+    return model_type.model_validate_json(json.dumps(value), strict=True)
+
+
 def _integer(value: object, name: str, minimum: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
         raise ValueError(f"{name} must be an integer at least {minimum}")
@@ -92,11 +103,11 @@ def _load_saved_runner(
     for name in ("track", "weather", "runtime"):
         if not isinstance(inputs.get(name), dict):
             raise ValueError(f"Saved {name} must be an object")
-    drivers = [Driver.model_validate(row) for row in raw_drivers]
-    cars = {key: Car.model_validate(row) for key, row in raw_cars.items()}
+    drivers = [_validate_saved_model(Driver, row) for row in raw_drivers]
+    cars = {key: _validate_saved_model(Car, row) for key, row in raw_cars.items()}
     return MonteCarloRunner(
-        drivers, cars, Track.model_validate(inputs["track"]),
-        Weather.model_validate(inputs["weather"]), seed=seed,
+        drivers, cars, _validate_saved_model(Track, inputs["track"]),
+        _validate_saved_model(Weather, inputs["weather"]), seed=seed,
         race_engine=engine,
         starting_tires=inputs.get("starting_tires"),
         starting_tire_ages=inputs.get("starting_tire_ages"),

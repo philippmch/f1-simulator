@@ -408,6 +408,18 @@ Compulsory/reactive decisions and nonfinite comparisons have no reported saving.
 Missing context is null in JSON, blank in CSV, and “Not recorded” in the dashboard.
 Free refits and vetoed pit proposals produce no paid-stop decision record.
 
+Comparison HTML reports also summarize recorded paid-stop decisions for each
+driver across trials. Statistics and scenario JSON exports retain the same
+`pit_decision_statistics` summary. Reasons describe the policy that accepted a
+stop; they do not measure whether the stop improved the result. Unknown reasons
+and incomplete records remain visible as missing evidence, including in older
+exports. Retirements are included, while free tyre changes are excluded.
+Reason shares use stops with recognized reasons, not requested simulations or
+all paid stops. The report shows the number of races with complete detail lists
+and the missing-reason count alongside these shares. A known zero-stop race
+contributes to race coverage but never to the reason-share denominator.
+Forecast savings are not summed or presented as realized race-time gains.
+
 Aggregate `pit_loss_statistics` reports each driver's mean total, lane, service
 and queue loss per race with complete details, plus queued-stop counts and the
 share of those races containing a queue delay. The denominator includes known

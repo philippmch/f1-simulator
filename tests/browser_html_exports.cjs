@@ -81,6 +81,10 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     assert((await sequences.innerText()).includes('Recorded tyre sequences'));
     assert((await sequences.innerText()).includes('soft → </script>'));
     assert((await sequences.innerText()).includes('1 / 1 (100.0%)'));
+    const decisions = page.locator('details').first().getByRole('region').nth(2);
+    assert((await decisions.innerText()).includes('Paid-stop decisions'));
+    assert((await decisions.innerText()).includes('Dry forecast'));
+    assert((await decisions.innerText()).includes('Not recorded'));
     const distance = page.getByRole('region', {name: 'Race distance', exact: true});
     assert((await distance.innerText()).includes('Mean winning distance'));
     assert((await distance.innerText()).includes('Not recorded'));
@@ -91,6 +95,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
       await distance.focus();
       assert(await distance.evaluate(node => document.activeElement === node));
+      await decisions.focus();
+      assert(await decisions.evaluate(node => document.activeElement === node));
       const summary = page.locator('details summary').first();
       await summary.focus();
       await page.keyboard.press('Enter');
@@ -101,6 +107,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         fs.mkdirSync(process.env.F1SIM_SCREENSHOTS, {recursive: true});
         await page.screenshot({path: path.join(process.env.F1SIM_SCREENSHOTS,
           `comparison-${width}.png`), fullPage: true});
+        await decisions.screenshot({path: path.join(process.env.F1SIM_SCREENSHOTS,
+          `pit-decisions-${width}.png`)});
       }
     }
     await page.goto('http://f1sim.test/paired.html');

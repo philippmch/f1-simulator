@@ -161,7 +161,10 @@ The command reconstructs qualifying and the race with the saved model inputs,
 race engine, starting-tyre overrides and effective seed. Optional exports use a new unique bundle in
 `output/replays` (override with `--output-dir`). Track lap, pit-lane and sector
 times must be finite positive values; overflowing numbers are rejected before
-replay starts. Older exports without inputs
+replay starts. Saved model fields must use their JSON types: numeric fields
+reject booleans and quoted numbers, and integer fields require integers.
+These checks also apply to saved-input tyre and race-engine comparisons.
+Older exports without inputs
 cannot be reconstructed this way.
 
 Snapshots record Python, NumPy, Pydantic and simulator versions plus a digest of
@@ -195,6 +198,11 @@ place. `soft@5` tests a used soft set, while `soft` tests a fresh one;
 remain automatic. The table reports wins with 95% sampling intervals, podiums,
 retirements and points per race. Equal seeds do not freeze subsequent random
 events, and these estimates do not establish the best strategy for a real race.
+
+Exported comparison HTML also shows why each driver made paid stops across the
+trials, alongside tyre sequences and pit losses. Reason counts distinguish
+weather reactions, repairs, compulsory changes and strategy forecasts, with
+missing records shown explicitly. JSON exports include the same decision summary.
 
 Saved-input comparisons also show changes against a reference choice. The first
 selected choice is the default; use `--reference hard`, for example, to change it.

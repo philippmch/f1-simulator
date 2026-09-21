@@ -39,6 +39,12 @@ from f1sim.simulation.randomness import (
 from f1sim.simulation.tire_inventory import validate_tire_inventory
 from f1sim.simulation.validation import validate_unique_ids
 
+_PIT_DECISION_REASONS = frozenset({
+    "forced_repair", "critical_weather", "weather_reaction", "compound_requirement",
+    "dry_forecast", "rain_forecast", "inventory_forecast", "neutralization_window",
+    "planned_window",
+})
+
 
 def wilson_interval(successes: int, trials: int) -> dict[str, float]:
     """Return a 95% Wilson binomial score interval in percentage units.
@@ -367,6 +373,68 @@ class SimulationResults:
                     key = f"mean_{name}_per_race"
                     previous = summary[key] or 0.0
                     summary[key] = previous * ((observed - 1) / observed) + totals[name] / observed
+        return summaries
+
+    def get_pit_decision_statistics(self) -> dict[str, dict]:
+        """Summarize observed paid-stop decision reasons per driver.
+
+        Race rows include retired entrants.  A complete detail list, including
+        a known empty list for a zero-stop race, contributes to race coverage.
+        Paid stops with an allowlisted reason contribute to reason counts;
+        unknown labels and incomplete or inconsistent detail rows remain in
+        missing coverage.  Free fittings have no paid-stop detail row and are
+        therefore excluded naturally.  Reason shares use the count of stops
+        with recognized reasons as their denominator, never requested trials.
+        """
+        summaries: dict[str, dict] = {}
+
+        def valid_stop_count(value) -> bool:
+            return (isinstance(value, Integral) and not isinstance(value, bool)
+                    and value >= 0)
+
+        for race in self.race_results:
+            for result in race:
+                summary = summaries.setdefault(result.driver_id, {
+                    "races": 0,
+                    "races_with_recorded_details": 0,
+                    "missing_details_races": 0,
+                    "recorded_stops": 0,
+                    "stops_with_recorded_reasons": 0,
+                    "missing_reason_stops": 0,
+                    "reasons": {},
+                })
+                summary["races"] += 1
+                stops = getattr(result, "pit_stops", None)
+                details = getattr(result, "pit_stop_details", None)
+                valid = (valid_stop_count(stops) and isinstance(details, (list, tuple))
+                         and len(details) == stops
+                         and all(isinstance(stop, dict) for stop in details))
+                if not valid:
+                    summary["missing_details_races"] += 1
+                    if valid_stop_count(stops):
+                        summary["missing_reason_stops"] += int(stops)
+                    continue
+
+                summary["races_with_recorded_details"] += 1
+                summary["recorded_stops"] += int(stops)
+                for stop in details:
+                    reason = stop.get("decision_reason")
+                    if not isinstance(reason, str) or reason not in _PIT_DECISION_REASONS:
+                        summary["missing_reason_stops"] += 1
+                        continue
+                    summary["stops_with_recorded_reasons"] += 1
+                    counts = summary["reasons"].setdefault(reason, {"stops": 0})
+                    counts["stops"] += 1
+
+        for summary in summaries.values():
+            denominator = summary["stops_with_recorded_reasons"]
+            summary["reasons"] = {
+                reason: {
+                    "stops": counts["stops"],
+                    "share": counts["stops"] / denominator,
+                }
+                for reason, counts in sorted(summary["reasons"].items())
+            }
         return summaries
 
     def get_probability_intervals(self) -> dict[str, dict]:

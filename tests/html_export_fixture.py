@@ -19,8 +19,12 @@ def build_fixture():
     stats_name = "javascript:globalThis.exportInjected=true"
     results = SimulationResults(
         num_simulations=1, track_name=track, seed=42,
-        race_results=[[RaceResult(driver, driver, team, 1, 100, 0, 0, 90, DriverStatus.DNF,
-                                  strategy=["soft", script, "soft"])]], qualifying_results=[],
+        race_results=[[RaceResult(driver, driver, team, 1, 100, 0, 2, 90, DriverStatus.DNF,
+                                  strategy=["soft", script, "soft"],
+                                  pit_stop_details=[
+                                      {"decision_reason": "dry_forecast"},
+                                      {"decision_reason": script},
+                                  ])]], qualifying_results=[],
         driver_stats={driver: DriverStatistics(driver_id=driver, driver_name=driver, team=team,
                                             wins=1, positions=[1], total_points=25)},
         input_snapshot={"starting_tires": {driver: "soft"},

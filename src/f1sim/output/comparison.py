@@ -11,6 +11,18 @@ from f1sim.analysis.paired_comparison import paired_comparison_statistics
 from f1sim.output.export import Exporter
 from f1sim.output.timing import format_seconds, suspension_statistics
 
+_PIT_DECISION_LABELS = {
+    "forced_repair": "Forced repair",
+    "critical_weather": "Critical weather",
+    "weather_reaction": "Weather reaction",
+    "compound_requirement": "Compound requirement",
+    "dry_forecast": "Dry forecast",
+    "rain_forecast": "Rain forecast",
+    "inventory_forecast": "Inventory forecast",
+    "neutralization_window": "Neutralization window",
+    "planned_window": "Planned window",
+}
+
 
 def _text(value: object) -> str:
     return escape(str(value), quote=True)
@@ -120,6 +132,76 @@ def _paired_driver_table(driver_id: str, paired: dict | None) -> str:
     )
 
 
+def _pit_decision_driver_table(
+    driver_id: str, label: str, scenario_results: dict[str, SimulationResults], summaries: dict,
+) -> str:
+    rows = []
+    for name in scenario_results:
+        decisions = summaries[name][4].get(driver_id)
+        prefix = f'<tr><th scope="row">{_text(name)}</th>'
+        if not decisions:
+            rows.append(prefix + '<td colspan="4">Not recorded (no race rows recorded)</td></tr>')
+            continue
+
+        races = decisions["races"]
+        complete = decisions["races_with_recorded_details"]
+        missing_details = decisions["missing_details_races"]
+        recorded_stops = decisions["recorded_stops"]
+        recorded_reasons = decisions["stops_with_recorded_reasons"]
+        missing_reasons = decisions["missing_reason_stops"]
+        race_unit = "race" if races == 1 else "races"
+        reason_unit = "reason" if recorded_reasons == 1 else "reasons"
+        stop_unit = "stop" if recorded_stops == 1 else "stops"
+        missing_reason_unit = "reason" if missing_reasons == 1 else "reasons"
+        coverage = (
+            f'{recorded_reasons} recorded {reason_unit} / {recorded_stops} paid {stop_unit} '
+            'in complete records; '
+            f'{missing_reasons} missing {missing_reason_unit}; {complete} / {races} {race_unit} '
+            'with complete details'
+        )
+        if missing_details:
+            coverage += f'; {missing_details} with missing or inconsistent details'
+        reasons = decisions["reasons"]
+        if not reasons and not missing_reasons and not missing_details:
+            if complete and not missing_details and not recorded_stops and not missing_reasons:
+                message = f'No paid stops recorded ({_text(coverage)})'
+            else:
+                message = f'Not recorded ({_text(coverage)})'
+            rows.append(
+                prefix + f'<td colspan="4">{message}</td></tr>'
+            )
+            continue
+        for reason, reason_stats in reasons.items():
+            reason_label = _PIT_DECISION_LABELS.get(reason, reason)
+            rows.append(
+                prefix + f'<td>{_text(reason_label)}</td>'
+                f'<td>{reason_stats["stops"]}</td>'
+                f'<td>{100 * reason_stats["share"]:.1f}% '
+                f'<span class="interval">of {recorded_reasons} recorded {reason_unit}'
+                '</span></td>'
+                f'<td>{_text(coverage)}</td></tr>'
+            )
+            prefix = f'<tr><th scope="row">{_text(name)}</th>'
+        if missing_reasons or missing_details:
+            missing_count = missing_reasons if missing_reasons else "Not recorded"
+            rows.append(
+                prefix + '<td>Not recorded</td>'
+                f'<td>{missing_count}</td><td>Not recorded</td>'
+                f'<td>{_text(coverage)}</td></tr>'
+            )
+
+    return (
+        '<div class="table-wrap" tabindex="0" role="region" '
+        f'aria-label="{_text(label)} paid-stop decisions">'
+        f'<table><caption>Paid-stop decisions for {_text(driver_id)}</caption>'
+        '<thead><tr><th scope="col">Scenario</th><th scope="col">Decision reason</th>'
+        '<th scope="col">Paid stops</th><th scope="col">Share</th>'
+        '<th scope="col">Coverage</th></tr></thead><tbody>'
+        + ("".join(rows) or '<tr><td colspan="5">No scenarios recorded</td></tr>')
+        + '</tbody></table></div>'
+    )
+
+
 def render_comparison_report(
     scenario_results: dict[str, SimulationResults], *, focus_driver: str | None = None,
     reference_scenario: str | None = None,
@@ -149,7 +231,7 @@ def render_comparison_report(
         summaries[name] = (
             result.get_probability_intervals(), result.get_pit_stop_statistics(),
             result.get_strategy_statistics(),
-            result.get_pit_loss_statistics(),
+            result.get_pit_loss_statistics(), result.get_pit_decision_statistics(),
         )
         distance = result.get_race_distance_statistics()
         recorded = distance["recorded_races"]
@@ -193,7 +275,7 @@ def render_comparison_report(
         rows = []
         strategy_rows = []
         for name, result in scenario_results.items():
-            intervals, stops, strategies, losses = summaries[name]
+            intervals, stops, strategies, losses, _ = summaries[name]
             strategy = strategies.get(driver_id)
             if strategy:
                 for sequence in strategy["strategies"]:
@@ -269,6 +351,7 @@ def render_comparison_report(
             '<th scope="col">Races / recorded sequences</th>'
             '<th scope="col">Finished</th><th scope="col">DNF</th></tr></thead><tbody>'
             + "".join(strategy_rows) + "</tbody></table></div>"
+            + _pit_decision_driver_table(driver_id, label, scenario_results, summaries)
             + _paired_driver_table(driver_id, paired) + "</details>"
         )
 
@@ -347,6 +430,10 @@ compares only finishers whose distance and winner's distance are both known.</p>
 exclude free tyre changes and show their own recorded-race counts. Mean paid-stop
 loss uses only races with complete stop details, including recorded zero-stop
 races. It includes lane, service and queue loss, excluding later on-track traffic.</p>
+<p>Paid-stop decision labels use only recognized recorded reasons. Their shares use
+recognized reasons as the denominator; coverage shows complete detail races and
+missing or unknown reason records. These labels describe policy context, not
+which strategy is better.</p>
 <p>Tyre sequences show what was actually fitted, including free changes and
 truncated retirement runs. Shares use races with recorded sequences; missing
 records appear separately. Sequence frequencies do not measure which strategy

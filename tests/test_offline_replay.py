@@ -8,7 +8,11 @@ from pathlib import Path
 import pytest
 
 from f1sim.analysis.montecarlo import MonteCarloRunner
-from f1sim.analysis.replay import replay_saved_simulation
+from f1sim.analysis.replay import _load_saved_runner, replay_saved_simulation
+from f1sim.analysis.strategy_comparison import (
+    compare_saved_race_engines,
+    compare_saved_starting_tires,
+)
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.output import Exporter
 
@@ -98,6 +102,89 @@ def test_invalid_inputs(saved, field, value):
     saved.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValueError):
         replay_saved_simulation(saved)
+
+
+@pytest.mark.parametrize("path,value", [
+    (("drivers", 0, "skill_rating"), True),
+    (("drivers", 0, "skill_rating"), "0.5"),
+    (("cars", "0", "pit_stop_avg"), True),
+    (("cars", "0", "pit_stop_avg"), "2.0"),
+    (("track", None, "total_laps"), True),
+    (("track", None, "total_laps"), 5.0),
+    (("track", None, "total_laps"), "5"),
+    (("track.sectors", 0, "base_time"), True),
+    (("track.sectors", 0, "base_time"), "90"),
+    (("track.active_aero_zones", 0, "zone_id"), True),
+    (("weather", None, "track_wetness"), True),
+    (("weather", None, "track_wetness"), "0.5"),
+])
+def test_saved_numeric_models_reject_coercible_wrong_types(saved, path, value):
+    data = json.loads(saved.read_text(encoding="utf-8"))
+    section, index, field = path
+    target = data["simulation_inputs"]
+    if section.startswith("track."):
+        nested = section.split(".", 1)[1]
+        target = target["track"][nested]
+        if not target:
+            if nested == "sectors":
+                target.append({"number": 1, "base_time": 90.0})
+            else:
+                target.append({"zone_id": 1, "sector": 1, "time_gain": 0.3})
+    else:
+        target = target[section]
+    if index is not None:
+        target = target[index]
+    target[field] = value
+    saved.write_text(json.dumps(data), encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        replay_saved_simulation(saved)
+
+
+@pytest.mark.parametrize("compare,args", [
+    (compare_saved_race_engines, (("standard",),)),
+    (compare_saved_starting_tires, ("0", ["hard"])),
+])
+def test_saved_comparisons_use_strict_model_validation(saved, compare, args):
+    data = json.loads(saved.read_text(encoding="utf-8"))
+    data["simulation_inputs"]["weather"]["track_wetness"] = True
+    saved.write_text(json.dumps(data), encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        compare(saved, *args, num_simulations=1)
+
+
+@pytest.mark.parametrize("version,extra", [
+    (1, {}),
+    (2, {}),
+    (3, {"starting_tire_ages": {}}),
+    (4, {"tire_inventory": {
+        "0": [{"id": "set-1", "compound": "soft", "age": 0}],
+    }}),
+])
+def test_saved_model_json_roundtrip_accepts_all_input_schemas(saved, version, extra):
+    data = json.loads(saved.read_text(encoding="utf-8"))
+    inputs = data["simulation_inputs"]
+    inputs["schema_version"] = version
+    inputs.update(extra)
+    inputs["track"]["sectors"] = [{
+        "number": 1, "base_time": 90.0, "is_high_speed": True,
+        "overtake_opportunity": 0.2,
+    }]
+    inputs["track"]["active_aero_zones"] = [{
+        "zone_id": 1, "sector": 1, "time_gain": 0.3,
+        "activation_point_pct": 0.0,
+    }]
+    if version == 1:
+        inputs.pop("rng_policy", None)
+    saved.write_text(json.dumps(data), encoding="utf-8")
+
+    runner, count = _load_saved_runner(saved)
+    assert count == 2
+    assert runner.track.total_laps == 5
+    assert runner.track.sectors[0].is_high_speed is True
+    assert runner.track.active_aero_zones[0].zone_id == 1
+    assert runner.weather.condition.value == "dry"
 
 
 def test_legacy_file_has_clear_error(saved):
