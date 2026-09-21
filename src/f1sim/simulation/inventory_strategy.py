@@ -154,13 +154,14 @@ def _clock_inventory_strategy(
             next_paid, next_stopped = canonical_clock_state(
                 offset + 1, paid_stops, stopped_first,
             )
-            actions.append((
+            actions.append([
                 (offset + 1, current.value, age + 1, pool, left, dry, damp,
                  canonical_used(used | bits[current.value]),
                  next_paid, next_stopped),
                 run(offset, current, age,
                     updates(offset, paid_stops, stopped_first)),
-            ))
+                None,
+            ])
         previous = None
         for index, candidate in enumerate(pool):
             if candidate == previous:
@@ -181,14 +182,21 @@ def _clock_inventory_strategy(
             next_paid, next_stopped = canonical_clock_state(
                 offset + 1, after_paid, stopped_first,
             )
-            actions.append((
+            actions.append([
                 (offset + 1, target, target_age + 1, exchanged,
                  max(0, left - 1), reduced(dry), reduced(damp),
                  canonical_used(used | bits[target]),
                  next_paid, next_stopped),
                 green_stop + run(offset, target, target_age, after_updates),
-            ))
-        actions.sort(key=lambda action: action[1] + completion_bound(action[0]))
+                None,
+            ])
+
+        def action_key(action):
+            bound = completion_bound(action[0])
+            action[2] = bound
+            return action[1] + bound
+
+        actions.sort(key=action_key)
         return actions
 
     solve_cache = {}
@@ -220,18 +228,18 @@ def _clock_inventory_strategy(
                 frames[-1][1:] = [actions, 0, inf]
                 continue
             if index < len(actions):
-                child, edge = actions[index]
+                child, edge, bound = actions[index]
                 frames[-1][2] += 1
                 if child in solve_cache:
                     frames[-1][3] = min(frames[-1][3], edge + solve_cache[child])
-                elif nextafter(edge + completion_bound(child), -inf) < frames[-1][3]:
+                elif nextafter(edge + bound, -inf) < frames[-1][3]:
                     frames.append([child, None, 0, inf])
                 continue
             solve_cache[state] = best
             frames.pop()
             if frames:
                 parent = frames[-1]
-                child, edge = parent[1][parent[2] - 1]
+                child, edge, _bound = parent[1][parent[2] - 1]
                 parent[3] = min(parent[3], edge + solve_cache[state])
         return solve_cache[initial]
 
@@ -567,11 +575,12 @@ def plan_inventory_strategy(
                 offset, compound, left, dry, damp, used, target,
             ):
                 continue
-            child = (offset + 1, target, target_age + 1,
-                     exchange(pool, index, (compound, age)), max(0, left - 1),
-                     reduced(dry), reduced(damp), used | bits[target])
             cost = green_stop + running(offset, target, target_age)
             if nextafter(cost + lower_bounds()[offset + 1], -inf) < best:
+                # Sorting a replacement pool is only needed for admitted branches.
+                child = (offset + 1, target, target_age + 1,
+                         exchange(pool, index, (compound, age)), max(0, left - 1),
+                         reduced(dry), reduced(damp), used | bits[target])
                 best = min(best, cost + (yield child))
         return best
 

@@ -78,6 +78,9 @@ Future planning groups interchangeable physical IDs by compound and age while
 retaining their number. Each set accumulates wear when it runs, including after
 removal and reuse. Search skips a replacement branch only when an optimistic
 remaining-time bound cannot improve the best cost already found.
+The native search builds and sorts a replacement's inventory state only after
+that bound admits the branch. Rejected candidates incur no pool-rebuild cost;
+admitted candidates retain the same state, evaluation order and forecast cost.
 
 That bound starts with the cheapest reachable running cost on each future lap.
 For each physical set and age, it finds the smallest excess above that lap's
@@ -103,6 +106,11 @@ time; future paid stops still advance their weather forecast. Native callers
 reserve the dry and rain stop envelopes for those delayed branches while the
 planner continues to enforce the damp or dry allowance at the surface where
 each stop occurs.
+
+The timed-weather search retains each action's completion bound when sorting
+candidates and reuses that exact value for pruning. Bounds remain local to the
+same forecast; the ordering key and downward-rounded pruning comparison are
+unchanged.
 
 Automatic opening selection evaluates one deterministic policy path per distinct
 compound and prior age. Equivalent physical IDs receive the same score in their
@@ -138,6 +146,24 @@ The three benchmark sets are distinct, so those gains do not rely on duplicate
 opening candidates. Separate native-policy tests compare each equivalent ID's
 outcome independently and verify that three identical wet sets need one opening
 path while retaining all three physical sets.
+
+A 2026-09-21 check isolated deferred replacement-state construction against
+the planner at `f2e83d9`. With `--engine chronological --scenario wetting
+--inventory finite --opening automatic --drivers 2 --laps 53 --trials 1
+--seed 42`, three alternating fresh-process pairs took 29.43/24.64,
+29.35/24.67 and 29.59/25.42 seconds before/after. Median time fell by about
+16%; all six outcome hashes matched (`7df7020aca25`). Twenty shorter cases
+covering both engines, five weather patterns and explicit/automatic openings
+also retained identical hashes. This measures one allocation optimization on
+these workloads, not a general runtime guarantee or a change in strategy.
+
+The same day's timed-weather bound-reuse check used four drivers and explicit
+openings with the other settings above. Holding deferred state construction
+enabled in both versions, three fresh-process pairs took 8.39/8.10,
+7.89/7.70 and 8.06/7.97 seconds. All six hashes matched (`5ce6e5126dc8`).
+The measured gain was smaller (about 1–3% per pair); profiling confirmed that
+completion-bound calls fell from 1,058,663 to 549,081 while the number of
+expanded action lists stayed at 183,027. The search itself is unchanged.
 
 ## Saved inputs and audit records
 
