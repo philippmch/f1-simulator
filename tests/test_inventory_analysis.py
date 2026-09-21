@@ -102,6 +102,33 @@ def test_inventory_snapshot_and_variant_boundaries(tmp_path):
     assert _snapshot(unlimited)[0] == _snapshot(empty)[0]
 
 
+@pytest.mark.parametrize(("labels", "parallel"), [
+    (["automatic", "hard"], False),
+    (["automatic", "hard"], True),
+    (["automatic", "medium", "soft@6"], False),
+    (["automatic", "medium", "soft@6"], True),
+])
+def test_invalid_late_inventory_variant_fails_before_any_execution(
+    tmp_path, monkeypatch, labels, parallel,
+):
+    source = make_runner(tire_inventory=pool()).run(1, parallel=False)
+    path = save_result(tmp_path, source)
+    before = path.read_bytes()
+    calls = []
+
+    def record_run(self, *args, **kwargs):
+        calls.append((args, kwargs))
+        return None
+
+    monkeypatch.setattr(MonteCarloRunner, "run", record_run)
+    with pytest.raises(ValueError, match="exact opening"):
+        compare_saved_starting_tires(
+            path, "A", labels, num_simulations=1, parallel=parallel, max_workers=2,
+        )
+    assert calls == []
+    assert path.read_bytes() == before
+
+
 @pytest.mark.parametrize("version,inventory", [(1, pool()), (2, pool()), (3, pool()),
                                                (4, None), (4, []), (4, "bad")])
 def test_replay_rejects_wrong_schema_inventory(tmp_path, version, inventory):

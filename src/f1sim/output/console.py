@@ -2,6 +2,7 @@
 
 from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.analysis.paired_comparison import paired_comparison_statistics
+from f1sim.output.paired_context import paired_coverage_text, paired_exclusion_detail
 from f1sim.output.timing import (
     finite_time,
     format_lap_deficit,
@@ -37,6 +38,7 @@ class ConsoleOutput:
             if comparison["status"] == "unavailable":
                 print(f"  Unavailable: {comparison['reason']}")
                 continue
+            print(f"  Coverage: {paired_coverage_text(comparison)}")
             print("Driver       Pairs  Excluded  Points change     SE   "
                   "More/equal/fewer   DNF change")
             for driver, stats in comparison["driver_statistics"].items():
@@ -44,7 +46,8 @@ class ConsoleOutput:
                     continue
                 if not stats["paired_races"]:
                     print(f"{driver:<12} No usable paired results "
-                          f"({stats['excluded_pairs']} excluded pairs)")
+                          f"({stats['excluded_pairs']} excluded pairs); "
+                          f"{paired_exclusion_detail(comparison, stats['excluded_pairs'])}")
                     continue
                 error = stats["points_difference_standard_error"]
                 error_text = f"{error:.3f}" if error is not None else "n/a"
@@ -63,6 +66,9 @@ class ConsoleOutput:
                       f"both DNF={stats['both_dnf_races']}, "
                       f"reference-only DNF={stats['reference_only_dnf_races']}, "
                       f"variant-only DNF={stats['variant_only_dnf_races']}")
+                if stats["excluded_pairs"]:
+                    print(f"  Pair exclusions: "
+                          f"{paired_exclusion_detail(comparison, stats['excluded_pairs'])}")
 
     @staticmethod
     def print_qualifying_results(results: list[QualifyingResult]) -> None:

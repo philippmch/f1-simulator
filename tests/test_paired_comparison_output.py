@@ -3,6 +3,7 @@
 import json
 import subprocess
 import sys
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -94,6 +95,54 @@ def test_missing_pair_single_pair_and_incompatible_context_are_explained(tmp_pat
     assert "Unavailable:" in report
     ConsoleOutput.print_paired_comparison(variants, "hard")
     assert "Unavailable:" in capsys.readouterr().out
+
+
+def test_paired_output_explains_seed_qualification_and_driver_coverage(tmp_path, capsys):
+    variants = compare_saved_starting_tires(
+        saved(tmp_path), "0", ["soft", "hard"], num_simulations=1,
+    )
+    reference = variants["hard"]
+    variant = variants["soft"]
+    for sample in (reference, variant):
+        sample.num_simulations = 3
+        sample.race_results = [deepcopy(sample.race_results[0]) for _ in range(3)]
+        sample.qualifying_results = [deepcopy(sample.qualifying_results[0]) for _ in range(3)]
+    reference.seed = 81
+    variant.seed = 82
+    variant.qualifying_results[0][0].best_time += 0.123
+    variant.race_results[1] = [row for row in variant.race_results[1] if row.driver_id != "0"]
+
+    expected = paired_comparison_statistics(variants, "hard")["variants"]["soft"]
+    assert (expected["seed_from"], expected["seed_to"], expected["available_seed_pairs"],
+            expected["qualifying_mismatches"]) == (82, 83, 2, 1)
+    assert expected["driver_statistics"]["0"]["paired_races"] == 0
+    assert expected["driver_statistics"]["0"]["excluded_pairs"] == 2
+    assert expected["driver_statistics"]["1"]["paired_races"] == 1
+    assert expected["driver_statistics"]["1"]["excluded_pairs"] == 1
+
+    exported = Exporter(tmp_path).export_scenario_comparison_json(
+        variants, reference_scenario="hard",
+    )
+    payload = json.loads(exported.read_text(encoding="utf-8"))
+    assert payload["paired_comparisons"]["variants"]["soft"] == expected
+
+    report = render_comparison_report(variants, reference_scenario="hard")
+    coverage = "Overlapping recorded seeds 82–83 (2 trials); 1 qualifying mismatch excluded."
+    explanation = (
+        "A qualifying mismatch means the qualifying record was missing, invalid, or different."
+    )
+    detail = "of these, 1 qualifying mismatch and 1 missing/invalid driver observation"
+    assert coverage in report
+    assert explanation in report
+    assert "No usable paired results (2 excluded pairs)" in report
+    assert detail in report
+
+    ConsoleOutput.print_paired_comparison(variants, "hard")
+    printed = capsys.readouterr().out
+    assert coverage in printed
+    assert explanation in printed
+    assert "No usable paired results (2 excluded pairs)" in printed
+    assert detail in printed
 
 
 def test_reference_labels_are_escaped_and_invalid_reference_writes_nothing(tmp_path):

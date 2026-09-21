@@ -8,19 +8,9 @@ import json
 from pathlib import Path
 
 from f1sim.analysis.montecarlo import MonteCarloRunner, SimulationResults
+from f1sim.analysis.saved_validation import validate_saved_model as _validate_saved_model
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.simulation.execution import validate_race_engine
-
-
-def _validate_saved_model(model_type, value):
-    """Validate a model using the JSON representation saved in an export.
-
-    Strict Python validation rejects JSON enum strings and arrays used for
-    tuple fields.  Re-parsing the already decoded value as JSON keeps those
-    standard JSON representations while preventing pydantic from coercing
-    booleans or quoted numbers into numeric model fields.
-    """
-    return model_type.model_validate_json(json.dumps(value), strict=True)
 
 
 def _integer(value: object, name: str, minimum: int) -> int:

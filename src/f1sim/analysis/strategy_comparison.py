@@ -114,7 +114,8 @@ def compare_saved_starting_tires(
         raise ValueError(f"Unknown driver ID: {driver_id}")
     if target.team_id not in runner.cars:
         raise ValueError(f"No saved car available for driver ID: {driver_id}")
-    results = {}
+    # Validate every opening against the saved pool before spending work on trials.
+    variant_runners = {}
     for label in labels:
         overrides = runner.starting_tires.copy()
         ages = runner.starting_tire_ages.copy()
@@ -136,6 +137,10 @@ def compare_saved_starting_tires(
             rng_policy=runner.rng_policy if rng_policy is None else rng_policy,
             tire_inventory=deepcopy(runner.tire_inventory),
         )
+        variant_runners[label] = variant
+
+    results = {}
+    for label, variant in variant_runners.items():
         results[label] = variant.run(
             int(num_simulations), parallel=parallel,
             max_workers=None if max_workers is None else int(max_workers),

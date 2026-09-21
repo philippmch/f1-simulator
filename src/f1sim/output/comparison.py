@@ -9,6 +9,7 @@ from numbers import Real
 from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.analysis.paired_comparison import paired_comparison_statistics
 from f1sim.output.export import Exporter
+from f1sim.output.paired_context import paired_coverage_text, paired_exclusion_detail
 from f1sim.output.timing import format_seconds, suspension_statistics
 
 _PIT_DECISION_LABELS = {
@@ -26,6 +27,17 @@ _PIT_DECISION_LABELS = {
 
 def _text(value: object) -> str:
     return escape(str(value), quote=True)
+
+
+def _paired_coverage_html(paired: dict) -> str:
+    lines = []
+    for label, comparison in paired["variants"].items():
+        if comparison["status"] != "paired":
+            continue
+        lines.append(
+            f'<strong>{_text(label)}</strong>: {_text(paired_coverage_text(comparison))}'
+        )
+    return '<p>Paired coverage: ' + '<br>'.join(lines) + '</p>' if lines else ''
 
 
 def _starting_tires(result: SimulationResults) -> str:
@@ -89,8 +101,11 @@ def _paired_driver_table(driver_id: str, paired: dict | None) -> str:
         stats = comparison["driver_statistics"].get(driver_id)
         if not stats or not stats["paired_races"]:
             excluded = stats["excluded_pairs"] if stats else comparison["available_seed_pairs"]
+            detail = _text(paired_exclusion_detail(comparison, excluded))
             rows.append(prefix + f'<td colspan="4">No usable paired results '
-                        f'({excluded} excluded pairs)</td></tr>')
+                        f'({excluded} excluded pairs) '
+                        f'<span class="interval">({detail})'
+                        '</span></td></tr>')
             continue
         error = stats["points_difference_standard_error"]
         error_text = f"SE {error:.3f} points" if error is not None else "SE needs at least 2 pairs"
@@ -109,9 +124,17 @@ def _paired_driver_table(driver_id: str, paired: dict | None) -> str:
             f'<span class="interval joint-count">Variant-only DNF: '
             f'{stats["variant_only_dnf_races"]}</span>'
         )
+        exclusion_detail = _text(
+            paired_exclusion_detail(comparison, stats["excluded_pairs"])
+        )
+        exclusion_html = (
+            f'<span class="interval">({exclusion_detail})</span>'
+            if stats["excluded_pairs"] else ""
+        )
         rows.append(
             prefix + f'<td>{stats["paired_races"]} '
-            f'<span class="interval">({stats["excluded_pairs"]} excluded pairs)</span></td>'
+            f'<span class="interval">({stats["excluded_pairs"]} excluded pairs)</span>'
+            f'{exclusion_html}</td>'
             f'<td>{stats["mean_points_difference"]:+.3f} '
             f'<span class="interval">{error_text}</span></td>'
             f'<td>{stats["more_points_races"]} / {stats["equal_points_races"]} / '
@@ -458,6 +481,8 @@ failures; other race processes continue sharing the race stream.</p>""" + (
         'invalid or '
         'unmatched results are excluded with their counts. Adaptive race events can differ.</p>'
         if paired is not None else ""
+    ) + (
+        _paired_coverage_html(paired) if paired is not None else ""
     ) + (
         "".join(sections) or "<p>No driver outcomes recorded.</p>"
     ) + (

@@ -172,6 +172,63 @@ def test_legacy_policy_normalization_and_permitted_variants():
     assert compare(reference, variant)["status"] == "paired"
 
 
+@pytest.mark.parametrize(("path", "value"), [
+    (("weather", "rain_intensity"), False),
+    (("weather", "rain_intensity"), "0.0"),
+    (("track", "total_laps"), True),
+    (("track", "total_laps"), 4.0),
+    (("track", "total_laps"), "4"),
+    (("track", "sectors", 0, "base_time"), "30.0"),
+    (("track", "active_aero_zones", 0, "zone_id"), 1.0),
+])
+@pytest.mark.parametrize("side", ["reference", "variant", "both"])
+def test_coercible_saved_model_values_are_not_paired(path, value, side):
+    reference, variant = result([25]), result([25])
+    for sample in (reference, variant):
+        sample.input_snapshot["track"]["sectors"] = [{
+            "number": 1, "base_time": 30.0, "is_high_speed": False,
+            "overtake_opportunity": 0.2,
+        }]
+        sample.input_snapshot["track"]["active_aero_zones"] = [{
+            "zone_id": 1, "sector": 1, "time_gain": 0.3,
+            "activation_point_pct": 0.0,
+        }]
+    targets = ((reference,) if side == "reference" else (variant,)
+               if side == "variant" else (reference, variant))
+    for target in targets:
+        value_target = target.input_snapshot
+        for key in path[:-1]:
+            value_target = value_target[key]
+        value_target[path[-1]] = value
+
+    stats = compare(reference, variant)
+    assert stats["status"] == "unavailable"
+    assert stats["reason"] == (
+        "Valid saved model inputs and complete runtime provenance are required."
+    )
+
+
+@pytest.mark.parametrize("version", [1, 2, 3, 4])
+def test_native_model_dump_snapshots_remain_pairable_across_schemas(version):
+    reference, variant = result([25]), result([25])
+    for sample in (reference, variant):
+        snapshot = sample.input_snapshot
+        snapshot["schema_version"] = version
+        if version == 1:
+            snapshot.pop("rng_policy", None)
+        if version >= 3:
+            snapshot["starting_tire_ages"] = {}
+        if version == 4:
+            snapshot["starting_tires"] = {"A": "soft"}
+            snapshot["starting_tire_ages"] = {"A": 5}
+            snapshot["tire_inventory"] = {"A": [
+                {"id": "s", "compound": "soft", "age": 5},
+                {"id": "m", "compound": "medium", "age": 0},
+            ]}
+
+    assert compare(reference, variant)["status"] == "paired"
+
+
 @pytest.mark.parametrize("bad", [
     row(position=True), row(position=0), row(position=1.5), row(status="racing"),
     row(classified=1), row(True), row(-1), row(26), row(2.5), row(float("nan")),
@@ -271,6 +328,24 @@ def test_driver_exclusion_does_not_discard_valid_teammate_pair():
     actual = compare(reference, variant)["driver_statistics"]
     assert actual["A"]["paired_races"] == 1
     assert actual["B"]["paired_races"] == 0
+
+
+@pytest.mark.parametrize("side", ["reference", "variant", "both"])
+def test_non_runnable_driver_cannot_supply_paired_observations(side):
+    reference, variant = result([25]), result([18])
+    for label, sample in (("reference", reference), ("variant", variant)):
+        sample.input_snapshot["drivers"].append(
+            Driver(id="B", name="B", team_id="missing").model_dump()
+        )
+        if side in (label, "both"):
+            sample.race_results[0].append(row(10, driver_id="B", position=2))
+    actual = compare(reference, variant)
+    assert actual["qualifying_mismatches"] == 0
+    assert actual["driver_statistics"]["A"]["paired_races"] == 1
+    excluded = actual["driver_statistics"]["B"]
+    assert excluded["paired_races"] == 0
+    assert excluded["excluded_pairs"] == 1
+    assert excluded["mean_points_difference"] is None
 
 
 def test_scenario_order_and_result_are_independent():

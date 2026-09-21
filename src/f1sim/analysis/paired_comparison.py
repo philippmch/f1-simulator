@@ -7,6 +7,7 @@ from statistics import mean, stdev
 from pydantic import ValidationError
 
 from f1sim.analysis.montecarlo import SimulationResults
+from f1sim.analysis.saved_validation import validate_saved_model
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.simulation.execution import validate_starting_tire_ages
 from f1sim.simulation.race_points import POINTS_SYSTEM, points_for_result
@@ -43,15 +44,15 @@ def _snapshot(result):
     try:
         if not all(isinstance(row, dict) and row for row in drivers):
             return None
-        roster = [Driver.model_validate(row) for row in drivers]
+        roster = [validate_saved_model(Driver, row) for row in drivers]
         if not all(isinstance(row, dict) and row for row in cars.values()):
             return None
         for row in cars.values():
-            Car.model_validate(row)
+            validate_saved_model(Car, row)
         for key, model in (("track", Track), ("weather", Weather)):
             if not isinstance(snapshot.get(key), dict) or not snapshot[key]:
                 return None
-            model.model_validate(snapshot[key])
+            validate_saved_model(model, snapshot[key])
         ids = [driver.id for driver in roster]
         if version == 4 and not isinstance(snapshot.get("tire_inventory"), dict):
             return None
@@ -210,7 +211,9 @@ def paired_comparison_statistics(
         variants[label] = summary
         variant_inputs = _snapshot(variant)
         if reference_inputs is None or variant_inputs is None:
-            summary["reason"] = "Complete saved inputs and runtime provenance are required."
+            summary["reason"] = (
+                "Valid saved model inputs and complete runtime provenance are required."
+            )
             continue
         if reference_inputs[0] != variant_inputs[0]:
             summary["reason"] = "Saved models, weather, runtime or random-stream policies differ."
@@ -237,6 +240,8 @@ def paired_comparison_statistics(
                 summary["qualifying_mismatches"] += 1
                 continue
             for driver, samples in observations.items():
+                if driver not in reference_inputs[2]:
+                    continue
                 left = _observation(reference.race_results[ri], driver)
                 right = _observation(variant.race_results[vi], driver)
                 if left is not None and right is not None:

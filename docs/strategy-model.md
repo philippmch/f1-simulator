@@ -237,11 +237,22 @@ Saved-input comparison commands additionally compare each variant against a
 reference (the first selected label, or `--reference`). They pair overlapping
 recorded effective seeds, `base_seed + trial_index`, only when saved driver,
 car, track, weather and runtime inputs and the random-stream policy match.
+Model snapshots must also pass the strict JSON type checks used for replay;
+booleans and quoted numbers cannot stand in for numeric model fields. Invalid
+snapshots make paired statistics unavailable instead of supplying matching evidence.
 Starting-tyre overrides and race engine may differ. Each retained trial must
 have identical qualifying records. A driver needs exactly one valid final row
 in both runs; missing, duplicate and malformed records exclude that driver's
-whole pair. Reported means and retirement rates use only this paired subset.
+whole pair. Drivers without a matching saved car cannot supply paired observations.
+Reported means and retirement rates use only this paired subset.
 The source run's overall averages can differ when observations were excluded.
+Saved opening-tyre comparisons validate all requested variants before running
+any trials, including exact compound-and-age availability in finite set pools.
+An invalid later choice therefore cannot consume earlier variants' simulation work.
+Console and HTML comparisons show the overlapping seed range and the number
+of whole pairs excluded by missing, invalid or different qualifying records.
+Each driver's excluded count includes those qualifying exclusions; additional
+exclusions reflect missing or invalid final observations for that driver.
 
 For points differences `d_i = variant_points_i - reference_points_i`, the mean
 is `sum(d_i) / n` and its estimated standard error is

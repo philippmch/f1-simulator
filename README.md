@@ -164,6 +164,8 @@ times must be finite positive values; overflowing numbers are rejected before
 replay starts. Saved model fields must use their JSON types: numeric fields
 reject booleans and quoted numbers, and integer fields require integers.
 These checks also apply to saved-input tyre and race-engine comparisons.
+Paired outcome reporting requires correctly typed model snapshots before
+treating runs as comparable.
 Older exports without inputs
 cannot be reconstructed this way.
 
@@ -198,6 +200,8 @@ place. `soft@5` tests a used soft set, while `soft` tests a fresh one;
 remain automatic. The table reports wins with 95% sampling intervals, podiums,
 retirements and points per race. Equal seeds do not freeze subsequent random
 events, and these estimates do not establish the best strategy for a real race.
+With a finite saved tyre pool, every explicit choice must match an available
+compound and starting age. All choices are validated before any trials run.
 
 The dashboard's Statistics tab and exported comparison HTML show why each driver
 made paid stops across the trials, alongside tyre sequences and pit losses.
@@ -212,6 +216,8 @@ estimated standard error (SE), how many paired trials earned more/equal/fewer
 points, and the retirement-rate change. Positive points changes mean more points;
 positive retirement changes mean more DNFs. These use shared recorded trial
 seeds and matching qualifying, with their own paired and excluded counts.
+Reports show the overlapping seed range and distinguish qualifying exclusions
+from missing or invalid driver observations.
 The retirement comparison also shows how many pairs finished in both runs,
 retired in both, or retired only in the reference or variant, plus the paired
 retirement-rate change's SE in percentage points. Equal retirement rates can
