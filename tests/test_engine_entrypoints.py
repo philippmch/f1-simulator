@@ -189,7 +189,7 @@ def test_http_preserves_valid_integer_ages(monkeypatch, tmp_path, age):
 
     monkeypatch.setenv("F1SIM_RUN_LOCK_DIR", str(tmp_path))
 
-    def simulate(request):
+    def simulate(request, cancel_requested=None):
         assert request.starting_tires == {"A": "soft"}
         assert request.starting_tire_ages == {"A": age}
         assert type(request.starting_tire_ages["A"]) is int

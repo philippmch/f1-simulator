@@ -22,6 +22,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     const errors = [];
     page.on('pageerror', error => errors.push(String(error)));
     const unexpectedRequests = [];
+    let holdNextRun = false;
+    let delayedRunRoute = null;
     if (offline) {
       await page.route('**/*', route => {
         const url = new URL(route.request().url());
@@ -35,6 +37,11 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         const body = url.pathname === '/api/run' ? fixture.payload
           : url.pathname === '/api/calendar' ? fixture.calendar
           : url.pathname === '/api/health' ? {status: 'ok', season: 2026} : null;
+        if (url.pathname === '/api/run' && holdNextRun) {
+          holdNextRun = false;
+          delayedRunRoute = route;
+          return;
+        }
         if (body) return route.fulfill({json: body});
         if (url.pathname === '/') return route.fulfill({
           contentType: 'text/html', body: fixture.html,
@@ -661,6 +668,101 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     await page.keyboard.press('ArrowRight');
     assert.equal(await page.locator('[role=tab][aria-selected=true]').getAttribute('id'),
       'tab-qualifying');
+    if (offline) {
+      const cancelledPayload = fixture.payload;
+      const previousResults = await page.evaluate(() => ({
+        year: simResults?.year,
+        race: simResults?.race,
+        raceHtml: document.getElementById('raceContent')?.innerHTML,
+      }));
+      holdNextRun = true;
+      await page.locator('#btnRun').click();
+      await page.locator('#btnStop').waitFor({state: 'visible'});
+      assert(await page.locator('#btnRun').isDisabled());
+      assert(await page.locator('#btnStop').isEnabled());
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'btnStop');
+      await page.locator('#trackSelect').focus();
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'btnStop');
+      await page.keyboard.press('Tab');
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'btnStop');
+      await page.keyboard.press('Shift+Tab');
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'btnStop');
+      await page.waitForFunction(() => {
+        const overlay = document.getElementById('simOverlay');
+        return overlay && overlay.classList.contains('active')
+          && getComputedStyle(overlay).opacity === '1';
+      });
+      if (process.env.F1SIM_SCREENSHOTS) {
+        const overlayStyles = await page.evaluate(() => {
+          const overlay = document.getElementById('simOverlay');
+          const stop = document.getElementById('btnStop');
+          const run = document.getElementById('btnRun');
+          return {
+            overlayOpacity: getComputedStyle(overlay).opacity,
+            overlayBackground: getComputedStyle(overlay).backgroundColor,
+            overlayZIndex: getComputedStyle(overlay).zIndex,
+            stopOpacity: getComputedStyle(stop).opacity,
+            stopColor: getComputedStyle(stop).color,
+            stopBackground: getComputedStyle(stop).backgroundColor,
+            stopZIndex: getComputedStyle(stop).zIndex,
+            runOpacity: getComputedStyle(run).opacity,
+          };
+        });
+        assert.equal(overlayStyles.overlayOpacity, '1');
+        assert.equal(overlayStyles.stopOpacity, '1');
+        console.log(`Stable cancellation overlay styles: ${JSON.stringify(overlayStyles)}`);
+        for (const width of [390, 1440]) {
+          await page.setViewportSize({width, height: 900});
+          await page.screenshot({path: path.join(process.env.F1SIM_SCREENSHOTS,
+            `simulation-cancel-${width}.png`), fullPage: false});
+        }
+      }
+      await page.locator('#btnStop').focus();
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'btnStop');
+      await page.keyboard.press('Enter');
+      assert(await page.locator('#btnStop').isDisabled());
+      await page.waitForFunction(() => !runInProgress);
+      assert(await page.locator('#btnRun').isEnabled());
+      assert(await page.locator('#btnStop').isHidden());
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'btnRun');
+      assert((await page.locator('#appStatus').innerText()).includes('Run cancelled'));
+      assert((await page.locator('#appStatus').innerText()).includes(
+        'server trials may finish before capacity is available'));
+      assert.deepEqual(await page.evaluate(() => ({
+        year: simResults?.year,
+        race: simResults?.race,
+        raceHtml: document.getElementById('raceContent')?.innerHTML,
+      })), previousResults);
+
+      const followUpPayload = JSON.parse(JSON.stringify(cancelledPayload));
+      followUpPayload.year = 2027;
+      followUpPayload.race = 'FOLLOW-UP synthetic';
+      followUpPayload.track = followUpPayload.race;
+      fixture.payload = followUpPayload;
+      const followUpResponsePromise = page.waitForResponse(response => response.url().endsWith('/api/run'));
+      await page.locator('#btnRun').click();
+      const followUpResponse = await followUpResponsePromise;
+      assert.equal(followUpResponse.status(), 200);
+      await page.waitForFunction(() => !runInProgress);
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'btnRun');
+      assert((await page.locator('#appStatus').innerText()).includes('Backend run complete for 2027 FOLLOW-UP synthetic'));
+      assert.deepEqual(await page.evaluate(() => ({year: simResults?.year, race: simResults?.race})), {
+        year: 2027, race: 'FOLLOW-UP synthetic',
+      });
+
+      if (delayedRunRoute) {
+        try {
+          await delayedRunRoute.fulfill({json: cancelledPayload});
+        } catch {
+          // The browser may have already torn down the aborted request.
+        }
+        delayedRunRoute = null;
+      }
+      await page.waitForTimeout(100);
+      assert.deepEqual(await page.evaluate(() => ({year: simResults?.year, race: simResults?.race})), {
+        year: 2027, race: 'FOLLOW-UP synthetic',
+      });
+    }
     for (const [status, detail] of [
       [503, 'Provider temporarily unavailable'], [429, 'Simulation capacity is busy'],
     ]) {

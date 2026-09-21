@@ -1245,6 +1245,8 @@ input:focus-visible {
   margin-top: 0.5rem;
 }
 
+.sim-overlay .btn-simulate { margin-top: 1rem; }
+
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -1453,10 +1455,15 @@ input:focus-visible {
   </main>
 
   <!-- Simulation overlay -->
-  <div class="sim-overlay" id="simOverlay" role="status" aria-live="polite" aria-hidden="true">
+  <div class="sim-overlay" id="simOverlay" role="dialog" aria-modal="true"
+    aria-labelledby="simText" aria-describedby="simProgress" aria-live="polite" aria-hidden="true">
     <div class="sim-spinner"></div>
-    <div class="sim-text">Running simulations</div>
+    <div class="sim-text" id="simText">Running simulations</div>
     <div class="sim-count" id="simProgress">0 / 100</div>
+    <button class="btn-simulate" id="btnStop" type="button" hidden disabled aria-hidden="true"
+      aria-label="Stop the current simulation run"
+      title="Request cancellation; current server trials may finish before capacity is available."
+      onclick="stopSimulation()">Stop run</button>
   </div>
 </div>
 
@@ -1577,6 +1584,7 @@ let backendConnected = false;
 let calendarReady = false;
 let runInProgress = false;
 let connectionRefreshInProgress = false;
+let activeRun = null;
 const PREFS_KEY = 'f1sim:uiPrefs';
 const scenarioSetInput = document.getElementById('scenarioSetInput');
 const weatherSelectEl = document.getElementById('weatherSelect');
@@ -1589,12 +1597,67 @@ function apiUrl(path) {
   return path;
 }
 
+const RUN_OVERLAY_FOCUSABLE_SELECTOR = [
+  'button:not([disabled]):not([hidden])',
+  '[href]:not([hidden])',
+  'input:not([disabled]):not([hidden])',
+  'select:not([disabled]):not([hidden])',
+  'textarea:not([disabled]):not([hidden])',
+  '[tabindex]:not([tabindex="-1"]):not([hidden])',
+].join(',');
+
+function runOverlayFocusables() {
+  const overlay = document.getElementById('simOverlay');
+  if (!overlay) return [];
+  return Array.from(overlay.querySelectorAll(RUN_OVERLAY_FOCUSABLE_SELECTOR))
+    .filter(element => element.getClientRects().length > 0);
+}
+
+function restoreRunFocus(run) {
+  const preferred = run?.triggerId ? document.getElementById(run.triggerId) : null;
+  const button = preferred && !preferred.disabled && !preferred.hidden
+    ? preferred : document.getElementById('btnRun');
+  if (button && !button.disabled && !button.hidden) button.focus({preventScroll: true});
+}
+
 function updateRunAvailability() {
   const button = document.getElementById('btnRun');
   if (button) button.disabled = runInProgress || connectionRefreshInProgress || !backendConnected || !calendarReady;
+  const stop = document.getElementById('btnStop');
+  if (stop) {
+    const stopping = Boolean(activeRun?.controller?.signal.aborted);
+    stop.hidden = !runInProgress;
+    stop.disabled = !runInProgress || stopping;
+    stop.setAttribute('aria-hidden', String(!runInProgress));
+  }
   const refresh = document.getElementById('btnRefresh');
   if (refresh) refresh.disabled = runInProgress || connectionRefreshInProgress;
+  const rerun = document.getElementById('rerunScenarioBtn');
+  if (rerun) rerun.disabled = runInProgress || connectionRefreshInProgress;
 }
+
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Tab' || !runInProgress) return;
+  const focusables = runOverlayFocusables();
+  if (!focusables.length) {
+    event.preventDefault();
+    return;
+  }
+  const currentIndex = focusables.indexOf(document.activeElement);
+  const nextIndex = event.shiftKey
+    ? (currentIndex <= 0 ? focusables.length - 1 : currentIndex - 1)
+    : (currentIndex < 0 || currentIndex === focusables.length - 1 ? 0 : currentIndex + 1);
+  event.preventDefault();
+  focusables[nextIndex].focus({preventScroll: true});
+});
+
+document.addEventListener('focusin', event => {
+  if (!runInProgress) return;
+  const overlay = document.getElementById('simOverlay');
+  if (!overlay || overlay.getAttribute('aria-hidden') === 'true' || overlay.contains(event.target)) return;
+  const focusables = runOverlayFocusables();
+  if (focusables.length) focusables[0].focus({preventScroll: true});
+});
 
 function updateBadge(state, text) {
   const badge = document.getElementById('dataSourceBadge');
@@ -2338,7 +2401,13 @@ async function runSimulation() {
   if (runInProgress || connectionRefreshInProgress) return;
   const payload = buildRunPayload();
   if (!payload) return;
+  const focusedElement = document.activeElement;
+  const triggerId = focusedElement instanceof HTMLElement && focusedElement !== document.body
+    ? focusedElement.id : 'btnRun';
+  const run = {controller: new AbortController(), triggerId: triggerId || 'btnRun'};
+  activeRun = run;
   const button = document.getElementById('btnRun');
+  const stop = document.getElementById('btnStop');
   const overlay = document.getElementById('simOverlay');
   const simText = document.querySelector('.sim-text');
   const simProgress = document.getElementById('simProgress');
@@ -2347,6 +2416,7 @@ async function runSimulation() {
     .join(' / ') || titleFromKey(payload.scenarios);
 
   runInProgress = true;
+  if (stop) stop.textContent = 'Stop run';
   updateRunAvailability();
   button.classList.add('running');
   overlay.classList.add('active');
@@ -2355,6 +2425,7 @@ async function runSimulation() {
   simText.textContent = 'Running backend simulation';
   simProgress.textContent = `${payload.year} ${payload.race} · ${scenarioLabel}`;
   updateBadge('loading', `Running ${payload.year} ${payload.race}...`);
+  if (stop && !stop.disabled) stop.focus({preventScroll: true});
 
   let responseReceived = false;
   try {
@@ -2362,10 +2433,13 @@ async function runSimulation() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+      signal: run.controller.signal,
     });
+    if (activeRun !== run || run.controller.signal.aborted) return;
     responseReceived = true;
 
     const raw = await response.text();
+    if (activeRun !== run || run.controller.signal.aborted) return;
     let data = {};
     try {
       data = raw ? JSON.parse(raw) : {};
@@ -2377,6 +2451,7 @@ async function runSimulation() {
       throw new Error(data.detail || `HTTP ${response.status}`);
     }
 
+    if (activeRun !== run || run.controller.signal.aborted) return;
     simResults = data;
     const returnedScenarios = Object.keys(data.scenarios || {});
     if (returnedScenarios.length && !returnedScenarios.includes(WEATHER_TO_SCENARIO[weatherSelectEl.value])) {
@@ -2392,17 +2467,49 @@ async function runSimulation() {
     );
     renderAll();
   } catch (error) {
+    if (run.controller.signal.aborted) {
+      if (activeRun === run) {
+        updateBadge(backendConnected ? 'live' : '', backendConnected ? 'Backend connected' : 'Backend unavailable');
+        setStatusMessage(
+          'Run cancelled. Current server trials may finish before capacity is available.',
+        );
+      }
+      return;
+    }
+    if (activeRun !== run) return;
     if (!responseReceived) backendConnected = false;
     updateBadge(backendConnected ? 'live' : '', backendConnected ? 'Backend connected' : 'Backend unavailable');
     setStatusMessage(`Run failed: ${error.message}`, 'error');
   } finally {
+    if (activeRun !== run) return;
+    if (run.controller.signal.aborted) {
+      updateBadge(backendConnected ? 'live' : '', backendConnected ? 'Backend connected' : 'Backend unavailable');
+      setStatusMessage(
+        'Run cancelled. Current server trials may finish before capacity is available.',
+      );
+    }
+    activeRun = null;
     overlay.classList.remove('active');
     overlay.setAttribute('aria-hidden', 'true');
     button.classList.remove('running');
     button.textContent = 'Run Simulation';
     runInProgress = false;
     updateRunAvailability();
+    restoreRunFocus(run);
   }
+}
+
+function stopSimulation() {
+  if (!runInProgress || !activeRun || activeRun.controller.signal.aborted) return;
+  activeRun.controller.abort();
+  const stop = document.getElementById('btnStop');
+  if (stop) stop.textContent = 'Cancelling...';
+  const simText = document.querySelector('.sim-text');
+  if (simText) simText.textContent = 'Cancelling backend simulation';
+  setStatusMessage(
+    'Cancellation requested. Current server trials may finish before capacity is available.',
+  );
+  updateRunAvailability();
 }
 
 function renderAll() {

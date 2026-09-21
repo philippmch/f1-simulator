@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from importlib.resources import files
+from threading import Event
 from typing import Any
 
-from pydantic import StrictInt
+from pydantic import StrictBool, StrictInt
 
 from f1sim.analysis import MonteCarloRunner, parse_scenario_labels, scenario_weather_from_label
+from f1sim.analysis.cancellation import SimulationCancelled
 from f1sim.analysis.scenarios import validate_weather_mode
 from f1sim.data import CurrentSeasonDataError, CurrentSeasonDataLoader
 from f1sim.models import Weather, WeatherCondition
@@ -43,18 +47,26 @@ _DEFAULT_DASHBOARD_WORKERS = min(8, os.cpu_count() or 1)
 _MAX_SEED = 2**32 - 1
 
 
+class _RunCapacityBusy(RuntimeError):
+    """Signal that a dashboard request could not acquire a run slot."""
+
+
+_CLIENT_DISCONNECTED_STATUS = 499
+_CLIENT_DISCONNECTED_DETAIL = "Client disconnected before the simulation completed."
+
+
 @dataclass
 class DashboardRunRequest:
     """Input payload for dashboard simulation run."""
 
-    year: int = field(default_factory=_current_season)
+    year: StrictInt = field(default_factory=_current_season)
     race: str = "1"
-    simulations: int = 200
+    simulations: StrictInt = 200
     scenarios: str = "dry,light_rain"
-    seed: int = 42
+    seed: StrictInt = 42
     qualifying_mode: str = "simulated"
-    parallel: bool = True
-    max_workers: int | None = None
+    parallel: StrictBool = True
+    max_workers: StrictInt | None = None
     race_engine: str = "standard"
     starting_tires: dict[str, str] | None = None
     weather_mode: str = "evolving"
@@ -452,17 +464,43 @@ def _summarize_scenario_results(
     return summary
 
 
-def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
-    """Execute one dashboard simulation bundle and return summary."""
+def _check_dashboard_cancellation(
+    cancel_requested: Callable[[], bool] | None,
+) -> None:
+    """Stop dashboard work at a cooperative boundary when its client is gone."""
+
+    if cancel_requested is None or not cancel_requested():
+        return
+    raise SimulationCancelled("Dashboard client disconnected during simulation.")
+
+
+def run_dashboard_simulation(
+    request: DashboardRunRequest,
+    *,
+    cancel_requested: Callable[[], bool] | None = None,
+) -> dict[str, Any]:
+    """Execute one dashboard simulation bundle and return summary.
+
+    Cancellation is cooperative: the callback is checked between live-data
+    phases, scenarios, and summary sections. The Monte Carlo runner receives
+    it only when a caller supplies one, preserving the direct-call contract
+    for integrations and tests that provide a runner with the original
+    ``run`` signature.
+    """
     labels = _validate_dashboard_request(request)
+    _check_dashboard_cancellation(cancel_requested)
     loader = _get_loader()
+    _check_dashboard_cancellation(cancel_requested)
     round_number = loader.resolve_race_identifier(request.year, request.race)
+    _check_dashboard_cancellation(cancel_requested)
     events = loader.list_available_events(request.year)
+    _check_dashboard_cancellation(cancel_requested)
     canonical_race = next(
         (event["race"] for event in events if event["round"] == round_number),
         request.race,
     )
 
+    _check_dashboard_cancellation(cancel_requested)
     driver_stats = loader.get_weighted_driver_stats(
         year=request.year,
         target_race=request.race,
@@ -473,8 +511,10 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
     )
     # Loading the result feed first lets the calendar mark completed rounds
     # from authoritative rows before track fastest-lap calibration runs.
+    _check_dashboard_cancellation(cancel_requested)
     track_stats = loader.get_track_stats(request.year, request.race)
 
+    _check_dashboard_cancellation(cancel_requested)
     drivers = loader.create_drivers_from_stats(driver_stats)
     tire_inventory = validate_tire_inventory(
         request.tire_inventory, request.starting_tires, request.starting_tire_ages,
@@ -485,6 +525,7 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
         request.starting_tire_ages, starting_tires, (d.id for d in drivers),
     )
     cars = loader.create_cars_from_stats(driver_stats)
+    _check_dashboard_cancellation(cancel_requested)
     track = loader.create_track_from_stats(track_stats)
     base_weather = Weather(
         condition=WeatherCondition.DRY,
@@ -506,6 +547,7 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
     )
 
     for idx, label in enumerate(labels):
+        _check_dashboard_cancellation(cancel_requested)
         scenario = scenario_weather_from_label(
             base_weather, label, weather_mode=request.weather_mode
         )
@@ -522,11 +564,14 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
             **({"starting_tire_ages": starting_tire_ages} if starting_tire_ages else {}),
         )
         t0 = time.perf_counter()
-        result = runner.run(
-            num_simulations=request.simulations,
-            parallel=request.parallel,
-            max_workers=effective_max_workers,
-        )
+        run_kwargs: dict[str, Any] = {
+            "num_simulations": request.simulations,
+            "parallel": request.parallel,
+            "max_workers": effective_max_workers,
+        }
+        if cancel_requested is not None:
+            run_kwargs["cancel_requested"] = cancel_requested
+        result = runner.run(**run_kwargs)
         runtime = max(time.perf_counter() - t0, 1e-9)
         scenario_results[scenario.name] = result
         scenario_meta[scenario.name] = {
@@ -534,6 +579,7 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
             "simulations_per_second": float(request.simulations / runtime),
         }
 
+    _check_dashboard_cancellation(cancel_requested)
     payload = _summarize_scenario_results(
         scenario_results,
         scenario_meta=scenario_meta,
@@ -559,8 +605,11 @@ def run_dashboard_simulation(request: DashboardRunRequest) -> dict[str, Any]:
         "max_workers": effective_max_workers,
         "requested_max_workers": request.max_workers,
     }
+    _check_dashboard_cancellation(cancel_requested)
     payload["ratings"] = _serialize_ratings_snapshot(drivers, cars, driver_stats)
+    _check_dashboard_cancellation(cancel_requested)
     payload["provenance"] = loader.get_provenance()
+    _check_dashboard_cancellation(cancel_requested)
     payload["comparison_report_html"] = render_comparison_report(scenario_results)
     return payload
 
@@ -614,14 +663,107 @@ def _get_loader() -> CurrentSeasonDataLoader:
     return CurrentSeasonDataLoader()
 
 
+def _run_dashboard_worker(
+    run_capacity: RunCapacity,
+    payload: DashboardRunRequest,
+    cancel_event: Event,
+) -> dict[str, Any]:
+    """Run one complete dashboard request while holding its capacity slot."""
+
+    with run_capacity.acquire() as admitted:
+        if not admitted:
+            raise _RunCapacityBusy
+        return run_dashboard_simulation(payload, cancel_requested=cancel_event.is_set)
+
+
+async def _watch_dashboard_disconnect(request: Any, cancel_event: Event) -> bool:
+    """Set cooperative cancellation when the ASGI client disconnects."""
+
+    while not cancel_event.is_set():
+        try:
+            if await request.is_disconnected():
+                cancel_event.set()
+                return True
+        except asyncio.CancelledError:
+            return False
+        except Exception:  # pragma: no cover - defensive against custom ASGI receive
+            _LOGGER.debug("Unable to poll dashboard request disconnect", exc_info=True)
+        await asyncio.sleep(0.1)
+    return False
+
+
+async def _drain_dashboard_worker(worker_task: asyncio.Task[Any]) -> None:
+    """Wait for a worker despite repeated endpoint task cancellation."""
+
+    while not worker_task.done():
+        try:
+            await asyncio.shield(worker_task)
+        except asyncio.CancelledError:
+            # A second transport cancellation must not abandon the thread.
+            continue
+        except (SimulationCancelled, _RunCapacityBusy):
+            return
+        except Exception:
+            _LOGGER.debug(
+                "Dashboard worker failed while the client was disconnected",
+                exc_info=True,
+            )
+            return
+
+    try:
+        worker_task.result()
+    except (SimulationCancelled, _RunCapacityBusy, asyncio.CancelledError):
+        pass
+    except Exception:
+        _LOGGER.debug(
+            "Dashboard worker failed while the client was disconnected",
+            exc_info=True,
+        )
+
+
+async def _stop_dashboard_disconnect_watcher(
+    disconnect_task: asyncio.Task[Any],
+    cancel_event: Event,
+) -> None:
+    """Stop and observe the disconnect watcher without leaking its task."""
+
+    cancel_event.set()
+    disconnect_task.cancel()
+    while not disconnect_task.done():
+        try:
+            await asyncio.shield(disconnect_task)
+        except asyncio.CancelledError:
+            continue
+        except Exception:
+            _LOGGER.debug("Dashboard disconnect watcher failed", exc_info=True)
+            return
+    try:
+        disconnect_task.result()
+    except asyncio.CancelledError:
+        pass
+    except Exception:
+        _LOGGER.debug("Dashboard disconnect watcher failed", exc_info=True)
+
+
+def _client_disconnected_response(response_type: Any) -> Any:
+    """Build the private cancellation response without exposing worker errors."""
+
+    return response_type(
+        status_code=_CLIENT_DISCONNECTED_STATUS,
+        content={"detail": _CLIENT_DISCONNECTED_DETAIL},
+    )
+
+
 def build_fastapi_app() -> Any:
     """Build FastAPI dashboard app.
 
     FastAPI import is lazy so core package remains usable without web deps.
     """
     try:
-        from fastapi import FastAPI, HTTPException, Query
-        from fastapi.responses import HTMLResponse
+        from fastapi import FastAPI, HTTPException, Query, Request
+        from fastapi.responses import HTMLResponse, JSONResponse
+        from starlette.concurrency import run_in_threadpool
+        from starlette.datastructures import MutableHeaders
     except Exception as exc:  # pragma: no cover
         msg = "FastAPI is not installed. Install with: pip install -e '.[web]'"
         raise RuntimeError(msg) from exc
@@ -629,18 +771,31 @@ def build_fastapi_app() -> Any:
     app = FastAPI(title="F1Sim Dashboard", version="0.2")
     run_capacity = RunCapacity.from_environment()
 
-    @app.middleware("http")
-    async def disable_api_caching(request: Any, call_next: Any) -> Any:
-        """Apply local-dashboard security and live-data cache controls."""
+    class _DashboardHeadersMiddleware:
+        """Add response headers without buffering request disconnect messages."""
 
-        response = await call_next(request)
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Referrer-Policy"] = "no-referrer"
-        if request.url.path.startswith("/api/"):
-            response.headers["Cache-Control"] = "no-store, max-age=0"
-            response.headers["Pragma"] = "no-cache"
-        return response
+        def __init__(self, application: Any) -> None:
+            self.application = application
+
+        async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+            if scope["type"] != "http":
+                await self.application(scope, receive, send)
+                return
+
+            async def send_with_headers(message: dict[str, Any]) -> None:
+                if message["type"] == "http.response.start":
+                    headers = MutableHeaders(scope=message)
+                    headers["X-Content-Type-Options"] = "nosniff"
+                    headers["X-Frame-Options"] = "DENY"
+                    headers["Referrer-Policy"] = "no-referrer"
+                    if scope["path"].startswith("/api/"):
+                        headers["Cache-Control"] = "no-store, max-age=0"
+                        headers["Pragma"] = "no-cache"
+                await send(message)
+
+            await self.application(scope, receive, send_with_headers)
+
+    app.add_middleware(_DashboardHeadersMiddleware)
 
     @app.get("/", response_class=HTMLResponse)
     def home() -> str:
@@ -674,27 +829,87 @@ def build_fastapi_app() -> Any:
             _LOGGER.exception("Unexpected calendar endpoint failure")
             raise HTTPException(status_code=500, detail="Unexpected server error") from exc
 
-    @app.post("/api/run")
-    def run(payload: DashboardRunRequest) -> dict[str, Any]:
+    async def run(request: Request, payload: DashboardRunRequest) -> Any:
+        """Run a dashboard request without abandoning its synchronous worker."""
+
         try:
+            # Keep all deterministic validation ahead of capacity admission.
             _validate_dashboard_request(payload)
-            with run_capacity.acquire() as admitted:
-                if not admitted:
-                    raise HTTPException(
-                        status_code=429,
-                        detail="Simulation capacity is busy. Please retry shortly.",
-                        headers={"Retry-After": "5"},
-                    )
-                return run_dashboard_simulation(payload)
-        except HTTPException:
-            raise
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        cancel_event = Event()
+        worker_task = asyncio.create_task(
+            run_in_threadpool(_run_dashboard_worker, run_capacity, payload, cancel_event),
+        )
+        disconnect_task = asyncio.create_task(
+            _watch_dashboard_disconnect(request, cancel_event),
+        )
+        disconnected = False
+        try:
+            done, _ = await asyncio.wait(
+                {worker_task, disconnect_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if disconnect_task in done:
+                disconnected = bool(disconnect_task.result())
+            if worker_task in done:
+                result = worker_task.result()
+            else:
+                try:
+                    # The worker owns capacity cleanup. Shielding makes sure a
+                    # disconnected endpoint still drains it before returning.
+                    result = await asyncio.shield(worker_task)
+                except Exception:
+                    if disconnected or cancel_event.is_set():
+                        return _client_disconnected_response(JSONResponse)
+                    raise
+            if disconnected or cancel_event.is_set():
+                return _client_disconnected_response(JSONResponse)
+            return result
+        except asyncio.CancelledError:
+            # ASGI servers may cancel the endpoint task when the transport
+            # closes. Keep the worker alive, request cooperative cancellation,
+            # and drain it before allowing the capacity context to release.
+            cancel_event.set()
+            await _drain_dashboard_worker(worker_task)
+            return _client_disconnected_response(JSONResponse)
+        except HTTPException:
+            if cancel_event.is_set():
+                return _client_disconnected_response(JSONResponse)
+            raise
+        except SimulationCancelled:
+            return _client_disconnected_response(JSONResponse)
+        except ValueError as exc:
+            if cancel_event.is_set():
+                return _client_disconnected_response(JSONResponse)
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except (CurrentSeasonDataError, OSError) as exc:
+            if cancel_event.is_set():
+                return _client_disconnected_response(JSONResponse)
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except _RunCapacityBusy as exc:
+            if cancel_event.is_set():
+                return _client_disconnected_response(JSONResponse)
+            raise HTTPException(
+                status_code=429,
+                detail="Simulation capacity is busy. Please retry shortly.",
+                headers={"Retry-After": "5"},
+            ) from exc
         except Exception as exc:
+            if cancel_event.is_set():
+                return _client_disconnected_response(JSONResponse)
             _LOGGER.exception("Unexpected simulation endpoint failure")
             raise HTTPException(status_code=500, detail="Unexpected server error") from exc
+        finally:
+            await _stop_dashboard_disconnect_watcher(disconnect_task, cancel_event)
+
+    # ``from __future__ import annotations`` keeps the nested function's
+    # annotations as strings; install the lazy FastAPI Request type before
+    # registering the route so the module remains importable without FastAPI.
+    run.__annotations__["request"] = Request
+    run.__annotations__["payload"] = DashboardRunRequest
+    app.post("/api/run")(run)
 
     @app.get("/api/ratings")
     def ratings(

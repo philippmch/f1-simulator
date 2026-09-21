@@ -385,6 +385,11 @@ behavior, and result labels describe the completed run rather than current contr
 
 ## Server capacity
 
+Run requests require JSON integers for `year`, `simulations`, `seed` and
+`max_workers` (which may also be `null`), and a JSON boolean for `parallel`.
+Quoted numbers, booleans in integer fields and decimal-form integers are
+rejected before live-data loading or simulation admission.
+
 The server admits one complete simulation request at a time by default, including
 live-data loading and every selected weather scenario. Additional requests receive
 HTTP 429 with `Retry-After: 5`; the dashboard keeps the Run button available for a
@@ -402,6 +407,13 @@ sharing one host. Coordination files contain no live F1 data; do not delete them
 while servers are running. Locks release on completion, failure, or process exit.
 This limit covers the API on one host; independent hosts and direct CLI runs are
 separate capacity domains.
+
+Use **Stop run** to cancel an active dashboard request while retaining the last
+completed results. If a dashboard client disconnects, the server stops starting
+further trials or weather scenarios. Cancellation is cooperative: an in-progress
+data request or race trial can finish first. Parallel runs stop submitting work
+and drain their running workers before releasing capacity. Cancelled runs do not
+return partial statistics.
 
 ## Live data policy
 

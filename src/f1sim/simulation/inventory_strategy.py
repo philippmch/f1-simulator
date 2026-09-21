@@ -69,6 +69,14 @@ def _clock_inventory_strategy(
         return projected_surface(updates(offset, paid_stops, stopped_first))
 
     @lru_cache(maxsize=None)
+    def critical_at(update_index, compound):
+        # Many branches share a projected surface; it is fixed within this forecast.
+        return (
+            projected_surface(update_index).tire_mismatch(TireCompound(compound))
+            == "critical"
+        )
+
+    @lru_cache(maxsize=None)
     def running(offset, compound, age, first_kind, updates):
         driver.current_tire_laps = age
         value = simulator.calculate_lap_time(
@@ -106,8 +114,10 @@ def _clock_inventory_strategy(
             return horizon + 1, True
         return paid_stops, stopped_first
 
-    def allowed(offset, compound, left, dry, damp, used, candidate, before):
-        critical = before.tire_mismatch(TireCompound(compound)) == "critical"
+    def allowed(
+        offset, compound, left, dry, damp, used, candidate, before, update_index
+    ):
+        critical = critical_at(update_index, compound)
         limit = dry if before.track_wetness < .08 and before.rain_intensity < .15 else damp
         return (critical or (left > 0 and (
             TireCompound(compound) in (TireCompound.INTERMEDIATE, TireCompound.WET)
@@ -128,8 +138,7 @@ def _clock_inventory_strategy(
         """
         total = 0.0
         for index in range(offset, horizon):
-            before = surface(index, paid_stops, stopped_first)
-            if before.tire_mismatch(TireCompound(compound)) == "critical":
+            if critical_at(updates(index, paid_stops, stopped_first), compound):
                 return inf
             total += run(
                 index, compound, age + index - offset,
@@ -139,9 +148,8 @@ def _clock_inventory_strategy(
 
     @lru_cache(maxsize=None)
     def retainable(offset, compound, paid_stops, stopped_first):
-        fitted = TireCompound(compound)
         return all(
-            surface(index, paid_stops, stopped_first).tire_mismatch(fitted) != "critical"
+            not critical_at(updates(index, paid_stops, stopped_first), compound)
             for index in range(offset, horizon)
         )
 
@@ -150,7 +158,8 @@ def _clock_inventory_strategy(
         before = surface(offset, paid_stops, stopped_first)
         current = TireCompound(compound)
         actions = []
-        if before.tire_mismatch(current) != "critical":
+        update_index = updates(offset, paid_stops, stopped_first)
+        if not critical_at(update_index, current.value):
             next_paid, next_stopped = canonical_clock_state(
                 offset + 1, paid_stops, stopped_first,
             )
@@ -168,10 +177,10 @@ def _clock_inventory_strategy(
                 continue
             previous = candidate
             target, target_age = candidate
-            if before.tire_mismatch(TireCompound(target)) == "critical":
+            if critical_at(update_index, target):
                 continue
             if not allowed(offset, compound, left, dry, damp, used, target,
-                           before):
+                           before, update_index):
                 continue
             after_paid = paid_stops + 1
             after_updates = updates(
@@ -261,12 +270,11 @@ def _clock_inventory_strategy(
     # Counting all such transitions (even for unavailable sets) is an upper
     # bound, including transitions skipped over while servicing a stop.
     critical_changes = 0
-    previous = {compound: weather.tire_mismatch(compound) == "critical"
+    previous = {compound: critical_at(0, compound.value)
                 for compound in TireCompound}
     for update in range(1, weather_clock.max_updates + 1):
-        projected = projected_surface(update)
         for compound in TireCompound:
-            critical = projected.tire_mismatch(compound) == "critical"
+            critical = critical_at(update, compound.value)
             critical_changes += critical and not previous[compound]
             previous[compound] = critical
     rule_stops = 0 if legal(used_mask) else 2 - (used_mask & 7).bit_count()
@@ -330,7 +338,7 @@ def _clock_inventory_strategy(
         first, row = completion_rows[key]
         for index in range(first - 1, offset - 1, -1):
             best = green_stop + lower_bounds()[index]
-            if surface(index, paid, stopped).tire_mismatch(TireCompound(compound)) != "critical":
+            if not critical_at(updates(index, paid, stopped), compound):
                 stay = run(index, compound, base_age + index, updates(index, paid, stopped))
                 best = min(best, stay + row[index + 1])
             row[index] = nextafter(best, -inf)
@@ -341,8 +349,7 @@ def _clock_inventory_strategy(
                      stopped_first, age_override=None):
         compound = item.compound.value
         age = item.age if age_override is None else age_override
-        before = surface(0, paid_stops, stopped_first)
-        if before.tire_mismatch(item.compound) == "critical":
+        if critical_at(updates(0, paid_stops, stopped_first), compound):
             return inf
         after_updates = updates(0, paid_stops, stopped_first)
         if consume:
@@ -376,7 +383,7 @@ def _clock_inventory_strategy(
             if not free_fit and not force_stop and usable_current and not allowed(
                 0, current.compound.value, remaining_stops, remaining_dry_stops,
                 remaining_damp_stops, used_mask, item.compound.value,
-                surface(0, 0, False),
+                surface(0, 0, False), updates(0, 0, False),
             ):
                 continue
             candidate = (item.compound.value, item.age)

@@ -134,7 +134,7 @@ def test_apps_reject_busy_runs_and_release_on_success_or_failure(monkeypatch, tm
     release = Event()
     calls = []
 
-    def simulate(payload):
+    def simulate(payload, cancel_requested=None):
         calls.append(payload)
         entered.set()
         assert release.wait(timeout=10)
@@ -164,5 +164,9 @@ def test_apps_reject_busy_runs_and_release_on_success_or_failure(monkeypatch, tm
                     200 if failure is None else (400 if isinstance(failure, ValueError) else 500)
                 )
                 assert ongoing.result(timeout=10).status_code == expected
-            monkeypatch.setattr(server, "run_dashboard_simulation", lambda request: {"ok": True})
+            monkeypatch.setattr(
+                server,
+                "run_dashboard_simulation",
+                lambda request, cancel_requested=None: {"ok": True},
+            )
             assert second.post("/api/run", json=payload).status_code == 200

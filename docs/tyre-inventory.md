@@ -111,6 +111,9 @@ The timed-weather search retains each action's completion bound when sorting
 candidates and reuses that exact value for pruning. Bounds remain local to the
 same forecast; the ordering key and downward-rounded pruning comparison are
 unchanged.
+Tyre-safety checks are also reused for each compound and projected weather
+update within that forecast. The cache is discarded with the planning call,
+so later race conditions are evaluated afresh.
 
 Automatic opening selection evaluates one deterministic policy path per distinct
 compound and prior age. Equivalent physical IDs receive the same score in their
