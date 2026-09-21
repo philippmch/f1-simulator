@@ -64,9 +64,15 @@ def test_api_exposes_statistics_and_legacy_objects_default_empty():
     results = sample()
     payload = _summarize_scenario_results({"dry": results})
     assert payload["scenarios"]["dry"]["pit_stop_statistics"] == results.get_pit_stop_statistics()
+    assert payload["scenarios"]["dry"]["pit_decision_statistics"] == (
+        results.get_pit_decision_statistics()
+    )
     json.loads(JSONResponse(payload).body)
     legacy = SimpleNamespace(num_simulations=2, seed=None, driver_stats={},
                              race_results=[], qualifying_results=[])
     assert _summarize_scenario_results({"dry": legacy})["scenarios"]["dry"][
         "pit_stop_statistics"
+    ] == {}
+    assert _summarize_scenario_results({"dry": legacy})["scenarios"]["dry"][
+        "pit_decision_statistics"
     ] == {}

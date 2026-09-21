@@ -99,6 +99,19 @@ class _FakeResults:
     def get_event_rates(self):
         return {"safety_car_race_rate": 0.4}
 
+    def get_pit_decision_statistics(self):
+        return {
+            "VER": {
+                "races": 2,
+                "races_with_recorded_details": 2,
+                "missing_details_races": 0,
+                "recorded_stops": 1,
+                "stops_with_recorded_reasons": 1,
+                "missing_reason_stops": 0,
+                "reasons": {"dry_forecast": {"stops": 1, "share": 1.0}},
+            },
+        }
+
     def get_team_championship_projection(self):
         return {"Red Bull": 35.0, "McLaren": 28.0}
 
@@ -120,6 +133,9 @@ def test_dashboard_summary_shape() -> None:
     assert "driver_statistics" in summary["scenarios"]["dry"]
     assert "sample_race" in summary["scenarios"]["dry"]
     assert "sample_qualifying" in summary["scenarios"]["dry"]
+    assert summary["scenarios"]["dry"]["pit_decision_statistics"]["VER"][
+        "reasons"
+    ]["dry_forecast"]["share"] == 1.0
     assert summary["scenarios"]["dry"]["sample_index"] == 0
     assert summary["scenarios"]["dry"]["qualifying_mode"] == "simulated"
 

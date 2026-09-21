@@ -263,7 +263,58 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       if (stats.win_rate === 0) assert(interval.upper > 0);
     }
     const pitStatistics = Object.values(payload.scenarios)[0].pit_stop_statistics;
+    const pitDecisionStatistics = Object.values(payload.scenarios)[0].pit_decision_statistics;
     const strategyStatistics = Object.values(payload.scenarios)[0].strategy_statistics;
+    assert(pitDecisionStatistics && Object.keys(pitDecisionStatistics).length,
+      'Dashboard payload must include paid-stop decision statistics');
+    assert.equal(await page.locator('#pitDecisionStatistics details').count(),
+      Object.keys(pitDecisionStatistics).length);
+    const [, decisionStats] = Object.entries(pitDecisionStatistics)
+      .sort(([a], [b]) => a.localeCompare(b))[0];
+    const decisionDetails = page.locator('#pitDecisionStatistics details').first();
+    await decisionDetails.locator('summary').click();
+    assert((await decisionDetails.innerText()).includes(
+      `${decisionStats.stops_with_recorded_reasons} recognized reasons / ${decisionStats.recorded_stops} paid stops in complete records`));
+    const firstReason = Object.entries(decisionStats.reasons || {})[0];
+    assert(firstReason, 'Dashboard payload must include a recorded decision reason');
+    const firstReasonLabel = await page.evaluate(reason => PIT_DECISION_LABELS[reason], firstReason[0]);
+    assert((await decisionDetails.innerText()).includes(firstReasonLabel));
+    await page.evaluate(() => {
+      window.savedPitDecisionStatistics = getScenarioEntry().data.pit_decision_statistics;
+      getScenarioEntry().data.pit_decision_statistics = {
+        '<img src=x>': {
+          races: 3, races_with_recorded_details: 2, missing_details_races: 1,
+          recorded_stops: 1, stops_with_recorded_reasons: 1, missing_reason_stops: 1,
+          reasons: {dry_forecast: {stops: 1, share: 1}, '<svg onload=alert(1)>': {stops: 1, share: 1}},
+        },
+        zero: {
+          races: 1, races_with_recorded_details: 1, missing_details_races: 0,
+          recorded_stops: 0, stops_with_recorded_reasons: 0, missing_reason_stops: 0,
+          reasons: {},
+        },
+      };
+      renderStats();
+    });
+    const decisionCard = page.locator('#pitDecisionStatistics');
+    for (const summary of await decisionCard.locator('summary').all()) {
+      await summary.focus();
+      await page.keyboard.press('Enter');
+    }
+    assert.equal(await decisionCard.locator('img, svg').count(), 0);
+    assert((await decisionCard.innerText()).includes('No paid stops recorded'));
+    assert((await decisionCard.innerText()).includes('missing or unknown reasons'));
+    assert.equal(await decisionCard.locator('tbody tr').count(), 1);
+    assert.deepEqual(await decisionCard.locator('tbody td').allTextContents(), ['1', '100.0%']);
+    await page.evaluate(() => {
+      delete getScenarioEntry().data.pit_decision_statistics;
+      renderStats();
+    });
+    assert((await decisionCard.innerText()).includes('No aggregate paid-stop decision observations'));
+    await page.evaluate(() => {
+      getScenarioEntry().data.pit_decision_statistics = savedPitDecisionStatistics;
+      delete window.savedPitDecisionStatistics;
+      renderStats();
+    });
     assert.equal(await page.locator('#strategyStatistics details').count(),
       Object.keys(strategyStatistics).length);
     const [sequenceId, sequenceStats] = Object.entries(strategyStatistics).sort(([a], [b]) => a.localeCompare(b))[0];
@@ -502,6 +553,14 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
           await page.locator('.pit-summary-card').screenshot({
             path: path.join(process.env.F1SIM_SCREENSHOTS, `pit-stops-${width}.png`),
           });
+          if (await page.locator('#pitDecisionStatistics details').count()) {
+            if (width === 1440) await page.setViewportSize({width, height: 1800});
+            await page.locator('#pitDecisionStatistics details').first().evaluate(node => { node.open = true; });
+            await page.locator('#pitDecisionStatistics').evaluate(card => card.scrollIntoView({block: 'center'}));
+            await page.locator('#pitDecisionStatistics').screenshot({
+              path: path.join(process.env.F1SIM_SCREENSHOTS, `pit-decision-statistics-${width}.png`),
+            });
+          }
           if (width === 1440) await page.setViewportSize({width, height: 900});
         }
         if (tab === 'race' || tab === 'qualifying') {

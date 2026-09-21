@@ -199,8 +199,9 @@ remain automatic. The table reports wins with 95% sampling intervals, podiums,
 retirements and points per race. Equal seeds do not freeze subsequent random
 events, and these estimates do not establish the best strategy for a real race.
 
-Exported comparison HTML also shows why each driver made paid stops across the
-trials, alongside tyre sequences and pit losses. Reason counts distinguish
+The dashboard's Statistics tab and exported comparison HTML show why each driver
+made paid stops across the trials, alongside tyre sequences and pit losses.
+Reason counts distinguish
 weather reactions, repairs, compulsory changes and strategy forecasts, with
 missing records shown explicitly. JSON exports include the same decision summary.
 

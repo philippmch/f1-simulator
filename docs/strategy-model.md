@@ -408,8 +408,9 @@ Compulsory/reactive decisions and nonfinite comparisons have no reported saving.
 Missing context is null in JSON, blank in CSV, and “Not recorded” in the dashboard.
 Free refits and vetoed pit proposals produce no paid-stop decision record.
 
-Comparison HTML reports also summarize recorded paid-stop decisions for each
-driver across trials. Statistics and scenario JSON exports retain the same
+The dashboard's Statistics tab and comparison HTML reports also summarize
+recorded paid-stop decisions for each driver across trials. Statistics,
+scenario JSON exports and dashboard downloads retain the same
 `pit_decision_statistics` summary. Reasons describe the policy that accepted a
 stop; they do not measure whether the stop improved the result. Unknown reasons
 and incomplete records remain visible as missing evidence, including in older

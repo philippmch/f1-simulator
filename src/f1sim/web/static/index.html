@@ -788,11 +788,11 @@ input:focus-visible {
   grid-column: 1 / -1;
 }
 
-.pit-summary-card, .strategy-summary-card {
+.pit-summary-card, .pit-decision-summary-card, .strategy-summary-card {
   grid-column: 1 / -1;
 }
 
-.pit-summary-card table, .strategy-summary-card table {
+.pit-summary-card table, .pit-decision-summary-card table, .strategy-summary-card table {
   min-width: 34rem;
 }
 
@@ -804,7 +804,11 @@ input:focus-visible {
 .strategy-sequence { margin: 12px 0; }
 .strategy-sequence summary { cursor: pointer; line-height: 1.5; }
 .strategy-sequence table { font-size: 0.8rem; }
-.strategy-sequence tbody th {
+.pit-decision-driver { margin: 12px 0; }
+.pit-decision-driver summary { cursor: pointer; line-height: 1.5; }
+.pit-decision-driver table { font-size: 0.8rem; }
+.pit-decision-summary-card .inline-note { color: var(--text-secondary); }
+.strategy-sequence tbody th, .pit-decision-driver tbody th {
   text-transform: none;
   font-size: inherit;
   letter-spacing: normal;
@@ -1556,6 +1560,17 @@ const SCENARIO_PRESETS = [
 ];
 
 const TIRE_LABELS = { soft: 'S', medium: 'M', hard: 'H', inter: 'I', wet: 'W' };
+const PIT_DECISION_LABELS = Object.freeze({
+  forced_repair: 'Forced tyre replacement',
+  critical_weather: 'Critical tyre/weather mismatch',
+  weather_reaction: 'Weather reaction',
+  compound_requirement: 'Required compound change',
+  dry_forecast: 'Dry strategy forecast',
+  rain_forecast: 'Weather strategy forecast',
+  inventory_forecast: 'Available-set strategy forecast',
+  neutralization_window: 'Safety-car/VSC opportunity',
+  planned_window: 'Planned pit window',
+});
 
 let simResults = null;
 let backendConnected = false;
@@ -2441,15 +2456,10 @@ function renderTireSetLedgers(race) {
 }
 
 function renderPitStopDetails(race) {
-  const reasons = {
-    forced_repair: 'Forced tyre replacement', critical_weather: 'Critical tyre/weather mismatch',
-    weather_reaction: 'Weather reaction', compound_requirement: 'Required compound change',
-    dry_forecast: 'Dry strategy forecast', rain_forecast: 'Weather strategy forecast',
-    inventory_forecast: 'Available-set strategy forecast',
-    neutralization_window: 'Safety-car/VSC opportunity', planned_window: 'Planned pit window',
-  };
   const decision = stop => {
-    const reason = Object.hasOwn(reasons, stop.decision_reason) ? reasons[stop.decision_reason] : 'Not recorded';
+    const reason = typeof stop.decision_reason === 'string'
+      && Object.hasOwn(PIT_DECISION_LABELS, stop.decision_reason)
+      ? PIT_DECISION_LABELS[stop.decision_reason] : 'Not recorded';
     const saving = stop.forecast_saving_seconds;
     return `${reason}<span class="pit-components">Forecast advantage: ${typeof saving === 'number'
       && Number.isFinite(saving) ? `${saving.toFixed(3)} s` : 'Not recorded'}</span>`;
@@ -2490,6 +2500,66 @@ function renderPitStopDetails(race) {
         <thead><tr><th scope="col">Driver</th><th scope="col">Driver lap</th>
           <th scope="col">Tyres</th><th scope="col">Conditions</th><th scope="col">Decision</th><th scope="col">Modeled loss</th></tr></thead>
         <tbody>${rows.join('')}</tbody></table></div></details>`;
+}
+
+function renderPitDecisionStatistics(statistics) {
+  const drivers = Object.entries(statistics || {})
+    .filter(([, stats]) => stats && Number.isInteger(stats.races) && stats.races > 0)
+    .sort(([a], [b]) => a.localeCompare(b));
+  if (!drivers.length) {
+    return '<div class="inline-note">No aggregate paid-stop decision observations are available for this run.</div>';
+  }
+  const count = value => Number.isInteger(value) && value >= 0 ? value : null;
+  const displayCount = value => {
+    const safe = count(value);
+    return safe === null ? 'Not recorded' : String(safe);
+  };
+  const displayShare = value => typeof value === 'number' && Number.isFinite(value)
+    && value >= 0 && value <= 1 ? formatPercent(value * 100) : 'Not recorded';
+  return `<p class="inline-note">Counts include retirements and paid stops in complete detail records.
+    Shares use recognized decision reasons as their denominator; free tyre changes are excluded.
+    Missing detail races and missing or unknown reasons remain in the coverage notes.
+    Frequency describes observed decisions and does not establish whether a stop improved the race outcome.
+    Scroll tables horizontally to see every column.</p>
+    ${drivers.map(([id, stats]) => {
+      const races = count(stats.races);
+      const complete = count(stats.races_with_recorded_details);
+      const missingDetails = count(stats.missing_details_races);
+      const recordedStops = count(stats.recorded_stops);
+      const recognizedStops = count(stats.stops_with_recorded_reasons);
+      const missingReasons = count(stats.missing_reason_stops);
+      const reasons = Object.entries(stats.reasons || {})
+        .filter(([reason, item]) => typeof reason === 'string'
+          && Object.hasOwn(PIT_DECISION_LABELS, reason)
+          && item && count(item.stops) !== null)
+        .sort(([a], [b]) => a.localeCompare(b));
+      const coverage = `${displayCount(complete)} / ${displayCount(races)} observed races with complete details`;
+      const stopCoverage = recognizedStops !== null && recordedStops !== null
+        ? `${recognizedStops} recognized reasons / ${recordedStops} paid stops in complete records`
+        : 'Recognized reason coverage: Not recorded';
+      const notes = [coverage, stopCoverage];
+      if (missingDetails !== null && missingDetails > 0) {
+        notes.push(`${missingDetails} races missing complete details`);
+      }
+      if (missingReasons !== null && missingReasons > 0) {
+        notes.push(`${missingReasons} paid stops with missing or unknown reasons`);
+      } else if (recordedStops === 0 && missingDetails === 0) {
+        notes.push('No paid stops recorded');
+      }
+      return `<details class="pit-decision-driver">
+        <summary>${escapeHtml(id)}: ${displayCount(races)} observed ${races === 1 ? 'race' : 'races'}</summary>
+        <p class="inline-note">${notes.map(escapeHtml).join('; ')}.</p>
+        ${reasons.length ? `<div class="stats-table-wrap" tabindex="0" role="region"
+          aria-label="${escapeHtml(id)} paid-stop decisions"><table class="metrics-table">
+          <thead><tr><th scope="col">Decision reason</th><th scope="col">Stops</th>
+            <th scope="col">Share of recognized reasons</th></tr></thead>
+          <tbody>${reasons.map(([reason, item]) => `<tr>
+            <th scope="row">${PIT_DECISION_LABELS[reason]}</th>
+            <td>${displayCount(item.stops)}</td><td>${displayShare(item.share)}</td>
+          </tr>`).join('')}</tbody></table></div>`
+          : '<p class="inline-note">No recognized decision reasons were recorded.</p>'}
+      </details>`;
+    }).join('')}`;
 }
 
 function renderRace() {
@@ -2983,6 +3053,11 @@ function renderStats() {
         <div class="stat-card-title">Pit stops across simulations</div>
         ${renderPitStopStatistics(scenario.pit_stop_statistics)}
         ${renderPitLossStatistics(scenario.pit_loss_statistics)}
+      </div>
+
+      <div class="stat-card pit-decision-summary-card" id="pitDecisionStatistics">
+        <div class="stat-card-title">Paid-stop decision reasons</div>
+        ${renderPitDecisionStatistics(scenario.pit_decision_statistics)}
       </div>
 
       <div class="stat-card strategy-summary-card" id="strategyStatistics">
