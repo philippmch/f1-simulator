@@ -104,6 +104,18 @@ report retains the observed values without interpreting a correction as a new
 physical tyre fitting. Filling previously missing metadata, repeating the same
 value, and updating accumulated stint laps do not trigger this exclusion.
 
+An explicit null or unrecognized `Compound` value is treated as unknown
+compound context at the time it is reported. A lap touching that context is
+excluded with `stint_compound_unknown` even when a later delta restores the
+same compound before the lap crossing; a valid compound update clears the
+unknown state for later laps. Omitted `Compound` fields remain sparse deltas
+and preserve the preceding value. This fail-closed handling also applies to a
+malformed whole stint container or active indexed entry. An unresolved newer
+index requires a valid compound at that index or a later one; repeating an
+older stint's compound cannot resolve it. Sparse list placeholders are not
+interpreted as tyre deletions, and unknown compound context does not erase
+independently observed prior wear.
+
 The remaining observations are candidates for further analysis, not isolated
 thermal measurements. They still contain fuel burn, traffic, energy deployment,
 driver variation and possible timing corrections. Feed timestamps describe

@@ -162,6 +162,282 @@ def test_stint_list_then_indexed_patch_uses_start_laps_as_reported_metadata() ->
     assert "stint_change_mid_lap" in lap3["exclusions"]
 
 
+@pytest.mark.parametrize("invalid_compound", [None, "UNKNOWN", "not-a-compound"])
+def test_invalid_compound_inside_lap_is_excluded_after_same_compound_recovery(
+    invalid_compound: object,
+) -> None:
+    timing = _timing(
+        ("00:00:00.000", _driver(1)),
+        ("00:01:30.000", _driver(2, "1:30.000")),
+        ("00:03:00.000", _driver(3, "1:30.000")),
+    )
+    app = _stream(
+        (
+            "00:00:00.000",
+            {"Lines": {"1": {"Stints": [{"Compound": "SOFT", "StartLaps": 4}]}}},
+        ),
+        ("00:00:30.000", {"Lines": {"1": {"Stints": {"0": {"Compound": invalid_compound}}}}}),
+        ("00:00:50.000", {"Lines": {"1": {"Stints": {"0": {"Compound": "SOFT"}}}}}),
+    )
+    report = normalize_timing_evidence(_feeds(timing, app=app))
+
+    affected = _lap(report, 2)
+    recovered = _lap(report, 3)
+    assert affected["compound"] == "SOFT"
+    assert affected["prior_wear"] == 4
+    assert affected["eligible"] is False
+    assert "stint_compound_unknown" in affected["exclusions"]
+    assert recovered["eligible"] is True
+    assert recovered["prior_wear"] == 4
+    assert "stint_compound_unknown" not in recovered["exclusions"]
+
+
+def test_invalid_compound_remains_unknown_without_recovery() -> None:
+    timing = _timing(
+        ("00:00:00.000", _driver(1)),
+        ("00:01:30.000", _driver(2, "1:30.000")),
+        ("00:03:00.000", _driver(3, "1:30.000")),
+    )
+    app = _stream(
+        (
+            "00:00:00.000",
+            {"Lines": {"1": {"Stints": [{"Compound": "SOFT", "StartLaps": 4}]}}},
+        ),
+        ("00:00:30.000", {"Lines": {"1": {"Stints": {"0": {"Compound": "UNKNOWN"}}}}}),
+    )
+    report = normalize_timing_evidence(_feeds(timing, app=app))
+
+    assert _lap(report, 2)["eligible"] is False
+    assert _lap(report, 3)["eligible"] is False
+    assert _lap(report, 3)["compound"] is None
+    assert _lap(report, 3)["prior_wear"] == 4
+    assert "missing_stint_compound" in _lap(report, 3)["exclusions"]
+
+
+def test_missing_compound_field_and_unknown_prior_wear_preserve_known_compound() -> None:
+    timing = _timing(
+        ("00:00:00.000", _driver(1)),
+        ("00:01:30.000", _driver(2, "1:30.000")),
+    )
+    app = _stream(
+        ("00:00:00.000", {"Lines": {"1": {"Stints": [{"Compound": "SOFT", "StartLaps": 0}]}}}),
+        ("00:00:30.000", {"Lines": {"1": {"Stints": {"0": {"StartLaps": None}}}}}),
+    )
+    lap = _lap(normalize_timing_evidence(_feeds(timing, app=app)), 2)
+
+    assert lap["compound"] == "SOFT"
+    assert lap["prior_wear"] is None
+    assert lap["eligible"] is True
+    assert "stint_compound_unknown" not in lap["exclusions"]
+
+
+def test_malformed_stint_container_is_unknown_until_valid_compound_recovery() -> None:
+    timing = _timing(
+        ("00:00:00.000", _driver(1)),
+        ("00:01:30.000", _driver(2, "1:30.000")),
+        ("00:03:00.000", _driver(3, "1:30.000")),
+    )
+    app = _stream(
+        ("00:00:00.000", {"Lines": {"1": {"Stints": [{"Compound": "SOFT"}]}}}),
+        ("00:00:30.000", {"Lines": {"1": {"Stints": None}}}),
+        ("00:00:50.000", {"Lines": {"1": {"Stints": {"0": {"Compound": "SOFT"}}}}}),
+    )
+    report = normalize_timing_evidence(_feeds(timing, app=app))
+
+    assert "stint_compound_unknown" in _lap(report, 2)["exclusions"]
+    assert _lap(report, 2)["eligible"] is False
+    assert _lap(report, 3)["eligible"] is True
+
+
+def test_malformed_active_indexed_stint_entry_is_unknown_until_recovery() -> None:
+    timing = _timing(
+        ("00:00:00.000", _driver(1)),
+        ("00:01:30.000", _driver(2, "1:30.000")),
+        ("00:03:00.000", _driver(3, "1:30.000")),
+    )
+    app = _stream(
+        ("00:00:00.000", {"Lines": {"1": {"Stints": [{"Compound": "SOFT"}]}}}),
+        ("00:00:30.000", {"Lines": {"1": {"Stints": {"0": None}}}}),
+        ("00:00:50.000", {"Lines": {"1": {"Stints": {"0": {"Compound": "SOFT"}}}}}),
+    )
+    report = normalize_timing_evidence(_feeds(timing, app=app))
+
+    assert "stint_compound_unknown" in _lap(report, 2)["exclusions"]
+    assert _lap(report, 2)["eligible"] is False
+    assert _lap(report, 3)["eligible"] is True
+
+
+def test_same_timestamp_invalid_and_valid_compound_updates_fail_closed_at_boundary() -> None:
+    timing = _timing(
+        ("00:00:00.000", _driver(1)),
+        ("00:01:30.000", _driver(2, "1:30.000")),
+        ("00:03:00.000", _driver(3, "1:30.000")),
+    )
+    app = _stream(
+        ("00:00:00.000", {"Lines": {"1": {"Stints": [{"Compound": "SOFT"}]}}}),
+        ("00:01:30.000", {"Lines": {"1": {"Stints": {"0": {"Compound": None}}}}}),
+        ("00:01:30.000", {"Lines": {"1": {"Stints": {"0": {"Compound": "SOFT"}}}}}),
+    )
+    report = normalize_timing_evidence(_feeds(timing, app=app))
+
+    for lap_number in (2, 3):
+        lap = _lap(report, lap_number)
+        assert lap["eligible"] is False
+        assert "stint_compound_unknown" in lap["exclusions"]
+
+
+def test_valid_nonactive_stint_update_does_not_poison_active_compound() -> None:
+    timing = _timing(
+        ("00:00:00.000", _driver(1)),
+        ("00:01:30.000", _driver(2, "1:30.000")),
+    )
+    app = _stream(
+        (
+            "00:00:00.000",
+            {"Lines": {"1": {"Stints": [{"Compound": "SOFT"}, {"Compound": "MEDIUM"}]}}},
+        ),
+        (
+            "00:00:30.000",
+            {"Lines": {"1": {"Stints": {"0": {"Compound": "SOFT"}}}}},
+        ),
+    )
+    lap = _lap(normalize_timing_evidence(_feeds(timing, app=app)), 2)
+
+    assert lap["compound"] == "MEDIUM"
+    assert lap["eligible"] is True
+    assert "stint_compound_unknown" not in lap["exclusions"]
+
+
+@pytest.mark.parametrize("recover", [False, True])
+def test_malformed_newer_index_fails_closed_until_new_stint_is_valid(
+    recover: bool,
+) -> None:
+    timing_rows = [
+        ("00:00:00.000", _driver(1)),
+        ("00:01:30.000", _driver(2, "1:30.000")),
+        ("00:03:00.000", _driver(3, "1:30.000")),
+    ]
+    app_rows = [
+        ("00:00:00.000", {"Lines": {"1": {"Stints": [{"Compound": "SOFT"}]}}}),
+        ("00:00:30.000", {"Lines": {"1": {"Stints": {"1": None}}}}),
+    ]
+    if recover:
+        app_rows.append(
+            (
+                "00:00:50.000",
+                {"Lines": {"1": {"Stints": {"1": {"Compound": "MEDIUM"}}}}},
+            )
+        )
+    report = normalize_timing_evidence(_feeds(_timing(*timing_rows), app=_stream(*app_rows)))
+
+    assert _lap(report, 2)["eligible"] is False
+    assert "stint_compound_unknown" in _lap(report, 2)["exclusions"]
+    if recover:
+        assert _lap(report, 3)["eligible"] is True
+        assert _lap(report, 3)["compound"] == "MEDIUM"
+    else:
+        assert _lap(report, 3)["eligible"] is False
+        assert _lap(report, 3)["compound"] is None
+        assert "stint_compound_unknown" in _lap(report, 3)["exclusions"]
+
+
+def test_valid_old_index_patch_cannot_clear_unresolved_newer_index() -> None:
+    timing = _timing(
+        ("00:00:00.000", _driver(1)),
+        ("00:01:30.000", _driver(2, "1:30.000")),
+        ("00:03:00.000", _driver(3, "1:30.000")),
+    )
+    app = _stream(
+        ("00:00:00.000", {"Lines": {"1": {"Stints": [{"Compound": "SOFT"}]}}}),
+        ("00:00:30.000", {"Lines": {"1": {"Stints": {"1": None}}}}),
+        ("00:00:50.000", {"Lines": {"1": {"Stints": {"0": {"Compound": "SOFT"}}}}}),
+    )
+    report = normalize_timing_evidence(_feeds(timing, app=app))
+
+    for lap_number in (2, 3):
+        lap = _lap(report, lap_number)
+        assert lap["eligible"] is False
+        assert lap["compound"] is None
+        assert "stint_compound_unknown" in lap["exclusions"]
+
+
+def test_valid_higher_index_supersedes_lower_unresolved_context() -> None:
+    timing = _timing(
+        ("00:00:00.000", _driver(1)),
+        ("00:01:30.000", _driver(2, "1:30.000")),
+        ("00:03:00.000", _driver(3, "1:30.000")),
+    )
+    app = _stream(
+        ("00:00:00.000", {"Lines": {"1": {"Stints": [{"Compound": "SOFT"}]}}}),
+        ("00:00:30.000", {"Lines": {"1": {"Stints": {"1": None}}}}),
+        ("00:00:50.000", {"Lines": {"1": {"Stints": {"2": {"Compound": "MEDIUM"}}}}}),
+    )
+    report = normalize_timing_evidence(_feeds(timing, app=app))
+
+    assert _lap(report, 2)["eligible"] is False
+    assert _lap(report, 3)["eligible"] is True
+    assert _lap(report, 3)["compound"] == "MEDIUM"
+
+
+def test_multiple_unresolved_newer_indexes_require_the_highest_recovery() -> None:
+    timing = _timing(
+        ("00:00:00.000", _driver(1)),
+        ("00:01:30.000", _driver(2, "1:30.000")),
+        ("00:03:00.000", _driver(3, "1:30.000")),
+        ("00:04:30.000", _driver(4, "1:30.000")),
+        ("00:06:00.000", _driver(5, "1:30.000")),
+    )
+    app = _stream(
+        ("00:00:00.000", {"Lines": {"1": {"Stints": [{"Compound": "SOFT"}]}}}),
+        ("00:00:30.000", {"Lines": {"1": {"Stints": {"1": None}}}}),
+        ("00:00:40.000", {"Lines": {"1": {"Stints": {"2": None}}}}),
+        ("00:00:50.000", {"Lines": {"1": {"Stints": {"1": {"Compound": "MEDIUM"}}}}}),
+        ("00:03:20.000", {"Lines": {"1": {"Stints": {"2": {"Compound": "HARD"}}}}}),
+    )
+    report = normalize_timing_evidence(_feeds(timing, app=app))
+
+    assert _lap(report, 2)["eligible"] is False
+    assert _lap(report, 3)["eligible"] is False
+    assert _lap(report, 4)["eligible"] is False
+    assert _lap(report, 5)["eligible"] is True
+    assert _lap(report, 5)["compound"] == "HARD"
+
+
+def test_malformed_older_index_does_not_poison_valid_active_stint() -> None:
+    timing = _timing(
+        ("00:00:00.000", _driver(1)),
+        ("00:01:30.000", _driver(2, "1:30.000")),
+    )
+    app = _stream(
+        (
+            "00:00:00.000",
+            {"Lines": {"1": {"Stints": [{"Compound": "SOFT"}, {"Compound": "MEDIUM"}]}}},
+        ),
+        ("00:00:30.000", {"Lines": {"1": {"Stints": {"0": None}}}}),
+    )
+    lap = _lap(normalize_timing_evidence(_feeds(timing, app=app)), 2)
+
+    assert lap["compound"] == "MEDIUM"
+    assert lap["eligible"] is True
+    assert "stint_compound_unknown" not in lap["exclusions"]
+
+
+def test_sparse_list_placeholder_does_not_clear_known_active_compound() -> None:
+    timing = _timing(
+        ("00:00:00.000", _driver(1)),
+        ("00:01:30.000", _driver(2, "1:30.000")),
+    )
+    app = _stream(
+        ("00:00:00.000", {"Lines": {"1": {"Stints": [{"Compound": "SOFT"}]}}}),
+        ("00:00:30.000", {"Lines": {"1": {"Stints": [None]}}}),
+    )
+    lap = _lap(normalize_timing_evidence(_feeds(timing, app=app)), 2)
+
+    assert lap["compound"] == "SOFT"
+    assert lap["eligible"] is True
+    assert "stint_compound_unknown" not in lap["exclusions"]
+
+
 @pytest.mark.parametrize("correction,late_only,lap_three_compound", [
     ({"Compound": "M"}, False, "MEDIUM"),
     ({"StartLaps": 3}, False, "HARD"),

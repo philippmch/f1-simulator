@@ -78,6 +78,12 @@ class _StintSnapshot:
     states: dict[int, dict[str, Any]]
     active_index: int | None
     metadata_conflicts: frozenset[int] = frozenset()
+    # An explicitly malformed compound update is evidence about the feed at
+    # this timestamp even when a later delta restores the previous value.  The
+    # second set keeps that uncertainty active until a valid compound update
+    # for the same stint is observed.
+    invalid_compound_indexes: frozenset[int] = frozenset()
+    unknown_compound_indexes: frozenset[int] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -383,6 +389,70 @@ def _merge_stints(states: dict[int, dict[str, Any]], value: Any) -> set[int]:
     return changed
 
 
+def _stint_compound_updates(value: Any) -> dict[int, Any]:
+    """Return explicit compound fields in one sparse stint delta.
+
+    A missing field is different from an explicit null or unknown value in
+    the archive's delta format.  This helper only reports fields that were
+    actually present, so metadata-only updates retain the preceding value.
+    """
+
+    updates: dict[int, Any] = {}
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            if isinstance(item, Mapping) and "Compound" in item:
+                updates[index] = item["Compound"]
+        return updates
+    if not isinstance(value, Mapping):
+        return updates
+    if any(str(key).casefold() in {"compound", "new", "startlaps", "totallaps"}
+           for key in value):
+        if "Compound" in value:
+            updates[0] = value["Compound"]
+        return updates
+    for raw_index, item in value.items():
+        try:
+            index = int(str(raw_index))
+        except (TypeError, ValueError):
+            continue
+        if index < 0 or not isinstance(item, Mapping):
+            continue
+        if "Compound" in item:
+            updates[index] = item["Compound"]
+    return updates
+
+
+def _invalid_stint_indexes(
+    states: Mapping[int, Mapping[str, Any]], value: Any,
+) -> set[int]:
+    """Identify explicit malformed stint entries without treating omissions as errors.
+
+    A sparse list may use non-mapping positions as placeholders, so a
+    non-mapping list item is not enough to claim that a stint was deleted.  A
+    malformed whole container or an explicitly malformed indexed entry is
+    still an unknown compound context for an already known active stint.
+    """
+
+    if isinstance(value, (list, Mapping)):
+        if isinstance(value, list):
+            # Null/sparse list placeholders carry no reliable index semantics.
+            return set()
+        invalid: set[int] = set()
+        if any(str(key).casefold() in {"compound", "new", "startlaps", "totallaps"}
+               for key in value):
+            return invalid
+        for raw_index, item in value.items():
+            try:
+                index = int(str(raw_index))
+            except (TypeError, ValueError):
+                continue
+            if index >= 0 and not isinstance(item, Mapping):
+                invalid.add(index)
+        return invalid
+    active_index = max(states) if states else None
+    return {active_index} if active_index is not None else set()
+
+
 def _known_stint_metadata(raw: Mapping[str, Any]) -> tuple[tuple[str, Any], ...]:
     """Return normalized metadata fields that can establish a correction."""
     values: list[tuple[str, Any]] = []
@@ -400,6 +470,7 @@ def _record_stints(rows: Sequence[_Row]) -> dict[str, list[_StintSnapshot]]:
     states_by_driver: dict[str, dict[int, dict[str, Any]]] = {}
     metadata_by_driver: dict[str, dict[int, dict[str, set[Any]]]] = {}
     conflicts_by_driver: dict[str, set[int]] = {}
+    unknown_compounds_by_driver: dict[str, set[int]] = {}
     for row in rows:
         payload = row.payload
         lines = _driver_lines(payload)
@@ -413,6 +484,9 @@ def _record_stints(rows: Sequence[_Row]) -> dict[str, list[_StintSnapshot]]:
                 continue
             driver = str(raw_driver)
             states = states_by_driver.setdefault(driver, {})
+            unknown_compounds = unknown_compounds_by_driver.setdefault(driver, set())
+            compound_updates = _stint_compound_updates(value)
+            invalid_indexes = _invalid_stint_indexes(states, value)
             changed = _merge_stints(states, value)
             metadata = metadata_by_driver.setdefault(driver, {})
             conflicts = conflicts_by_driver.setdefault(driver, set())
@@ -426,6 +500,18 @@ def _record_stints(rows: Sequence[_Row]) -> dict[str, list[_StintSnapshot]]:
                     values.add(field_value)
                     if len(values) > 1:
                         conflicts.add(index)
+            invalid_compounds = {
+                index
+                for index, compound_value in compound_updates.items()
+                if _normalise_compound(compound_value) is None
+            }
+            unknown_compounds.update(invalid_indexes)
+            unknown_compounds.update(invalid_compounds)
+            unknown_compounds.difference_update(
+                index
+                for index, compound_value in compound_updates.items()
+                if _normalise_compound(compound_value) is not None
+            )
             active_index = max(states) if states else None
             snapshots.setdefault(driver, []).append(
                 _StintSnapshot(
@@ -434,6 +520,8 @@ def _record_stints(rows: Sequence[_Row]) -> dict[str, list[_StintSnapshot]]:
                     {index: dict(item) for index, item in states.items()},
                     active_index,
                     frozenset(conflicts),
+                    frozenset(invalid_indexes | invalid_compounds),
+                    frozenset(unknown_compounds),
                 )
             )
     return snapshots
@@ -453,9 +541,70 @@ def _stint_at(
     raw = selected.states.get(selected.active_index)
     if raw is None:
         return None
-    compound = _normalise_compound(_lookup(raw, "Compound"))
     prior_wear = _start_laps(_lookup(raw, "StartLaps"))
+    if _unknown_compound_for_active(selected, selected.active_index):
+        return _StintState(selected.active_index, None, prior_wear)
+    compound = _normalise_compound(_lookup(raw, "Compound"))
     return _StintState(selected.active_index, compound, prior_wear)
+
+
+def _unknown_compound_for_active(
+    snapshot: _StintSnapshot, active_index: int | None = None
+) -> bool:
+    """Return whether unresolved metadata reaches the selected active stint."""
+
+    if active_index is None:
+        active_index = snapshot.active_index
+    return (
+        active_index is not None
+        and any(
+            index >= active_index
+            for index in (
+                snapshot.unknown_compound_indexes
+                | snapshot.invalid_compound_indexes
+            )
+        )
+    )
+
+
+def _stint_compound_unknown(
+    snapshots: Sequence[_StintSnapshot],
+    start: float | None,
+    end: float | None,
+    start_stint: _StintState | None,
+    end_stint: _StintState | None,
+) -> bool:
+    """Return whether the observed interval touched unknown compound evidence.
+
+    Snapshot timestamps are treated as inclusive boundaries.  An update at a
+    lap crossing is therefore retained as evidence for both adjacent laps;
+    same-time valid and invalid updates cannot silently choose a clean side of
+    an otherwise ambiguous boundary.
+    """
+
+    if start is None or end is None or start > end:
+        return False
+    indexes = {
+        stint.index
+        for stint in (start_stint, end_stint)
+        if stint is not None
+    }
+    if not indexes:
+        return False
+    selected_at_start: _StintSnapshot | None = None
+    for snapshot in snapshots:
+        if snapshot.seconds > start:
+            break
+        selected_at_start = snapshot
+    if selected_at_start is not None and _unknown_compound_for_active(
+        selected_at_start, start_stint.index if start_stint is not None else None
+    ):
+        return True
+    return any(
+        start <= snapshot.seconds <= end
+        and _unknown_compound_for_active(snapshot)
+        for snapshot in snapshots
+    )
 
 
 def _series_events(rows: Sequence[_Row], feed_name: str) -> list[_SeriesEvent]:
@@ -808,6 +957,10 @@ def normalize_timing_evidence(feeds: Mapping[str, str | bytes]) -> dict[str, Any
                     _append_reason(reasons, "compound_change_mid_lap")
                 if end_stint.compound in {"INTERMEDIATE", "WET"}:
                     _append_reason(reasons, "non_slick_compound")
+            if _stint_compound_unknown(
+                snapshots, start_seconds, end_seconds, start_stint, end_stint
+            ):
+                _append_reason(reasons, "stint_compound_unknown")
 
             if start_seconds is None:
                 track_result = "unknown"
