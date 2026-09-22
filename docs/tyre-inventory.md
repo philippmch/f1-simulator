@@ -122,6 +122,14 @@ Tyre-safety checks are also reused for each compound and projected weather
 update within that forecast. The cache is discarded with the planning call,
 so later race conditions are evaluated afresh.
 
+Repeated timed forecasts prepare the deterministic lap evaluator once for the
+fixed driver, car, track and physical fuel distance. The prepared path keeps
+tyre age, projected weather, fuel lap, traffic gap and active-aero availability
+as explicit inputs, and shares the final arithmetic composition with ordinary
+lap calculation. Custom simulator methods, model subclasses and custom tyre
+or weather models use the public evaluator instead, so the shortcut does not
+change extension dispatch or seeded race behavior.
+
 Automatic opening selection evaluates one deterministic policy path per distinct
 compound and prior age. Equivalent physical IDs receive the same score in their
 original order. The complete pool remains available throughout each path, and
@@ -174,6 +182,17 @@ enabled in both versions, three fresh-process pairs took 8.39/8.10,
 The measured gain was smaller (about 1–3% per pair); profiling confirmed that
 completion-bound calls fell from 1,058,663 to 549,081 while the number of
 expanded action lists stayed at 183,027. The search itself is unchanged.
+
+A 2026-09-22 check compared prepared lap evaluation against `00e4f27` in
+alternating fresh processes. With chronological wetting weather, finite pools,
+four drivers, explicit openings, 53 laps and seed 42, three before/after pairs
+took 6.72/5.97, 6.67/6.05 and 6.66/5.97 seconds. Median runtime fell by about
+10.5%; all six complete outcome hashes matched (`5ce6e5126dc8`). A single
+two-driver automatic-opening pair took 22.07/21.32 seconds with matching
+outcomes. Another 24 shorter cases covered both engines, all five benchmark
+weather patterns, both opening modes and additional seeds without an outcome
+change. These are local workload measurements, not a general speed guarantee;
+the optimization changes neither search allowances nor cancellation checks.
 
 ## Saved inputs and audit records
 

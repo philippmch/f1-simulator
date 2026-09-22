@@ -46,6 +46,9 @@ def _clock_inventory_strategy(
     horizon = track.total_laps - current_lap + 1
     driver = driver.model_copy(deep=True)
     simulator = LapSimulator(np.random.default_rng(0))
+    prepared_lap_time = simulator.prepare_deterministic_lap_time(
+        driver, car, track, physical_total_laps,
+    )
     service = expected_stationary_time(car)
     green_stop = track.pit_lane_delta + service
     current_stop = track.pit_lane_delta * pit_lane_factor + service \
@@ -79,15 +82,23 @@ def _clock_inventory_strategy(
 
     @lru_cache(maxsize=None)
     def running(offset, compound, age, first_kind, updates):
-        driver.current_tire_laps = age
-        value = simulator.calculate_lap_time(
-            driver, car, track, TIRE_COMPOUNDS[TireCompound(compound)],
-            projected_surface(updates), current_lap + offset,
-            physical_total_laps, sample_variation=False,
-            active_aero_enabled=(active_aero_enabled if offset == 0 else True),
-            gap_to_car_ahead=(gaps[first_kind] if first_kind is not None and gaps is not None
-                              else None),
-        )
+        tire = TIRE_COMPOUNDS[TireCompound(compound)]
+        surface = projected_surface(updates)
+        lap_number = current_lap + offset
+        aero_enabled = active_aero_enabled if offset == 0 else True
+        gap = (gaps[first_kind]
+               if first_kind is not None and gaps is not None else None)
+        if prepared_lap_time is None:
+            driver.current_tire_laps = age
+            value = simulator.calculate_lap_time(
+                driver, car, track, tire, surface, lap_number,
+                physical_total_laps, sample_variation=False,
+                active_aero_enabled=aero_enabled, gap_to_car_ahead=gap,
+            )
+        else:
+            value = prepared_lap_time(
+                tire, surface, lap_number, age, gap, aero_enabled,
+            )
         return value * current_lap_time_modifier if offset == 0 else value
 
     def run(offset, compound, age, updates, first_kind=None):

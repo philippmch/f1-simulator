@@ -1,5 +1,6 @@
 """Lap time calculation engine."""
 
+from collections.abc import Callable
 from functools import lru_cache
 
 import numpy as np
@@ -210,7 +211,31 @@ class LapSimulator:
                 * (0.85 + 0.3 * car.straight_line_speed),
             )
 
-        # Calculate final lap time
+        return self._compose_lap_time(
+            base_time, car_delta, skill_delta, random_variation,
+            tire_delta, fuel_delta, traffic_delta, active_aero_gain,
+            overtake_mode_gain, weather_multiplier, mismatch_penalty, track,
+        )
+
+    @staticmethod
+    def _compose_lap_time(
+        base_time: float,
+        car_delta: float,
+        skill_delta: float,
+        random_variation: float,
+        tire_delta: float,
+        fuel_delta: float,
+        traffic_delta: float,
+        active_aero_gain: float,
+        overtake_mode_gain: float,
+        weather_multiplier: float,
+        mismatch_penalty: float,
+        track: Track,
+    ) -> float:
+        """Combine lap terms in the same order used by all evaluators."""
+        # Keep this grouping stable: deterministic strategy choices are keyed
+        # by these floats, so an algebraically equivalent rewrite can change
+        # a tie at the last bit and select a different physical tyre set.
         lap_time = (
             base_time
             + car_delta
@@ -229,6 +254,139 @@ class LapSimulator:
 
         # Ensure minimum realistic lap time
         return max(minimum_lap_time(track), lap_time)
+
+    def prepare_deterministic_lap_time(
+        self,
+        driver: Driver,
+        car: Car,
+        track: Track,
+        total_laps: int,
+    ) -> Callable[..., float] | None:
+        """Prepare a native, deterministic evaluator for repeated forecasts.
+
+        The inventory strategy evaluates the same driver/car/track package for
+        hundreds of thousands of candidate laps.  This prepares the invariant
+        pace terms once while leaving tyre age, weather, fuel lap, gap, and
+        active-aero state as explicit evaluator inputs.
+
+        ``None`` means that a custom simulator implementation must be used.
+        The guard is deliberately conservative: subclasses and monkeypatched
+        physics methods retain the normal ``calculate_lap_time`` dispatch
+        rather than being silently bypassed by this native shortcut.
+        """
+        if not self._native_deterministic_evaluator_available():
+            return None
+        if (type(driver) is not Driver or type(car) is not Car
+                or type(track) is not Track):
+            return None
+        if type(total_laps) is not int or total_laps <= 0:
+            raise ValueError("total_laps must be a positive integer")
+
+        base_time = track.base_lap_time
+        car_delta = car.pace_delta_seconds(base_time)
+        car_delta += self._track_car_delta(car, track, base_time)
+        skill_delta = (1.0 - driver.skill_rating) * base_time * 0.03
+
+        stress = 0.75 + 0.5 * min(1.0, max(0.0, track.tire_stress))
+        degradation_multiplier = min(
+            1.75, max(0.5, car.tire_degradation_factor * stress)
+        )
+
+        total_active_aero_gain = track.total_active_aero_gain
+        active_aero_gain = 0.0
+        if total_active_aero_gain > 0.0:
+            _, opportunity_mix = self._track_profile(track)
+            active_aero_effectiveness = (0.65 + 0.35 * opportunity_mix) * (
+                0.9 + 0.2 * car.straight_line_speed
+            )
+            active_aero_gain = (
+                total_active_aero_gain * 0.8 * active_aero_effectiveness
+            )
+
+        # Capture the native bound method for the rare custom-model fallback.
+        # It retains the same driver-state update as the ordinary planner path.
+        calculate_lap_time = self.calculate_lap_time
+        tire_pace = LapSimulator._tire_pace_from_multiplier
+        compose = self._compose_lap_time
+        wet_skill_modifier = driver.wet_skill_modifier
+        wet_performance = car.wet_performance
+
+        def evaluate(
+            tire: Tire,
+            weather: Weather,
+            lap_number: int,
+            tire_age: int,
+            gap_to_car_ahead: float | None = None,
+            active_aero_enabled: bool = True,
+        ) -> float:
+            # Model subclasses may override methods used by the native path.
+            # Delegate those values through the original public method so a
+            # prepared evaluator never changes extension semantics.
+            if type(tire) is not Tire or type(weather) is not Weather:
+                driver.current_tire_laps = tire_age
+                return calculate_lap_time(
+                    driver, car, track, tire, weather, lap_number, total_laps,
+                    gap_to_car_ahead=gap_to_car_ahead,
+                    active_aero_enabled=active_aero_enabled,
+                    sample_variation=False,
+                )
+
+            tire_delta = tire_pace(
+                driver,
+                car,
+                track,
+                tire,
+                tire_age,
+                degradation_multiplier,
+            )
+            fuel_remaining_pct = (total_laps - lap_number + 1) / total_laps
+            fuel_delta = fuel_remaining_pct * base_time * 0.02
+            weather_multiplier = _weather_pace_multiplier_from_values(
+                weather.lap_time_multiplier(),
+                weather.wet_severity(),
+                wet_skill_modifier,
+                wet_performance,
+            )
+            mismatch_penalty = LapSimulator._tire_weather_mismatch(tire, weather)
+            traffic_delta = LapSimulator.traffic_pace_contribution(
+                gap_to_car_ahead
+            )
+            return compose(
+                base_time,
+                car_delta,
+                skill_delta,
+                0.0,
+                tire_delta,
+                fuel_delta,
+                traffic_delta,
+                active_aero_gain if active_aero_enabled else 0.0,
+                0.0,
+                weather_multiplier,
+                mismatch_penalty,
+                track,
+            )
+
+        return evaluate
+
+    def _native_deterministic_evaluator_available(self) -> bool:
+        """Whether native deterministic preparation can preserve dispatch."""
+        # The method references are populated after class creation below.  A
+        # small helper keeps the guard readable and also handles instance-level
+        # monkeypatches of ``calculate_lap_time``.
+        if type(self) is not LapSimulator:
+            return False
+        if any(name in self.__dict__ for name in _NATIVE_METHODS):
+            return False
+        if _method_function(LapSimulator.calculate_lap_time) is not _NATIVE_METHODS[
+            "calculate_lap_time"
+        ]:
+            return False
+        for name, native in _NATIVE_METHODS.items():
+            if name == "calculate_lap_time":
+                continue
+            if _method_function(getattr(LapSimulator, name)) is not native:
+                return False
+        return True
 
     @staticmethod
     def weather_pace_multiplier(driver: Driver, car: Car, weather: Weather) -> float:
@@ -256,11 +414,29 @@ class LapSimulator:
         cls, driver: Driver, car: Car, track: Track, tire: Tire, tire_age: int
     ) -> float:
         """Deterministic tyre seconds before weather, shared with stint planning."""
+        stress = 0.75 + 0.5 * min(1.0, max(0.0, track.tire_stress))
+        degradation_multiplier = min(
+            1.75, max(0.5, car.tire_degradation_factor * stress)
+        )
+        return cls._tire_pace_from_multiplier(
+            driver, car, track, tire, tire_age, degradation_multiplier,
+        )
+
+    @classmethod
+    def _tire_pace_from_multiplier(
+        cls,
+        driver: Driver,
+        car: Car,
+        track: Track,
+        tire: Tire,
+        tire_age: int,
+        degradation_multiplier: float,
+    ) -> float:
+        """Evaluate tyre pace after the invariant stress multiplier is known."""
         degradation = tire.time_penalty_per_lap(
             tire_age, track.base_lap_time, driver.tire_management
         )
-        stress = 0.75 + 0.5 * min(1.0, max(0.0, track.tire_stress))
-        degradation *= min(1.75, max(0.5, car.tire_degradation_factor * stress))
+        degradation *= degradation_multiplier
         return cls._compound_pace_delta(tire, track.base_lap_time, tire_age) + degradation
 
     @classmethod
@@ -477,3 +653,28 @@ class LapSimulator:
             # (0, 14), (0.3, 0); no added mismatch above 0.3.
             return 14.0 * max(0.0, (0.3 - water) / 0.3)
         return 0.0
+
+
+def _method_function(value):
+    """Return the underlying function for a bound or class method."""
+    return getattr(value, "__func__", value)
+
+
+# Keep immutable references to the native dispatch points.  Runtime tests and
+# integrations commonly monkeypatch ``calculate_lap_time``; comparing against
+# these references makes preparation opt out instead of changing their model.
+_NATIVE_METHODS = {
+    name: _method_function(getattr(LapSimulator, name))
+    for name in (
+        "calculate_lap_time",
+        "_compose_lap_time",
+        "_track_car_delta",
+        "_track_profile",
+        "_tire_pace_from_multiplier",
+        "_compound_pace_delta",
+        "tire_pace_contribution",
+        "weather_pace_multiplier",
+        "_tire_weather_mismatch",
+        "traffic_pace_contribution",
+    )
+}
