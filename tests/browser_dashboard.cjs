@@ -231,6 +231,52 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       {id: 'set-3', compound: 'intermediate', age: 0}, {id: 'set-4', compound: 'wet', age: 0},
     ]);
     await page.locator('#tireInventoryInput').fill(offline ? 'S00=hard@5,soft,intermediate,wet' : '');
+    const pitPlanPrototype = await page.evaluate(() => {
+      const input = document.getElementById('pitPlansInput');
+      const previous = input.value;
+      input.value = '__proto__=24:wet';
+      const parsed = parsePitPlanInput();
+      input.value = previous;
+      return {
+        ok: parsed.ok,
+        prototype: Object.getPrototypeOf(parsed.pitPlans),
+        ownPrototypeKey: Object.hasOwn(parsed.pitPlans, '__proto__'),
+        record: parsed.pitPlans.__proto__?.[0],
+      };
+    });
+    assert.equal(pitPlanPrototype.ok, true);
+    assert.equal(pitPlanPrototype.prototype, null);
+    assert.equal(pitPlanPrototype.ownPrototypeKey, true);
+    assert.deepEqual(pitPlanPrototype.record, {lap: 24, compound: 'wet'});
+    const pitPlanInput = page.locator('#pitPlansInput');
+    await pitPlanInput.fill(offline ? 'S00=18:hard,36:soft;S01=none' : '');
+    const customPayload = await page.evaluate(() => {
+      const payload = buildRunPayload();
+      return {
+        payload,
+        pitPlansNullPrototype: Object.getPrototypeOf(payload?.pit_plans) === null,
+      };
+    });
+    if (offline) {
+      assert.deepEqual(customPayload.payload.pit_plans, {
+        S00: [{lap: 18, compound: 'hard'}, {lap: 36, compound: 'soft'}], S01: [],
+      });
+      assert.equal(customPayload.pitPlansNullPrototype, true);
+    } else {
+      assert.equal(Object.hasOwn(customPayload.payload, 'pit_plans'), false);
+    }
+    for (const invalid of [
+      'S00=1:hard', 'S00=18.5:hard', 'S00=true:hard', 'S00=18:Hard',
+      'S00=18:hard,18:soft', 'S00=18:hard;S00=24:soft', 'S00=18:',
+      'S00=18:hard,', 'S00=', 'S00=none,24:hard',
+      `S00=${Array.from({length: 21}, (_, index) => `${index + 2}:hard`).join(',')}`,
+    ]) {
+      await pitPlanInput.fill(invalid);
+      assert.equal(await page.evaluate(() => buildRunPayload()), null,
+        `Invalid custom pit plan was accepted: ${invalid}`);
+      assert((await page.locator('#appStatus').innerText()).includes('Custom pit plans'));
+    }
+    await pitPlanInput.fill(offline ? 'S00=18:hard,36:soft;S01=none' : '');
     const ledgerHtml = await page.evaluate(() => renderTireSetLedgers([{
       driver_id: 'S00', tire_set_history: [{lap: 1, kind: 'start',
         set_id: '<img src=x onerror=alert(1)>', compound: 'hard', age_at_fit: 5,
@@ -258,6 +304,13 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       offline ? {S00: 'hard', S01: 'soft'} : {});
     assert.deepEqual(response.request().postDataJSON().starting_tire_ages,
       offline ? {S00: 5} : {});
+    if (offline) {
+      assert.deepEqual(response.request().postDataJSON().pit_plans, {
+        S00: [{lap: 18, compound: 'hard'}, {lap: 36, compound: 'soft'}], S01: [],
+      });
+    } else {
+      assert.equal(Object.hasOwn(response.request().postDataJSON(), 'pit_plans'), false);
+    }
     const payload = await response.json();
     assert.equal(payload.request.race_engine, 'chronological');
     // The matrix initially shows aggregate top contenders, which need not
@@ -358,6 +411,89 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       assert(payload.scenarios.dry.strategy_statistics.S00.strategies.every(row => row.compounds[0] === 'hard'));
       // Critical weather corrections still replace an unsuitable unrun set.
       assert(payload.scenarios.heavy_rain.strategy_statistics.S00.strategies.every(row => row.compounds[0] === 'wet'));
+
+      // Custom-plan metadata and outcomes come from the saved result snapshot,
+      // so later edits to the controls cannot rewrite an already rendered race.
+      await page.evaluate(() => {
+        const scenario = getScenarioEntry().data;
+        window.savedCustomPitPlanRace = scenario.sample_race;
+        window.savedCustomPitPlanInputs = scenario.simulation_inputs;
+        window.savedCustomPitPlanRequest = simResults.request;
+        const history = [
+          {lap: 18, compound: 'hard', status: 'executed', reason: 'user_plan',
+            actual_compound: 'hard', actual_set_id: 'set-2'},
+          {lap: 36, compound: 'soft', status: 'overridden', reason: 'forced_repair',
+            actual_compound: 'wet', actual_set_id: 'set-3'},
+          {lap: 48, compound: 'medium', status: 'skipped',
+            reason: 'requested_compound_unavailable', actual_compound: null, actual_set_id: null},
+          {lap: 56, compound: 'hard', status: 'not_reached', reason: 'race_finished',
+            actual_compound: null, actual_set_id: null},
+        ];
+        const pitPlans = Object.create(null);
+        pitPlans.S00 = history.map(({lap, compound}) => ({lap, compound}));
+        pitPlans.S01 = [];
+        pitPlans['<img src=x onerror="window.planInjected=true">'] = [{lap: 20, compound: 'wet'}];
+        scenario.simulation_inputs = {...(scenario.simulation_inputs || {}), pit_plans: pitPlans};
+        simResults.request = {...(simResults.request || {}), pit_plans: pitPlans};
+        scenario.sample_race = scenario.sample_race.map((row, index) => ({
+          ...row,
+          pit_plan_history: index === 0 ? history : index === 1 ? [] : null,
+        }));
+        renderRace();
+      });
+      assert((await page.locator('#raceContent').innerText()).includes('S00: L18 Hard'));
+      assert((await page.locator('#raceContent').innerText()).includes('S01: No elective stops'));
+      assert((await page.locator('#raceContent').innerText()).includes('unlisted drivers automatic'));
+      await pitPlanInput.fill('S00=2:medium');
+      await page.evaluate(() => renderRace());
+      const raceSnapshotText = await page.locator('#raceContent').innerText();
+      assert(raceSnapshotText.includes('S00: L18 Hard'));
+      assert(!raceSnapshotText.includes('S00: L2 Medium'));
+      await page.locator('#samplePitPlanHistory summary').click();
+      const pitPlanHistoryText = await page.locator('#samplePitPlanHistory').innerText();
+      for (const label of [
+        'Executed', 'Overridden by compulsory rule', 'Skipped', 'Not reached',
+        'User-directed plan', 'Forced tyre replacement', 'Requested compound unavailable',
+        'Race finished before instruction', 'No elective instructions',
+        'use automatic strategy or have no recorded custom history',
+        'set-2', '—',
+      ]) {
+        assert(pitPlanHistoryText.includes(label), `Missing custom pit-plan detail: ${label}`);
+      }
+      assert.equal(await page.locator('#samplePitPlanHistory img, #samplePitPlanHistory svg').count(), 0);
+      assert.equal(await page.locator('#samplePitPlanHistory [role="region"]').getAttribute('tabindex'), '0');
+      const hostilePitPlanHtml = await page.evaluate(() => renderPitPlanHistory([{
+        driver_id: '<img src=x onerror="window.planInjected=true">',
+        pit_plan_history: [{lap: 2, compound: 'hard', status: '<svg>', reason: '<img>',
+          actual_compound: '<b>', actual_set_id: '<script>'}],
+      }]));
+      assert(hostilePitPlanHtml.includes('&lt;img') && !hostilePitPlanHtml.includes('<img'));
+      assert.equal(await page.evaluate(() => Boolean(window.planInjected)), false);
+      const planViewport = page.viewportSize();
+      const planRegion = page.locator('#samplePitPlanHistory [role="region"]');
+      for (const width of [320, 390, 1440]) {
+        await page.setViewportSize({width, height: 1100});
+        assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+          `Custom pit-plan history overflows at ${width}px`);
+        await planRegion.focus();
+        assert(await planRegion.evaluate(node => document.activeElement === node));
+        if (process.env.F1SIM_SCREENSHOTS && width !== 320) {
+          await page.locator('#samplePitPlanHistory').screenshot({path: path.join(
+            process.env.F1SIM_SCREENSHOTS, `custom-plan-dashboard-${width}.png`)});
+        }
+      }
+      await page.setViewportSize(planViewport);
+      await page.evaluate(() => {
+        const scenario = getScenarioEntry().data;
+        scenario.sample_race = savedCustomPitPlanRace;
+        scenario.simulation_inputs = savedCustomPitPlanInputs;
+        simResults.request = savedCustomPitPlanRequest;
+        delete window.savedCustomPitPlanRace;
+        delete window.savedCustomPitPlanInputs;
+        delete window.savedCustomPitPlanRequest;
+        renderRace();
+      });
+      await pitPlanInput.fill('S00=18:hard,36:soft;S01=none');
     }
     await page.locator('#tab-stats').click();
     const reliabilityCard = page.locator('.stat-card').filter({hasText: 'Mechanical Failures'}).first();
@@ -835,6 +971,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       await page.locator('#btnStop').waitFor({state: 'visible'});
       assert(await page.locator('#btnRun').isDisabled());
       assert(await page.locator('#btnTyreSetup').isDisabled());
+      assert(await page.locator('#pitPlansInput').isDisabled());
       assert(await page.locator('#btnStop').isEnabled());
       assert.equal(await page.evaluate(() => document.activeElement?.id), 'btnStop');
       await page.locator('#trackSelect').focus();

@@ -72,6 +72,7 @@ class DashboardRunRequest:
     weather_mode: str = "evolving"
     starting_tire_ages: dict[str, StrictInt] | None = None
     tire_inventory: Any = None
+    pit_plans: Any = None
 
 
 def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
@@ -83,6 +84,11 @@ def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
     validate_starting_tire_ages(request.starting_tire_ages, request.starting_tires)
     validate_tire_inventory(request.tire_inventory, request.starting_tires,
                             request.starting_tire_ages)
+    from f1sim.simulation.pit_plans import validate_pit_plans
+
+    # Validate shape and canonical compounds before any live data request.  The
+    # roster, race distance and finite pool are checked again once loaded below.
+    validate_pit_plans(request.pit_plans)
     current_season = _current_season()
     if isinstance(request.year, bool) or not isinstance(request.year, int):
         raise ValueError(f"Only the live {current_season} F1 season is available.")
@@ -188,6 +194,10 @@ def _serialize_race_result(result: Any) -> dict[str, Any]:
         "points_awarded": points_for_result(result),
         "dnf_reason": result.dnf_reason,
         "strategy": list(result.strategy),
+        "pit_plan_history": (
+            [dict(record) for record in result.pit_plan_history]
+            if getattr(result, "pit_plan_history", None) is not None else None
+        ),
     }
 
 
@@ -527,6 +537,14 @@ def run_dashboard_simulation(
     cars = loader.create_cars_from_stats(driver_stats)
     _check_dashboard_cancellation(cancel_requested)
     track = loader.create_track_from_stats(track_stats)
+    from f1sim.simulation.pit_plans import validate_pit_plans
+
+    pit_plans = validate_pit_plans(
+        request.pit_plans,
+        driver_ids=(driver.id for driver in drivers),
+        total_laps=track.total_laps,
+        tire_inventory=tire_inventory,
+    )
     base_weather = Weather(
         condition=WeatherCondition.DRY,
         track_temperature=35.0,
@@ -562,6 +580,7 @@ def run_dashboard_simulation(
             **({"tire_inventory": tire_inventory} if tire_inventory else {}),
             **({"starting_tires": starting_tires} if starting_tires else {}),
             **({"starting_tire_ages": starting_tire_ages} if starting_tire_ages else {}),
+            **({"pit_plans": pit_plans} if pit_plans else {}),
         )
         t0 = time.perf_counter()
         run_kwargs: dict[str, Any] = {
@@ -599,6 +618,7 @@ def run_dashboard_simulation(
         "tire_inventory": tire_inventory,
         "starting_tires": starting_tires,
         "starting_tire_ages": starting_tire_ages,
+        "pit_plans": pit_plans,
         "weather_mode": request.weather_mode,
         "qualifying_mode": "simulated",
         "parallel": request.parallel,

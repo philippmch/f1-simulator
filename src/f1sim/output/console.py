@@ -71,6 +71,25 @@ def _paid_stop_cost_lines(costs: dict) -> list[str]:
     ]
 
 
+def _pit_plan_context(results: SimulationResults) -> tuple[dict, dict] | None:
+    """Return configured plans and compact status counts for console summaries."""
+    snapshot = results.input_snapshot
+    plans = snapshot.get("pit_plans") if isinstance(snapshot, dict) else None
+    if not isinstance(plans, dict) or not plans:
+        return None
+    counts = {driver: {} for driver in plans}
+    for race in results.race_results:
+        for row in race:
+            history = getattr(row, "pit_plan_history", None)
+            if row.driver_id not in counts or history is None:
+                continue
+            statuses = counts[row.driver_id]
+            for record in history:
+                status = record.get("status") if isinstance(record, dict) else "malformed"
+                statuses[status] = statuses.get(status, 0) + 1
+    return plans, counts
+
+
 class ConsoleOutput:
     """Formats simulation results for console display."""
 
@@ -257,6 +276,24 @@ class ConsoleOutput:
                 f"max_workers={results.max_workers if results.max_workers is not None else 'auto'}"
             )
         print("=" * 80)
+
+        plan_context = _pit_plan_context(results)
+        if plan_context is not None:
+            plans, counts = plan_context
+            print("\nCUSTOM PIT PLAN:")
+            print("Requested laps are each driver's own lap; automatic policy remains "
+                  "active for unlisted drivers.")
+            for driver, instructions in plans.items():
+                if instructions == []:
+                    requested = "no elective stops"
+                else:
+                    requested = ", ".join(
+                        f"{item['lap']}:{item['compound']}" for item in instructions
+                    )
+                observed = ", ".join(
+                    f"{status}={count}" for status, count in counts[driver].items()
+                ) or "history not recorded"
+                print(f"  {driver}: {requested}; observed {observed}")
 
         # Win probabilities
         print("\nWIN PROBABILITIES:")

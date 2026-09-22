@@ -24,7 +24,7 @@ def _snapshot(result):
     if not isinstance(snapshot, dict):
         return None
     version = snapshot.get("schema_version")
-    if not _integer(version, 1) or version not in (1, 2, 3, 4):
+    if not _integer(version, 1) or version not in (1, 2, 3, 4, 5):
         return None
     policy = snapshot.get("rng_policy", "shared_v1" if version == 1 else None)
     if policy not in RNG_POLICIES:
@@ -58,6 +58,10 @@ def _snapshot(result):
             return None
         if version < 4 and snapshot.get("tire_inventory"):
             return None
+        if version == 5 and "pit_plans" not in snapshot:
+            return None
+        if version < 5 and "pit_plans" in snapshot:
+            return None
         inventory = validate_tire_inventory(snapshot.get("tire_inventory"),
             snapshot.get("starting_tires"), snapshot.get("starting_tire_ages"), ids)
         if version == 3 and not isinstance(snapshot.get("starting_tire_ages"), dict):
@@ -66,6 +70,17 @@ def _snapshot(result):
             return None
         validate_starting_tire_ages(snapshot.get("starting_tire_ages"),
                                     snapshot.get("starting_tires"), ids)
+        if version == 5:
+            from f1sim.simulation.pit_plans import validate_pit_plans
+
+            plans = validate_pit_plans(
+                snapshot["pit_plans"],
+                driver_ids=ids,
+                total_laps=snapshot["track"]["total_laps"],
+                tire_inventory=inventory,
+            )
+            if not plans or plans != snapshot["pit_plans"]:
+                return None
         if len(set(ids)) != len(ids) or any(not key for key in ids):
             return None
     except (ValidationError, TypeError, ValueError):

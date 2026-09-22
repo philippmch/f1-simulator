@@ -93,6 +93,14 @@ def _tire_inventory(value: str) -> dict:
         raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
+def _pit_plans(value: str) -> dict:
+    from f1sim.simulation.pit_plans import parse_pit_plan_spec
+    try:
+        return parse_pit_plan_spec(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
 def _starting_tires(value: str) -> tuple[dict[str, str], dict[str, int]]:
     overrides = {}
     ages = {}
@@ -196,6 +204,11 @@ def main() -> int:
         "--tire-inventory", type=_tire_inventory,
         help="Race sets: VER=soft@5,medium,hard;NOR=soft,hard. Unlisted drivers unlimited.",
     )
+    parser.add_argument(
+        "--pit-plans", type=_pit_plans,
+        help=("Optional custom stops using own-lap shorthand, e.g. "
+              "VER=18:medium,36:hard;NOR=none"),
+    )
     args = parser.parse_args()
     from f1sim.simulation.tire_inventory import validate_tire_inventory
     try:
@@ -280,6 +293,17 @@ def main() -> int:
            for stats in driver_stats.values()):
         print("Mechanical reliability uses a model prior; retirement causes are not identified.")
     track = loader.create_track_from_stats(track_stats)
+    try:
+        from f1sim.simulation.pit_plans import validate_pit_plans
+
+        pit_plans = validate_pit_plans(
+            args.pit_plans,
+            driver_ids=(driver.id for driver in drivers),
+            total_laps=track.total_laps,
+            tire_inventory=tire_inventory,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
 
     # Set up weather (default to dry)
     weather = Weather(
@@ -291,6 +315,14 @@ def main() -> int:
 
     print(f"\nDrivers: {len(drivers)}")
     print(f"Teams: {len(cars)}")
+    if pit_plans:
+        print("Custom pit plans: " + "; ".join(
+            f"{driver}=no elective stops" if instructions == [] else
+            f"{driver}=" + ", ".join(
+                f"{item['lap']} own lap:{item['compound']}" for item in instructions
+            )
+            for driver, instructions in pit_plans.items()
+        ))
 
     # Run Monte Carlo simulation
     print(f"\nRunning {args.simulations} simulations...")
@@ -313,6 +345,7 @@ def main() -> int:
             **({"tire_inventory": tire_inventory} if tire_inventory else {}),
             **({"starting_tires": starting_tires} if starting_tires else {}),
             **({"starting_tire_ages": starting_tire_ages} if starting_tire_ages else {}),
+            **({"pit_plans": pit_plans} if pit_plans else {}),
         )
 
         scenario_result = runner.run(

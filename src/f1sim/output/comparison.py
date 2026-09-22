@@ -22,6 +22,22 @@ _PIT_DECISION_LABELS = {
     "inventory_forecast": "Inventory forecast",
     "neutralization_window": "Neutralization window",
     "planned_window": "Planned window",
+    "user_plan": "Custom pit plan",
+}
+
+_PIT_PLAN_STATUS_LABELS = {
+    "executed": "Executed",
+    "overridden": "Overridden",
+    "skipped": "Skipped",
+    "not_reached": "Not reached",
+}
+
+_PIT_PLAN_REASON_LABELS = {
+    **_PIT_DECISION_LABELS,
+    "requested_compound_unavailable": "Requested compound unavailable",
+    "critical_requested_compound": "Critical requested compound",
+    "retired": "Retired",
+    "race_finished": "Race finished",
 }
 
 
@@ -52,6 +68,107 @@ def _starting_tires(result: SimulationResults) -> str:
         ages = {}
     return ", ".join(f"{driver}={tire}" + (f"@{ages[driver]}" if ages.get(driver) else "")
                      for driver, tire in overrides.items()) or "Automatic"
+
+
+def _pit_plans(result: SimulationResults) -> str:
+    """Describe configured custom plans while preserving automatic vs empty-plan meaning."""
+    snapshot = result.input_snapshot
+    if not isinstance(snapshot, dict) or "pit_plans" not in snapshot:
+        return "Automatic (no custom plans)"
+    plans = snapshot.get("pit_plans")
+    if not isinstance(plans, dict):
+        return "Not recorded"
+    if not plans:
+        return "Automatic (no custom plans)"
+    rendered = []
+    for driver, instructions in plans.items():
+        if instructions == []:
+            rendered.append(f"{driver}=no elective stops")
+            continue
+        if not isinstance(instructions, list):
+            rendered.append(f"{driver}=not recorded")
+            continue
+        stops = ", ".join(
+            f"{item.get('lap', '—')} own lap: {item.get('compound', '—')}"
+            for item in instructions if isinstance(item, dict)
+        )
+        rendered.append(f"{driver}={stops or 'not recorded'}")
+    return "; ".join(rendered) or "Automatic (no custom plans)"
+
+
+def _pit_plan_history_html(result: SimulationResults, scenario: str) -> str:
+    """Render recorded requested-plan histories, keeping absent data explicit."""
+    snapshot = result.input_snapshot
+    plans = snapshot.get("pit_plans") if isinstance(snapshot, dict) else None
+    if not isinstance(plans, dict) or not plans:
+        return ""
+    listed = set(plans)
+    rows = []
+    for simulation, race in enumerate(result.race_results, start=1):
+        for row in race:
+            if row.driver_id not in listed:
+                continue
+            history = getattr(row, "pit_plan_history", None)
+            if history is None:
+                rows.append(
+                    f"<tr><td>{simulation}</td><td>{_text(row.driver_id)}</td>"
+                    '<td colspan="6">Not recorded</td></tr>'
+                )
+                continue
+            if not history:
+                rows.append(
+                    f"<tr><td>{simulation}</td><td>{_text(row.driver_id)}</td>"
+                    '<td colspan="6">Explicit no elective stops</td></tr>'
+                )
+                continue
+            for record in history:
+                if not isinstance(record, dict):
+                    rows.append(
+                        f"<tr><td>{simulation}</td><td>{_text(row.driver_id)}</td>"
+                        '<td colspan="6">Malformed history record</td></tr>'
+                    )
+                    continue
+                raw_status = record.get("status")
+                status = (
+                    "—" if raw_status is None else
+                    _PIT_PLAN_STATUS_LABELS.get(raw_status, raw_status)
+                )
+                requested_lap = record.get("lap", "Not recorded")
+                requested_text = (
+                    f"{requested_lap} (own lap)" if isinstance(requested_lap, int)
+                    and not isinstance(requested_lap, bool) else str(requested_lap)
+                )
+                reason = record.get("reason")
+                reason_text = "—" if reason is None else _PIT_PLAN_REASON_LABELS.get(
+                    reason, reason,
+                )
+                actual_compound = record.get("actual_compound")
+                actual_set_id = record.get("actual_set_id")
+                rows.append(
+                    f"<tr><td>{simulation}</td><td>{_text(row.driver_id)}</td>"
+                    f"<td>{_text(requested_text)}</td>"
+                    f"<td>{_text(record.get('compound', 'Not recorded'))}</td>"
+                    f"<td>{_text(status)}</td>"
+                    f"<td>{_text(reason_text)}</td>"
+                    f"<td>{_text(actual_compound if actual_compound is not None else '—')}</td>"
+                    f"<td>{_text(actual_set_id if actual_set_id is not None else '—')}</td></tr>"
+                )
+    if not rows:
+        return (
+            f'<p>No recorded custom pit-plan history for {_text(scenario)}. '
+            'Missing histories remain unknown.</p>'
+        )
+    return (
+        '<div class="table-wrap pit-plan-history" tabindex="0" role="region" '
+        f'aria-label="{_text(scenario)} custom pit-plan history">'
+        f'<table><caption>Requested and executed custom pit-plan history for {_text(scenario)} '
+        '(requested laps are each driver\'s own lap)</caption><thead><tr>'
+        '<th scope="col">Trial</th><th scope="col">Driver</th>'
+        '<th scope="col">Requested lap</th><th scope="col">Requested compound</th>'
+        '<th scope="col">Status</th><th scope="col">Reason</th>'
+        '<th scope="col">Actual compound</th><th scope="col">Actual set</th>'
+        '</tr></thead><tbody>' + "".join(rows) + '</tbody></table></div>'
+    )
 
 
 def _weather(result: SimulationResults) -> str:
@@ -371,6 +488,7 @@ def render_comparison_report(
                 result.seed if result.seed is not None else "Not recorded",
                 _weather(result),
                 _starting_tires(result),
+                _pit_plans(result),
                 json.dumps((result.input_snapshot or {}).get("tire_inventory", {})),
             )
         ) + "</tr>")
@@ -510,6 +628,14 @@ def render_comparison_report(
         if any(getattr(row, 'tire_set_history', None) is not None
                for race in result.race_results for row in race)
     )
+    plan_sections = ''.join(
+        f'<details><summary>{_text(name)}</summary>'
+        + _pit_plan_history_html(result, name) + '</details>'
+        for name, result in scenario_results.items()
+        if isinstance(result.input_snapshot, dict)
+        and isinstance(result.input_snapshot.get("pit_plans"), dict)
+        and result.input_snapshot.get("pit_plans")
+    )
     return """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -551,8 +677,9 @@ aria-label="Scenario context"><table><caption>Recorded run context</caption><the
 <th scope="col">Requested trials</th><th scope="col">Base seed</th>
 <th scope="col">Initial weather</th>
 <th scope="col">Starting tyre overrides</th>
+<th scope="col">Custom pit plans</th>
 <th scope="col">Input race set pools (unlisted drivers unlimited)</th></tr></thead><tbody>""" + (
-        "".join(context) or '<tr><td colspan="8">No scenarios recorded</td></tr>'
+        "".join(context) or '<tr><td colspan="9">No scenarios recorded</td></tr>'
     ) + """</tbody></table></div><h2>Completed race suspension</h2>
 <p>Mean suspension uses races with a valid shared duration, including known
 zero-second pauses. Positive suspension counts exclude those zero-second
@@ -617,4 +744,6 @@ failures; other race processes continue sharing the race stream.</p>""" + (
         "".join(sections) or "<p>No driver outcomes recorded.</p>"
     ) + (
         '<h2>Race tyre set ledgers</h2>' + inventory_sections if inventory_sections else ''
+    ) + (
+        '<h2>Custom pit-plan execution</h2>' + plan_sections if plan_sections else ''
     ) + "</main></body></html>"

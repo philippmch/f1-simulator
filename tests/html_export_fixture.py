@@ -1,6 +1,7 @@
 """Build real HTML exports with markup-like names for an offline browser test."""
 
 import json
+from copy import deepcopy
 from tempfile import TemporaryDirectory
 
 from f1sim.analysis.montecarlo import DriverStatistics, MonteCarloRunner, SimulationResults
@@ -55,6 +56,28 @@ def build_fixture():
         ).read_text(encoding="utf-8")
         paired_stats = paired_comparison_statistics(paired_variants, "hard")
         report = exporter.export_report_html(results, filename).read_text(encoding="utf-8")
+        planned = deepcopy(results)
+        planned.input_snapshot["pit_plans"] = {
+            driver: [{"lap": lap, "compound": "hard"} for lap in range(2, 6)],
+        }
+        planned.race_results[0][0].pit_plan_history = [
+            {"lap": lap, "compound": "hard", "status": status,
+             "reason": reason, "actual_compound": "hard" if lap < 4 else None,
+             "actual_set_id": script if lap < 4 else None}
+            for lap, status, reason in (
+                (2, "executed", "user_plan"),
+                (3, "overridden", "forced_repair"),
+                (4, "skipped", "requested_compound_unavailable"),
+                (5, "not_reached", "retired"),
+            )
+        ]
+        held = deepcopy(planned)
+        held.input_snapshot["pit_plans"][driver] = []
+        held.race_results[0][0].pit_plan_history = []
+        plan_report = exporter.export_scenario_comparison_html(
+            {"Custom plan": planned, "No elective stops": held, "Legacy": results},
+            filename="plans.html", focus_driver=driver,
+        ).read_text(encoding="utf-8")
         exporter._write_history([{
             "timestamp": "<img src=x onerror=globalThis.exportInjected=true>",
             "track": track, "num_simulations": 1, "seed": 42,
@@ -62,7 +85,7 @@ def build_fixture():
         }])
         index = exporter.export_run_index_html().read_text(encoding="utf-8")
     return {"report": report, "comparison": comparison, "index": index,
-            "paired": paired,
+            "paired": paired, "plan_report": plan_report,
             "paired_stats": paired_stats["variants"]["soft"]["driver_statistics"]["A"],
             "track": track, "driver": driver,
             "team": team, "filename": filename, "stats_name": stats_name}

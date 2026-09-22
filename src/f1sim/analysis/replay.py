@@ -13,6 +13,26 @@ from f1sim.models import Car, Driver, Track, Weather
 from f1sim.simulation.execution import validate_race_engine
 
 
+def _validate_pit_plans(
+    value,
+    driver_ids,
+    *,
+    total_laps,
+    tire_inventory,
+):
+    """Validate saved custom plans through the simulation-layer contract."""
+    if value is None:
+        return None
+    from f1sim.simulation.pit_plans import validate_pit_plans
+
+    return validate_pit_plans(
+        value,
+        driver_ids=driver_ids,
+        total_laps=total_laps,
+        tire_inventory=tire_inventory,
+    )
+
+
 def _integer(value: object, name: str, minimum: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
         raise ValueError(f"{name} must be an integer at least {minimum}")
@@ -66,12 +86,16 @@ def _load_saved_runner(
     if not isinstance(inputs, dict):
         raise ValueError("simulation_inputs must be an object")
     version = inputs.get("schema_version")
-    if type(version) is not int or version not in (1, 2, 3, 4):
-        raise ValueError("Unsupported simulation input schema_version; expected 1, 2, 3 or 4")
+    if type(version) is not int or version not in (1, 2, 3, 4, 5):
+        raise ValueError("Unsupported simulation input schema_version; expected 1, 2, 3, 4 or 5")
     if version == 4 and not isinstance(inputs.get("tire_inventory"), dict):
         raise ValueError("Schema 4 requires tire_inventory")
     if version < 4 and inputs.get("tire_inventory"):
         raise ValueError("Legacy schemas cannot contain tire_inventory")
+    if version == 5 and "pit_plans" not in inputs:
+        raise ValueError("Schema 5 requires pit_plans")
+    if version < 5 and "pit_plans" in inputs:
+        raise ValueError("Schemas 1-4 cannot contain pit_plans")
     if version == 3 and not isinstance(inputs.get("starting_tire_ages"), dict):
         raise ValueError("Schema 3 requires starting_tire_ages")
     if version < 3 and inputs.get("starting_tire_ages"):
@@ -95,12 +119,25 @@ def _load_saved_runner(
             raise ValueError(f"Saved {name} must be an object")
     drivers = [_validate_saved_model(Driver, row) for row in raw_drivers]
     cars = {key: _validate_saved_model(Car, row) for key, row in raw_cars.items()}
+    track = _validate_saved_model(Track, inputs["track"])
+    weather = _validate_saved_model(Weather, inputs["weather"])
+    driver_ids = [driver.id for driver in drivers]
+    pit_plans = None
+    if version == 5:
+        pit_plans = _validate_pit_plans(
+            inputs["pit_plans"],
+            driver_ids,
+            total_laps=track.total_laps,
+            tire_inventory=inputs.get("tire_inventory"),
+        )
+        if not pit_plans:
+            raise ValueError("Schema 5 pit_plans must be a nonempty mapping")
     return MonteCarloRunner(
-        drivers, cars, _validate_saved_model(Track, inputs["track"]),
-        _validate_saved_model(Weather, inputs["weather"]), seed=seed,
+        drivers, cars, track, weather, seed=seed,
         race_engine=engine,
         starting_tires=inputs.get("starting_tires"),
         starting_tire_ages=inputs.get("starting_tire_ages"),
         tire_inventory=inputs.get("tire_inventory"),
         rng_policy=inputs.get("rng_policy", "shared_v1" if version == 1 else None),
+        pit_plans=pit_plans,
     ), count

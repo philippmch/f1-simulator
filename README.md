@@ -125,6 +125,13 @@ Unlisted drivers keep unlimited sets. Removed undamaged sets can be reused
 with their accumulated wear. See [finite race tyre pools](docs/tyre-inventory.md)
 for Python/API inputs, exhausted-pool behavior and exported set ledgers.
 
+To test deliberate stops, use **Custom pit plans (optional)** or
+`--pit-plans "VER=18:medium,36:hard;NOR=none"`. Lap numbers refer to each driver's
+own lap at pit entry, before running that lap. Unlisted drivers stay automatic;
+`none` disables elective stops while compulsory repairs and corrections remain
+active. [Custom pit plans](docs/custom-pit-plans.md) explains finite-pool
+selection, deviations, replay, and offline comparisons against automatic policy.
+
 The same inputs and seed reproduce an overridden run, including across worker
 counts. Changing a tyre choice can change later random draws and race events;
 equal seeds do not hold those events fixed across different strategies. Live
@@ -182,8 +189,10 @@ archive executable code or runtime monkeypatches, and replay does not claim to
 reproduce a real race. Ordinary live runs still fetch current-season inputs.
 
 New snapshots use schema version 2, version 3 when opening tyre ages are
-specified, or version 4 for a nonempty finite race pool. Version 3 requires
-`starting_tire_ages`; version 4 also records `tire_inventory`. These versions require
+specified, version 4 for a nonempty finite race pool, or version 5 when custom
+pit plans are supplied. Version 3 requires `starting_tire_ages`; version 4 also
+records `tire_inventory`, and version 5 retains `pit_plans`, including explicit
+empty plans. These versions require
 `rng_policy`, with new runs using `isolated_weather_v1`. Earlier installations
 reject unsupported schemas. Version 1 snapshots without a policy replay with
 `shared_v1`, which preserves

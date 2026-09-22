@@ -20,6 +20,13 @@ from f1sim.simulation.execution import validate_starting_tire_ages, validate_sta
 from f1sim.simulation.finish_strategy import ReplacementOption, evaluate_finish_protection
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.neutralization import safety_car_running_time
+from f1sim.simulation.pit_plans import (
+    current_pit_plan_instruction,
+    finalize_pit_plan,
+    initialize_pit_plan_state,
+    override_pit_plan_instruction,
+    validate_pit_plans,
+)
 from f1sim.simulation.pit_service import expected_remaining_service
 from f1sim.simulation.pit_strategy import expected_stationary_time
 from f1sim.simulation.race import DriverRaceState, DriverStatus, RaceResult
@@ -94,8 +101,15 @@ class ChronologicalRace:
         self.order: list[str] = []
 
     def run(self, drivers, cars, track, weather, starting_grid, *, starting_tires=None,
-            starting_tire_ages=None, tire_inventory=None):
-        validate_unique_ids([driver.id for driver in drivers], "driver")
+            starting_tire_ages=None, tire_inventory=None, pit_plans=None):
+        driver_ids = tuple(driver.id for driver in drivers)
+        normalized_pit_plans = validate_pit_plans(
+            pit_plans,
+            driver_ids=driver_ids,
+            total_laps=track.total_laps,
+            tire_inventory=tire_inventory,
+        )
+        validate_unique_ids(driver_ids, "driver")
         validate_unique_ids(starting_grid, "starting grid")
         starting_tires = validate_starting_tires(starting_tires, (d.id for d in drivers))
         ages = validate_starting_tire_ages(starting_tire_ages, starting_tires,
@@ -134,6 +148,10 @@ class ChronologicalRace:
                 current_tire=TIRE_COMPOUNDS[compound].model_copy(deep=True),
                 tire_laps=ages.get(driver_id, 0), prior_tire_laps=ages.get(driver_id, 0),
                 strategy_archetype=style, planned_pit_laps=plans[0], pit_plan_options=plans,
+            )
+            initialize_pit_plan_state(
+                self.states[driver_id], normalized_pit_plans.get(driver_id)
+                if driver_id in normalized_pit_plans else None,
             )
             if inventory is not None:
                 self.simulator._initialize_inventory(
@@ -745,21 +763,46 @@ class ChronologicalRace:
             # Forced execution bypasses policy; stale elective context must
             # not survive to the forced record.
             state.pit_decision_context = None
-        stop = forced_repair or self.simulator._should_pit(
-            state, active, planning, lap, control.is_pit_window_open(), self.weather,
-            additional_current_stop_cost=delay, physical_total_laps=self.track.total_laps,
-            traffic_snapshot=traffic,
-            weather_intervals=cadence,
-            weather_clock=weather_clock,
-            current_overtake_mode_allowed=control.is_overtake_mode_allowed(
-                self.control_intervals + 1, self.weather,
-            ),
+        custom_stop = self.simulator._prepare_pit_plan_stop(
+            state, planning, self.weather, lap,
         )
-        if stop and not state.force_pit_next_lap and self._protect_elective_finish_distance(
+        explicit_plan_suppresses = (
+            state.pit_plan is not None
+            and current_pit_plan_instruction(state, lap) is None
+            and not control.red_flag_active
+            and self.simulator._pit_plan_compulsory_reason(
+                state, planning, self.weather, lap,
+            ) is None
+        )
+        if custom_stop is True:
+            stop = True
+        elif custom_stop is False or explicit_plan_suppresses:
+            stop = False
+        else:
+            stop = forced_repair or self.simulator._should_pit(
+                state, active, planning, lap, control.is_pit_window_open(), self.weather,
+                additional_current_stop_cost=delay, physical_total_laps=self.track.total_laps,
+                traffic_snapshot=traffic,
+                weather_intervals=cadence,
+                weather_clock=weather_clock,
+                current_overtake_mode_allowed=control.is_overtake_mode_allowed(
+                    self.control_intervals + 1, self.weather,
+                ),
+            )
+        if (
+            stop
+            and custom_stop is not True
+            and not state.force_pit_next_lap
+            and self._protect_elective_finish_distance(
             state, planning, now, delay, traffic, restart=restart,
+            )
         ):
             self._clear_one_lap_pit_proposals(state)
             stop = False
+        if not stop and state.pit_plan_override_reason is not None:
+            override_pit_plan_instruction(
+                state, state.pit_plan_override_reason,
+            )
         loss = 0.0
         expected_exit = None
         if stop:
@@ -787,6 +830,10 @@ class ChronologicalRace:
                 return
             state.pit_stops += 1
             state.pit_laps.append(lap)
+            self.simulator._commit_pit_plan_if_due(
+                state,
+                overridden=state.pit_plan_override_reason is not None,
+            )
             state.force_pit_next_lap = False
             self._record_pit_service(state, lap, now, expected_exit - (
                 now + delay + expected_service
@@ -1197,6 +1244,10 @@ class ChronologicalRace:
                     position, classified, winner_laps, self.track.total_laps, self.has_two_green,
                 ),
                 race_suspension_seconds=self.timeline.total_suspension_seconds,
+                pit_plan_history=finalize_pit_plan(
+                    state,
+                    "retired" if state.status == DriverStatus.DNF else "race_finished",
+                ),
                 **self.simulator._inventory_result_fields(state),
             ))
         return results
@@ -1204,10 +1255,12 @@ class ChronologicalRace:
 
 def simulate_chronological_race(simulator, drivers, cars, track, weather, starting_grid,
                                 *, starting_tires=None, starting_tire_ages=None,
-                                red_flag_pause_seconds=600.0, tire_inventory=None):
+                                red_flag_pause_seconds=600.0, tire_inventory=None,
+                                pit_plans=None):
     """Run the experimental engine explicitly; production dispatch is unchanged."""
     return ChronologicalRace(simulator, red_flag_pause_seconds=red_flag_pause_seconds).run(
         drivers, cars, track, weather, starting_grid, starting_tires=starting_tires,
         starting_tire_ages=starting_tire_ages,
         tire_inventory=tire_inventory,
+        pit_plans=pit_plans,
     )

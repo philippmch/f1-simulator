@@ -168,6 +168,13 @@ class Exporter:
             or getattr(row, 'tire_inventory', None) is not None
             for race in results.race_results for row in race
         ) else [])
+        snapshot_plans = (results.input_snapshot or {}).get("pit_plans")
+        plan_field = ["pit_plan_history"] if (
+            isinstance(snapshot_plans, dict) and snapshot_plans
+        ) or any(
+            getattr(row, "pit_plan_history", None) is not None
+            for race in results.race_results for row in race
+        ) else []
 
         with open(filepath, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
@@ -177,7 +184,7 @@ class Exporter:
                 "status", "dnf_reason", "strategy", "race_suspension_seconds",
                 "laps_completed", "classified",
                 "pit_laps", "race_time_limited", "points_awarded",
-                *inventory_fields,
+                *inventory_fields, *plan_field,
             ])
 
             for sim_idx, race_results in enumerate(results.race_results, 1):
@@ -206,6 +213,9 @@ class Exporter:
                         *(json.dumps(getattr(result, key))
                           if getattr(result, key, None) is not None else ""
                           for key in inventory_fields),
+                        *(json.dumps(getattr(result, "pit_plan_history"))
+                          if plan_field and getattr(result, "pit_plan_history", None) is not None
+                          else "" for _ in plan_field),
                     ])
 
         return filepath
@@ -284,6 +294,22 @@ class Exporter:
         ]
 
     @staticmethod
+    def _pit_plan_histories(results: SimulationResults) -> list[dict]:
+        """Return per-trial requested-plan histories without inferring missing data."""
+        return [
+            {
+                "simulation": index,
+                "driver_id": result.driver_id,
+                "pit_plan_history": (
+                    [dict(record) for record in result.pit_plan_history]
+                    if getattr(result, "pit_plan_history", None) is not None else None
+                ),
+            }
+            for index, race in enumerate(results.race_results, 1)
+            for result in race
+        ]
+
+    @staticmethod
     def _tire_set_ledger_html(results: SimulationResults) -> str:
         sections = []
         for row in Exporter._tire_set_ledgers(results):
@@ -351,6 +377,7 @@ class Exporter:
             "weather_histories": results.weather_histories,
             "pit_stop_details": self._pit_stop_details(results),
             "tire_set_ledgers": self._tire_set_ledgers(results),
+            "pit_plan_histories": self._pit_plan_histories(results),
             "metadata": {
                 "num_simulations": results.num_simulations,
                 "track_name": results.track_name,
@@ -459,6 +486,7 @@ class Exporter:
                 "weather_histories": results.weather_histories,
                 "pit_stop_details": self._pit_stop_details(results),
                 "tire_set_ledgers": self._tire_set_ledgers(results),
+                "pit_plan_histories": self._pit_plan_histories(results),
                 "strategy_statistics": results.get_strategy_statistics(),
                 "simulation_inputs": results.input_snapshot,
                 "team_championship_projection": results.get_team_championship_projection(),
@@ -527,6 +555,10 @@ class Exporter:
             + (f"@{starting_ages[driver]}" if starting_ages.get(driver) else "")
             for driver, compound in sorted(starting_tires.items())
         ) or "Automatic")
+        from f1sim.output.comparison import _pit_plan_history_html, _pit_plans
+
+        pit_plan_text = escape(_pit_plans(results))
+        pit_plan_history = _pit_plan_history_html(results, "run")
         distance = results.get_race_distance_statistics()
         recorded = distance["recorded_races"]
         comparable = distance["finishers_with_comparable_distance"]
@@ -606,6 +638,7 @@ class Exporter:
     Track: {track_text} · Simulations: {simulations_text} · Seed: {seed_text}
     · Race model: {engine_text}
     · Starting tyres: {starting_text}
+    · Custom pit plans: {pit_plan_text}
     Input race set pools:
     {escape(json.dumps((results.input_snapshot or {}).get('tire_inventory', {})))}
   </div>
@@ -627,6 +660,11 @@ class Exporter:
       changes; sequence length is not the paid-stop count. Shares use races with a
       recorded sequence. Frequency does not establish which strategy is fastest.</p>
       {strategy_html}
+    </div>
+    <div class="card" id="pit-plan-history"><h2>Custom pit-plan execution</h2>
+      <p>Requested laps are each driver's own lap. Statuses describe the recorded
+      instruction outcome; missing history is not inferred.</p>
+      {pit_plan_history or '<p>No custom pit-plan history was recorded.</p>'}
     </div>
     <div class="card" id="tire-set-ledgers"><h2>Race tyre sets</h2>
       <p>Fittings include free changes and unrun sets. Ages include prior wear.

@@ -25,6 +25,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         if (name === 'paired.html') {
           return route.fulfill({contentType: 'text/html; charset=utf-8', body: fixture.paired});
         }
+        if (name === 'plans.html') {
+          return route.fulfill({contentType: 'text/html; charset=utf-8', body: fixture.plan_report});
+        }
         if (name === 'index.html' || name === fixture.filename) {
           return route.fulfill({contentType: 'text/html; charset=utf-8',
             body: name === 'index.html' ? fixture.index : fixture.report});
@@ -164,6 +167,35 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
           `paired-distance-${width}.png`)});
         await pairedCosts.screenshot({path: path.join(process.env.F1SIM_SCREENSHOTS,
           `paired-costs-${width}.png`)});
+      }
+    }
+    await page.goto('http://f1sim.test/plans.html');
+    await page.locator('details > summary').filter({hasText: /^Custom plan$/}).click();
+    await page.locator('details > summary').filter({hasText: /^No elective stops$/}).click();
+    const planHistory = page.getByRole('region', {name: 'Custom plan custom pit-plan history', exact: true});
+    const planText = await planHistory.innerText();
+    for (const label of ['Executed', 'Overridden', 'Skipped', 'Not reached',
+      '2 (own lap)', '5 (own lap)', 'Requested compound unavailable', fixture.driver,
+      '</script><script>globalThis.exportInjected=true</script>']) {
+      assert(planText.includes(label), `Missing plan history text: ${label}`);
+    }
+    for (const index of [2, 3]) {
+      const cells = await planHistory.locator('tbody tr').nth(index).locator('td').allTextContents();
+      assert.deepEqual(cells.slice(-2), ['—', '—']);
+    }
+    const heldHistory = page.getByRole('region', {name: 'No elective stops custom pit-plan history', exact: true});
+    assert((await heldHistory.innerText()).includes('Explicit no elective stops'));
+    assert.equal(await page.getByRole('region', {name: 'Legacy custom pit-plan history', exact: true}).count(), 0);
+    assert.equal(await page.locator('script, img, svg').count(), 0);
+    assert.equal(await page.evaluate(() => Boolean(globalThis.exportInjected)), false);
+    for (const width of [320, 390, 1440]) {
+      await page.setViewportSize({width, height: 1100});
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+      await planHistory.focus();
+      assert(await planHistory.evaluate(node => document.activeElement === node));
+      if (process.env.F1SIM_SCREENSHOTS && width !== 320) {
+        await planHistory.screenshot({path: path.join(process.env.F1SIM_SCREENSHOTS,
+          `custom-pit-plans-${width}.png`)});
       }
     }
     assert.deepEqual(errors, []);

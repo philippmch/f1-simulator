@@ -51,8 +51,28 @@ from f1sim.simulation.validation import validate_unique_ids
 _PIT_DECISION_REASONS = frozenset({
     "forced_repair", "critical_weather", "weather_reaction", "compound_requirement",
     "dry_forecast", "rain_forecast", "inventory_forecast", "neutralization_window",
-    "planned_window",
+    "planned_window", "user_plan",
 })
+
+
+def _validate_pit_plans(
+    value,
+    driver_ids=None,
+    *,
+    total_laps=None,
+    tire_inventory=None,
+):
+    """Delegate custom-plan validation to the simulation layer."""
+    if value is None:
+        return None
+    from f1sim.simulation.pit_plans import validate_pit_plans
+
+    return validate_pit_plans(
+        value,
+        driver_ids=driver_ids,
+        total_laps=total_laps,
+        tire_inventory=tire_inventory,
+    )
 
 
 def _raise_if_cancelled(cancel_requested: Callable[[], bool] | None) -> None:
@@ -759,7 +779,8 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
 
     Args:
         args: Tuple of (drivers_data, cars_data, track_data, weather_data, seed,
-            race_engine, starting_tires, rng_policy, starting_tire_ages, tire_inventory).
+            race_engine, starting_tires, rng_policy, starting_tire_ages, tire_inventory,
+            pit_plans).
             Legacy five through nine-item calls remain supported; five/six/seven-item
             calls retain the shared random stream.
 
@@ -769,6 +790,7 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     starting_tires = None
     starting_tire_ages = None
     tire_inventory = None
+    pit_plans = None
     rng_policy = "shared_v1"
     if len(args) == 5:
         drivers_data, cars_data, track_data, weather_data, seed = args
@@ -784,9 +806,13 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     elif len(args) == 9:
         (drivers_data, cars_data, track_data, weather_data, seed,
          race_engine, starting_tires, rng_policy, starting_tire_ages) = args
-    else:
+    elif len(args) == 10:
         (drivers_data, cars_data, track_data, weather_data, seed,
          race_engine, starting_tires, rng_policy, starting_tire_ages, tire_inventory) = args
+    else:
+        (drivers_data, cars_data, track_data, weather_data, seed,
+         race_engine, starting_tires, rng_policy, starting_tire_ages,
+         tire_inventory, pit_plans) = args
     race_engine = validate_race_engine(race_engine)
     rng_policy = validate_rng_policy(rng_policy)
 
@@ -803,6 +829,12 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     cars = {k: Car.model_validate(v) for k, v in cars_data.items()}
     track = Track.model_validate(track_data)
     weather = Weather.model_validate(weather_data)
+    pit_plans = _validate_pit_plans(
+        pit_plans,
+        (driver.id for driver in drivers),
+        total_laps=track.total_laps,
+        tire_inventory=inventory,
+    )
 
     # Create RNG with seed
     rng = np.random.default_rng(seed)
@@ -836,6 +868,7 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
         **({"starting_tires": opening_compounds} if opening_compounds else {}),
         **({"starting_tire_ages": ages} if ages else {}),
         **({"tire_inventory": inventory} if inventory else {}),
+        **({"pit_plans": pit_plans} if pit_plans else {}),
     )
 
     # Collect event statistics
@@ -888,6 +921,7 @@ class MonteCarloRunner:
         rng_policy: str = DEFAULT_RNG_POLICY,
         starting_tire_ages: dict[str, int] | None = None,
         tire_inventory: dict[str, list[dict]] | None = None,
+        pit_plans: dict[str, list[dict]] | None = None,
     ):
         """Initialize Monte Carlo runner.
 
@@ -901,6 +935,8 @@ class MonteCarloRunner:
             starting_tires: Explicit opening compounds by driver ID; omitted drivers use policy
             rng_policy: Versioned shared or independent weather random streams
             tire_inventory: Finite reusable race sets for listed drivers; others unlimited
+            pit_plans: Custom paid-stop instructions; omitted drivers remain automatic and
+                explicit empty lists disable elective stops.
         """
         self.race_engine = validate_race_engine(race_engine)
         self.rng_policy = validate_rng_policy(rng_policy)
@@ -917,6 +953,12 @@ class MonteCarloRunner:
         self.cars = cars
         self.track = track
         self.weather = weather
+        self.pit_plans = _validate_pit_plans(
+            pit_plans,
+            (driver.id for driver in drivers),
+            total_laps=getattr(track, "total_laps", None),
+            tire_inventory=self.tire_inventory,
+        )
         self.base_seed = seed if seed is not None else np.random.default_rng().integers(0, 2**31)
 
     def run(
@@ -970,6 +1012,12 @@ class MonteCarloRunner:
                                            (d.id for d in self.drivers))
         inventory = validate_tire_inventory(self.tire_inventory, starting_tires, ages,
                                             (d.id for d in self.drivers))
+        pit_plans = _validate_pit_plans(
+            self.pit_plans,
+            (driver.id for driver in self.drivers),
+            total_laps=self.track.total_laps,
+            tire_inventory=inventory,
+        )
         _raise_if_cancelled(cancel_requested)
         # Prepare serializable data for multiprocessing
         drivers_data = [d.model_dump() for d in self.drivers]
@@ -977,7 +1025,7 @@ class MonteCarloRunner:
         track_data = self.track.model_dump()
         weather_data = self.weather.model_dump()
         input_snapshot = {
-            "schema_version": 4 if inventory else 3 if ages else 2,
+            "schema_version": 5 if pit_plans else 4 if inventory else 3 if ages else 2,
             "drivers": deepcopy(drivers_data),
             "cars": deepcopy(cars_data),
             "track": deepcopy(track_data),
@@ -991,12 +1039,15 @@ class MonteCarloRunner:
             input_snapshot["tire_inventory"] = deepcopy(inventory)
         if ages:
             input_snapshot["starting_tire_ages"] = ages.copy()
+        if pit_plans:
+            input_snapshot["pit_plans"] = deepcopy(pit_plans)
         # Generate unique seeds for each simulation
         seeds = [self.base_seed + i for i in range(num_simulations)]
 
         args_list = [
             (drivers_data, cars_data, track_data, weather_data, seed,
-             self.race_engine, starting_tires, rng_policy, ages, deepcopy(inventory))
+             self.race_engine, starting_tires, rng_policy, ages, deepcopy(inventory),
+             deepcopy(pit_plans))
             for seed in seeds
         ]
 
