@@ -281,6 +281,24 @@ causes or establish a strategy's causal effect. The same sampling and
 zero-variation limitations as the points SE apply.
 These calculations do not consume simulation randomness or rerun races.
 
+Paired comparisons also report completed-distance changes, since equal points
+and retirement outcomes can hide a lost lap. Each driver's `completed_distance`
+summary uses only otherwise valid pairs with an integer `laps_completed` in
+both results, from zero through the saved scheduled distance. Unknown legacy
+distances and invalid values are excluded from this distance subset without
+discarding their valid points or retirement observations. Its paired and
+excluded counts therefore describe a separate denominator.
+
+The distance summary includes both mean lap counts, the mean variant-minus-reference
+change, its sample standard error, and counts of more, equal and fewer completed
+laps. A known zero-lap retirement is an observation; missing distance is not zero.
+The standard error is absent below two distance pairs. Finishes and retirements
+both contribute their recorded distance, so these differences can reflect
+lapping, time limits or retirement exposure. They do not isolate a strategy's
+causal effect, measure pace at equal distance, or rank complete strategies.
+Console and HTML reports display the distance subset alongside points and DNF
+comparisons. No race is rerun to supply missing distance.
+
 JSON `paired_comparisons` and the HTML paired tables are opt-in through the
 exporter's `reference_scenario`; both saved-comparison commands supply it.
 General weather-scenario exports remain unpaired. Summary labels retain supplied

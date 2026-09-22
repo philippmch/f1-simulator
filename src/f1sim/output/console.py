@@ -15,6 +15,26 @@ from f1sim.simulation.race import RaceResult, result_is_classified
 from f1sim.simulation.race_points import points_for_result
 
 
+def _completed_distance_line(distance: dict) -> str:
+    """Format the separately denominated recorded-distance subset."""
+    pairs = distance["paired_races"]
+    excluded = distance["excluded_pairs"]
+    if not pairs:
+        return ("Completed distance: 0 recorded pairs "
+                f"({excluded} excluded from distance subset); missing distance is not zero.")
+    error = distance["laps_difference_standard_error"]
+    error_text = (f"SE {error:.3f} laps" if error is not None
+                  else "SE needs at least 2 distance pairs")
+    counts = (f"{distance['more_laps_races']}/{distance['equal_laps_races']}/"
+              f"{distance['fewer_laps_races']}")
+    return (f"Completed distance: {pairs} recorded pairs "
+            f"({excluded} excluded from distance subset); "
+            f"mean laps {distance['reference_mean_laps']:.3f} -> "
+            f"{distance['variant_mean_laps']:.3f}, change "
+            f"{distance['mean_laps_difference']:+.3f} laps ({error_text}); "
+            f"more/equal/fewer laps={counts}")
+
+
 class ConsoleOutput:
     """Formats simulation results for console display."""
 
@@ -32,6 +52,10 @@ class ConsoleOutput:
               "Zero SE does not prove equality.")
         print("Joint DNF counts describe paired outcomes; they do not identify retirement causes "
               "or causal effects.")
+        print("Completed distance includes recorded laps for finishes and retirements; "
+              "positive changes mean more laps. Distance uses its own denominator, missing "
+              "distance is not zero, and the result is descriptive rather than a causal or "
+              "optimal-strategy ranking.")
         ConsoleOutput._print_suspension_context(results)
         for label, comparison in paired["variants"].items():
             print(f"{label}:")
@@ -48,6 +72,7 @@ class ConsoleOutput:
                     print(f"{driver:<12} No usable paired results "
                           f"({stats['excluded_pairs']} excluded pairs); "
                           f"{paired_exclusion_detail(comparison, stats['excluded_pairs'])}")
+                    print(f"  {_completed_distance_line(stats['completed_distance'])}")
                     continue
                 error = stats["points_difference_standard_error"]
                 error_text = f"{error:.3f}" if error is not None else "n/a"
@@ -66,6 +91,7 @@ class ConsoleOutput:
                       f"both DNF={stats['both_dnf_races']}, "
                       f"reference-only DNF={stats['reference_only_dnf_races']}, "
                       f"variant-only DNF={stats['variant_only_dnf_races']}")
+                print(f"  {_completed_distance_line(stats['completed_distance'])}")
                 if stats["excluded_pairs"]:
                     print(f"  Pair exclusions: "
                           f"{paired_exclusion_detail(comparison, stats['excluded_pairs'])}")

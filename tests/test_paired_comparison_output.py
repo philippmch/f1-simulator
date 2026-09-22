@@ -53,6 +53,17 @@ def test_console_json_html_and_replay_share_paired_summary(tmp_path, capsys, eng
     assert f'Both DNFs: {stats["both_dnf_races"]}' in report
     assert f'Reference-only DNF: {stats["reference_only_dnf_races"]}' in report
     assert f'Variant-only DNF: {stats["variant_only_dnf_races"]}' in report
+    distance = stats["completed_distance"]
+    assert distance["paired_races"] == 3
+    assert 'aria-label="0 completed distance changes"' in report
+    assert "Completed distance for 0 compared with hard" in report
+    assert f'{distance["mean_laps_difference"]:+.3f} laps' in report
+    assert f'SE {distance["laps_difference_standard_error"]:.3f} laps' in report
+    assert (
+        f'{distance["more_laps_races"]} / {distance["equal_laps_races"]} / '
+        f'{distance["fewer_laps_races"]}' in report
+    )
+    assert "missing distance is not zero" in report
     ConsoleOutput.print_paired_comparison(variants, "hard", driver_id="0")
     printed = capsys.readouterr().out
     assert "Paired changes compared with hard" in printed
@@ -65,6 +76,13 @@ def test_console_json_html_and_replay_share_paired_summary(tmp_path, capsys, eng
     assert f'both DNF={stats["both_dnf_races"]}' in printed
     assert f'reference-only DNF={stats["reference_only_dnf_races"]}' in printed
     assert f'variant-only DNF={stats["variant_only_dnf_races"]}' in printed
+    assert "Completed distance includes recorded laps for finishes and retirements" in printed
+    assert f'{distance["mean_laps_difference"]:+.3f} laps' in printed
+    assert f'({distance["excluded_pairs"]} excluded from distance subset)' in printed
+    assert (
+        f'more/equal/fewer laps={distance["more_laps_races"]}/'
+        f'{distance["equal_laps_races"]}/{distance["fewer_laps_races"]}' in printed
+    )
     assert "not a confidence interval" in printed
     replay = replay_saved_simulation(combined, simulation=2, scenario="soft")
     assert replay.race_results == [variants["soft"].race_results[1]]

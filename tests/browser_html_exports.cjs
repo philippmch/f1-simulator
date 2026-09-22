@@ -129,14 +129,27 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     assert(pairedText.includes(`Variant-only DNF: ${stats.variant_only_dnf_races}`));
     assert(pairedText.includes(`${stats.more_points_races} / ${stats.equal_points_races} / ${stats.fewer_points_races}`));
     assert(pairedText.includes('(0 excluded pairs)'));
+    const pairedDistance = page.getByRole('region', {name: 'A completed distance changes', exact: true});
+    const distanceStats = stats.completed_distance;
+    const distanceText = await pairedDistance.innerText();
+    assert(distanceText.includes('Completed distance for A compared with hard'));
+    assert(distanceText.includes(`${distanceStats.paired_races} recorded distance pairs`));
+    assert(distanceText.includes(`${distanceStats.excluded_pairs} excluded from distance subset`));
+    assert(distanceText.includes(`${signed(distanceStats.mean_laps_difference)} laps`));
+    assert(distanceText.includes(`SE ${distanceStats.laps_difference_standard_error.toFixed(3)} laps`));
+    assert(distanceText.includes(`${distanceStats.more_laps_races} / ${distanceStats.equal_laps_races} / ${distanceStats.fewer_laps_races}`));
     for (const width of [390, 1440]) {
       await page.setViewportSize({width, height: 1100});
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
       await paired.focus();
       assert(await paired.evaluate(node => document.activeElement === node));
+      await pairedDistance.focus();
+      assert(await pairedDistance.evaluate(node => document.activeElement === node));
       if (process.env.F1SIM_SCREENSHOTS) {
         await paired.screenshot({path: path.join(process.env.F1SIM_SCREENSHOTS,
           `paired-comparison-${width}.png`)});
+        await pairedDistance.screenshot({path: path.join(process.env.F1SIM_SCREENSHOTS,
+          `paired-distance-${width}.png`)});
       }
     }
     assert.deepEqual(errors, []);

@@ -92,11 +92,14 @@ def _paired_driver_table(driver_id: str, paired: dict | None) -> str:
         return ""
     reference = _text(paired["reference_scenario"])
     rows = []
+    distance_rows = []
     for label, comparison in paired["variants"].items():
         prefix = f'<tr><th scope="row">{_text(label)}</th>'
         if comparison["status"] == "unavailable":
             rows.append(prefix + f'<td colspan="4">Unavailable: '
                         f'{_text(comparison["reason"])}</td></tr>')
+            distance_rows.append(prefix + f'<td colspan="4">Unavailable: '
+                                  f'{_text(comparison["reason"])}</td></tr>')
             continue
         stats = comparison["driver_statistics"].get(driver_id)
         if not stats or not stats["paired_races"]:
@@ -106,6 +109,15 @@ def _paired_driver_table(driver_id: str, paired: dict | None) -> str:
                         f'({excluded} excluded pairs) '
                         f'<span class="interval">({detail})'
                         '</span></td></tr>')
+            distance = stats.get("completed_distance") if stats else None
+            distance_excluded = (
+                distance["excluded_pairs"] if distance else comparison["available_seed_pairs"]
+            )
+            distance_rows.append(
+                prefix + f'<td colspan="4">No recorded distance pairs '
+                f'({distance_excluded} excluded from distance subset) '
+                '<span class="interval">Missing distance is not zero.</span></td></tr>'
+            )
             continue
         error = stats["points_difference_standard_error"]
         error_text = f"SE {error:.3f} points" if error is not None else "SE needs at least 2 pairs"
@@ -143,7 +155,31 @@ def _paired_driver_table(driver_id: str, paired: dict | None) -> str:
             f'<span class="interval">{dnf_error_text}</span>'
             f'{joint_counts}</td></tr>'
         )
-    return (
+        distance = stats["completed_distance"]
+        if not distance["paired_races"]:
+            distance_rows.append(
+                prefix + f'<td colspan="4">No recorded distance pairs '
+                f'({distance["excluded_pairs"]} excluded from distance subset) '
+                '<span class="interval">Missing distance is not zero.</span></td></tr>'
+            )
+        else:
+            distance_error = distance["laps_difference_standard_error"]
+            distance_error_text = (
+                f'SE {distance_error:.3f} laps'
+                if distance_error is not None else "SE needs at least 2 distance pairs"
+            )
+            distance_rows.append(
+                prefix + f'<td>{distance["paired_races"]} recorded distance pairs '
+                f'<span class="interval">({distance["excluded_pairs"]} excluded from '
+                f'distance subset)</span></td>'
+                f'<td>{distance["reference_mean_laps"]:.3f} → '
+                f'{distance["variant_mean_laps"]:.3f} laps</td>'
+                f'<td>{distance["mean_laps_difference"]:+.3f} laps '
+                f'<span class="interval">{distance_error_text}</span></td>'
+                f'<td>{distance["more_laps_races"]} / {distance["equal_laps_races"]} / '
+                f'{distance["fewer_laps_races"]}</td></tr>'
+            )
+    main_table = (
         '<div class="table-wrap" tabindex="0" role="region" '
         f'aria-label="{_text(driver_id)} paired changes">'
         f'<table><caption>Changes for {_text(driver_id)} compared with {reference}</caption>'
@@ -153,6 +189,26 @@ def _paired_driver_table(driver_id: str, paired: dict | None) -> str:
         + ("".join(rows) or '<tr><td colspan="5">No alternative choices supplied</td></tr>')
         + '</tbody></table></div>'
     )
+    distance_table = (
+        '<div class="table-wrap paired-distance" tabindex="0" role="region" '
+        f'aria-label="{_text(driver_id)} completed distance changes">'
+        f'<table><caption>Completed distance for {_text(driver_id)} compared with '
+        f'{reference}</caption>'
+        '<thead><tr><th scope="col">Choice</th>'
+        '<th scope="col">Recorded distance pairs</th>'
+        '<th scope="col">Mean laps (reference → variant)</th>'
+        '<th scope="col">Mean lap change</th>'
+        '<th scope="col">More / equal / fewer laps</th></tr></thead><tbody>'
+        + ("".join(distance_rows) or
+           '<tr><td colspan="5">No alternative choices supplied</td></tr>')
+        + '</tbody></table></div>'
+    )
+    return main_table + (
+        '<p class="paired-distance-note">Completed distance includes '
+        'recorded laps for finishes and retirements. Positive changes mean more laps; '
+        'missing distance is not zero. These descriptive differences do not establish '
+        'causality or rank an optimal strategy.</p>'
+    ) + distance_table
 
 
 def _pit_decision_driver_table(
@@ -413,6 +469,7 @@ summary { cursor: pointer; padding: 16px; overflow-wrap: anywhere; }
 summary:hover { color: #9cbbff; }
 :focus-visible { outline: 3px solid #9cbbff; outline-offset: 2px; }
 .interval { display: block; color: #b6c0ff; white-space: nowrap; font-size: .875rem; }
+.paired-distance-note { font-size: .875rem; }
 .joint-count { white-space: normal; }
 </style></head><body><main><h1>Simulation comparison</h1>
 <p>Scenarios appear in supplied order. Check their context and saved inputs when
@@ -478,8 +535,11 @@ failures; other race processes continue sharing the race stream.</p>""" + (
         'mean points change and the DNF rate SE applies to the DNF rate change. Zero observed '
         'variation does not prove the choices equivalent. Joint DNF counts describe paired '
         'status outcomes but do not identify retirement causes or causal effects. Missing, '
-        'invalid or '
-        'unmatched results are excluded with their counts. Adaptive race events can differ.</p>'
+        'invalid or unmatched results are excluded with their counts. Completed distance '
+        'includes recorded laps for finishes and retirements and uses a separate denominator; '
+        'positive changes mean more laps, while missing distance is not zero. Distance changes '
+        'are descriptive and do not establish causality or rank an optimal strategy. Adaptive '
+        'race events can differ.</p>'
         if paired is not None else ""
     ) + (
         _paired_coverage_html(paired) if paired is not None else ""

@@ -5,6 +5,7 @@ from copy import deepcopy
 from math import sqrt
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from f1sim.analysis.montecarlo import MonteCarloRunner, SimulationResults
@@ -66,6 +67,12 @@ def test_paired_variance_and_operational_dnf_are_independent_of_awards():
         reference_only_dnf_races=0, variant_only_dnf_races=1,
         dnf_rate_difference_percentage_points=100 / 3,
         dnf_rate_difference_standard_error_percentage_points=100 / 3,
+        completed_distance=dict(
+            paired_races=0, excluded_pairs=3, reference_mean_laps=None,
+            variant_mean_laps=None, mean_laps_difference=None,
+            laps_difference_standard_error=None, more_laps_races=0,
+            equal_laps_races=0, fewer_laps_races=0,
+        ),
     )
     assert (reference, variant) == before
     json.dumps(stats, allow_nan=False)
@@ -83,6 +90,103 @@ def test_zero_one_and_constant_pairs(awards, se):
     else:
         assert actual["status"] == "unavailable"
         assert actual["available_seed_pairs"] == 0
+
+
+def test_completed_distance_can_explain_equal_points_and_retirements():
+    reference, variant = result([10] * 4), result([10] * 4)
+    reference_laps = [4, 3, 0, 2]
+    variant_laps = [4, 4, 1, 1]
+    for index, (reference_lap, variant_lap) in enumerate(zip(reference_laps, variant_laps)):
+        reference.race_results[index][0].laps_completed = reference_lap
+        variant.race_results[index][0].laps_completed = variant_lap
+        reference.race_results[index][0].status = variant.race_results[index][0].status = "dnf"
+
+    stats = compare(reference, variant)["driver_statistics"]["A"]
+    distance = stats["completed_distance"]
+    assert stats["paired_races"] == 4
+    assert stats["mean_points_difference"] == 0
+    assert stats["both_dnf_races"] == 4
+    assert distance == dict(
+        paired_races=4, excluded_pairs=0,
+        reference_mean_laps=pytest.approx(2.25), variant_mean_laps=pytest.approx(2.5),
+        mean_laps_difference=pytest.approx(.25),
+        laps_difference_standard_error=pytest.approx(sqrt(2.75 / 3) / 2),
+        more_laps_races=2, equal_laps_races=1, fewer_laps_races=1,
+    )
+
+
+@pytest.mark.parametrize("bad_laps", [None, -1, 1.5, True, 5])
+def test_invalid_completed_distance_does_not_drop_core_pair(bad_laps):
+    reference, variant = result([12]), result([12])
+    reference.race_results[0][0].laps_completed = 2
+    variant.race_results[0][0].laps_completed = bad_laps
+
+    stats = compare(reference, variant)["driver_statistics"]["A"]
+    distance = stats["completed_distance"]
+    assert stats["paired_races"] == 1
+    assert stats["excluded_pairs"] == 0
+    assert stats["mean_points_difference"] == 0
+    assert distance["paired_races"] == 0
+    assert distance["excluded_pairs"] == 1
+    assert distance["reference_mean_laps"] is None
+    assert distance["variant_mean_laps"] is None
+    assert distance["mean_laps_difference"] is None
+    assert distance["laps_difference_standard_error"] is None
+    assert all(distance[key] == 0 for key in (
+        "more_laps_races", "equal_laps_races", "fewer_laps_races",
+    ))
+
+
+def test_completed_distance_has_its_own_denominator_and_accepts_zero():
+    reference, variant = result([12] * 3), result([12] * 3)
+    for index, (reference_lap, variant_lap) in enumerate(((0, 0), (2, None), (3, 4))):
+        reference.race_results[index][0].laps_completed = reference_lap
+        variant.race_results[index][0].laps_completed = variant_lap
+
+    stats = compare(reference, variant)["driver_statistics"]["A"]
+    distance = stats["completed_distance"]
+    assert stats["paired_races"] == 3
+    assert stats["excluded_pairs"] == 0
+    assert distance["paired_races"] == 2
+    assert distance["excluded_pairs"] == 1
+    assert distance["reference_mean_laps"] == pytest.approx(1.5)
+    assert distance["variant_mean_laps"] == pytest.approx(2)
+    assert distance["mean_laps_difference"] == pytest.approx(.5)
+    assert distance["laps_difference_standard_error"] == pytest.approx(.5)
+    assert (distance["more_laps_races"], distance["equal_laps_races"],
+            distance["fewer_laps_races"]) == (1, 1, 0)
+
+
+def test_completed_distance_normalizes_integral_types_for_statistics_and_json():
+    reference, variant = result([12] * 3), result([12] * 3)
+    for index, (reference_lap, variant_lap) in enumerate(((1, 2), (2, 3), (3, 3))):
+        reference.race_results[index][0].laps_completed = np.int64(reference_lap)
+        variant.race_results[index][0].laps_completed = np.int64(variant_lap)
+
+    distance = compare(reference, variant)["driver_statistics"]["A"]["completed_distance"]
+    assert distance["paired_races"] == 3
+    assert distance["reference_mean_laps"] == pytest.approx(2)
+    assert distance["variant_mean_laps"] == pytest.approx(8 / 3)
+    assert distance["mean_laps_difference"] == pytest.approx(2 / 3)
+    assert distance["laps_difference_standard_error"] == pytest.approx(1 / 3)
+    json.dumps(distance, allow_nan=False)
+
+
+def test_invalid_core_observation_excludes_distance_pair_too():
+    reference, variant = result([12]), result([12])
+    reference.race_results[0][0].laps_completed = 3
+    variant.race_results[0][0].laps_completed = 4
+    variant.race_results[0][0].position = 0
+
+    stats = compare(reference, variant)["driver_statistics"]["A"]
+    assert stats["paired_races"] == 0
+    assert stats["excluded_pairs"] == 1
+    assert stats["completed_distance"] == dict(
+        paired_races=0, excluded_pairs=1, reference_mean_laps=None,
+        variant_mean_laps=None, mean_laps_difference=None,
+        laps_difference_standard_error=None, more_laps_races=0,
+        equal_laps_races=0, fewer_laps_races=0,
+    )
 
 
 def test_joint_retirement_counts_and_rate_se_retain_paired_statuses():

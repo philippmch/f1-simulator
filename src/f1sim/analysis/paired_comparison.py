@@ -133,7 +133,7 @@ def _ordered_trials(result):
     )
 
 
-def _observation(race, driver):
+def _observation(race, driver, scheduled_laps):
     rows = [row for row in race if getattr(row, "driver_id", None) == driver]
     if len(rows) != 1:
         return None
@@ -148,7 +148,41 @@ def _observation(race, driver):
     award = getattr(row, "points_awarded", None)
     if award is not None and (not _integer(award) or award > max(POINTS_SYSTEM.values())):
         return None
-    return int(points_for_result(row)), int(status == "dnf")
+    laps = getattr(row, "laps_completed", None)
+    if not _integer(laps, 0) or laps > scheduled_laps:
+        laps = None
+    elif not isinstance(laps, int):
+        laps = int(laps)
+    return int(points_for_result(row)), int(status == "dnf"), laps
+
+
+def _completed_distance_statistics(observations, available):
+    distance_observations = [
+        (reference[2], variant[2])
+        for reference, variant in observations
+        if reference[2] is not None and variant[2] is not None
+    ]
+    count = len(distance_observations)
+    differences = [variant - reference for reference, variant in distance_observations]
+    return {
+        "paired_races": count,
+        "excluded_pairs": available - count,
+        "reference_mean_laps": (
+            float(mean(reference for reference, _ in distance_observations))
+            if count else None
+        ),
+        "variant_mean_laps": (
+            float(mean(variant for _, variant in distance_observations))
+            if count else None
+        ),
+        "mean_laps_difference": float(mean(differences)) if count else None,
+        "laps_difference_standard_error": (
+            stdev(differences) / sqrt(count) if count > 1 else None
+        ),
+        "more_laps_races": sum(value > 0 for value in differences),
+        "equal_laps_races": sum(value == 0 for value in differences),
+        "fewer_laps_races": sum(value < 0 for value in differences),
+    }
 
 
 def _driver_statistics(observations, available):
@@ -185,6 +219,7 @@ def _driver_statistics(observations, available):
         "dnf_rate_difference_standard_error_percentage_points": (
             100 * stdev(dnf_differences) / sqrt(count) if count > 1 else None
         ),
+        "completed_distance": _completed_distance_statistics(observations, available),
     }
 
 
@@ -231,6 +266,7 @@ def paired_comparison_statistics(
             continue
         summary.update(status="paired", seed_from=lower, seed_to=upper - 1)
         observations = {driver: [] for driver in reference_inputs[1]}
+        scheduled_laps = reference_inputs[0]["track"]["total_laps"]
         for seed in range(lower, upper):
             ri, vi = seed - int(reference.seed), seed - int(variant.seed)
             rq, vq = reference.qualifying_results[ri], variant.qualifying_results[vi]
@@ -242,8 +278,8 @@ def paired_comparison_statistics(
             for driver, samples in observations.items():
                 if driver not in reference_inputs[2]:
                     continue
-                left = _observation(reference.race_results[ri], driver)
-                right = _observation(variant.race_results[vi], driver)
+                left = _observation(reference.race_results[ri], driver, scheduled_laps)
+                right = _observation(variant.race_results[vi], driver, scheduled_laps)
                 if left is not None and right is not None:
                     samples.append((left, right))
         summary["driver_statistics"] = {

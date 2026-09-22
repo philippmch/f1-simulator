@@ -233,6 +233,12 @@ it is not a confidence interval, and zero observed variation does not establish
 equivalent strategies.
 One paired observation has no estimable SE.
 
+Completed-distance comparisons show the mean lap change, its SE, and how often
+the variant completed more, equal or fewer laps. They use a separate subset
+with valid recorded distances in both runs, including retirements; missing
+distance is not treated as zero. This makes lost laps visible even when points
+and retirement status are unchanged.
+
 Combined exports retain these summaries in `paired_comparisons`. Pairing requires
 matching saved models, runtime provenance and random-stream policy; starting
 tyres and engine may differ. Missing, duplicate or invalid driver records and
