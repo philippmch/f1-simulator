@@ -91,6 +91,26 @@ stop plan, while null means no custom plan was recorded for that driver.
 Paid-stop totals and physical tyre ledgers remain separate records of what
 actually happened.
 
+## Comparing with automatic strategy in the dashboard
+
+After entering custom plans, enable **Compare with automatic strategy** to run
+both alternatives for each selected weather scenario. The main result views
+continue to show the submitted plans. The reference removes every custom-plan
+override, including explicit no-elective-stop plans, while retaining the same
+drivers, cars, weather inputs, opening tyres, physical set pools and seed range.
+Unlisted drivers keep their automatic policy in both alternatives; their race
+outcomes can still change through traffic and interactions with other drivers.
+
+Comparisons accept 10–500 trials per alternative, keeping total work within
+the ordinary limit of 1,000 races per weather scenario. The paired results show
+changes relative to automatic strategy, with recorded-pair counts and sampling
+uncertainty. Distance and pit-cost comparisons use their own valid-data subsets.
+Equal seeds do not freeze later incidents, battles or pit service.
+
+Download the automatic reference separately to replay it using the existing
+saved-input workflow. Both alternatives retain their own input snapshots; edits
+to the form after a run do not change the results or downloaded inputs.
+
 ## Comparing plans offline
 
 Create a JSON file of named alternatives:

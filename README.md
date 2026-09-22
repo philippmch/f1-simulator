@@ -131,6 +131,10 @@ own lap at pit entry, before running that lap. Unlisted drivers stay automatic;
 `none` disables elective stops while compulsory repairs and corrections remain
 active. [Custom pit plans](docs/custom-pit-plans.md) explains finite-pool
 selection, deviations, replay, and offline comparisons against automatic policy.
+Enable **Compare with automatic strategy** to compare the submitted plans with
+an automatic reference for each weather scenario. Both alternatives use the same
+inputs and seed range, with up to 500 trials each. The dashboard shows paired
+outcome changes and offers a separate replayable reference download.
 
 The same inputs and seed reproduce an overridden run, including across worker
 counts. Changing a tyre choice can change later random draws and race events;

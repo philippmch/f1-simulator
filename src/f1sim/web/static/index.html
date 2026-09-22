@@ -220,6 +220,33 @@ input[type="number"] { min-width: 80px; width: 80px; }
   max-width: 48rem;
 }
 
+.pit-plan-compare {
+  align-items: flex-start;
+  display: flex;
+  gap: 0.55rem;
+  margin-top: 0.45rem;
+  max-width: 48rem;
+}
+
+.pit-plan-compare input {
+  accent-color: var(--f1-red);
+  flex: 0 0 auto;
+  margin: 0.12rem 0 0;
+}
+
+.pit-plan-compare span {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.pit-plan-compare small {
+  color: var(--text-muted);
+  display: block;
+  font-size: 0.66rem;
+  margin-top: 0.12rem;
+}
+
 select option { background: var(--bg-card); color: var(--text-primary); }
 
 .scenario-selector {
@@ -1112,6 +1139,82 @@ input:focus-visible {
 #samplePitPlanHistory caption { text-align: left; padding: .6rem 0; }
 #samplePitPlanHistory .pit-components { display: block; margin-top: .3rem; color: var(--text-secondary); }
 
+.strategy-comparison-panel {
+  border: 1px solid rgba(225, 6, 0, 0.28);
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, rgba(225, 6, 0, 0.08), rgba(255,255,255,0.02));
+  margin: 1.2rem 0;
+  padding: 1rem 1.1rem;
+}
+
+.strategy-comparison-panel h3 {
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+  letter-spacing: 0.06em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.strategy-comparison-panel .comparison-lede {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  margin: 0.55rem 0 0.85rem;
+  max-width: 72rem;
+}
+
+.strategy-comparison-panel .comparison-status {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.strategy-comparison-panel .comparison-status strong { color: var(--text-primary); }
+
+.strategy-comparison-table {
+  min-width: 680px;
+}
+
+.strategy-comparison-table td:nth-child(2),
+.strategy-comparison-table td:nth-child(3),
+.strategy-comparison-table td:nth-child(4) {
+  white-space: nowrap;
+}
+
+.strategy-comparison-table .comparison-subtle {
+  color: var(--text-muted);
+  display: block;
+  font-size: 0.62rem;
+  margin-top: 0.18rem;
+}
+
+.strategy-comparison-costs {
+  margin-top: 0.8rem;
+}
+
+.strategy-comparison-costs summary {
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+
+.strategy-comparison-note {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  line-height: 1.45;
+  margin: 0.8rem 0 0;
+}
+
+.comparison-unavailable {
+  border-color: var(--border-medium);
+  background: rgba(255,255,255,0.02);
+}
+
+.comparison-unavailable .comparison-status { color: var(--text-secondary); }
+
+#downloadAutomaticReferenceBtn[disabled] { cursor: not-allowed; opacity: 0.55; }
+
 .matrix-table {
   width: 100%;
   border-collapse: collapse;
@@ -1723,6 +1826,12 @@ input:focus-visible {
           aria-describedby="pitPlansHelp"
           title="Explicit paid-stop instructions. Use DRIVER=lap:compound,...; use DRIVER=none to suppress elective stops for one driver."></textarea>
         <p class="pit-plan-help" id="pitPlansHelp">Use <code>DRIVER=lap:compound,...</code> with laps at least 2, strictly increasing, and up to 20 instructions. Lap 18 means the stop is entered before that lap, after 17 completed laps. Unlisted drivers stay automatic; <code>none</code> keeps compulsory repairs and corrections.</p>
+        <label class="pit-plan-compare" for="compareAutomaticInput">
+          <input type="checkbox" id="compareAutomaticInput" aria-describedby="compareAutomaticHelp">
+          <span>Compare with automatic strategy
+            <small id="compareAutomaticHelp">Uses the same inputs and seeds for both variants. Comparison runs allow up to 500 simulations per alternative (1,000 total trials per weather scenario).</small>
+          </span>
+        </label>
       </div>
       <button class="scenario-preset tyre-editor-trigger" type="button" id="btnTyreSetup"
         onclick="openTyreEditor()">Edit tyre setup</button>
@@ -2031,6 +2140,10 @@ function updateRunAvailability() {
   const pitPlansInput = document.getElementById('pitPlansInput');
   if (pitPlansInput) {
     pitPlansInput.disabled = runInProgress || connectionRefreshInProgress;
+  }
+  const compareAutomaticInput = document.getElementById('compareAutomaticInput');
+  if (compareAutomaticInput) {
+    compareAutomaticInput.disabled = runInProgress || connectionRefreshInProgress;
   }
   const rerun = document.getElementById('rerunScenarioBtn');
   if (rerun) rerun.disabled = runInProgress || connectionRefreshInProgress;
@@ -2621,10 +2734,12 @@ function writeOptionalStorage(key, value) {
 }
 
 function saveUiPrefs() {
+  const compareAutomaticInput = document.getElementById('compareAutomaticInput');
   const payload = {
     focusScenario: weatherSelectEl.value,
     scenarioSet: getScenarioSetValue(),
     weatherMode: document.getElementById('weatherModeSelect').value,
+    compareAutomatic: Boolean(compareAutomaticInput?.checked),
   };
   writeOptionalStorage(PREFS_KEY, JSON.stringify(payload));
 }
@@ -2642,6 +2757,10 @@ function loadUiPrefs() {
     }
     if (typeof prefs.scenarioSet === 'string') {
       scenarioSetInput.value = serializeScenarioNames(prefs.scenarioSet);
+    }
+    if (typeof prefs.compareAutomatic === 'boolean') {
+      const compareAutomaticInput = document.getElementById('compareAutomaticInput');
+      if (compareAutomaticInput) compareAutomaticInput.checked = prefs.compareAutomatic;
     }
   } catch {
     // ignore malformed UI prefs
@@ -3316,6 +3435,22 @@ function buildRunPayload() {
   const simulationsInput = document.getElementById('simCount');
   const seedInput = document.getElementById('seedInput');
   const workersInput = document.getElementById('workersInput');
+  const compareAutomaticInput = document.getElementById('compareAutomaticInput');
+  const compareAutomatic = Boolean(compareAutomaticInput?.checked);
+  if (simulationsInput.value.trim() === '') {
+    setStatusMessage('Enter a simulation count before running.', 'error');
+    simulationsInput.focus();
+    return null;
+  }
+  const requestedSimulations = Number(simulationsInput.value);
+  if (compareAutomatic && Number.isFinite(requestedSimulations) && requestedSimulations > 500) {
+    setStatusMessage(
+      'Automatic comparison allows at most 500 simulations per alternative (1,000 total trials per weather scenario). Lower the count or turn comparison off.',
+      'error',
+    );
+    simulationsInput.focus();
+    return null;
+  }
   const numericInputs = [simulationsInput, seedInput, workersInput];
   const invalidInput = numericInputs.find(input => !input.checkValidity());
 
@@ -3344,6 +3479,15 @@ function buildRunPayload() {
     pitPlanSetup.input?.focus();
     return null;
   }
+  if (compareAutomatic && (pitPlanSetup.pitPlans === null
+      || !Object.keys(pitPlanSetup.pitPlans).length)) {
+    setStatusMessage(
+      'Automatic comparison needs at least one custom pit plan. Enter a plan or turn comparison off.',
+      'error',
+    );
+    compareAutomaticInput?.focus();
+    return null;
+  }
 
   const payload = {
     year: parseInt(document.getElementById('yearSelect').value, 10),
@@ -3359,6 +3503,7 @@ function buildRunPayload() {
     weather_mode: document.getElementById('weatherModeSelect').value,
     parallel: document.getElementById('parallelSelect').value === 'true',
     max_workers: workersValue ? Number(workersValue) : null,
+    compare_automatic: compareAutomatic,
   };
   if (pitPlanSetup.pitPlans !== null) payload.pit_plans = pitPlanSetup.pitPlans;
   return payload;
@@ -3378,9 +3523,13 @@ async function runSimulation() {
   const overlay = document.getElementById('simOverlay');
   const simText = document.querySelector('.sim-text');
   const simProgress = document.getElementById('simProgress');
-  const scenarioLabel = normalizeScenarioNames(payload.scenarios)
+  const scenarioNames = normalizeScenarioNames(payload.scenarios);
+  const scenarioLabel = scenarioNames
     .map(name => WEATHER_LABELS[name] || titleFromKey(name))
     .join(' / ') || titleFromKey(payload.scenarios);
+  const comparisonWorkload = payload.compare_automatic
+    ? `Comparison workload: 2 variants × ${payload.simulations} trials × ${scenarioNames.length} weather scenario${scenarioNames.length === 1 ? '' : 's'}`
+    : `${payload.simulations} trial${payload.simulations === 1 ? '' : 's'} × ${scenarioNames.length} weather scenario${scenarioNames.length === 1 ? '' : 's'}`;
 
   runInProgress = true;
   if (stop) stop.textContent = 'Stop run';
@@ -3389,8 +3538,10 @@ async function runSimulation() {
   overlay.classList.add('active');
   overlay.setAttribute('aria-hidden', 'false');
   button.textContent = 'Running...';
-  simText.textContent = 'Running backend simulation';
-  simProgress.textContent = `${payload.year} ${payload.race} · ${scenarioLabel}`;
+  simText.textContent = payload.compare_automatic
+    ? 'Running custom and automatic comparison'
+    : 'Running backend simulation';
+  simProgress.textContent = `${payload.year} ${payload.race} · ${scenarioLabel} · ${comparisonWorkload}`;
   updateBadge('loading', `Running ${payload.year} ${payload.race}...`);
   if (stop && !stop.disabled) stop.focus({preventScroll: true});
 
@@ -3639,6 +3790,163 @@ function renderPitPlanHistory(race) {
   </details>`;
 }
 
+function comparisonFinite(value) {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function comparisonInteger(value) {
+  return Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+function formatSignedComparison(value, digits = 3, suffix = '') {
+  if (!comparisonFinite(value)) return 'Not recorded';
+  const normalized = Object.is(value, -0) ? 0 : value;
+  return `${normalized >= 0 ? '+' : ''}${normalized.toFixed(digits)}${suffix}`;
+}
+
+function formatComparisonError(value, metric) {
+  if (comparisonFinite(value)) return value.toFixed(3);
+  const pairs = comparisonInteger(metric?.paired_races);
+  if (pairs === 1) return 'Unavailable (one valid pair)';
+  if (pairs === 0) return 'Unavailable (no valid pairs)';
+  return 'Not recorded';
+}
+
+function formatComparisonCoverage(metric, availablePairs) {
+  const pairs = comparisonInteger(metric?.paired_races);
+  const excluded = comparisonInteger(metric?.excluded_pairs);
+  if (pairs === null) return 'Valid pairs: Not recorded';
+  const denominator = excluded === null ? comparisonInteger(availablePairs) : pairs + excluded;
+  return denominator === null
+    ? `Valid pairs: ${pairs}`
+    : `Valid pairs: ${pairs} / ${denominator}`;
+}
+
+function comparisonVariantForScenario(scenarioName) {
+  const all = simResults?.strategy_comparisons;
+  if (!all || typeof all !== 'object' || Array.isArray(all)) return null;
+  if (!Object.hasOwn(all, scenarioName)) return null;
+  const comparison = all[scenarioName];
+  if (!comparison || typeof comparison !== 'object' || Array.isArray(comparison)) return null;
+  const variants = comparison.variants;
+  if (variants && typeof variants === 'object' && !Array.isArray(variants)) {
+    if (Object.hasOwn(variants, 'custom')) return {comparison, variant: variants.custom};
+    return {comparison, variant: null};
+  }
+  return {comparison, variant: null};
+}
+
+function renderComparisonMetricRow(driverId, label, difference, error, metric, availablePairs, suffix = '') {
+  return `<tr><th scope="row">${escapeHtml(driverId)}</th>
+    <td>${escapeHtml(label)}</td>
+    <td>${formatSignedComparison(difference, 3, suffix)}</td>
+    <td>${escapeHtml(formatComparisonCoverage(metric, availablePairs))}</td>
+    <td>${escapeHtml(formatComparisonError(error, metric))}</td></tr>`;
+}
+
+function renderStrategyComparison(scenarioName) {
+  const requested = simResults?.request?.compare_automatic === true;
+  const hasComparisonPayload = simResults && Object.hasOwn(simResults, 'strategy_comparisons');
+  if (!requested && !hasComparisonPayload) return '';
+
+  const selected = comparisonVariantForScenario(scenarioName);
+  const variant = selected?.variant;
+  const status = variant && typeof variant === 'object' && !Array.isArray(variant)
+    ? variant.status : 'unavailable';
+  const scenarioLabel = escapeHtml(titleFromKey(scenarioName));
+  const comparisonTitle = `Custom plan vs automatic · ${scenarioLabel}`;
+  const lede = 'Paired trials reuse the same loaded inputs and seeds; differences are custom plan minus automatic strategy. This is a model comparison, not a claim about real-race optimality. Later race events can diverge after an earlier strategy difference.';
+  const customScenario = simResults?.scenarios?.[scenarioName];
+  const referenceScenario = simResults?.automatic_reference?.scenarios?.[scenarioName];
+  const trialCounts = [customScenario, referenceScenario].map(s => comparisonInteger(s?.num_simulations));
+  const runtimes = [customScenario, referenceScenario].map(s => s?.runtime_seconds);
+  const workload = trialCounts.every(n => n !== null)
+    ? `${trialCounts[0] + trialCounts[1]} completed trials across both alternatives (${trialCounts[0]} custom; ${trialCounts[1]} automatic).`
+    : 'Completed trial count across both alternatives: Not recorded.';
+  const runtime = runtimes.every(n => comparisonFinite(n) && n >= 0)
+    ? `Combined simulation runtime: ${(runtimes[0] + runtimes[1]).toFixed(2)}s.`
+    : 'Combined simulation runtime: Not recorded.';
+  const workSummary = `<p class="strategy-comparison-note">${workload} ${runtime}</p>`;
+
+  if (status !== 'paired') {
+    const rawReason = variant && typeof variant.reason === 'string' ? variant.reason.trim() : '';
+    const reason = rawReason || 'A compatible paired comparison was not recorded for this weather scenario.';
+    return `<section class="strategy-comparison-panel comparison-unavailable" id="strategyComparisonPanel" aria-labelledby="strategyComparisonTitle">
+      <h3 id="strategyComparisonTitle">${comparisonTitle}</h3>
+      <p class="comparison-lede">${lede}</p>
+      ${workSummary}
+      <p class="comparison-status"><strong>Comparison unavailable.</strong> ${escapeHtml(reason)}</p>
+    </section>`;
+  }
+
+  const availablePairs = comparisonInteger(variant.available_seed_pairs);
+  const driverStats = variant.driver_statistics && typeof variant.driver_statistics === 'object'
+    && !Array.isArray(variant.driver_statistics) ? variant.driver_statistics : {};
+  const driverRows = Object.entries(driverStats).sort(([a], [b]) => a.localeCompare(b));
+  const rows = [];
+  const costRows = [];
+  const costFields = [
+    ['paid_stops', 'Paid stops', ''],
+    ['total_loss_seconds', 'Total pit loss', ' s'],
+    ['lane_loss_seconds', 'Pit-lane loss', ' s'],
+    ['service_time_seconds', 'Service time', ' s'],
+    ['queue_time_seconds', 'Queue time', ' s'],
+  ];
+  driverRows.forEach(([driverId, stats]) => {
+    const safeStats = stats && typeof stats === 'object' && !Array.isArray(stats) ? stats : {};
+    const distance = safeStats.completed_distance && typeof safeStats.completed_distance === 'object'
+      ? safeStats.completed_distance : {};
+    rows.push(renderComparisonMetricRow(
+      driverId, 'Paired points', safeStats.mean_points_difference,
+      safeStats.points_difference_standard_error, safeStats, availablePairs, ' pts',
+    ));
+    rows.push(renderComparisonMetricRow(
+      driverId, 'DNF rate', safeStats.dnf_rate_difference_percentage_points,
+      safeStats.dnf_rate_difference_standard_error_percentage_points, safeStats, availablePairs, ' pp',
+    ));
+    rows.push(renderComparisonMetricRow(
+      driverId, 'Completed distance', distance.mean_laps_difference,
+      distance.laps_difference_standard_error, distance, availablePairs, ' laps',
+    ));
+
+    const costs = safeStats.paid_stop_costs && typeof safeStats.paid_stop_costs === 'object'
+      ? safeStats.paid_stop_costs : {};
+    costFields.forEach(([field, label, suffix]) => {
+      costRows.push(renderComparisonMetricRow(
+        driverId, label, costs[`mean_${field}_difference`],
+        costs[`${field}_difference_standard_error`], costs, availablePairs, suffix,
+      ));
+    });
+  });
+
+  const noDriverData = !rows.length;
+  const pairedSummary = availablePairs === null
+    ? 'Paired trials: Not recorded'
+    : `Paired trials available: ${availablePairs}`;
+  return `<section class="strategy-comparison-panel" id="strategyComparisonPanel" aria-labelledby="strategyComparisonTitle">
+    <h3 id="strategyComparisonTitle">${comparisonTitle}</h3>
+    <p class="comparison-lede">${lede}</p>
+    ${workSummary}
+    <p class="comparison-status"><strong>Paired comparison recorded.</strong> ${escapeHtml(pairedSummary)}${comparisonInteger(variant.qualifying_mismatches) !== null ? `; ${variant.qualifying_mismatches} qualifying mismatches excluded.` : ''}</p>
+    ${noDriverData ? '<p class="inline-note">No per-driver comparison metrics were recorded.</p>' : `<div class="results-table" tabindex="0" role="region" aria-label="Paired strategy comparison metrics">
+      <table class="matrix-table strategy-comparison-table"><caption>Custom plan minus automatic strategy for ${scenarioLabel}</caption>
+        <thead><tr><th scope="col">Driver</th><th scope="col">Metric</th><th scope="col">Signed change</th><th scope="col">Coverage</th><th scope="col">SE</th></tr></thead>
+        <tbody>${rows.join('')}</tbody>
+      </table></div>
+      <details class="strategy-comparison-costs" id="strategyComparisonCosts">
+        <summary>Paid-stop cost components</summary>
+        <p class="comparison-note">Cost components are modeled seconds per complete paired race; paid stops are a count. Missing paid-stop details remove only that metric; zero is a recorded zero.</p>
+        <div class="results-table" tabindex="0" role="region" aria-label="Paid-stop cost comparison">
+          <table class="matrix-table strategy-comparison-table"><caption>Paid-stop costs and components</caption>
+            <thead><tr><th scope="col">Driver</th><th scope="col">Metric</th><th scope="col">Signed change</th><th scope="col">Coverage</th><th scope="col">SE</th></tr></thead>
+            <tbody>${costRows.join('')}</tbody>
+          </table>
+        </div>
+      </details>`}
+    <p class="strategy-comparison-note">A standard error is unavailable when fewer than two valid pairs support that metric. DNF changes use percentage points; all other differences use the units shown.</p>
+  </section>`;
+}
+
 function renderPitStopDetails(race) {
   const decision = stop => {
     const reason = typeof stop.decision_reason === 'string'
@@ -3813,6 +4121,7 @@ function renderRace() {
     </div>
     ${timeLimited ? '<div class="inline-note time-limit-note" role="note">Race shortened by the two-hour limit. Points reflect completed distance and green running.</div>' : ''}
     ${renderWeatherHistory(scenario)}
+    ${renderStrategyComparison(name)}
     <div class="results-table" tabindex="0" role="region" aria-label="Race classification">
     <div class="timing-header">
       <span>POS</span><span></span><span></span><span>DRIVER</span>
@@ -4560,6 +4869,21 @@ function downloadResultJson(data) {
   URL.revokeObjectURL(url);
 }
 
+function downloadAutomaticReferenceJson(data) {
+  const reference = data?.automatic_reference;
+  if (!reference || typeof reference !== 'object' || Array.isArray(reference)) return;
+  const { comparison_report_html, ...savedReference } = reference;
+  const blob = new Blob([JSON.stringify(savedReference, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'automatic_strategy_reference.json';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 function downloadComparisonReport(data) {
   if (typeof data?.comparison_report_html !== 'string' || !data.comparison_report_html) return;
   const blob = new Blob([data.comparison_report_html], { type: 'text/html;charset=utf-8' });
@@ -4580,6 +4904,13 @@ function updateScenarioViews() {
     reportButton.disabled = typeof simResults.comparison_report_html !== 'string'
       || !simResults.comparison_report_html;
     reportButton.title = reportButton.disabled ? 'Report unavailable for these results' : '';
+  }
+  const referenceButton = document.getElementById('downloadAutomaticReferenceBtn');
+  if (referenceButton) {
+    const reference = simResults.automatic_reference;
+    referenceButton.disabled = !reference || typeof reference !== 'object' || Array.isArray(reference);
+    referenceButton.title = referenceButton.disabled
+      ? 'Automatic reference is available only for comparison runs' : '';
   }
   renderScenarioCards(simResults);
   renderScenarioWinChart(simResults);
@@ -4650,6 +4981,7 @@ function renderScenarioLab() {
     <div class="compare-actions">
       <button class="btn-simulate" type="button" id="rerunScenarioBtn">Run Current Set</button>
       <button class="btn-simulate" type="button" id="downloadScenarioJsonBtn">Download JSON</button>
+      <button class="btn-simulate" type="button" id="downloadAutomaticReferenceBtn" disabled>Download automatic reference JSON</button>
       <button class="btn-simulate" type="button" id="downloadScenarioReportBtn">Download comparison report</button>
       <button class="btn-simulate" type="button" id="downloadScenarioMatrixBtn">Export Matrix CSV</button>
       <label class="control-label" style="display:flex;align-items:center;gap:0.45rem;margin:0 0 0 0.25rem;">
@@ -4680,6 +5012,7 @@ function renderScenarioLab() {
 
   const rerunBtn = document.getElementById('rerunScenarioBtn');
   const downloadJsonBtn = document.getElementById('downloadScenarioJsonBtn');
+  const downloadReferenceBtn = document.getElementById('downloadAutomaticReferenceBtn');
   const exportMatrixBtn = document.getElementById('downloadScenarioMatrixBtn');
   const controlIds = [
     'compareTopN',
@@ -4695,6 +5028,7 @@ function renderScenarioLab() {
     await runSimulation();
   });
   downloadJsonBtn.addEventListener('click', () => downloadResultJson(simResults));
+  downloadReferenceBtn.addEventListener('click', () => downloadAutomaticReferenceJson(simResults));
   document.getElementById('downloadScenarioReportBtn').addEventListener('click',
     () => downloadComparisonReport(simResults));
   exportMatrixBtn.addEventListener('click', () => exportScenarioMatrixCsv(simResults));
@@ -4725,6 +5059,7 @@ function renderScenarioLab() {
   await refreshLiveData();
 
   document.getElementById('weatherModeSelect').addEventListener('change', saveUiPrefs);
+  document.getElementById('compareAutomaticInput').addEventListener('change', saveUiPrefs);
   weatherSelectEl.addEventListener('change', () => {
     const focusedScenario = WEATHER_TO_SCENARIO[weatherSelectEl.value] || 'dry';
     if (!getSelectedScenarioNames().includes(focusedScenario)) {

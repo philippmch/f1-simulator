@@ -34,7 +34,13 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
           }
           return route.abort();
         }
-        const body = url.pathname === '/api/run' ? fixture.payload
+        let runBody = fixture.payload;
+        if (url.pathname === '/api/run' && fixture.comparison_payload) {
+          let requestPayload = null;
+          try { requestPayload = route.request().postDataJSON(); } catch { requestPayload = null; }
+          if (requestPayload?.compare_automatic === true) runBody = fixture.comparison_payload;
+        }
+        const body = url.pathname === '/api/run' ? runBody
           : url.pathname === '/api/calendar' ? fixture.calendar
           : url.pathname === '/api/health' ? {status: 'ok', season: 2026} : null;
         if (url.pathname === '/api/run' && holdNextRun) {
@@ -249,7 +255,23 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     assert.equal(pitPlanPrototype.ownPrototypeKey, true);
     assert.deepEqual(pitPlanPrototype.record, {lap: 24, compound: 'wet'});
     const pitPlanInput = page.locator('#pitPlansInput');
+    const compareAutomaticInput = page.locator('#compareAutomaticInput');
+    assert.equal(await compareAutomaticInput.isChecked(), false);
     await pitPlanInput.fill(offline ? 'S00=18:hard,36:soft;S01=none' : '');
+    if (offline) {
+      await compareAutomaticInput.check();
+      await pitPlanInput.fill('');
+      assert.equal(await page.evaluate(() => buildRunPayload()), null);
+      assert((await page.locator('#appStatus').innerText()).includes('at least one custom pit plan'));
+      await pitPlanInput.fill('S00=18:hard,36:soft;S01=none');
+      await page.locator('#simCount').fill('');
+      assert.equal(await page.evaluate(() => buildRunPayload()), null);
+      assert((await page.locator('#appStatus').innerText()).includes('Enter a simulation count'));
+      await page.locator('#simCount').fill('501');
+      assert.equal(await page.evaluate(() => buildRunPayload()), null);
+      assert((await page.locator('#appStatus').innerText()).includes('at most 500'));
+      await page.locator('#simCount').fill('500');
+    }
     const customPayload = await page.evaluate(() => {
       const payload = buildRunPayload();
       return {
@@ -264,6 +286,17 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       assert.equal(customPayload.pitPlansNullPrototype, true);
     } else {
       assert.equal(Object.hasOwn(customPayload.payload, 'pit_plans'), false);
+    }
+    if (offline) {
+      assert.equal(customPayload.payload.compare_automatic, true);
+      await compareAutomaticInput.uncheck();
+      await page.locator('#simCount').fill('1000');
+      const normalPayload = await page.evaluate(() => buildRunPayload());
+      assert.equal(normalPayload.compare_automatic, false);
+      assert.equal(normalPayload.simulations, 1000);
+      await page.locator('#simCount').fill('10');
+    } else {
+      await compareAutomaticInput.uncheck();
     }
     for (const invalid of [
       'S00=1:hard', 'S00=18.5:hard', 'S00=true:hard', 'S00=18:Hard',
@@ -953,6 +986,105 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       updateScenarioViews();
     });
     assert(await page.locator('#downloadScenarioReportBtn').isEnabled());
+    if (offline) {
+      await pitPlanInput.fill('S00=18:hard;S01=none');
+      await compareAutomaticInput.check();
+      await page.locator('#simCount').fill('10');
+      const comparisonResponsePromise = page.waitForResponse(response => response.url().endsWith('/api/run'));
+      await page.locator('#btnRun').click();
+      const comparisonResponse = await comparisonResponsePromise;
+      assert.equal(comparisonResponse.status(), 200);
+      assert.equal(comparisonResponse.request().postDataJSON().compare_automatic, true);
+      assert.equal(comparisonResponse.request().postDataJSON().simulations, 10);
+      await page.waitForFunction(() => !runInProgress);
+      await page.locator('#tab-race').click();
+      assert(await page.locator('#strategyComparisonPanel').isVisible());
+      const comparisonText = await page.locator('#strategyComparisonPanel').innerText();
+      for (const label of [
+        'Custom plan minus automatic strategy', '+1.250 pts', '-3.333 pp',
+        'Valid pairs: 3 / 10', 'Valid pairs: 2 / 10',
+        'Paid-stop cost components',
+        '20 completed trials across both alternatives (10 custom; 10 automatic).',
+      ]) {
+        assert(comparisonText.includes(label), `Missing strategy comparison detail: ${label}`);
+      }
+      await page.locator('#strategyComparisonCosts summary').click();
+      const costText = await page.locator('#strategyComparisonCosts').innerText();
+      assert(costText.includes('zero is a recorded zero'));
+      assert(costText.includes('Unavailable (one valid pair)'));
+      for (const label of ['Pit-lane loss', 'Service time', 'Queue time']) {
+        assert(costText.includes(label), `Missing strategy cost detail: ${label}`);
+      }
+      for (const width of [320, 390, 1440]) {
+        await page.setViewportSize({width, height: 1100});
+        assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+          `Strategy comparison overflows at ${width}px`);
+      }
+      const comparisonRegion = page.locator('#strategyComparisonPanel [role="region"]').first();
+      await comparisonRegion.focus();
+      assert(await comparisonRegion.evaluate(node => document.activeElement === node));
+
+      await page.locator('#tab-scenarios').click();
+      assert(await page.locator('#downloadAutomaticReferenceBtn').isEnabled());
+      const referenceDownloadPromise = page.waitForEvent('download');
+      await page.locator('#downloadAutomaticReferenceBtn').click();
+      const referenceDownload = await referenceDownloadPromise;
+      assert(referenceDownload.suggestedFilename().includes('automatic_strategy_reference'));
+      const referenceBundle = JSON.parse(readFileSync(await referenceDownload.path(), 'utf8'));
+      assert.deepEqual(referenceBundle.request.pit_plans, {});
+      assert.equal(referenceBundle.request.compare_automatic, false);
+      assert.equal(referenceBundle.request.simulations, 10);
+      assert.equal(referenceBundle.request.race_engine, 'chronological');
+      assert.equal(referenceBundle.year, 2026);
+      assert(referenceBundle.track && referenceBundle.ratings && referenceBundle.provenance);
+      assert(referenceBundle.scenarios && Object.keys(referenceBundle.scenarios).length === 3);
+      await page.locator('#tab-race').click();
+
+      const savedComparisonVariants = await page.evaluate(() => simResults.strategy_comparisons);
+      const unavailableHtml = await page.evaluate(() => {
+        simResults.strategy_comparisons.dry = {
+          variants: {custom: {status: 'unavailable', reason: '<img src=x onerror=alert(1)>'}},
+        };
+        renderRace();
+        return document.getElementById('strategyComparisonPanel').innerHTML;
+      });
+      assert(unavailableHtml.includes('Comparison unavailable'));
+      assert(unavailableHtml.includes('&lt;img') && !unavailableHtml.includes('<img'));
+      const nullAndZeroHtml = await page.evaluate(() => {
+        simResults.strategy_comparisons.dry = {
+          variants: {custom: {status: 'paired', available_seed_pairs: 10,
+            driver_statistics: {'<svg onload=alert(1)>': {
+              paired_races: 0, excluded_pairs: 10,
+              mean_points_difference: null, points_difference_standard_error: null,
+              dnf_rate_difference_percentage_points: 0,
+              dnf_rate_difference_standard_error_percentage_points: null,
+              completed_distance: {paired_races: 1, excluded_pairs: 9,
+                mean_laps_difference: 0, laps_difference_standard_error: null},
+              paid_stop_costs: {paired_races: 0, excluded_pairs: 10},
+            }}}},
+        };
+        return renderStrategyComparison('dry');
+      });
+      assert(nullAndZeroHtml.includes('Not recorded'));
+      assert(nullAndZeroHtml.includes('+0.000 pp'));
+      assert(nullAndZeroHtml.includes('Valid pairs: 0 / 10'));
+      assert(nullAndZeroHtml.includes('&lt;svg') && !nullAndZeroHtml.includes('<svg'));
+      await page.evaluate(saved => {
+        simResults.strategy_comparisons = saved;
+        renderRace();
+      }, savedComparisonVariants);
+      const savedPanelText = await page.locator('#strategyComparisonPanel').innerText();
+      await pitPlanInput.fill('S00=2:medium');
+      await page.locator('#simCount').fill('500');
+      await page.evaluate(() => renderRace());
+      assert.equal(await page.locator('#strategyComparisonPanel').innerText(), savedPanelText,
+        'Comparison results must come from the saved response, not edited controls');
+      await page.setViewportSize({width: 1440, height: 900});
+      await compareAutomaticInput.uncheck();
+      await pitPlanInput.fill('S00=18:hard,36:soft;S01=none');
+      await page.locator('#simCount').fill('10');
+      await page.locator('#tab-scenarios').click();
+    }
     await page.locator('#compareDriverFilter').fill(driverId);
     assert((await page.locator('#compareMatrix').innerText()).includes(driverId));
     await page.locator('#tab-race').focus();

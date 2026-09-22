@@ -4,6 +4,7 @@ This helper never loads season data and writes no persisted fixtures.
 """
 
 import contextlib
+import copy
 import json
 import sys
 
@@ -68,8 +69,61 @@ def build_fixture() -> dict:
                  "tire_inventory": inventory,
                  "scenarios": "dry,light_rain,heavy_rain", "qualifying_mode": "simulated"},
     )
+    comparison_payload = copy.deepcopy(payload)
+    comparison_payload["request"] = {
+        **comparison_payload["request"],
+        "pit_plans": {"S00": [{"lap": 4, "compound": "hard"}], "S01": []},
+        "compare_automatic": True,
+    }
+    automatic_reference = copy.deepcopy(payload)
+    automatic_reference.pop("comparison_report_html", None)
+    automatic_reference["request"] = {
+        **automatic_reference["request"],
+        "pit_plans": {},
+        "compare_automatic": False,
+    }
+    comparison_payload["automatic_reference"] = automatic_reference
+    comparison_payload["strategy_comparisons"] = {
+        label: {
+            "reference_scenario": "automatic",
+            "variants": {"custom": {
+                "status": "paired",
+                "available_seed_pairs": 10,
+                "qualifying_mismatches": 0,
+                "driver_statistics": {
+                    "S00": {
+                        "paired_races": 3, "excluded_pairs": 7,
+                        "mean_points_difference": 1.25,
+                        "points_difference_standard_error": 0.25,
+                        "dnf_rate_difference_percentage_points": -3.333,
+                        "dnf_rate_difference_standard_error_percentage_points": 0.5,
+                        "completed_distance": {
+                            "paired_races": 2, "excluded_pairs": 8,
+                            "mean_laps_difference": 0.5,
+                            "laps_difference_standard_error": None,
+                        },
+                        "paid_stop_costs": {
+                            "paired_races": 1, "excluded_pairs": 9,
+                            "mean_paid_stops_difference": 0,
+                            "paid_stops_difference_standard_error": None,
+                            "mean_total_loss_seconds_difference": -1.5,
+                            "total_loss_seconds_difference_standard_error": None,
+                            "mean_lane_loss_seconds_difference": -0.75,
+                            "lane_loss_seconds_difference_standard_error": None,
+                            "mean_service_time_seconds_difference": -0.5,
+                            "service_time_seconds_difference_standard_error": None,
+                            "mean_queue_time_seconds_difference": -0.25,
+                            "queue_time_seconds_difference_standard_error": None,
+                        },
+                    },
+                },
+            }},
+        }
+        for label in results
+    }
     return {
         "html": build_dashboard_html(), "payload": payload,
+        "comparison_payload": comparison_payload,
         "calendar": {"events": [{"round": 1, "race": track.name, "location": "Test"}]},
     }
 

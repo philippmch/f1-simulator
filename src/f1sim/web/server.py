@@ -7,6 +7,7 @@ import logging
 import os
 import time
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from importlib.resources import files
@@ -17,6 +18,7 @@ from pydantic import StrictBool, StrictInt
 
 from f1sim.analysis import MonteCarloRunner, parse_scenario_labels, scenario_weather_from_label
 from f1sim.analysis.cancellation import SimulationCancelled
+from f1sim.analysis.paired_comparison import paired_comparison_statistics
 from f1sim.analysis.scenarios import validate_weather_mode
 from f1sim.data import CurrentSeasonDataError, CurrentSeasonDataLoader
 from f1sim.models import Weather, WeatherCondition
@@ -42,6 +44,7 @@ def _current_season() -> int:
 
 _MIN_DASHBOARD_SIMULATIONS = 10
 _MAX_DASHBOARD_SIMULATIONS = 1000
+_MAX_DASHBOARD_COMPARISON_SIMULATIONS = 500
 _MAX_DASHBOARD_WORKERS = 16
 _DEFAULT_DASHBOARD_WORKERS = min(8, os.cpu_count() or 1)
 _MAX_SEED = 2**32 - 1
@@ -73,6 +76,7 @@ class DashboardRunRequest:
     starting_tire_ages: dict[str, StrictInt] | None = None
     tire_inventory: Any = None
     pit_plans: Any = None
+    compare_automatic: StrictBool = False
 
 
 def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
@@ -89,6 +93,8 @@ def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
     # Validate shape and canonical compounds before any live data request.  The
     # roster, race distance and finite pool are checked again once loaded below.
     validate_pit_plans(request.pit_plans)
+    if not isinstance(request.compare_automatic, bool):
+        raise ValueError("compare_automatic must be a boolean")
     current_season = _current_season()
     if isinstance(request.year, bool) or not isinstance(request.year, int):
         raise ValueError(f"Only the live {current_season} F1 season is available.")
@@ -107,6 +113,16 @@ def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
             "simulations must be between "
             f"{_MIN_DASHBOARD_SIMULATIONS} and {_MAX_DASHBOARD_SIMULATIONS}"
         )
+    if request.compare_automatic:
+        if not isinstance(request.pit_plans, dict) or not request.pit_plans:
+            raise ValueError(
+                "compare_automatic requires a nonempty pit_plans mapping"
+            )
+        if request.simulations > _MAX_DASHBOARD_COMPARISON_SIMULATIONS:
+            raise ValueError(
+                "compare_automatic simulations must be at most "
+                f"{_MAX_DASHBOARD_COMPARISON_SIMULATIONS}"
+            )
     if isinstance(request.seed, bool) or not isinstance(request.seed, int):
         raise ValueError("seed must be an integer")
     if not 0 <= request.seed <= _MAX_SEED:
@@ -484,6 +500,82 @@ def _check_dashboard_cancellation(
     raise SimulationCancelled("Dashboard client disconnected during simulation.")
 
 
+def _dashboard_runner(
+    *,
+    drivers: list[Any],
+    cars: dict[str, Any],
+    track: Any,
+    weather: Weather,
+    seed: int,
+    request: DashboardRunRequest,
+    tire_inventory: dict[str, list[dict]] | None,
+    starting_tires: dict[str, str],
+    starting_tire_ages: dict[str, int],
+    pit_plans: dict[str, list[dict]] | None,
+    copy_inputs: bool,
+) -> MonteCarloRunner:
+    """Create one isolated dashboard runner for a custom or reference run.
+
+    Comparison alternatives execute against the same loaded provider snapshot.
+    When requested, copying the mutable model/configuration inputs at this
+    boundary keeps a runner or test double from leaking changes from one
+    alternative into the other while preserving identical seeds and settings.
+    Ordinary dashboard runs retain their existing object flow.
+    """
+
+    copy_value = deepcopy if copy_inputs else lambda value: value
+    kwargs: dict[str, Any] = {
+        "drivers": copy_value(drivers),
+        "cars": copy_value(cars),
+        "track": copy_value(track),
+        "weather": copy_value(weather),
+        "seed": seed,
+        "race_engine": request.race_engine,
+    }
+    if tire_inventory:
+        kwargs["tire_inventory"] = copy_value(tire_inventory)
+    if starting_tires:
+        kwargs["starting_tires"] = copy_value(starting_tires)
+    if starting_tire_ages:
+        kwargs["starting_tire_ages"] = copy_value(starting_tire_ages)
+    if pit_plans:
+        kwargs["pit_plans"] = copy_value(pit_plans)
+    return MonteCarloRunner(**kwargs)
+
+
+def _dashboard_request_metadata(
+    request: DashboardRunRequest,
+    *,
+    canonical_race: str,
+    tire_inventory: dict[str, list[dict]] | None,
+    starting_tires: dict[str, str],
+    starting_tire_ages: dict[str, int],
+    pit_plans: dict[str, list[dict]],
+    effective_max_workers: int | None,
+    compare_automatic: bool,
+) -> dict[str, Any]:
+    """Serialize the replayable request settings for one dashboard variant."""
+
+    return {
+        "year": request.year,
+        "race": canonical_race,
+        "simulations": request.simulations,
+        "scenarios": request.scenarios,
+        "seed": request.seed,
+        "race_engine": request.race_engine,
+        "tire_inventory": deepcopy(tire_inventory) if tire_inventory else {},
+        "starting_tires": deepcopy(starting_tires),
+        "starting_tire_ages": deepcopy(starting_tire_ages),
+        "pit_plans": deepcopy(pit_plans),
+        "weather_mode": request.weather_mode,
+        "qualifying_mode": "simulated",
+        "parallel": request.parallel,
+        "max_workers": effective_max_workers,
+        "requested_max_workers": request.max_workers,
+        "compare_automatic": compare_automatic,
+    }
+
+
 def run_dashboard_simulation(
     request: DashboardRunRequest,
     *,
@@ -552,9 +644,11 @@ def run_dashboard_simulation(
         change_probability=track.weather_variability,
     )
 
-    scenario_results = {}
+    scenario_results: dict[str, Any] = {}
     scenario_meta: dict[str, dict[str, float]] = {}
     scenario_weather: dict[str, Weather] = {}
+    automatic_results: dict[str, Any] = {}
+    automatic_meta: dict[str, dict[str, float]] = {}
     effective_max_workers = (
         min(
             request.max_workers or _DEFAULT_DASHBOARD_WORKERS,
@@ -570,17 +664,19 @@ def run_dashboard_simulation(
             base_weather, label, weather_mode=request.weather_mode
         )
         scenario_weather[scenario.name] = scenario.weather
-        runner = MonteCarloRunner(
+        scenario_seed = request.seed + idx * 1000
+        runner = _dashboard_runner(
             drivers=drivers,
             cars=cars,
             track=track,
             weather=scenario.weather,
-            seed=request.seed + idx * 1000,
-            race_engine=request.race_engine,
-            **({"tire_inventory": tire_inventory} if tire_inventory else {}),
-            **({"starting_tires": starting_tires} if starting_tires else {}),
-            **({"starting_tire_ages": starting_tire_ages} if starting_tire_ages else {}),
-            **({"pit_plans": pit_plans} if pit_plans else {}),
+            seed=scenario_seed,
+            request=request,
+            tire_inventory=tire_inventory,
+            starting_tires=starting_tires,
+            starting_tire_ages=starting_tire_ages,
+            pit_plans=pit_plans,
+            copy_inputs=request.compare_automatic,
         )
         t0 = time.perf_counter()
         run_kwargs: dict[str, Any] = {
@@ -597,6 +693,35 @@ def run_dashboard_simulation(
             "runtime_seconds": float(runtime),
             "simulations_per_second": float(request.simulations / runtime),
         }
+        _check_dashboard_cancellation(cancel_requested)
+
+        if request.compare_automatic:
+            # Keep the reference fully automatic, including for drivers whose
+            # submitted plan is an explicit empty list.  It receives the same
+            # loaded model/weather snapshot and seed as the custom run.
+            reference_runner = _dashboard_runner(
+                drivers=drivers,
+                cars=cars,
+                track=track,
+                weather=scenario.weather,
+                seed=scenario_seed,
+                request=request,
+                tire_inventory=tire_inventory,
+                starting_tires=starting_tires,
+                starting_tire_ages=starting_tire_ages,
+                pit_plans=None,
+                copy_inputs=True,
+            )
+            _check_dashboard_cancellation(cancel_requested)
+            reference_t0 = time.perf_counter()
+            reference_result = reference_runner.run(**run_kwargs)
+            reference_runtime = max(time.perf_counter() - reference_t0, 1e-9)
+            _check_dashboard_cancellation(cancel_requested)
+            automatic_results[scenario.name] = reference_result
+            automatic_meta[scenario.name] = {
+                "runtime_seconds": float(reference_runtime),
+                "simulations_per_second": float(request.simulations / reference_runtime),
+            }
 
     _check_dashboard_cancellation(cancel_requested)
     payload = _summarize_scenario_results(
@@ -604,33 +729,70 @@ def run_dashboard_simulation(
         scenario_meta=scenario_meta,
         scenario_weather=scenario_weather,
     )
+    _check_dashboard_cancellation(cancel_requested)
     payload["track"] = track.name
     payload["track_details"] = _serialize_track(track)
     payload["year"] = request.year
     payload["race"] = canonical_race
-    payload["request"] = {
-        "year": request.year,
-        "race": canonical_race,
-        "simulations": request.simulations,
-        "scenarios": request.scenarios,
-        "seed": request.seed,
-        "race_engine": request.race_engine,
-        "tire_inventory": tire_inventory,
-        "starting_tires": starting_tires,
-        "starting_tire_ages": starting_tire_ages,
-        "pit_plans": pit_plans,
-        "weather_mode": request.weather_mode,
-        "qualifying_mode": "simulated",
-        "parallel": request.parallel,
-        "max_workers": effective_max_workers,
-        "requested_max_workers": request.max_workers,
-    }
+    payload["request"] = _dashboard_request_metadata(
+        request,
+        canonical_race=canonical_race,
+        tire_inventory=tire_inventory,
+        starting_tires=starting_tires,
+        starting_tire_ages=starting_tire_ages,
+        pit_plans=pit_plans,
+        effective_max_workers=effective_max_workers,
+        compare_automatic=request.compare_automatic,
+    )
     _check_dashboard_cancellation(cancel_requested)
-    payload["ratings"] = _serialize_ratings_snapshot(drivers, cars, driver_stats)
+    ratings = _serialize_ratings_snapshot(drivers, cars, driver_stats)
+    payload["ratings"] = ratings
     _check_dashboard_cancellation(cancel_requested)
-    payload["provenance"] = loader.get_provenance()
+    provenance = loader.get_provenance()
+    payload["provenance"] = provenance
     _check_dashboard_cancellation(cancel_requested)
     payload["comparison_report_html"] = render_comparison_report(scenario_results)
+    _check_dashboard_cancellation(cancel_requested)
+
+    if request.compare_automatic:
+        _check_dashboard_cancellation(cancel_requested)
+        reference_payload = _summarize_scenario_results(
+            automatic_results,
+            scenario_meta=automatic_meta,
+            scenario_weather=scenario_weather,
+        )
+        _check_dashboard_cancellation(cancel_requested)
+        reference_payload["track"] = track.name
+        reference_payload["track_details"] = _serialize_track(track)
+        reference_payload["year"] = request.year
+        reference_payload["race"] = canonical_race
+        reference_payload["request"] = _dashboard_request_metadata(
+            request,
+            canonical_race=canonical_race,
+            tire_inventory=tire_inventory,
+            starting_tires=starting_tires,
+            starting_tire_ages=starting_tire_ages,
+            pit_plans={},
+            effective_max_workers=effective_max_workers,
+            compare_automatic=False,
+        )
+        reference_payload["ratings"] = deepcopy(ratings)
+        reference_payload["provenance"] = deepcopy(provenance)
+        payload["automatic_reference"] = reference_payload
+
+        comparisons: dict[str, Any] = {}
+        for scenario_name in scenario_results:
+            _check_dashboard_cancellation(cancel_requested)
+            comparisons[scenario_name] = paired_comparison_statistics(
+                {
+                    "automatic": automatic_results[scenario_name],
+                    "custom": scenario_results[scenario_name],
+                },
+                "automatic",
+            )
+            _check_dashboard_cancellation(cancel_requested)
+        payload["strategy_comparisons"] = comparisons
+
     return payload
 
 
