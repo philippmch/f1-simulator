@@ -1178,6 +1178,291 @@ input:focus-visible {
   max-width: 340px;
 }
 
+/* ── Tyre setup editor ── */
+.tyre-editor-trigger {
+  align-self: flex-end;
+  white-space: nowrap;
+}
+
+.tyre-editor-dialog {
+  width: min(760px, calc(100vw - 2rem));
+  max-width: none;
+  margin: auto;
+  max-height: min(88vh, 820px);
+  padding: 0;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  overflow: hidden;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+}
+
+.tyre-editor-dialog::backdrop {
+  background: rgba(0,0,0,0.78);
+  backdrop-filter: blur(8px);
+}
+
+.tyre-editor-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: min(88vh, 820px);
+}
+
+.tyre-editor-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.3rem 1.5rem 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.tyre-editor-header h2 {
+  margin-top: 0.3rem;
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.tyre-editor-help {
+  max-width: 590px;
+  margin-top: 0.45rem;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.tyre-editor-close {
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.tyre-editor-close:hover {
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+}
+
+.tyre-editor-message {
+  min-height: 0;
+  padding: 0 1.5rem;
+  color: #ffb0ad;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.tyre-editor-message:not(:empty) {
+  padding-top: 0.8rem;
+}
+
+.tyre-editor-content {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1rem 1.5rem 1.25rem;
+}
+
+.tyre-editor-empty {
+  padding: 1rem;
+  border: 1px dashed var(--border-medium);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.tyre-editor-driver {
+  padding: 1rem;
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--f1-red);
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,0.025);
+}
+
+.tyre-editor-driver + .tyre-editor-driver { margin-top: 0.75rem; }
+
+.tyre-editor-driver-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin-bottom: 0.85rem;
+}
+
+.tyre-editor-driver-title {
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tyre-editor-remove,
+.tyre-editor-add-set {
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  padding: 0.35rem 0.6rem;
+}
+
+.tyre-editor-remove:hover,
+.tyre-editor-add-set:hover {
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+}
+
+.tyre-editor-remove:disabled,
+.tyre-editor-add-set:disabled { cursor: not-allowed; opacity: 0.45; }
+
+.tyre-editor-driver-grid {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(230px, 1.2fr);
+  gap: 0.9rem 1.1rem;
+}
+
+.tyre-editor-field,
+.tyre-editor-pool { min-width: 0; }
+
+.tyre-editor-pool { grid-column: 1 / -1; }
+
+.tyre-editor-field > label,
+.tyre-editor-pool > label,
+.tyre-editor-set-row label {
+  display: block;
+  margin-bottom: 0.3rem;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.tyre-editor-field input[type="text"],
+.tyre-editor-field input[type="number"],
+.tyre-editor-field select,
+.tyre-editor-set-row input[type="number"],
+.tyre-editor-set-row select {
+  width: 100%;
+  min-width: 0;
+}
+
+.tyre-editor-opening {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px;
+  gap: 0.55rem;
+}
+
+.tyre-editor-opening > div { min-width: 0; }
+
+.tyre-editor-opening label {
+  display: block;
+  margin-bottom: 0.3rem;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+}
+
+.tyre-editor-opening input:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.tyre-editor-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0.1rem 0 0.75rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.78rem;
+}
+
+.tyre-editor-toggle input { accent-color: var(--f1-red); }
+
+.tyre-editor-set-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.tyre-editor-set-list[hidden] { display: none; }
+
+.tyre-editor-set-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px auto;
+  gap: 0.45rem;
+  align-items: end;
+}
+
+.tyre-editor-set-row label { margin-bottom: 0; }
+.tyre-editor-set-row .tyre-editor-remove { margin-bottom: 0.05rem; }
+
+.tyre-editor-pool-note {
+  margin-top: 0.55rem;
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.tyre-editor-error {
+  margin-top: 0.75rem;
+  color: #ffb0ad;
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.tyre-editor-invalid {
+  border-color: var(--f1-red) !important;
+  box-shadow: 0 0 0 2px var(--f1-red-glow);
+}
+
+.tyre-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 1rem 1.5rem 1.2rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.tyre-editor-actions .btn-simulate {
+  padding: 0.55rem 1.1rem;
+  font-size: 0.78rem;
+}
+
+.tyre-editor-actions .scenario-preset {
+  padding: 0.55rem 0.85rem;
+  border-color: var(--border-medium);
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  letter-spacing: normal;
+  text-transform: none;
+  opacity: 1;
+}
+
+.tyre-editor-actions .scenario-preset:hover {
+  border-color: var(--text-primary);
+  color: var(--text-primary);
+}
+
+.tyre-editor-action-spacer { flex: 1; }
+
+.tyre-editor-dialog button:focus-visible,
+.tyre-editor-dialog select:focus-visible,
+.tyre-editor-dialog input:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
 /* ── Simulation Overlay ── */
 .sim-overlay {
   position: fixed;
@@ -1291,6 +1576,13 @@ input:focus-visible {
   .control-group-scenarios { min-width: 0; width: 100%; flex-direction: column; align-items: flex-start; }
   .scenario-selector { flex-wrap: wrap; }
   .scenario-preset-row { flex-wrap: wrap; }
+  .tyre-editor-dialog { width: calc(100vw - 1rem); max-height: 94vh; }
+  .tyre-editor-shell { max-height: 94vh; }
+  .tyre-editor-header,
+  .tyre-editor-content,
+  .tyre-editor-actions { padding-left: 1rem; padding-right: 1rem; }
+  .tyre-editor-driver-grid { grid-template-columns: 1fr; gap: 0.75rem; }
+  .tyre-editor-set-row { grid-template-columns: minmax(0, 1fr) 82px auto; }
   .tabs-container { padding: 0 1rem; }
   .tab { padding: 1rem; }
   .race-header { flex-wrap: wrap; gap: 0.75rem; }
@@ -1391,6 +1683,8 @@ input:focus-visible {
           placeholder="VER=soft@5,medium,hard;NOR=soft,hard"
           title="All race sets including the opening set. Separate drivers with semicolons. Removed sets retain wear and can be reused. Qualifying is separate. Blank or unlisted drivers use unlimited sets.">
       </div>
+      <button class="scenario-preset tyre-editor-trigger" type="button" id="btnTyreSetup"
+        onclick="openTyreEditor()">Edit tyre setup</button>
       <div class="control-group">
         <label class="control-label" for="parallelSelect">Execution</label>
         <select id="parallelSelect">
@@ -1465,6 +1759,32 @@ input:focus-visible {
       title="Request cancellation; current server trials may finish before capacity is available."
       onclick="stopSimulation()">Stop run</button>
   </div>
+
+  <dialog id="tyreSetupDialog" class="tyre-editor-dialog"
+    aria-labelledby="tyreEditorTitle" aria-describedby="tyreEditorHelp">
+    <form method="dialog" class="tyre-editor-shell" id="tyreEditorForm">
+      <header class="tyre-editor-header">
+        <div>
+          <h2 id="tyreEditorTitle">Tyre setup</h2>
+          <p id="tyreEditorHelp" class="tyre-editor-help">
+            Set an opening tyre and prior laps for selected drivers. A finite pool lists
+            physical sets available during the race; unlisted drivers use automatic openings
+            and unlimited replacement sets.
+          </p>
+        </div>
+        <button class="tyre-editor-close" type="button" aria-label="Close tyre setup editor"
+          onclick="closeTyreEditor()">&times;</button>
+      </header>
+      <div class="tyre-editor-message" id="tyreEditorMessage" role="alert" aria-live="assertive"></div>
+      <div class="tyre-editor-content" id="tyreEditorContent"></div>
+      <div class="tyre-editor-actions">
+        <button class="scenario-preset" type="button" id="tyreEditorAddDriver">Add driver</button>
+        <span class="tyre-editor-action-spacer"></span>
+        <button class="scenario-preset" type="button" id="tyreEditorCancel">Cancel</button>
+        <button class="btn-simulate" type="button" id="tyreEditorApply">Apply setup</button>
+      </div>
+    </form>
+  </dialog>
 </div>
 
 <script>
@@ -1567,6 +1887,18 @@ const SCENARIO_PRESETS = [
 ];
 
 const TIRE_LABELS = { soft: 'S', medium: 'M', hard: 'H', inter: 'I', wet: 'W' };
+const TYRE_EDITOR_COMPOUNDS = Object.freeze([
+  { value: 'soft', label: 'Soft' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'hard', label: 'Hard' },
+  { value: 'intermediate', label: 'Intermediate' },
+  { value: 'wet', label: 'Wet' },
+]);
+const TYRE_EDITOR_COMPOUND_VALUES = new Set(
+  TYRE_EDITOR_COMPOUNDS.map(compound => compound.value)
+);
+const TYRE_EDITOR_MAX_AGE = 1000;
+const TYRE_EDITOR_MAX_SETS = 20;
 const PIT_DECISION_LABELS = Object.freeze({
   forced_repair: 'Forced tyre replacement',
   critical_weather: 'Critical tyre/weather mismatch',
@@ -1585,6 +1917,8 @@ let calendarReady = false;
 let runInProgress = false;
 let connectionRefreshInProgress = false;
 let activeRun = null;
+let tyreEditorDraft = null;
+let tyreEditorRestoreFocus = null;
 const PREFS_KEY = 'f1sim:uiPrefs';
 const scenarioSetInput = document.getElementById('scenarioSetInput');
 const weatherSelectEl = document.getElementById('weatherSelect');
@@ -1632,6 +1966,10 @@ function updateRunAvailability() {
   }
   const refresh = document.getElementById('btnRefresh');
   if (refresh) refresh.disabled = runInProgress || connectionRefreshInProgress;
+  const tyreEditorButton = document.getElementById('btnTyreSetup');
+  if (tyreEditorButton) {
+    tyreEditorButton.disabled = runInProgress || connectionRefreshInProgress;
+  }
   const rerun = document.getElementById('rerunScenarioBtn');
   if (rerun) rerun.disabled = runInProgress || connectionRefreshInProgress;
 }
@@ -2317,6 +2655,549 @@ async function refreshLiveData() {
   }
 }
 
+const TYRE_INVENTORY_INPUT_ERROR = 'Race tyre sets: use VER=soft@5,medium,hard;NOR=soft,hard. Each driver needs 1–20 sets, with prior laps 0–1000.';
+const STARTING_TYRE_INPUT_ERROR = 'Starting tyres: use each driver once, e.g. VER=soft@5, NOR=hard. Prior laps must be 0–1000. Compounds: soft, medium, hard, intermediate, wet.';
+
+function tyreEditorCompoundOptions(selected, includeAutomatic = false) {
+  const automatic = includeAutomatic
+    ? `<option value=""${selected ? '' : ' selected'}>Automatic opening tyre</option>` : '';
+  return automatic + TYRE_EDITOR_COMPOUNDS.map(compound => (
+    `<option value="${compound.value}"${selected === compound.value ? ' selected' : ''}>${compound.label}</option>`
+  )).join('');
+}
+
+function parseTyreSetupInputs() {
+  const inventoryInput = document.getElementById('tireInventoryInput');
+  const startingInput = document.getElementById('startingTiresInput');
+  const tireInventory = Object.create(null);
+  const inventoryMeta = Object.create(null);
+  const startingTires = Object.create(null);
+  const startingTireAges = Object.create(null);
+  const startingMeta = Object.create(null);
+
+  if (inventoryInput.value.trim()) {
+    try {
+      for (const group of inventoryInput.value.trim().split(/[;\n]/)) {
+        const parts = group.split('=');
+        const id = parts[0].trim();
+        if (parts.length !== 2 || !id || Object.hasOwn(tireInventory, id)) throw new Error();
+        const entries = parts[1].split(',');
+        if (entries.length < 1 || entries.length > TYRE_EDITOR_MAX_SETS) throw new Error();
+        const metadata = entries.map(entry => {
+          const match = entry.trim().match(/^(soft|medium|hard|intermediate|wet)(?:@(\d+))?$/);
+          const age = Number(match?.[2] || 0);
+          if (!match || !Number.isSafeInteger(age) || age > TYRE_EDITOR_MAX_AGE) throw new Error();
+          return {
+            compound: match[1],
+            age,
+            ageExplicit: match[2] !== undefined,
+          };
+        });
+        tireInventory[id] = metadata.map((entry, index) => ({
+          id: `set-${index + 1}`,
+          compound: entry.compound,
+          age: entry.age,
+        }));
+        inventoryMeta[id] = metadata;
+      }
+    } catch {
+      return {
+        ok: false,
+        message: TYRE_INVENTORY_INPUT_ERROR,
+        input: inventoryInput,
+      };
+    }
+  }
+
+  if (startingInput.value.trim()) {
+    try {
+      for (const assignment of startingInput.value.split(',')) {
+        const parts = assignment.trim().split('=');
+        const id = parts[0]?.trim();
+        const choice = parts[1]?.trim().toLowerCase().match(
+          /^(soft|medium|hard|intermediate|wet)(?:@(\d+))?$/
+        );
+        const age = choice?.[2] === undefined ? 0 : Number(choice[2]);
+        if (parts.length !== 2 || !id || !choice || !Number.isSafeInteger(age)
+            || age > TYRE_EDITOR_MAX_AGE || Object.hasOwn(startingTires, id)) {
+          throw new Error();
+        }
+        startingTires[id] = choice[1];
+        if (choice[2] !== undefined) startingTireAges[id] = age;
+        startingMeta[id] = {
+          compound: choice[1], age, ageExplicit: choice[2] !== undefined,
+        };
+      }
+    } catch {
+      return {
+        ok: false,
+        message: STARTING_TYRE_INPUT_ERROR,
+        input: startingInput,
+      };
+    }
+  }
+
+  const driverCodes = [];
+  const seen = new Set();
+  [...Object.keys(startingMeta), ...Object.keys(inventoryMeta)].forEach(id => {
+    if (!seen.has(id)) {
+      seen.add(id);
+      driverCodes.push(id);
+    }
+  });
+  return {
+    ok: true,
+    startingTires,
+    startingTireAges,
+    tireInventory,
+    draft: {
+      drivers: driverCodes.map(code => ({
+        code,
+        openingCompound: startingMeta[code]?.compound || '',
+        openingAge: String(startingMeta[code]?.age ?? 0),
+        openingAgeExplicit: Boolean(startingMeta[code]?.ageExplicit),
+        finite: Object.hasOwn(inventoryMeta, code),
+        sets: (inventoryMeta[code] || []).map(entry => ({...entry, age: String(entry.age)})),
+      })),
+    },
+  };
+}
+
+function tyreEditorDriversFromDom() {
+  const content = document.getElementById('tyreEditorContent');
+  if (!content) return {drivers: []};
+  return {
+    drivers: Array.from(content.querySelectorAll('[data-tyre-driver]')).map(section => ({
+      code: section.querySelector('[data-tyre-driver-code]')?.value || '',
+      openingCompound: section.querySelector('[data-tyre-opening-compound]')?.value || '',
+      openingAge: section.querySelector('[data-tyre-opening-age]')?.value || '',
+      openingAgeExplicit: section.querySelector('[data-tyre-opening-age]')?.dataset.ageExplicit === 'true',
+      finite: Boolean(section.querySelector('[data-tyre-pool-mode]')?.checked),
+      sets: Array.from(section.querySelectorAll('[data-tyre-set-row]')).map(row => ({
+        compound: row.querySelector('[data-tyre-set-compound]')?.value || '',
+        age: row.querySelector('[data-tyre-set-age]')?.value || '',
+        ageExplicit: row.querySelector('[data-tyre-set-age]')?.dataset.ageExplicit === 'true',
+      })),
+    })),
+  };
+}
+
+function tyreEditorSuggestionsMarkup() {
+  const ids = new Set();
+  (simResults?.ratings?.drivers || []).forEach(driver => {
+    const id = String(driver?.id ?? '').trim();
+    if (id) ids.add(id);
+  });
+  (tyreEditorDraft?.drivers || []).forEach(driver => {
+    const id = String(driver?.code ?? '').trim();
+    if (id) ids.add(id);
+  });
+  return `<datalist id="tyreEditorDriverSuggestions">${Array.from(ids)
+    .map(id => `<option value="${escapeHtml(id)}"></option>`).join('')}</datalist>`;
+}
+
+function tyreEditorDriverMarkup(driver, index) {
+  const openingCompound = String(driver.openingCompound || '');
+  const openingAge = String(driver.openingAge ?? '0');
+  const finite = Boolean(driver.finite);
+  const sets = Array.isArray(driver.sets) ? driver.sets : [];
+  const setMarkup = sets.map((set, setIndex) => `
+    <div class="tyre-editor-set-row" data-tyre-set-row data-set-index="${setIndex}">
+      <div>
+        <label for="tyreSetCompound-${index}-${setIndex}">Set ${setIndex + 1} compound</label>
+        <select id="tyreSetCompound-${index}-${setIndex}" data-tyre-set-compound
+          aria-label="${escapeHtml(driver.code || `Driver ${index + 1}`)} set ${setIndex + 1} compound">
+          ${tyreEditorCompoundOptions(set.compound)}
+        </select>
+      </div>
+      <div>
+        <label for="tyreSetAge-${index}-${setIndex}">Prior laps</label>
+        <input id="tyreSetAge-${index}-${setIndex}" type="number" min="0" max="1000" step="1"
+          value="${escapeHtml(set.age ?? '')}" data-tyre-set-age
+          data-age-explicit="${Boolean(set.ageExplicit)}"
+          aria-label="${escapeHtml(driver.code || `Driver ${index + 1}`)} set ${setIndex + 1} prior laps">
+      </div>
+      <button class="tyre-editor-remove" type="button" data-tyre-remove-set
+        aria-label="Remove ${escapeHtml(driver.code || `driver ${index + 1}`)} set ${setIndex + 1}">Remove</button>
+    </div>
+  `).join('');
+
+  return `
+    <section class="tyre-editor-driver" data-tyre-driver data-driver-index="${index}"
+      aria-labelledby="tyreDriverTitle-${index}">
+      <div class="tyre-editor-driver-head">
+        <div class="tyre-editor-driver-title" id="tyreDriverTitle-${index}">Driver ${index + 1}</div>
+        <button class="tyre-editor-remove" type="button" data-tyre-remove-driver
+          aria-label="Remove driver ${escapeHtml(driver.code || index + 1)}">Remove driver</button>
+      </div>
+      <div class="tyre-editor-driver-grid">
+        <div class="tyre-editor-field">
+          <label for="tyreDriverCode-${index}">Driver code</label>
+          <input id="tyreDriverCode-${index}" type="text" maxlength="96"
+            value="${escapeHtml(driver.code || '')}" list="tyreEditorDriverSuggestions"
+            placeholder="e.g. VER" data-tyre-driver-code
+            aria-describedby="tyreDriverCodeHelp-${index}">
+          <div class="tyre-editor-pool-note" id="tyreDriverCodeHelp-${index}">
+            Suggestions come from the last completed result. IDs are case-sensitive.
+          </div>
+        </div>
+        <div class="tyre-editor-field">
+          <label for="tyreOpeningCompound-${index}">Opening tyre</label>
+          <div class="tyre-editor-opening">
+            <div>
+              <label for="tyreOpeningCompound-${index}">Compound</label>
+              <select id="tyreOpeningCompound-${index}" data-tyre-opening-compound
+                aria-label="${escapeHtml(driver.code || `Driver ${index + 1}`)} opening compound">
+                ${tyreEditorCompoundOptions(openingCompound, true)}
+              </select>
+            </div>
+            <div>
+              <label for="tyreOpeningAge-${index}">Prior laps</label>
+              <input id="tyreOpeningAge-${index}" type="number" min="0" max="1000" step="1"
+                value="${escapeHtml(openingAge)}" data-tyre-opening-age
+                data-age-explicit="${Boolean(driver.openingAgeExplicit)}"
+                aria-label="${escapeHtml(driver.code || `Driver ${index + 1}`)} opening tyre prior laps"
+                ${openingCompound ? '' : 'disabled'}>
+            </div>
+          </div>
+          <div class="tyre-editor-pool-note">Compound and prior laps. Automatic leaves the model in control.</div>
+        </div>
+        <div class="tyre-editor-pool">
+          <label for="tyrePoolMode-${index}">Race tyre pool</label>
+          <label class="tyre-editor-toggle" for="tyrePoolMode-${index}">
+            <input id="tyrePoolMode-${index}" type="checkbox" data-tyre-pool-mode
+              ${finite ? 'checked' : ''}>
+            Limit this driver to physical sets
+          </label>
+          <div class="tyre-editor-set-list" data-tyre-set-list ${finite ? '' : 'hidden'}>
+            ${setMarkup || '<div class="tyre-editor-pool-note">Add one to twenty physical sets.</div>'}
+          </div>
+          <button class="tyre-editor-add-set" type="button" data-tyre-add-set
+            ${finite && sets.length < TYRE_EDITOR_MAX_SETS ? '' : 'disabled'}>
+            Add physical set
+          </button>
+          <div class="tyre-editor-pool-note" data-tyre-pool-note ${finite ? 'hidden' : ''}>
+            Unlimited replacement sets; later stops follow race strategy.
+          </div>
+        </div>
+      </div>
+      <div class="tyre-editor-error" data-tyre-driver-error role="alert"></div>
+    </section>
+  `;
+}
+
+function syncTyreEditorSection(section) {
+  if (!section) return;
+  const opening = section.querySelector('[data-tyre-opening-compound]');
+  const openingAge = section.querySelector('[data-tyre-opening-age]');
+  const finiteToggle = section.querySelector('[data-tyre-pool-mode]');
+  const setList = section.querySelector('[data-tyre-set-list]');
+  const addSet = section.querySelector('[data-tyre-add-set]');
+  const poolNote = section.querySelector('[data-tyre-pool-note]');
+  const finite = Boolean(finiteToggle?.checked);
+  if (openingAge) openingAge.disabled = !opening?.value;
+  if (setList) setList.hidden = !finite;
+  if (poolNote) poolNote.hidden = finite;
+  if (addSet) {
+    addSet.disabled = !finite
+      || section.querySelectorAll('[data-tyre-set-row]').length >= TYRE_EDITOR_MAX_SETS;
+  }
+}
+
+function renderTyreEditor(draft = tyreEditorDraft || {drivers: []}) {
+  tyreEditorDraft = draft;
+  const content = document.getElementById('tyreEditorContent');
+  if (!content) return;
+  content.innerHTML = tyreEditorSuggestionsMarkup()
+    + (draft.drivers.length
+      ? draft.drivers.map((driver, index) => tyreEditorDriverMarkup(driver, index)).join('')
+      : '<div class="tyre-editor-empty">No driver overrides yet. Add a driver to choose a specific opening set or finite pool.</div>');
+  content.querySelectorAll('[data-tyre-driver]').forEach(syncTyreEditorSection);
+}
+
+function clearTyreEditorErrors() {
+  const message = document.getElementById('tyreEditorMessage');
+  if (message) message.textContent = '';
+  document.querySelectorAll('#tyreEditorContent [aria-invalid="true"]').forEach(field => {
+    field.removeAttribute('aria-invalid');
+    field.classList.remove('tyre-editor-invalid');
+  });
+  document.querySelectorAll('#tyreEditorContent [data-tyre-driver-error]').forEach(error => {
+    error.textContent = '';
+  });
+}
+
+function showTyreEditorError(error) {
+  clearTyreEditorErrors();
+  const message = document.getElementById('tyreEditorMessage');
+  if (message) message.textContent = error.message;
+  if (error.sectionIndex !== undefined) {
+    const section = document.querySelector(
+      `#tyreEditorContent [data-driver-index="${error.sectionIndex}"]`
+    );
+    const sectionError = section?.querySelector('[data-tyre-driver-error]');
+    if (sectionError) sectionError.textContent = error.message;
+  }
+  const field = error.selector ? document.querySelector(error.selector) : null;
+  if (field) {
+    field.setAttribute('aria-invalid', 'true');
+    field.classList.add('tyre-editor-invalid');
+    field.focus({preventScroll: false});
+  }
+}
+
+function parseTyreEditorAge(raw) {
+  const text = String(raw ?? '').trim();
+  if (!/^\d+$/.test(text)) return null;
+  const age = Number(text);
+  return Number.isSafeInteger(age) && age >= 0 && age <= TYRE_EDITOR_MAX_AGE ? age : null;
+}
+
+function tyreEditorFieldSelector(index, field) {
+  const names = {
+    code: 'data-tyre-driver-code',
+    opening: 'data-tyre-opening-compound',
+    openingAge: 'data-tyre-opening-age',
+  };
+  return `#tyreEditorContent [data-driver-index="${index}"] [${names[field]}]`;
+}
+
+function serializeTyreEditorDraft(draft) {
+  const seenCodes = new Set();
+  const startingAssignments = [];
+  const inventoryGroups = [];
+
+  for (const [index, driver] of draft.drivers.entries()) {
+    const code = String(driver.code ?? '').trim();
+    if (!code) return {ok: false, message: 'Enter a driver code before applying the tyre setup.',
+      sectionIndex: index, selector: tyreEditorFieldSelector(index, 'code')};
+    if (/[,;=\r\n]/.test(code)) {
+      return {ok: false, message: 'Driver codes cannot contain commas, semicolons, equals signs, or line breaks.',
+        sectionIndex: index, selector: tyreEditorFieldSelector(index, 'code')};
+    }
+    if (seenCodes.has(code)) {
+      return {ok: false, message: `Driver code ${code} is listed more than once.`,
+        sectionIndex: index, selector: tyreEditorFieldSelector(index, 'code')};
+    }
+    seenCodes.add(code);
+
+    const openingCompound = String(driver.openingCompound || '');
+    let openingAge = 0;
+    let openingAgeExplicit = Boolean(driver.openingAgeExplicit);
+    if (openingCompound) {
+      if (!TYRE_EDITOR_COMPOUND_VALUES.has(openingCompound)) {
+        return {ok: false, message: 'Choose a recognised opening compound.', sectionIndex: index,
+          selector: tyreEditorFieldSelector(index, 'opening')};
+      }
+      const parsedAge = parseTyreEditorAge(driver.openingAge);
+      if (parsedAge === null) {
+        return {ok: false, message: 'Opening prior laps must be a whole number from 0 to 1000.',
+          sectionIndex: index, selector: tyreEditorFieldSelector(index, 'openingAge')};
+      }
+      openingAge = parsedAge;
+      openingAgeExplicit = openingAgeExplicit || openingAge > 0;
+      const suffix = openingAge > 0 || openingAgeExplicit ? `@${openingAge}` : '';
+      startingAssignments.push(`${code}=${openingCompound}${suffix}`);
+    }
+
+    if (!driver.finite) continue;
+    const rows = Array.isArray(driver.sets) ? driver.sets : [];
+    if (rows.length < 1 || rows.length > TYRE_EDITOR_MAX_SETS) {
+      return {ok: false, message: 'A finite pool needs between 1 and 20 physical sets.',
+        sectionIndex: index, selector: `#tyreEditorContent [data-driver-index="${index}"] [data-tyre-add-set]`};
+    }
+    const serializedSets = [];
+    const numericSets = [];
+    for (const [setIndex, row] of rows.entries()) {
+      const compound = String(row.compound || '');
+      if (!TYRE_EDITOR_COMPOUND_VALUES.has(compound)) {
+        return {ok: false, message: `Choose a recognised compound for physical set ${setIndex + 1}.`,
+          sectionIndex: index, selector: `#tyreEditorContent [data-driver-index="${index}"] [data-set-index="${setIndex}"] [data-tyre-set-compound]`};
+      }
+      const age = parseTyreEditorAge(row.age);
+      if (age === null) {
+        return {ok: false, message: `Prior laps for physical set ${setIndex + 1} must be a whole number from 0 to 1000.`,
+          sectionIndex: index, selector: `#tyreEditorContent [data-driver-index="${index}"] [data-set-index="${setIndex}"] [data-tyre-set-age]`};
+      }
+      const ageExplicit = Boolean(row.ageExplicit) || age > 0;
+      serializedSets.push(`${compound}${age > 0 || ageExplicit ? `@${age}` : ''}`);
+      numericSets.push({compound, age});
+    }
+    if (openingCompound && !numericSets.some(set => (
+      set.compound === openingCompound && set.age === openingAge
+    ))) {
+      return {ok: false, message: 'The opening tyre and prior laps must match one physical set in this finite pool.',
+        sectionIndex: index, selector: tyreEditorFieldSelector(index, 'opening')};
+    }
+    inventoryGroups.push(`${code}=${serializedSets.join(',')}`);
+  }
+
+  const startingRaw = startingAssignments.join(', ');
+  const inventoryRaw = inventoryGroups.join(';');
+  const startingLimit = document.getElementById('startingTiresInput')?.maxLength || 512;
+  const inventoryLimit = document.getElementById('tireInventoryInput')?.maxLength || 16384;
+  if (startingRaw.length > startingLimit) {
+    return {ok: false, message: `Starting tyres are too long to fit the ${startingLimit}-character input. Remove a driver or shorten a code.`};
+  }
+  if (inventoryRaw.length > inventoryLimit) {
+    return {ok: false, message: `Race tyre sets are too long to fit the ${inventoryLimit}-character input. Remove a set or shorten a code.`};
+  }
+  return {ok: true, startingRaw, inventoryRaw};
+}
+
+function tyreEditorFocusables() {
+  const dialog = document.getElementById('tyreSetupDialog');
+  if (!dialog) return [];
+  return Array.from(dialog.querySelectorAll([
+    'button:not([disabled])',
+    'input:not([disabled])',
+    'select:not([disabled])',
+    '[tabindex]:not([tabindex="-1"])',
+  ].join(','))).filter(element => element.getClientRects().length > 0);
+}
+
+function openTyreEditor() {
+  if (runInProgress || connectionRefreshInProgress) return;
+  const parsed = parseTyreSetupInputs();
+  if (!parsed.ok) {
+    setStatusMessage(parsed.message, 'error');
+    parsed.input?.focus();
+    return;
+  }
+  const dialog = document.getElementById('tyreSetupDialog');
+  if (!dialog || dialog.open) return;
+  tyreEditorRestoreFocus = document.activeElement instanceof HTMLElement
+    ? document.activeElement : document.getElementById('btnTyreSetup');
+  clearTyreEditorErrors();
+  renderTyreEditor(parsed.draft);
+  dialog.showModal();
+  setTimeout(() => {
+    const first = dialog.querySelector('[data-tyre-driver-code]')
+      || document.getElementById('tyreEditorAddDriver');
+    first?.focus({preventScroll: true});
+  }, 0);
+}
+
+function closeTyreEditor() {
+  const dialog = document.getElementById('tyreSetupDialog');
+  if (dialog?.open) dialog.close('cancel');
+}
+
+function applyTyreEditor() {
+  if (runInProgress || connectionRefreshInProgress) return;
+  const result = serializeTyreEditorDraft(tyreEditorDriversFromDom());
+  if (!result.ok) {
+    showTyreEditorError(result);
+    return;
+  }
+  document.getElementById('startingTiresInput').value = result.startingRaw;
+  document.getElementById('tireInventoryInput').value = result.inventoryRaw;
+  setStatusMessage('Tyre setup saved. Run a simulation to use these inputs.', 'success');
+  document.getElementById('tyreSetupDialog')?.close('apply');
+}
+
+function initTyreEditor() {
+  const dialog = document.getElementById('tyreSetupDialog');
+  const content = document.getElementById('tyreEditorContent');
+  const addDriver = document.getElementById('tyreEditorAddDriver');
+  const cancel = document.getElementById('tyreEditorCancel');
+  const apply = document.getElementById('tyreEditorApply');
+  const form = document.getElementById('tyreEditorForm');
+  if (!dialog || !content || !addDriver || !cancel || !apply) return;
+
+  form?.addEventListener('submit', event => event.preventDefault());
+  addDriver.addEventListener('click', () => {
+    const draft = tyreEditorDriversFromDom();
+    draft.drivers.push({
+      code: '', openingCompound: '', openingAge: '0', openingAgeExplicit: false,
+      finite: false, sets: [],
+    });
+    renderTyreEditor(draft);
+    const last = content.querySelector('[data-tyre-driver]:last-of-type [data-tyre-driver-code]');
+    last?.focus({preventScroll: false});
+  });
+  cancel.addEventListener('click', closeTyreEditor);
+  apply.addEventListener('click', applyTyreEditor);
+
+  content.addEventListener('input', event => {
+    if (event.target.matches('[data-tyre-opening-age], [data-tyre-set-age]')) {
+      event.target.dataset.ageExplicit = 'true';
+    }
+    if (event.target.matches('[aria-invalid="true"]')) {
+      event.target.removeAttribute('aria-invalid');
+      event.target.classList.remove('tyre-editor-invalid');
+    }
+  });
+  content.addEventListener('change', event => {
+    const target = event.target;
+    const section = target.closest('[data-tyre-driver]');
+    if (!section) return;
+    if (target.matches('[data-tyre-opening-compound]') && target.value
+        && !section.querySelector('[data-tyre-opening-age]').value) {
+      section.querySelector('[data-tyre-opening-age]').value = '0';
+    }
+    syncTyreEditorSection(section);
+  });
+  content.addEventListener('click', event => {
+    const target = event.target.closest('button');
+    if (!target) return;
+    const section = target.closest('[data-tyre-driver]');
+    if (!section) return;
+    const index = Number(section.dataset.driverIndex);
+    if (target.matches('[data-tyre-remove-driver]')) {
+      const draft = tyreEditorDriversFromDom();
+      draft.drivers.splice(index, 1);
+      renderTyreEditor(draft);
+      addDriver.focus({preventScroll: true});
+      return;
+    }
+    if (target.matches('[data-tyre-add-set]')) {
+      const draft = tyreEditorDriversFromDom();
+      const driver = draft.drivers[index];
+      if (!driver || !driver.finite || driver.sets.length >= TYRE_EDITOR_MAX_SETS) return;
+      driver.sets.push({compound: 'medium', age: '0', ageExplicit: false});
+      renderTyreEditor(draft);
+      content.querySelector(`[data-driver-index="${index}"] [data-set-index="${driver.sets.length - 1}"] [data-tyre-set-compound]`)
+        ?.focus({preventScroll: false});
+      return;
+    }
+    if (target.matches('[data-tyre-remove-set]')) {
+      const row = target.closest('[data-tyre-set-row]');
+      const setIndex = Number(row?.dataset.setIndex);
+      const draft = tyreEditorDriversFromDom();
+      draft.drivers[index]?.sets.splice(setIndex, 1);
+      renderTyreEditor(draft);
+      content.querySelector(`[data-driver-index="${index}"] [data-tyre-add-set]`)
+        ?.focus({preventScroll: true});
+    }
+  });
+  dialog.addEventListener('keydown', event => {
+    if (event.key !== 'Tab') return;
+    const focusables = tyreEditorFocusables();
+    if (!focusables.length) return;
+    const current = focusables.indexOf(document.activeElement);
+    const next = event.shiftKey
+      ? (current <= 0 ? focusables.length - 1 : current - 1)
+      : (current < 0 || current === focusables.length - 1 ? 0 : current + 1);
+    event.preventDefault();
+    focusables[next].focus();
+  });
+  dialog.addEventListener('focusin', event => {
+    if (!dialog.open || dialog.contains(event.target)) return;
+    const first = tyreEditorFocusables()[0];
+    first?.focus({preventScroll: true});
+  });
+  dialog.addEventListener('close', () => {
+    tyreEditorDraft = null;
+    clearTyreEditorErrors();
+    const restore = tyreEditorRestoreFocus;
+    tyreEditorRestoreFocus = null;
+    if (restore && restore.isConnected && !restore.disabled && !restore.hidden) {
+      restore.focus({preventScroll: true});
+    }
+  });
+}
+
 function buildRunPayload() {
   const selectedRace = document.getElementById('trackSelect').value;
   const simulationsInput = document.getElementById('simCount');
@@ -2338,46 +3219,11 @@ function buildRunPayload() {
   const simulations = Number(simulationsInput.value);
   const seed = Number(seedInput.value);
   const workersValue = workersInput.value.trim();
-  const tireInventory = Object.create(null);
-  const inventoryInput = document.getElementById('tireInventoryInput');
-  if (inventoryInput.value.trim()) {
-    try {
-      for (const group of inventoryInput.value.trim().split(/[;\n]/)) {
-        const parts = group.split('=');
-        const id = parts[0].trim();
-        if (parts.length !== 2 || !id || Object.hasOwn(tireInventory, id)) throw new Error();
-        const sets = parts[1].split(',');
-        if (sets.length < 1 || sets.length > 20) throw new Error();
-        tireInventory[id] = sets.map((entry, index) => {
-          const match = entry.trim().match(/^(soft|medium|hard|intermediate|wet)(?:@(\d+))?$/);
-          if (!match || Number(match[2] || 0) > 1000) throw new Error();
-          return {id: `set-${index + 1}`, compound: match[1], age: Number(match[2] || 0)};
-        });
-      }
-    } catch {
-      setStatusMessage('Race tyre sets: use VER=soft@5,medium,hard;NOR=soft,hard. Each driver needs 1–20 sets, with prior laps 0–1000.', 'error');
-      return null;
-    }
-  }
-  const startingTires = Object.create(null);
-  const startingTireAges = Object.create(null);
-  const tyreInput = document.getElementById('startingTiresInput');
-  if (tyreInput.value.trim()) {
-    for (const assignment of tyreInput.value.split(',')) {
-      const parts = assignment.trim().split('=');
-      const id = parts[0]?.trim();
-      const choice = parts[1]?.trim().toLowerCase().match(/^(soft|medium|hard|intermediate|wet)(?:@(\d+))?$/);
-      const compound = choice?.[1];
-      const age = choice?.[2] === undefined ? 0 : Number(choice[2]);
-      if (parts.length !== 2 || !id || !choice || !Number.isSafeInteger(age) || age > 1000
-          || Object.hasOwn(startingTires, id)) {
-        setStatusMessage('Starting tyres: use each driver once, e.g. VER=soft@5, NOR=hard. Prior laps must be 0–1000. Compounds: soft, medium, hard, intermediate, wet.', 'error');
-        tyreInput.focus();
-        return null;
-      }
-      startingTires[id] = compound;
-      if (choice[2] !== undefined) startingTireAges[id] = age;
-    }
+  const tyreSetup = parseTyreSetupInputs();
+  if (!tyreSetup.ok) {
+    setStatusMessage(tyreSetup.message, 'error');
+    tyreSetup.input?.focus();
+    return null;
   }
 
   return {
@@ -2388,9 +3234,9 @@ function buildRunPayload() {
     seed,
     qualifying_mode: 'simulated',
     race_engine: document.getElementById('raceEngineSelect').value,
-    starting_tires: startingTires,
-    starting_tire_ages: startingTireAges,
-    tire_inventory: tireInventory,
+    starting_tires: tyreSetup.startingTires,
+    starting_tire_ages: tyreSetup.startingTireAges,
+    tire_inventory: tyreSetup.tireInventory,
     weather_mode: document.getElementById('weatherModeSelect').value,
     parallel: document.getElementById('parallelSelect').value === 'true',
     max_workers: workersValue ? Number(workersValue) : null,
@@ -3634,6 +4480,7 @@ function renderScenarioLab() {
 (async function init() {
   populateYearSelect();
   loadUiPrefs();
+  initTyreEditor();
   renderScenarioControlMounts();
 
   if (!scenarioSetInput.value.trim()) {

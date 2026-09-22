@@ -7,7 +7,14 @@ the simulator does not infer real weekend allocations or qualifying usage.
 
 ## Inputs
 
-In the dashboard's **Race tyre sets (optional)** field or the CLI:
+The dashboard's **Edit tyre setup** editor lets you choose each driver's opening
+compound and prior laps, then optionally list the available race sets. Each row
+represents one physical set; identical compounds and ages can appear more than
+once. Automatic opening selection chooses from the supplied pool. An explicit
+opening must match a listed compound and age. Apply the draft to update the run
+settings, or cancel to keep the previous settings.
+
+You can also use the dashboard's **Race tyre sets (optional)** field or the CLI:
 
 ```powershell
 python examples/simulate_race.py --race 1 --tire-inventory "VER=soft@5,medium,hard;NOR=soft,hard" --starting-tyres "VER=soft@5" --export

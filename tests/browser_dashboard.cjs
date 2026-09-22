@@ -54,6 +54,161 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       process.env.F1SIM_URL || 'http://127.0.0.1:8080');
     await page.waitForFunction(() => !connectionRefreshInProgress);
     assert(await page.locator('#btnRun').isEnabled(), 'Live calendar must be available');
+    assert(await page.locator('#btnTyreSetup').isEnabled(), 'Tyre setup editor must be available');
+
+    // The editor is a draft over the existing shorthand fields. Exercise the
+    // full finite-pool path, including duplicate physical sets and the 20-set
+    // limit, before checking that Apply emits the same API shape as shorthand.
+    await page.locator('#btnTyreSetup').click();
+    await page.locator('#tyreSetupDialog').waitFor({state: 'visible'});
+    assert.equal(await page.locator('#tyreSetupDialog [data-tyre-driver]').count(), 0);
+    await page.locator('#tyreEditorAddDriver').click();
+    await page.locator('[data-driver-index="0"] [data-tyre-driver-code]').fill('S00');
+    await page.locator('[data-driver-index="0"] [data-tyre-opening-compound]').selectOption('hard');
+    await page.locator('[data-driver-index="0"] [data-tyre-opening-age]').fill('5');
+    await page.locator('[data-driver-index="0"] [data-tyre-pool-mode]').check();
+    await page.locator('[data-driver-index="0"] [data-tyre-add-set]').click();
+    await page.locator('[data-driver-index="0"] [data-set-index="0"] [data-tyre-set-compound]').selectOption('hard');
+    await page.locator('[data-driver-index="0"] [data-set-index="0"] [data-tyre-set-age]').fill('5');
+    await page.locator('[data-driver-index="0"] [data-tyre-add-set]').click();
+    await page.locator('[data-driver-index="0"] [data-set-index="1"] [data-tyre-set-compound]').selectOption('hard');
+    await page.locator('[data-driver-index="0"] [data-set-index="1"] [data-tyre-set-age]').fill('5');
+    const duplicateDraft = await page.evaluate(() => serializeTyreEditorDraft(tyreEditorDriversFromDom()));
+    assert.equal(duplicateDraft.ok, true);
+    assert.equal(duplicateDraft.inventoryRaw, 'S00=hard@5,hard@5');
+    for (const [index, compound] of [[2, 'soft'], [3, 'intermediate'], [4, 'wet']]) {
+      await page.locator('[data-driver-index="0"] [data-tyre-add-set]').click();
+      await page.locator(`[data-driver-index="0"] [data-set-index="${index}"] [data-tyre-set-compound]`).selectOption(compound);
+    }
+    assert.equal(await page.locator('[data-driver-index="0"] [data-tyre-set-row]').count(), 5);
+    await page.locator('[data-driver-index="0"] [data-set-index="1"] [data-tyre-remove-set]').click();
+    for (let count = 4; count < 20; count += 1) {
+      await page.locator('[data-driver-index="0"] [data-tyre-add-set]').click();
+    }
+    assert.equal(await page.locator('[data-driver-index="0"] [data-tyre-set-row]').count(), 20);
+    assert(await page.locator('[data-driver-index="0"] [data-tyre-add-set]').isDisabled());
+    for (let count = 20; count > 4; count -= 1) {
+      await page.locator('[data-driver-index="0"] [data-tyre-set-row]').last()
+        .locator('[data-tyre-remove-set]').click();
+    }
+    assert.equal(await page.locator('[data-driver-index="0"] [data-tyre-set-row]').count(), 4);
+    await page.locator('#tyreEditorAddDriver').click();
+    await page.locator('[data-driver-index="1"] [data-tyre-driver-code]').fill('S01');
+    await page.locator('[data-driver-index="1"] [data-tyre-opening-compound]').selectOption('soft');
+    const finiteToggle = page.locator('[data-driver-index="0"] [data-tyre-pool-mode]');
+    const finiteSetList = page.locator('[data-driver-index="0"] [data-tyre-set-list]');
+    await finiteToggle.uncheck();
+    assert(await finiteSetList.isHidden(), 'Unlimited pools must hide physical set rows');
+    assert.equal(await page.evaluate(() => tyreEditorFocusables()
+      .some(node => node.id === 'tyreSetCompound-0-0')), false,
+    'Hidden physical sets must leave keyboard navigation');
+    await finiteToggle.check();
+    assert.equal(await page.locator('[data-driver-index="0"] [data-tyre-set-row]').count(), 4,
+      'Switching back to finite mode must restore the draft set rows');
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({width, height: 900});
+      await page.locator('#tyreEditorContent').evaluate(node => { node.scrollTop = 0; });
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+        `Tyre setup editor overflows at ${width}px`);
+      if (process.env.F1SIM_SCREENSHOTS) {
+        await page.screenshot({path: path.join(process.env.F1SIM_SCREENSHOTS,
+          `tyre-setup-editor-${width}.png`), fullPage: false});
+        await page.locator('#tyreEditorContent').evaluate(node => { node.scrollTop = node.scrollHeight; });
+        await page.screenshot({path: path.join(process.env.F1SIM_SCREENSHOTS,
+          `tyre-setup-editor-${width}-bottom.png`), fullPage: false});
+        await page.locator('#tyreEditorContent').evaluate(node => { node.scrollTop = 0; });
+      }
+    }
+    for (let count = 4; count < 20; count += 1) {
+      await page.locator('[data-driver-index="0"] [data-tyre-add-set]').click();
+    }
+    await page.setViewportSize({width: 390, height: 900});
+    await page.locator('#tyreEditorContent').evaluate(node => { node.scrollTop = 0; });
+    const firstDriverCode = page.locator('[data-driver-index="0"] [data-tyre-driver-code]');
+    const lastVisibleSetAge = page.locator('#tyreSetAge-0-19');
+    await firstDriverCode.focus();
+    for (let tab = 0; tab < 100; tab += 1) {
+      if (await lastVisibleSetAge.evaluate(node => document.activeElement === node)) break;
+      await page.keyboard.press('Tab');
+    }
+    assert(await lastVisibleSetAge.evaluate(node => document.activeElement === node),
+      'Tab navigation must reach the last finite-pool age field');
+    const editorScrollState = await page.evaluate(() => {
+      const content = document.getElementById('tyreEditorContent');
+      const field = document.getElementById('tyreSetAge-0-19');
+      const contentBox = content.getBoundingClientRect();
+      const fieldBox = field.getBoundingClientRect();
+      return {
+        scrollTop: content.scrollTop,
+        visible: fieldBox.top >= contentBox.top && fieldBox.bottom <= contentBox.bottom,
+      };
+    });
+    assert(editorScrollState.scrollTop > 0 && editorScrollState.visible,
+      'Tab navigation must scroll the focused finite-pool field into view');
+    for (let count = 20; count > 4; count -= 1) {
+      await page.locator('[data-driver-index="0"] [data-tyre-set-row]').last()
+        .locator('[data-tyre-remove-set]').click();
+    }
+    await page.setViewportSize({width: 1440, height: 900});
+    await page.locator('#tyreEditorContent').evaluate(node => { node.scrollTop = 0; });
+    await page.locator('[data-driver-index="1"] [data-tyre-driver-code]').fill('__proto__');
+    const prototypeDraft = await page.evaluate(() => serializeTyreEditorDraft(tyreEditorDriversFromDom()));
+    assert(prototypeDraft.ok && prototypeDraft.startingRaw.includes('__proto__=soft'));
+    await page.locator('[data-driver-index="1"] [data-tyre-driver-code]').fill('<img src=x>');
+    assert.equal(await page.locator('#tyreEditorContent img').count(), 0);
+    await page.locator('[data-driver-index="1"] [data-tyre-driver-code]').fill('S01');
+    await page.locator('#tyreEditorApply').click();
+    await page.locator('#tyreSetupDialog').waitFor({state: 'hidden'});
+    assert.equal(await page.locator('#startingTiresInput').inputValue(), 'S00=hard@5, S01=soft');
+    assert.equal(await page.locator('#tireInventoryInput').inputValue(), 'S00=hard@5,soft,intermediate,wet');
+    assert.deepEqual(await page.evaluate(() => buildRunPayload().starting_tire_ages), {S00: 5});
+    assert.equal(await page.evaluate(() => buildRunPayload().tire_inventory.S00.length), 4);
+
+    // A failed Apply leaves the serialized inputs untouched, while Escape
+    // cancels the draft and restores the trigger focus.
+    const editorRawBeforeInvalid = await page.evaluate(() => ({
+      starting: document.getElementById('startingTiresInput').value,
+      inventory: document.getElementById('tireInventoryInput').value,
+    }));
+    await page.locator('#btnTyreSetup').click();
+    await page.locator('[data-driver-index="1"] [data-tyre-driver-code]').fill('S00');
+    await page.locator('#tyreEditorApply').click();
+    assert((await page.locator('#tyreEditorMessage').innerText()).includes('listed more than once'));
+    await page.locator('[data-driver-index="1"] [data-tyre-driver-code]').fill('S01');
+    await page.locator('[data-driver-index="0"] [data-tyre-opening-compound]').selectOption('medium');
+    await page.locator('#tyreEditorApply').click();
+    assert(await page.locator('#tyreSetupDialog').isVisible());
+    assert((await page.locator('#tyreEditorMessage').innerText()).includes('must match one physical set'));
+    assert.deepEqual(await page.evaluate(() => ({
+      starting: document.getElementById('startingTiresInput').value,
+      inventory: document.getElementById('tireInventoryInput').value,
+    })), editorRawBeforeInvalid);
+    for (const invalidAge of ['-1', '1.5', '1001']) {
+      await page.locator('[data-driver-index="0"] [data-tyre-opening-age]').fill(invalidAge);
+      await page.locator('#tyreEditorApply').click();
+      assert((await page.locator('#tyreEditorMessage').innerText()).includes('whole number from 0 to 1000'));
+    }
+    await page.keyboard.press('Escape');
+    await page.locator('#tyreSetupDialog').waitFor({state: 'hidden'});
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'btnTyreSetup');
+
+    // Direct shorthand edits are imported on the next open; malformed raw
+    // input is reported on the original field and never gets erased.
+    await page.locator('#startingTiresInput').fill('S00=soft@4');
+    await page.locator('#tireInventoryInput').fill('S00=soft@4,hard');
+    await page.locator('#btnTyreSetup').click();
+    assert.equal(await page.locator('[data-driver-index="0"] [data-tyre-opening-compound]').inputValue(), 'soft');
+    assert.equal(await page.locator('[data-driver-index="0"] [data-tyre-opening-age]').inputValue(), '4');
+    await page.locator('#tyreEditorCancel').click();
+    assert.equal(await page.locator('#startingTiresInput').inputValue(), 'S00=soft@4');
+    await page.locator('#startingTiresInput').fill('S00=soft,S00=hard');
+    await page.locator('#btnTyreSetup').click();
+    assert.equal(await page.locator('#tyreSetupDialog').isVisible(), false);
+    assert((await page.locator('#appStatus').innerText()).includes('use each driver once'));
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'startingTiresInput');
+    await page.locator('#startingTiresInput').fill(offline ? 'S00=hard@5, S01=soft' : '');
+    await page.locator('#tireInventoryInput').fill('');
+
     await page.locator('#simCount').fill('10');
     assert.equal(await page.locator('#raceEngineSelect').inputValue(), 'standard');
     await page.locator('#raceEngineSelect').selectOption('chronological');
@@ -679,6 +834,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       await page.locator('#btnRun').click();
       await page.locator('#btnStop').waitFor({state: 'visible'});
       assert(await page.locator('#btnRun').isDisabled());
+      assert(await page.locator('#btnTyreSetup').isDisabled());
       assert(await page.locator('#btnStop').isEnabled());
       assert.equal(await page.evaluate(() => document.activeElement?.id), 'btnStop');
       await page.locator('#trackSelect').focus();

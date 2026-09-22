@@ -91,8 +91,14 @@ in the dashboard or pass `--race-engine chronological` to the CLI. The API and
 Python `MonteCarloRunner` accept `race_engine="chronological"` (or `"standard"`).
 Results record the selected model; see [its assumptions and limits](docs/chronological-race-design.md).
 
-To test an opening tyre choice, fill **Starting tyres (optional)** in the dashboard
-with driver-code pairs such as `VER=soft@5, NOR=hard`, or use the CLI:
+To configure tyres in the dashboard, choose **Edit tyre setup**. Add a driver,
+choose an opening compound and its prior laps, and optionally limit the available
+race sets. **Apply setup** updates the run settings; **Cancel** or Escape leaves them
+unchanged. Each listed set is a separate physical set, including repeated
+compound-and-age combinations.
+
+The **Starting tyres (optional)** field also accepts driver-code pairs such as
+`VER=soft@5, NOR=hard`, or use the CLI:
 
 ```powershell
 python examples/simulate_race.py --race 1 --starting-tyres "VER=soft@5,NOR=hard" --seed 42 --export
@@ -112,8 +118,8 @@ Prior laps affect tyre wear, without adding race distance or satisfying the
 race's compound-use rules. Replacement sets are fresh unless an explicit race
 pool is supplied. Qualifying remains independent of race sets.
 
-To constrain available race sets, fill **Race tyre sets (optional)** or add
-`--tire-inventory "VER=soft@5,medium,hard;NOR=soft,hard"`. The pool includes the
+To constrain available race sets, use the editor, fill **Race tyre sets (optional)**,
+or add `--tire-inventory "VER=soft@5,medium,hard;NOR=soft,hard"`. The pool includes the
 opening set; an explicit opening choice must match its compound and age.
 Unlisted drivers keep unlimited sets. Removed undamaged sets can be reused
 with their accumulated wear. See [finite race tyre pools](docs/tyre-inventory.md)
