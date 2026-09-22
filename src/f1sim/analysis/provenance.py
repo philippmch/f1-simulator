@@ -15,11 +15,16 @@ from f1sim import __version__
 def _simulation_source_digest() -> str:
     root = Path(__file__).resolve().parents[1]
     digest = hashlib.sha256()
-    for directory in ("analysis", "models", "simulation"):
-        for path in sorted((root / directory).glob("*.py")):
-            digest.update(path.relative_to(root).as_posix().encode("utf-8") + b"\0")
-            # Normalize checkout line endings across Windows and Unix.
-            digest.update(path.read_text(encoding="utf-8").encode("utf-8") + b"\0")
+    paths = [root / "cancellation.py"]
+    paths.extend(
+        path
+        for directory in ("analysis", "models", "simulation")
+        for path in (root / directory).glob("*.py")
+    )
+    for path in sorted(paths):
+        digest.update(path.relative_to(root).as_posix().encode("utf-8") + b"\0")
+        # Normalize checkout line endings across Windows and Unix.
+        digest.update(path.read_text(encoding="utf-8").encode("utf-8") + b"\0")
     return digest.hexdigest()
 
 

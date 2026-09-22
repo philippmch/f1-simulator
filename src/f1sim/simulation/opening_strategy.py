@@ -7,6 +7,7 @@ from math import inf
 
 import numpy as np
 
+from f1sim.cancellation import cancellation_checkpoint, raise_if_cancelled
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
 from f1sim.simulation.race_timing import RaceFinishClock, forecast_final_lap
@@ -69,6 +70,7 @@ def _cached_dry_policy_costs(driver_json, car_json, track_json, weather_json,
              else REACTION_SEEDS)
     scores = []
     for compound in SLICKS:
+        cancellation_checkpoint()
         outcomes = [_policy_path_outcome(
             driver, car, track, weather, TeamStrategyArchetype(strategy), tuning, profiles,
             compound, seed,
@@ -107,6 +109,7 @@ def _cached_policy_costs(driver_json, car_json, track_json, weather_json,
     tuning, profiles = json.loads(tuning_json), json.loads(profiles_json)
     scores = []
     for compound in OPENING_CANDIDATES:
+        cancellation_checkpoint()
         outcomes = [_policy_path_outcome(
             driver, car, track, weather, TeamStrategyArchetype(strategy), tuning, profiles,
             compound, seed,
@@ -158,6 +161,7 @@ def _cached_inventory_policy_costs(driver_json, car_json, track_json, weather_js
     # Finite-set policy uses deterministic costs throughout, so private lap
     # variation/events are unnecessary. The actual race RNG is untouched.
     for item in eligible or records:
+        cancellation_checkpoint()
         key = (item["compound"], item.get("age", 0))
         if key not in equivalent_outcomes:
             # Only elapsed time and completed distance are returned. Fitting
@@ -197,6 +201,7 @@ def _policy_path_outcome(driver, car, track, weather, strategy, tuning, profiles
     final_lap = finish_clock.final_lap
     observed_running_pace = None
     for lap in range(1, track.total_laps + 1):
+        raise_if_cancelled()
         planning_final_lap = forecast_final_lap(
             final_lap, lap - 1, state.total_time, observed_running_pace,
             finish_clock.time_limit_seconds,

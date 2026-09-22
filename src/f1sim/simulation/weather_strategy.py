@@ -7,6 +7,7 @@ from math import inf
 
 import numpy as np
 
+from f1sim.cancellation import cancellation_checkpoint
 from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.lap import LapSimulator
@@ -89,6 +90,7 @@ def _clock_weather_stop_costs(
             return cache[initial]
         frames = [[initial, None, 0, inf]]
         while frames:
+            cancellation_checkpoint()
             state, actions, index, best = frames[-1]
             if state in cache:
                 frames.pop()
@@ -137,6 +139,7 @@ def _clock_weather_stop_costs(
             if before.tire_mismatch(compound) != "critical"
         )
         for candidate in candidates:
+            cancellation_checkpoint()
             after_paid = paid_stops + 1
             after = surface(offset, after_paid, stopped_first)
             actions.append((
@@ -238,6 +241,7 @@ def _fresh_plan_costs(driver_json: str, car_json: str, track_json: str,
     # their actual lap/weather lets later decisions share the same suffixes.
     future = [0.0] * (horizon + 1)
     for offset in range(horizon - 1, 0, -1):
+        cancellation_checkpoint()
         suffix = _fresh_plan_costs(
             driver_json, car_json, track_json,
             json.dumps(surfaces[offset].model_dump(), sort_keys=True),
@@ -247,8 +251,10 @@ def _fresh_plan_costs(driver_json: str, car_json: str, track_json: str,
         future[offset] = service + min(cost for _, cost, _ in suffix)
     first = []
     for compound, tire in tires.items():
+        cancellation_checkpoint()
         stint, candidate, first_lap = 0.0, inf, 0.0
         for offset, surface in enumerate(surfaces):
+            cancellation_checkpoint()
             if surface.tire_mismatch(compound) == "critical":
                 break
             running = _running(simulator, driver, car, track, tire, surface,
@@ -281,6 +287,7 @@ def _retained_costs(driver_json, car_json, track_json, weather_json, tire_json,
     for offset, surface in enumerate(_surface_path(
         weather, track.total_laps - current_lap + 1, intervals,
     )):
+        cancellation_checkpoint()
         if surface.tire_mismatch(tire.compound) == "critical":
             # A currently critical set is handled before this projection.
             # Each recursive replacement is noncritical, so its next stop
@@ -386,6 +393,7 @@ def weather_stop_costs(
     }
     pit = inf
     for compound, cost, baseline_first in fresh:
+        cancellation_checkpoint()
         if compound not in candidates:
             continue
         actual_first = baseline_first if active_aero_enabled else _running(

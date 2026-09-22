@@ -8,6 +8,7 @@ from numbers import Real
 
 import numpy as np
 
+from f1sim.cancellation import raise_if_cancelled
 from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.events import EventManager, EventType, RaceEvent
@@ -415,6 +416,7 @@ class RaceSimulator(InventoryStrategyMixin):
         has_two_green_laps = False
         pending_resume_time: float | None = None
         for lap in range(1, track.total_laps + 1):
+            raise_if_cancelled()
             # A suspension is elapsed between completed crossings. Preserve a
             # scalar snapshot before exposing the common restart clock so a
             # retirement on the restart lap can roll back its uncompleted lap

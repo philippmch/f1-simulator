@@ -11,6 +11,7 @@ from threading import RLock
 
 import numpy as np
 
+from f1sim.cancellation import cancellation_checkpoint
 from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.lap import LapSimulator
@@ -110,6 +111,7 @@ def _clock_rain_stop(
             return cache[initial]
         frames = [[initial, None, 0, inf]]
         while frames:
+            cancellation_checkpoint()
             state, actions, index, best = frames[-1]
             if actions is None:
                 offset, paid, stopped_first = state
@@ -160,6 +162,7 @@ def _clock_rain_stop(
     prefix = first_old
     if remaining_stops:
         for next_stop in range(1, horizon):
+            cancellation_checkpoint()
             if next_stop > 1:
                 prefix += old[next_stop - 1]
             wait = min(wait, prefix + green_stop + future((next_stop, 1, False)))
@@ -246,6 +249,7 @@ def _clock_rain_transition(
             return solve_cache[initial]
         frames = [[initial, None, 0, inf]]
         while frames:
+            cancellation_checkpoint()
             state, actions, index, best = frames[-1]
             if state in solve_cache:
                 frames.pop()
@@ -280,6 +284,7 @@ def _clock_rain_transition(
                 compliant = legal(used)
                 if allowed or not compliant:
                     for candidate in candidates:
+                        cancellation_checkpoint()
                         if before.tire_mismatch(candidate) == "critical":
                             continue
                         if not allowed and (compliant or used & bits[candidate]):
@@ -367,6 +372,7 @@ def _clock_same_rain_stint(weather, current_tire, weather_clock):
         return False
     surface = weather
     for _ in range(weather_clock.max_updates + 1):
+        cancellation_checkpoint()
         if (surface.fresh_rain_compound() != current_tire.compound
                 or surface.tire_mismatch(current_tire.compound) == "critical"):
             return False
@@ -387,6 +393,7 @@ def _running_row(models, weather_json, tire_json, age, lap, physical, intervals=
     for offset, surface in enumerate(projected_surfaces(
         surface, track.total_laps - lap + 1, intervals,
     )):
+        cancellation_checkpoint()
         driver.current_tire_laps = age + offset
         row.append(simulator.calculate_lap_time(
             driver, car, track, tire, surface, lap + offset, physical,
@@ -662,6 +669,7 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
         pending = [(initial, frame)]
         value = None
         while pending:
+            cancellation_checkpoint()
             state, frame = pending[-1]
             try:
                 child = frame.send(value)

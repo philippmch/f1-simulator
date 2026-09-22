@@ -13,6 +13,7 @@ from itertools import count
 from math import ceil, floor, isfinite
 from numbers import Real
 
+from f1sim.cancellation import raise_if_cancelled
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
 from f1sim.simulation.events import EventType, RaceEvent
 from f1sim.simulation.execution import validate_starting_tire_ages, validate_starting_tires
@@ -166,6 +167,7 @@ class ChronologicalRace:
         for state in self.states.values():
             self._start_lap(state, 0.0)
         while self.queue:
+            raise_if_cancelled()
             now, _, _, kind, driver_id, generation = heapq.heappop(self.queue)
             pending = self.pending.get(driver_id)
             if pending is None or generation != pending.generation:

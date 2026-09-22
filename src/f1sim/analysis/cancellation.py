@@ -1,5 +1,5 @@
-"""Cancellation signals shared by analysis entry points."""
+"""Compatibility exports for cancellation used by analysis entry points."""
 
+from f1sim.cancellation import SimulationCancelled
 
-class SimulationCancelled(RuntimeError):
-    """Raised when a Monte Carlo run is cancelled before completion."""
+__all__ = ["SimulationCancelled"]

@@ -422,10 +422,13 @@ separate capacity domains.
 
 Use **Stop run** to cancel an active dashboard request while retaining the last
 completed results. If a dashboard client disconnects, the server stops starting
-further trials or weather scenarios. Cancellation is cooperative: an in-progress
-data request or race trial can finish first. Parallel runs stop submitting work
-and drain their running workers before releasing capacity. Cancelled runs do not
-return partial statistics.
+further trials or weather scenarios. Cancellation is cooperative: race loops and
+strategy searches check for it during a trial, so an expensive tyre search does
+not need to finish the whole race first. An in-progress data request can still
+finish before cancellation is observed. Parallel runs stop submitting work,
+signal their running workers, and wait for them to unwind before releasing
+capacity. Cancelled runs do not return partial statistics. Without cancellation,
+the same seeded inputs retain the same simulation outcomes.
 
 ## Live data policy
 

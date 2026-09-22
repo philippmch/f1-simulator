@@ -6,14 +6,20 @@ from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from copy import deepcopy
 from dataclasses import dataclass, field
 from math import isclose, isfinite, sqrt
+from multiprocessing import get_context
 from numbers import Integral, Real
 from statistics import NormalDist
 from typing import Callable
 
 import numpy as np
 
-from f1sim.analysis.cancellation import SimulationCancelled
 from f1sim.analysis.provenance import simulation_runtime
+from f1sim.cancellation import (
+    cancellation_scope,
+    current_cancellation_callback,
+    install_cancellation_callback,
+    raise_if_cancelled,
+)
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.models.tire import TireCompound
 from f1sim.simulation.chronological_race import ChronologicalRace
@@ -50,8 +56,20 @@ _PIT_DECISION_REASONS = frozenset({
 
 
 def _raise_if_cancelled(cancel_requested: Callable[[], bool] | None) -> None:
-    if cancel_requested is not None and cancel_requested():
-        raise SimulationCancelled("simulation cancelled")
+    raise_if_cancelled(cancel_requested)
+
+
+def _initialize_cancellation_worker(cancel_event) -> None:
+    """Install the inherited process event without pickling a parent callback."""
+    install_cancellation_callback(cancel_event.is_set)
+
+
+def _run_cancellable_simulation(
+    args: tuple,
+) -> tuple[list[RaceResult], list[QualifyingResult], dict]:
+    """Reset per-trial polling state while retaining the worker event callback."""
+    with cancellation_scope(current_cancellation_callback()):
+        return _run_single_simulation(args)
 
 
 def _cancellation_worker_count(max_workers: int | None, num_simulations: int) -> int:
@@ -71,12 +89,19 @@ def _run_parallel_with_cancellation(
     results: dict[int, tuple[list[RaceResult], list[QualifyingResult], dict]] = {}
     futures = {}
     next_index = 0
+    multiprocessing_context = get_context()
+    cancel_event = multiprocessing_context.Event()
 
-    with ProcessPoolExecutor(max_workers=worker_count) as executor:
+    with ProcessPoolExecutor(
+        max_workers=worker_count,
+        mp_context=multiprocessing_context,
+        initializer=_initialize_cancellation_worker,
+        initargs=(cancel_event,),
+    ) as executor:
         try:
             while next_index < len(args_list) and len(futures) < worker_count:
                 _raise_if_cancelled(cancel_requested)
-                futures[executor.submit(_run_single_simulation, args_list[next_index])] = (
+                futures[executor.submit(_run_cancellable_simulation, args_list[next_index])] = (
                     next_index
                 )
                 next_index += 1
@@ -97,12 +122,13 @@ def _run_parallel_with_cancellation(
                 _raise_if_cancelled(cancel_requested)
                 while next_index < len(args_list) and len(futures) < worker_count:
                     _raise_if_cancelled(cancel_requested)
-                    futures[executor.submit(_run_single_simulation, args_list[next_index])] = (
+                    futures[executor.submit(_run_cancellable_simulation, args_list[next_index])] = (
                         next_index
                     )
                     next_index += 1
                 _raise_if_cancelled(cancel_requested)
         except BaseException:
+            cancel_event.set()
             for future in futures:
                 future.cancel()
             raise
@@ -1006,12 +1032,13 @@ class MonteCarloRunner:
                     all_event_counts.append(event_counts)
             else:
                 for args in args_list:
-                    _raise_if_cancelled(cancel_requested)
-                    race_res, quali_res, event_counts = _run_single_simulation(args)
-                    all_race_results.append(race_res)
-                    all_quali_results.append(quali_res)
-                    all_event_counts.append(event_counts)
-                    _raise_if_cancelled(cancel_requested)
+                    with cancellation_scope(cancel_requested):
+                        _raise_if_cancelled(cancel_requested)
+                        race_res, quali_res, event_counts = _run_single_simulation(args)
+                        all_race_results.append(race_res)
+                        all_quali_results.append(quali_res)
+                        all_event_counts.append(event_counts)
+                        _raise_if_cancelled(cancel_requested)
             _raise_if_cancelled(cancel_requested)
 
         # Aggregate statistics

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from f1sim.cancellation import cancellation_checkpoint
 from f1sim.models import Car, Driver, TireCompound, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.lap import LapSimulator
@@ -182,6 +183,7 @@ class QualifyingSimulator:
         best_times: dict[str, float] = {}
 
         for driver in drivers:
+            cancellation_checkpoint()
             car = cars.get(driver.team_id)
             if car is None:
                 continue
@@ -202,6 +204,7 @@ class QualifyingSimulator:
             driver_best = float("inf")
 
             for attempt in range(attempts):
+                cancellation_checkpoint()
                 # Push level varies by attempt (more push on final attempt)
                 push_level = 0.9 if attempt < attempts - 1 else 1.0
 

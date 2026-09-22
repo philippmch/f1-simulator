@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
+from f1sim.cancellation import cancellation_checkpoint
 from f1sim.models import Car, Driver, Tire, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
 from f1sim.simulation.lap import LapSimulator
@@ -35,6 +36,7 @@ def _full_row(driver, car, track, tire, age, lap, physical, scale, aero=True, ga
     weather = _ScaledDryWeather(pace_scale=scale)
     result = []
     for number in range(lap, track.total_laps + 1):
+        cancellation_checkpoint()
         driver.current_tire_laps = age + number - lap
         result.append(simulator.calculate_lap_time(
             driver, car, track, tire, weather, number, physical,
@@ -53,6 +55,7 @@ def _floor_tables(models, fresh, physical, scale):
     end = track.total_laps
     prefixes = {}
     for lap in range(1, end + 1):
+        cancellation_checkpoint()
         for c, tire_json in enumerate(fresh):
             prefixes[lap, c] = np.cumsum(_full_row(
                 driver, car, track, Tire.model_validate_json(tire_json),
@@ -61,8 +64,11 @@ def _floor_tables(models, fresh, physical, scale):
     costs = np.full((4, 8, end + 2), inf)
     green = track.pit_lane_delta + expected_stationary_time(car)
     for budget in range(1, 4):
+        cancellation_checkpoint()
         for lap in range(end, 0, -1):
+            cancellation_checkpoint()
             for mask in range(8):
+                cancellation_checkpoint()
                 for c in range(3):
                     next_mask = mask | (1 << c)
                     prefix = prefixes[lap, c]
@@ -103,6 +109,7 @@ def _floor_plan(driver, car, track, tire, age, lap, budget, mask,
     pit, selected = inf, None
     if budget:
         for c, compound in enumerate(SLICKS):
+            cancellation_checkpoint()
             next_mask = mask | (1 << c)
             prefix = prefixes[lap, c]
             best = float(prefix[-1]) if next_mask.bit_count() >= 2 else inf
@@ -180,10 +187,14 @@ def _fresh_tables(physics: tuple, tire_keys: tuple, horizon: int,
     costs = np.full((max_stops + 1, 8, horizon + 1), inf)
     compounds = np.full(costs.shape, -1, dtype=np.int8)
     for stops in range(1, max_stops + 1):
+        cancellation_checkpoint()
         for mask in range(8):
+            cancellation_checkpoint()
             for c in range(3):
+                cancellation_checkpoint()
                 next_mask = mask | (1 << c)
                 for laps in range(1, horizon + 1):
+                    cancellation_checkpoint()
                     best = prefix[c, laps] if next_mask.bit_count() >= 2 else inf
                     if stops > 1 and laps > 1:
                         best = min(best, float(np.min(
@@ -282,6 +293,7 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
         pit_now_cost, c = inf, -1
         if remaining_stops:
             for candidate, key in enumerate(tire_keys):
+                cancellation_checkpoint()
                 next_mask = mask | (1 << candidate)
                 curve = _pace_curve(*physics, key, horizon)
                 prefix = np.cumsum(curve[:remaining_laps])

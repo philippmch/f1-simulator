@@ -8,6 +8,7 @@ from numbers import Real
 
 import numpy as np
 
+from f1sim.cancellation import cancellation_checkpoint
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.pit_strategy import expected_stationary_time
@@ -138,6 +139,7 @@ def _clock_inventory_strategy(
         """
         total = 0.0
         for index in range(offset, horizon):
+            cancellation_checkpoint()
             if critical_at(updates(index, paid_stops, stopped_first), compound):
                 return inf
             total += run(
@@ -148,10 +150,11 @@ def _clock_inventory_strategy(
 
     @lru_cache(maxsize=None)
     def retainable(offset, compound, paid_stops, stopped_first):
-        return all(
-            not critical_at(updates(index, paid_stops, stopped_first), compound)
-            for index in range(offset, horizon)
-        )
+        for index in range(offset, horizon):
+            cancellation_checkpoint()
+            if critical_at(updates(index, paid_stops, stopped_first), compound):
+                return False
+        return True
 
     def make_actions(state):
         offset, compound, age, pool, left, dry, damp, used, paid_stops, stopped_first = state
@@ -173,6 +176,7 @@ def _clock_inventory_strategy(
             ])
         previous = None
         for index, candidate in enumerate(pool):
+            cancellation_checkpoint()
             if candidate == previous:
                 continue
             previous = candidate
@@ -216,6 +220,7 @@ def _clock_inventory_strategy(
             return solve_cache[initial]
         frames = [[initial, None, 0, inf]]
         while frames:
+            cancellation_checkpoint()
             state, actions, index, best = frames[-1]
             if state in solve_cache:
                 frames.pop()
@@ -273,6 +278,7 @@ def _clock_inventory_strategy(
     previous = {compound: critical_at(0, compound.value)
                 for compound in TireCompound}
     for update in range(1, weather_clock.max_updates + 1):
+        cancellation_checkpoint()
         for compound in TireCompound:
             critical = critical_at(update, compound.value)
             critical_changes += critical and not previous[compound]
@@ -281,6 +287,7 @@ def _clock_inventory_strategy(
     max_paid_stops = remaining_stops + rule_stops + 1 + critical_changes
     clock_surfaces = {}
     for offset in range(horizon):
+        cancellation_checkpoint()
         clock_surfaces[offset] = tuple({
             updates(offset, paid_stops, stopped_first)
             # A strategy can pay at most once per started lap, including the
@@ -337,6 +344,7 @@ def _clock_inventory_strategy(
             completion_rows[key] = [horizon, [None] * horizon + [0.0 if compliant else inf]]
         first, row = completion_rows[key]
         for index in range(first - 1, offset - 1, -1):
+            cancellation_checkpoint()
             best = green_stop + lower_bounds()[index]
             if not critical_at(updates(index, paid, stopped), compound):
                 stay = run(index, compound, base_age + index, updates(index, paid, stopped))
@@ -377,6 +385,7 @@ def _clock_inventory_strategy(
     best, selected = inf, None
     choices = ((current,) if free_fit and usable_current else ()) + stock
     for item in choices:
+        cancellation_checkpoint()
         if item.id == current_id:
             cost = wait
         else:
@@ -418,6 +427,7 @@ def _conserved_wear_lower_bounds(horizon, initial_ages, critical, running):
     residuals = [inf] * (len(initial_ages) * horizon)
     baseline = 0.
     for offset in range(horizon - 1, 0, -1):
+        cancellation_checkpoint()
         eligible = [(index * horizon + elapsed, running(offset, compound, age + elapsed))
                     for index, (compound, age) in enumerate(initial_ages)
                     if not critical[compound][offset]
@@ -428,9 +438,11 @@ def _conserved_wear_lower_bounds(horizon, initial_ages, critical, running):
             continue
         baseline = nextafter(minimum + baseline, -inf)
         for slot, cost in eligible:
+            cancellation_checkpoint()
             residuals[slot] = min(residuals[slot], nextafter(cost - minimum, -inf))
         extra = 0.
         for value in nsmallest(horizon - offset, residuals):
+            cancellation_checkpoint()
             extra = nextafter(extra + value, -inf)
         lower[offset] = max(baseline, nextafter(baseline + extra, -inf))
     return tuple(lower)
@@ -557,6 +569,7 @@ def plan_inventory_strategy(
         # Keep the original reverse summation order for identical rounding.
         total = 0.
         for number in range(horizon - 1, offset - 1, -1):
+            cancellation_checkpoint()
             total = running(number, compound, age + number - offset) + total
         return total
 
@@ -574,6 +587,7 @@ def plan_inventory_strategy(
             best = cost + (yield child)
         previous = None
         for index, candidate in enumerate(pool):
+            cancellation_checkpoint()
             if candidate == previous:
                 continue
             previous = candidate
@@ -597,6 +611,7 @@ def plan_inventory_strategy(
         stack = [(initial, frame(initial))]
         value = None
         while stack:
+            cancellation_checkpoint()
             state, generator = stack[-1]
             try:
                 child = generator.send(value)
@@ -635,6 +650,7 @@ def plan_inventory_strategy(
     best, selected = inf, None
     choices = ((current,) if free_fit and usable_current else ()) + stock
     for item in choices:
+        cancellation_checkpoint()
         if item.id == current_id:
             cost = wait
         else:
