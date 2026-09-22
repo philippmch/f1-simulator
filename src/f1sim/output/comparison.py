@@ -93,6 +93,7 @@ def _paired_driver_table(driver_id: str, paired: dict | None) -> str:
     reference = _text(paired["reference_scenario"])
     rows = []
     distance_rows = []
+    cost_rows = []
     for label, comparison in paired["variants"].items():
         prefix = f'<tr><th scope="row">{_text(label)}</th>'
         if comparison["status"] == "unavailable":
@@ -100,6 +101,8 @@ def _paired_driver_table(driver_id: str, paired: dict | None) -> str:
                         f'{_text(comparison["reason"])}</td></tr>')
             distance_rows.append(prefix + f'<td colspan="4">Unavailable: '
                                   f'{_text(comparison["reason"])}</td></tr>')
+            cost_rows.append(prefix + f'<td colspan="6">Unavailable: '
+                               f'{_text(comparison["reason"])}</td></tr>')
             continue
         stats = comparison["driver_statistics"].get(driver_id)
         if not stats or not stats["paired_races"]:
@@ -117,6 +120,16 @@ def _paired_driver_table(driver_id: str, paired: dict | None) -> str:
                 prefix + f'<td colspan="4">No recorded distance pairs '
                 f'({distance_excluded} excluded from distance subset) '
                 '<span class="interval">Missing distance is not zero.</span></td></tr>'
+            )
+            costs = stats.get("paid_stop_costs") if stats else None
+            cost_excluded = (
+                costs["excluded_pairs"] if costs else comparison["available_seed_pairs"]
+            )
+            cost_rows.append(
+                prefix + f'<td colspan="6">No complete paid-stop cost pairs '
+                f'({cost_excluded} excluded from paid-stop cost subset) '
+                '<span class="interval">Missing or invalid paid-stop details are not '
+                'zero.</span></td></tr>'
             )
             continue
         error = stats["points_difference_standard_error"]
@@ -179,6 +192,39 @@ def _paired_driver_table(driver_id: str, paired: dict | None) -> str:
                 f'<td>{distance["more_laps_races"]} / {distance["equal_laps_races"]} / '
                 f'{distance["fewer_laps_races"]}</td></tr>'
             )
+        costs = stats["paid_stop_costs"]
+        if not costs["paired_races"]:
+            cost_rows.append(
+                prefix + f'<td colspan="6">No complete paid-stop cost pairs '
+                f'({costs["excluded_pairs"]} excluded from paid-stop cost subset) '
+                '<span class="interval">Missing or invalid paid-stop details are not '
+                'zero.</span></td></tr>'
+            )
+        else:
+            def cost_cell(label, unit, digits):
+                error = costs[f"{label}_difference_standard_error"]
+                error_text = (
+                    f'SE {error:.{digits}f} {unit}'
+                    if error is not None else "SE needs at least 2 cost pairs"
+                )
+                return (
+                    f'{costs[f"reference_mean_{label}"]:.{digits}f} → '
+                    f'{costs[f"variant_mean_{label}"]:.{digits}f} {unit}'
+                    f'<span class="interval">change '
+                    f'{costs[f"mean_{label}_difference"]:+.{digits}f} {unit}; '
+                    f'{error_text}</span>'
+                )
+
+            cost_rows.append(
+                prefix + f'<td>{costs["paired_races"]} complete cost pairs '
+                f'<span class="interval">({costs["excluded_pairs"]} excluded from '
+                'paid-stop cost subset)</span></td>'
+                f'<td>{cost_cell("paid_stops", "paid stops", 2)}</td>'
+                f'<td>{cost_cell("total_loss_seconds", "s", 3)}</td>'
+                f'<td>{cost_cell("lane_loss_seconds", "s", 3)}</td>'
+                f'<td>{cost_cell("service_time_seconds", "s", 3)}</td>'
+                f'<td>{cost_cell("queue_time_seconds", "s", 3)}</td></tr>'
+            )
     main_table = (
         '<div class="table-wrap" tabindex="0" role="region" '
         f'aria-label="{_text(driver_id)} paired changes">'
@@ -203,12 +249,35 @@ def _paired_driver_table(driver_id: str, paired: dict | None) -> str:
            '<tr><td colspan="5">No alternative choices supplied</td></tr>')
         + '</tbody></table></div>'
     )
+    cost_table = (
+        '<div class="table-wrap paired-costs" tabindex="0" role="region" '
+        f'aria-label="{_text(driver_id)} paid-stop cost changes">'
+        f'<table><caption>Paid-stop costs for {_text(driver_id)} compared with '
+        f'{reference}</caption>'
+        '<thead><tr><th scope="col">Choice</th>'
+        '<th scope="col">Complete cost pairs</th>'
+        '<th scope="col">Mean paid stops (reference → variant)</th>'
+        '<th scope="col">Mean total loss</th>'
+        '<th scope="col">Mean lane loss</th>'
+        '<th scope="col">Mean service time</th>'
+        '<th scope="col">Mean queue time</th></tr></thead><tbody>'
+        + ("".join(cost_rows) or
+           '<tr><td colspan="7">No alternative choices supplied</td></tr>')
+        + '</tbody></table></div>'
+    )
     return main_table + (
         '<p class="paired-distance-note">Completed distance includes '
         'recorded laps for finishes and retirements. Positive changes mean more laps; '
         'missing distance is not zero. These descriptive differences do not establish '
         'causality or rank an optimal strategy.</p>'
-    ) + distance_table
+    ) + distance_table + (
+        '<p class="paired-cost-note">Paid-stop cost pairs require complete detail '
+        'lists in both runs. Known zero-stop lists and retired entrants are included; '
+        'missing or invalid details are excluded from this subset and are not treated '
+        'as zero. Losses are modeled seconds per recorded race, excluding free tyre '
+        'changes and later on-track traffic. These descriptive differences do not '
+        'isolate causal strategy savings because exposure and race events can change.</p>'
+    ) + cost_table
 
 
 def _pit_decision_driver_table(
@@ -470,6 +539,7 @@ summary:hover { color: #9cbbff; }
 :focus-visible { outline: 3px solid #9cbbff; outline-offset: 2px; }
 .interval { display: block; color: #b6c0ff; white-space: nowrap; font-size: .875rem; }
 .paired-distance-note { font-size: .875rem; }
+.paired-cost-note { font-size: .875rem; }
 .joint-count { white-space: normal; }
 </style></head><body><main><h1>Simulation comparison</h1>
 <p>Scenarios appear in supplied order. Check their context and saved inputs when

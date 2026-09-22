@@ -35,6 +35,42 @@ def _completed_distance_line(distance: dict) -> str:
             f"more/equal/fewer laps={counts}")
 
 
+def _paid_stop_cost_lines(costs: dict) -> list[str]:
+    """Format the separately denominated complete paid-stop cost subset."""
+    pairs = costs["paired_races"]
+    excluded = costs["excluded_pairs"]
+    if not pairs:
+        return [
+            "Paid-stop costs: 0 complete pairs "
+            f"({excluded} excluded from paid-stop cost subset); "
+            "missing or invalid details are not zero."
+        ]
+
+    def metric(label: str, unit: str, digits: int) -> str:
+        error = costs[f"{label}_difference_standard_error"]
+        error_text = (
+            f"SE {error:.{digits}f} {unit}"
+            if error is not None else "SE needs at least 2 cost pairs"
+        )
+        return (
+            f"{costs[f'reference_mean_{label}']:.{digits}f} -> "
+            f"{costs[f'variant_mean_{label}']:.{digits}f} {unit} "
+            f"(change {costs[f'mean_{label}_difference']:+.{digits}f} {unit}; "
+            f"{error_text})"
+        )
+
+    return [
+        f"Paid-stop costs: {pairs} complete pairs "
+        f"({excluded} excluded from paid-stop cost subset); "
+        f"paid stops {metric('paid_stops', 'stops', 2)}",
+        "  Loss seconds (reference -> variant): "
+        f"total {metric('total_loss_seconds', 's', 3)}; "
+        f"lane {metric('lane_loss_seconds', 's', 3)}; "
+        f"service {metric('service_time_seconds', 's', 3)}; "
+        f"queue {metric('queue_time_seconds', 's', 3)}",
+    ]
+
+
 class ConsoleOutput:
     """Formats simulation results for console display."""
 
@@ -56,6 +92,10 @@ class ConsoleOutput:
               "positive changes mean more laps. Distance uses its own denominator, missing "
               "distance is not zero, and the result is descriptive rather than a causal or "
               "optimal-strategy ranking.")
+        print("Paid-stop costs use complete detail histories in both runs, including known "
+              "zero-stop races and retirements; missing details are not zero. Time losses are "
+              "modeled seconds and can change with exposure and race events, so they do "
+              "not isolate causal strategy savings.")
         ConsoleOutput._print_suspension_context(results)
         for label, comparison in paired["variants"].items():
             print(f"{label}:")
@@ -73,6 +113,8 @@ class ConsoleOutput:
                           f"({stats['excluded_pairs']} excluded pairs); "
                           f"{paired_exclusion_detail(comparison, stats['excluded_pairs'])}")
                     print(f"  {_completed_distance_line(stats['completed_distance'])}")
+                    for line in _paid_stop_cost_lines(stats["paid_stop_costs"]):
+                        print(f"  {line}")
                     continue
                 error = stats["points_difference_standard_error"]
                 error_text = f"{error:.3f}" if error is not None else "n/a"
@@ -92,6 +134,8 @@ class ConsoleOutput:
                       f"reference-only DNF={stats['reference_only_dnf_races']}, "
                       f"variant-only DNF={stats['variant_only_dnf_races']}")
                 print(f"  {_completed_distance_line(stats['completed_distance'])}")
+                for line in _paid_stop_cost_lines(stats["paid_stop_costs"]):
+                    print(f"  {line}")
                 if stats["excluded_pairs"]:
                     print(f"  Pair exclusions: "
                           f"{paired_exclusion_detail(comparison, stats['excluded_pairs'])}")

@@ -50,6 +50,15 @@ def compare(reference, variant):
                                         "reference")["variants"]["variant"]
 
 
+def pit_stop(lane, service, queue):
+    return {
+        "lane_loss": lane,
+        "service_time": service,
+        "queue_time": queue,
+        "total_loss": lane + service + queue,
+    }
+
+
 def test_paired_variance_and_operational_dnf_are_independent_of_awards():
     reference, variant = result([6, 10, 18]), result([6, 13, 12])
     variant.race_results[1][0].status = "dnf"
@@ -72,6 +81,23 @@ def test_paired_variance_and_operational_dnf_are_independent_of_awards():
             variant_mean_laps=None, mean_laps_difference=None,
             laps_difference_standard_error=None, more_laps_races=0,
             equal_laps_races=0, fewer_laps_races=0,
+        ),
+        paid_stop_costs=dict(
+            paired_races=0, excluded_pairs=3,
+            reference_mean_paid_stops=None, variant_mean_paid_stops=None,
+            mean_paid_stops_difference=None, paid_stops_difference_standard_error=None,
+            reference_mean_total_loss_seconds=None, variant_mean_total_loss_seconds=None,
+            mean_total_loss_seconds_difference=None,
+            total_loss_seconds_difference_standard_error=None,
+            reference_mean_lane_loss_seconds=None, variant_mean_lane_loss_seconds=None,
+            mean_lane_loss_seconds_difference=None,
+            lane_loss_seconds_difference_standard_error=None,
+            reference_mean_service_time_seconds=None, variant_mean_service_time_seconds=None,
+            mean_service_time_seconds_difference=None,
+            service_time_seconds_difference_standard_error=None,
+            reference_mean_queue_time_seconds=None, variant_mean_queue_time_seconds=None,
+            mean_queue_time_seconds_difference=None,
+            queue_time_seconds_difference_standard_error=None,
         ),
     )
     assert (reference, variant) == before
@@ -170,6 +196,116 @@ def test_completed_distance_normalizes_integral_types_for_statistics_and_json():
     assert distance["mean_laps_difference"] == pytest.approx(2 / 3)
     assert distance["laps_difference_standard_error"] == pytest.approx(1 / 3)
     json.dumps(distance, allow_nan=False)
+
+
+def test_paid_stop_cost_subset_pairs_complete_histories_without_changing_core():
+    reference, variant = result([12] * 3), result([12] * 3)
+    reference_rows = [race[0] for race in reference.race_results]
+    variant_rows = [race[0] for race in variant.race_results]
+    for left, right in zip(reference_rows, variant_rows):
+        left.laps_completed = right.laps_completed = 2
+    reference_rows[0].pit_stops = np.int64(1)
+    reference_rows[0].pit_stop_details = [
+        {
+            "lane_loss": np.float64(20), "service_time": np.float64(3),
+            "queue_time": np.float64(0), "total_loss": np.float64(23),
+        }
+    ]
+    variant_rows[0].pit_stops = np.int64(2)
+    variant_rows[0].pit_stop_details = [
+        pit_stop(np.float64(40), np.float64(6), np.float64(4)),
+        pit_stop(0, 0, 0),
+    ]
+    reference_rows[1].pit_stops = 0
+    reference_rows[1].pit_stop_details = []
+    variant_rows[1].pit_stops = 1
+    variant_rows[1].pit_stop_details = [pit_stop(20, 3, 5)]
+    reference_rows[1].status = variant_rows[1].status = "dnf"
+    reference_rows[2].pit_stops = variant_rows[2].pit_stops = 1
+    reference_rows[2].pit_stop_details = [pit_stop(20, 3, 0)]
+    variant_rows[2].pit_stop_details = [dict(pit_stop(20, 3, 0), total_loss=99)]
+
+    stats = compare(reference, variant)["driver_statistics"]["A"]
+    costs = stats["paid_stop_costs"]
+    assert stats["paired_races"] == 3
+    assert stats["completed_distance"]["paired_races"] == 3
+    assert costs == dict(
+        paired_races=2, excluded_pairs=1,
+        reference_mean_paid_stops=pytest.approx(.5),
+        variant_mean_paid_stops=pytest.approx(1.5),
+        mean_paid_stops_difference=pytest.approx(1),
+        paid_stops_difference_standard_error=0,
+        reference_mean_total_loss_seconds=pytest.approx(11.5),
+        variant_mean_total_loss_seconds=pytest.approx(39),
+        mean_total_loss_seconds_difference=pytest.approx(27.5),
+        total_loss_seconds_difference_standard_error=pytest.approx(.5),
+        reference_mean_lane_loss_seconds=pytest.approx(10),
+        variant_mean_lane_loss_seconds=pytest.approx(30),
+        mean_lane_loss_seconds_difference=pytest.approx(20),
+        lane_loss_seconds_difference_standard_error=0,
+        reference_mean_service_time_seconds=pytest.approx(1.5),
+        variant_mean_service_time_seconds=pytest.approx(4.5),
+        mean_service_time_seconds_difference=pytest.approx(3),
+        service_time_seconds_difference_standard_error=0,
+        reference_mean_queue_time_seconds=pytest.approx(0),
+        variant_mean_queue_time_seconds=pytest.approx(4.5),
+        mean_queue_time_seconds_difference=pytest.approx(4.5),
+        queue_time_seconds_difference_standard_error=pytest.approx(.5),
+    )
+    assert all(isinstance(value, (int, float, type(None))) for value in costs.values())
+    json.dumps(costs, allow_nan=False)
+
+
+def test_paid_stop_cost_extreme_finite_values_keep_representable_se():
+    reference, variant = result([25, 25]), result([25, 25])
+    for sample, losses in ((reference, (0.0, 1.7e308)), (variant, (1.7e308, 0.0))):
+        for race, loss in zip(sample.race_results, losses):
+            race[0].pit_stops = int(loss > 0)
+            race[0].pit_stop_details = [pit_stop(loss, 0.0, 0.0)] if loss else []
+    stats = compare(reference, variant)["driver_statistics"]["A"]
+    costs = stats["paid_stop_costs"]
+    assert stats["paired_races"] == costs["paired_races"] == 2
+    assert costs["mean_total_loss_seconds_difference"] == 0
+    assert costs["total_loss_seconds_difference_standard_error"] == pytest.approx(1.7e308)
+    assert costs["lane_loss_seconds_difference_standard_error"] == pytest.approx(1.7e308)
+    json.dumps(stats, allow_nan=False)
+
+
+def test_paid_stop_cost_single_pair_has_no_estimable_se():
+    reference, variant = result([12]), result([12])
+    reference_row = reference.race_results[0][0]
+    variant_row = variant.race_results[0][0]
+    reference_row.pit_stops = 0
+    reference_row.pit_stop_details = []
+    variant_row.pit_stops = 1
+    variant_row.pit_stop_details = [pit_stop(20, 3, 4)]
+
+    costs = compare(reference, variant)["driver_statistics"]["A"]["paid_stop_costs"]
+    assert costs["paired_races"] == 1
+    assert costs["excluded_pairs"] == 0
+    assert costs["reference_mean_paid_stops"] == 0
+    assert costs["variant_mean_paid_stops"] == 1
+    assert costs["mean_total_loss_seconds_difference"] == 27
+    assert all(value is None for key, value in costs.items()
+               if key.endswith("_standard_error"))
+
+
+@pytest.mark.parametrize("stops,details", [
+    (None, []), (True, []), (-1, []), (1.0, [pit_stop(1, 1, 1)]),
+    (1, None), (1, [pit_stop(1, 1, 1) | {"queue_time": -1}]),
+])
+def test_invalid_paid_stop_costs_exclude_only_cost_subset(stops, details):
+    reference, variant = result([12]), result([12])
+    for sample in (reference, variant):
+        sample.race_results[0][0].laps_completed = 2
+        sample.race_results[0][0].pit_stops = stops
+        sample.race_results[0][0].pit_stop_details = details
+
+    stats = compare(reference, variant)["driver_statistics"]["A"]
+    assert stats["paired_races"] == 1
+    assert stats["completed_distance"]["paired_races"] == 1
+    assert stats["paid_stop_costs"]["paired_races"] == 0
+    assert stats["paid_stop_costs"]["excluded_pairs"] == 1
 
 
 def test_invalid_core_observation_excludes_distance_pair_too():

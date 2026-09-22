@@ -138,6 +138,16 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     assert(distanceText.includes(`${signed(distanceStats.mean_laps_difference)} laps`));
     assert(distanceText.includes(`SE ${distanceStats.laps_difference_standard_error.toFixed(3)} laps`));
     assert(distanceText.includes(`${distanceStats.more_laps_races} / ${distanceStats.equal_laps_races} / ${distanceStats.fewer_laps_races}`));
+    const pairedCosts = page.getByRole('region', {name: 'A paid-stop cost changes', exact: true});
+    const costStats = stats.paid_stop_costs;
+    const costText = await pairedCosts.innerText();
+    assert(costText.includes('Paid-stop costs for A compared with hard'));
+    assert(costText.includes(`${costStats.paired_races} complete cost pairs`));
+    assert(costText.includes(`${signed(costStats.mean_total_loss_seconds_difference)} s`));
+    assert(costText.includes(`SE ${costStats.total_loss_seconds_difference_standard_error.toFixed(3)} s`));
+    assert(costText.includes(`${signed(costStats.mean_lane_loss_seconds_difference)} s`));
+    assert(costText.includes(`${signed(costStats.mean_service_time_seconds_difference)} s`));
+    assert(costText.includes(`${signed(costStats.mean_queue_time_seconds_difference)} s`));
     for (const width of [390, 1440]) {
       await page.setViewportSize({width, height: 1100});
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
@@ -145,11 +155,15 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       assert(await paired.evaluate(node => document.activeElement === node));
       await pairedDistance.focus();
       assert(await pairedDistance.evaluate(node => document.activeElement === node));
+      await pairedCosts.focus();
+      assert(await pairedCosts.evaluate(node => document.activeElement === node));
       if (process.env.F1SIM_SCREENSHOTS) {
         await paired.screenshot({path: path.join(process.env.F1SIM_SCREENSHOTS,
           `paired-comparison-${width}.png`)});
         await pairedDistance.screenshot({path: path.join(process.env.F1SIM_SCREENSHOTS,
           `paired-distance-${width}.png`)});
+        await pairedCosts.screenshot({path: path.join(process.env.F1SIM_SCREENSHOTS,
+          `paired-costs-${width}.png`)});
       }
     }
     assert.deepEqual(errors, []);

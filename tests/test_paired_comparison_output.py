@@ -64,6 +64,16 @@ def test_console_json_html_and_replay_share_paired_summary(tmp_path, capsys, eng
         f'{distance["fewer_laps_races"]}' in report
     )
     assert "missing distance is not zero" in report
+    costs = stats["paid_stop_costs"]
+    assert costs["paired_races"] == 3
+    assert 'aria-label="0 paid-stop cost changes"' in report
+    assert "Paid-stop costs for 0 compared with hard" in report
+    assert f'{costs["mean_total_loss_seconds_difference"]:+.3f} s' in report
+    assert f'SE {costs["total_loss_seconds_difference_standard_error"]:.3f} s' in report
+    assert f'{costs["mean_lane_loss_seconds_difference"]:+.3f} s' in report
+    assert f'{costs["mean_service_time_seconds_difference"]:+.3f} s' in report
+    assert f'{costs["mean_queue_time_seconds_difference"]:+.3f} s' in report
+    assert "missing or invalid details are excluded" in report
     ConsoleOutput.print_paired_comparison(variants, "hard", driver_id="0")
     printed = capsys.readouterr().out
     assert "Paired changes compared with hard" in printed
@@ -83,6 +93,11 @@ def test_console_json_html_and_replay_share_paired_summary(tmp_path, capsys, eng
         f'more/equal/fewer laps={distance["more_laps_races"]}/'
         f'{distance["equal_laps_races"]}/{distance["fewer_laps_races"]}' in printed
     )
+    assert "Paid-stop costs: 3 complete pairs" in printed
+    assert f'{costs["mean_total_loss_seconds_difference"]:+.3f} s' in printed
+    assert f'{costs["mean_lane_loss_seconds_difference"]:+.3f} s' in printed
+    assert f'{costs["mean_service_time_seconds_difference"]:+.3f} s' in printed
+    assert f'{costs["mean_queue_time_seconds_difference"]:+.3f} s' in printed
     assert "not a confidence interval" in printed
     replay = replay_saved_simulation(combined, simulation=2, scenario="soft")
     assert replay.race_results == [variants["soft"].race_results[1]]

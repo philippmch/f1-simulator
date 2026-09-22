@@ -239,6 +239,19 @@ with valid recorded distances in both runs, including retirements; missing
 distance is not treated as zero. This makes lost laps visible even when points
 and retirement status are unchanged.
 
+Paired comparison reports also show paid-stop cost changes for the same trials.
+This separate subset requires complete paid-stop detail lists in both runs and
+reports reference and variant mean paid-stop counts plus total, lane, service
+and queue loss means, signed variant-minus-reference changes and paired SEs.
+The JSON stores this under each driver's `paid_stop_costs` subgroup.
+Known zero-stop lists and retired entrants count; missing or inconsistent
+details are excluded from this subset and are not treated as zero. The cost
+denominator is the number of overlapping, qualifying, usable driver pairs with
+complete histories, with its excluded count measured against the overlapping
+seed range. These are modeled seconds per recorded race, excluding free tyre
+changes and later on-track traffic. Cost differences do not isolate causal strategy
+savings because exposure and race events can change between runs.
+
 Combined exports retain these summaries in `paired_comparisons`. Pairing requires
 matching saved models, runtime provenance and random-stream policy; starting
 tyres and engine may differ. Missing, duplicate or invalid driver records and
@@ -331,7 +344,10 @@ In Statistics, expand **Paid-stop costs and queue delays** to compare mean lane,
 service and queue loss per recorded race, and the share of races with a queue.
 Only complete stop histories contribute; recorded zero-stop races and retirements
 are included. Statistics and comparison JSON retain `pit_loss_statistics`, and
-the comparison report shows mean loss with its own observation count.
+the comparison report shows mean loss with its own observation count. Paired
+reports apply the same complete-history rule independently to each
+reference/variant trial pair, so a missing cost history does not remove its
+points or completed-distance observation.
 
 The dashboard's scenario chart and driver matrix show the same individual 95%
 sampling ranges and observed trial counts. Expand a driver in the chart to view

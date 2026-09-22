@@ -1,6 +1,6 @@
 """Descriptive within-seed outcome differences for compatible saved simulations."""
 
-from math import isfinite, sqrt
+from math import isclose, isfinite, sqrt
 from numbers import Integral, Real
 from statistics import mean, stdev
 
@@ -153,7 +153,54 @@ def _observation(race, driver, scheduled_laps):
         laps = None
     elif not isinstance(laps, int):
         laps = int(laps)
-    return int(points_for_result(row)), int(status == "dnf"), laps
+    return int(points_for_result(row)), int(status == "dnf"), laps, _pit_stop_cost(row)
+
+
+_PIT_COST_FIELDS = ("total_loss", "lane_loss", "service_time", "queue_time")
+
+
+def _valid_pit_cost_component(value):
+    if isinstance(value, bool) or not isinstance(value, Real):
+        return False
+    try:
+        return isfinite(value) and value >= 0
+    except OverflowError:
+        return False
+
+
+def _pit_stop_cost(row):
+    """Return one complete paid-stop observation, or ``None`` if it is missing.
+
+    The comparison layer deliberately keeps this validation separate from the
+    core result observation.  A malformed cost history must remove only this
+    optional subset; points, retirement status, and completed distance remain
+    usable.  Values are copied to native Python numerics so numpy scalar input
+    cannot leak into JSON or ``statistics`` calculations.
+    """
+    stops = getattr(row, "pit_stops", None)
+    details = getattr(row, "pit_stop_details", None)
+    if (not isinstance(stops, Integral) or isinstance(stops, bool) or stops < 0
+            or not isinstance(details, (list, tuple)) or len(details) != stops):
+        return None
+    totals = {field: 0.0 for field in _PIT_COST_FIELDS}
+    for stop in details:
+        if not isinstance(stop, dict) or any(
+            not _valid_pit_cost_component(stop.get(field)) for field in _PIT_COST_FIELDS
+        ):
+            return None
+        values = {field: float(stop[field]) for field in _PIT_COST_FIELDS}
+        if not isclose(
+            values["total_loss"],
+            values["lane_loss"] + values["service_time"] + values["queue_time"],
+            rel_tol=1e-9,
+            abs_tol=1e-9,
+        ):
+            return None
+        for field in _PIT_COST_FIELDS:
+            totals[field] += values[field]
+    if not all(isfinite(value) for value in totals.values()):
+        return None
+    return {"stops": int(stops), **totals}
 
 
 def _completed_distance_statistics(observations, available):
@@ -183,6 +230,47 @@ def _completed_distance_statistics(observations, available):
         "equal_laps_races": sum(value == 0 for value in differences),
         "fewer_laps_races": sum(value < 0 for value in differences),
     }
+
+
+def _paid_stop_cost_statistics(observations, available):
+    cost_observations = [
+        (reference[3], variant[3])
+        for reference, variant in observations
+        if reference[3] is not None and variant[3] is not None
+    ]
+    count = len(cost_observations)
+
+    def metric_statistics(field, label):
+        pairs = [(reference[field], variant[field]) for reference, variant in cost_observations]
+        differences = [variant - reference for reference, variant in pairs]
+        error = None
+        if count > 1:
+            try:
+                error = stdev(differences) / sqrt(count)
+            except OverflowError:
+                # The SD can overflow even when the SE is representable.
+                # Scale before squaring, and divide before restoring units.
+                scale = max(abs(value) for value in differences)
+                error = (stdev(value / scale for value in differences) / sqrt(count)) * scale
+        return {
+            f"reference_mean_{label}": float(mean(reference for reference, _ in pairs))
+            if count else None,
+            f"variant_mean_{label}": float(mean(variant for _, variant in pairs))
+            if count else None,
+            f"mean_{label}_difference": float(mean(differences)) if count else None,
+            f"{label}_difference_standard_error": error,
+        }
+
+    statistics = {
+        "paired_races": count,
+        "excluded_pairs": available - count,
+    }
+    # Keep units explicit in the schema.  Every mean is per complete paired
+    # race and every component is modeled seconds; paid stops are a count.
+    statistics.update(metric_statistics("stops", "paid_stops"))
+    for field in ("total_loss", "lane_loss", "service_time", "queue_time"):
+        statistics.update(metric_statistics(field, f"{field}_seconds"))
+    return statistics
 
 
 def _driver_statistics(observations, available):
@@ -220,6 +308,7 @@ def _driver_statistics(observations, available):
             100 * stdev(dnf_differences) / sqrt(count) if count > 1 else None
         ),
         "completed_distance": _completed_distance_statistics(observations, available),
+        "paid_stop_costs": _paid_stop_cost_statistics(observations, available),
     }
 
 
