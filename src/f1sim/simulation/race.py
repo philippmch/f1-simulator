@@ -757,13 +757,10 @@ class RaceSimulator(InventoryStrategyMixin):
             # even if the event countdown expires during process_lap.
             self._recharge_overtake_mode_energy(
                 states,
-                neutralized=(
-                    lap_started_neutralized
-                    or self.event_manager.safety_car_active
-                    or self.event_manager.vsc_active
-                    or self.event_manager.red_flag_active
-                    or red_flag_deployed_this_lap
-                ),
+                # Recharge according to the completed lap's starting state.
+                # Race-control events are resolved after running, so a new
+                # deployment applies to the next lap, not this one.
+                neutralized=lap_started_neutralized,
             )
 
             # A deployment during the lap disqualifies the whole lap, even

@@ -147,6 +147,10 @@ the committed stop, and the fitted set is retained. Changing conditions at exit
 does not grant another tyre change. SC catch-up uses the queue observed at track
 entry, including a safety car deployed while the car was in service. Passing retains the
 original detection decision, and energy recharges once per completed own lap.
+Recharge uses the running conditions captured for that own lap, so a control
+deployment detected at its completion affects subsequent running rather than
+retroactively changing its energy gain. The standard engine uses the same
+completed-lap convention.
 
 Full safety-car catch-up closes gaps through future running time, preserving
 every previous crossing and pit exit. Followers use the queue leader's neutralized

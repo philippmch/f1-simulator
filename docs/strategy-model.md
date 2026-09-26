@@ -738,6 +738,14 @@ an unconditional bonus. A paid-stop candidate receives no deployment benefit,
 matching race execution. Future laps assume no deployment because future gaps
 and energy use are unknown. Evaluating a strategy consumes neither energy nor
 random draws; actual running still owns deployment and recharge.
+Both engines recharge once per completed own lap using the control conditions
+captured for that lap's running. A green lap followed by a new SC/VSC deployment
+receives green recharge; the next neutralized lap receives neutral recharge.
+A lap that began neutralized keeps that recharge rate when control ends at
+its completion. The normalized store gains 0.04 for green running or 0.12 for
+neutralized running, subject to its capacity. These are model assumptions,
+not measured harvesting rates. This timing matters near the energy threshold
+for a later Overtake Mode deployment.
 The chronological finish-distance protection includes the same eligible first
 retained lap. Its optimistic paid-stop bound and later laps keep their existing
 assumptions. Direct standalone planner calls have no live energy or deployment
