@@ -18,6 +18,8 @@ from f1sim.analysis.pace_evaluation import (
     _constructor_standings,
     _metrics,
     _neutral_driver_stats,
+    _paired_event_comparison,
+    _summarize_paired_event_comparisons,
     _team_median_metrics,
     _teammate_gap_metrics,
     evaluate_qualifying_pace,
@@ -358,6 +360,117 @@ def test_component_variant_metrics_keep_paired_cohort_and_baseline_separate():
     assert paired["previous_q1_teammate_gaps"]["teammate_pairs"] == 0
 
 
+def test_paired_event_comparison_uses_shared_observed_driver_cohort():
+    candidate = _component_rows([
+        ("A1", "A", 107.0, 100.0, None),
+        ("A2", "A", 105.0, 102.0, None),
+        ("B1", "B", 98.0, 103.0, None),
+        ("B2", "B", 100.0, 105.0, None),
+        ("NO_PRED", "C", None, 110.0, None),
+        ("NO_OBS", "C", 111.0, None, None),
+        ("CANDIDATE_ONLY", "D", 112.0, 112.0, None),
+    ])
+    reference = _component_rows([
+        ("A1", "A", 100.0, 100.0, None),
+        ("A2", "A", 102.0, 102.0, None),
+        ("B1", "B", 103.0, 103.0, None),
+        ("B2", "B", 105.0, 105.0, None),
+        ("NO_PRED", "C", 109.0, 110.0, None),
+        ("NO_OBS", "C", 110.0, None, None),
+        ("REFERENCE_ONLY", "E", 113.0, 113.0, None),
+    ])
+
+    comparison = _paired_event_comparison(candidate, reference)
+
+    assert comparison["driver_ids"] == ["A1", "A2", "B1", "B2"]
+    assert comparison["matched_counts"] == {
+        "drivers": 4, "teams": 2, "teammate_pairs": 2,
+    }
+    assert comparison["metrics"]["driver_rank_mae"] == {
+        "candidate_error": 2.0, "reference_error": 0.0, "delta": 2.0,
+    }
+    assert comparison["metrics"]["team_median_rank_mae"] == {
+        "candidate_error": 1.0, "reference_error": 0.0, "delta": 1.0,
+    }
+    assert comparison["metrics"]["driver_relative_pace_mae_pct"]["delta"] > 0
+    assert comparison["metrics"]["team_median_relative_pace_mae_pct"]["delta"] > 0
+    assert comparison["metrics"]["teammate_gap_mae_pct"]["delta"] > 0
+    assert comparison["candidate_variant"] == "recent_team_q1"
+    assert comparison["reference_variant"] == "full_model"
+
+
+def test_paired_event_summary_weights_events_equally_and_counts_delta_direction():
+    def rows(prefix, values):
+        return [
+            {"driver_id": f"{prefix}{index}", "team_id": "team",
+             "predicted_seconds": predicted, "observed_q1_seconds": observed}
+            for index, (predicted, observed) in enumerate(values)
+        ]
+
+    small_candidate = rows("S", [(100.0, 100.0), (101.0, 101.0)])
+    small_reference = rows("S", [(101.0, 100.0), (100.0, 101.0)])
+    large_reference = rows("L", [(100.0 + i, 100.0 + i) for i in range(10)])
+    large_candidate = rows("L", [(101.0, 100.0), (100.0, 101.0)] + [
+        (100.0 + i, 100.0 + i) for i in range(2, 10)
+    ])
+    tied = rows("T", [(100.0 + i, 100.0 + i) for i in range(3)])
+
+    small = _paired_event_comparison(small_candidate, small_reference)
+    large = _paired_event_comparison(large_candidate, large_reference)
+    equal = _paired_event_comparison(tied, tied)
+    summary = _summarize_paired_event_comparisons([small, large, equal])
+    driver_rank = summary["metrics"]["driver_rank_mae"]
+
+    assert [small["matched_counts"]["drivers"], large["matched_counts"]["drivers"],
+            equal["matched_counts"]["drivers"]] == [2, 10, 3]
+    assert small["metrics"]["driver_rank_mae"]["delta"] == -1.0
+    assert large["metrics"]["driver_rank_mae"]["delta"] == pytest.approx(0.2)
+    assert driver_rank["event_count"] == 3
+    assert driver_rank["mean_delta"] == pytest.approx((-1.0 + 0.2 + 0.0) / 3)
+    assert driver_rank["median_delta"] == 0.0
+    assert driver_rank["min_delta"] == -1.0
+    assert driver_rank["max_delta"] == pytest.approx(0.2)
+    assert driver_rank["improved_events"] == 1
+    assert driver_rank["tied_events"] == 1
+    assert driver_rank["worsened_events"] == 1
+    assert summary["event_weighting"] == "equal_weight_per_event"
+    assert summary["delta_definition"].startswith("candidate_error_minus_reference_error")
+
+    single_driver = rows("E", [(100.0, 100.0)])
+    undefined = _paired_event_comparison(single_driver, single_driver)
+    undefined_summary = _summarize_paired_event_comparisons([undefined])
+    for metric in undefined_summary["metrics"].values():
+        assert metric == {
+            "event_count": 0, "mean_delta": None, "median_delta": None,
+            "min_delta": None, "max_delta": None,
+            "improved_events": 0, "tied_events": 0, "worsened_events": 0,
+        }
+
+
+def test_paired_event_classification_uses_exact_sign_without_magnitude_threshold():
+    def comparison(delta):
+        return {"metrics": {
+            metric: {"delta": delta} for metric in (
+                "driver_rank_mae", "driver_relative_pace_mae_pct",
+                "team_median_rank_mae", "team_median_relative_pace_mae_pct",
+                "teammate_gap_mae_pct",
+            )
+        }}
+
+    summary = _summarize_paired_event_comparisons([
+        comparison(-1e-14), comparison(0.0), comparison(1e-14),
+    ])
+    assert summary["classification_definition"] == (
+        "improved, tied, and worsened counts use the exact numerical sign of the "
+        "candidate-minus-reference delta; zero is tied, with no practical-significance "
+        "threshold"
+    )
+    for metric in summary["metrics"].values():
+        assert metric["improved_events"] == 1
+        assert metric["tied_events"] == 1
+        assert metric["worsened_events"] == 1
+
+
 def test_recent_team_q1_uses_fixed_window_and_native_fallback_without_future_data():
     history = [
         {"round": 1, "status": "scored", "teams": {
@@ -537,6 +650,7 @@ def test_components_are_opt_in_and_do_not_add_fetches_or_mutate_loader(fixture):
     fold = report["folds"][0]
     assert set(fold["components"]) == {
         "assumptions", "constructor_prior", "team_form", "full_model", "recent_team_q1",
+        "paired_event_comparison",
     }
     assert fold["components"]["full_model"]["model"] == fold["model"]
     assert fold["components"]["full_model"]["predictions"] == fold["predictions"]
@@ -548,6 +662,9 @@ def test_components_are_opt_in_and_do_not_add_fetches_or_mutate_loader(fixture):
         assert "previous_q1_teammate_gaps" in component["paired_comparison"]
     first = evaluate_qualifying_pace(loader, YEAR, target_race=1, include_components=True)
     first_components = first["folds"][0]["components"]
+    assert first_components["paired_event_comparison"]["matched_counts"]["drivers"] == 4
+    assert report["aggregate"]["components"]["paired_event_comparison"][
+        "metrics"]["driver_rank_mae"]["event_count"] == 1
     assert first_components["recent_team_q1"]["predictions"] == (
         first_components["full_model"]["predictions"]
     )
@@ -651,7 +768,9 @@ def test_cli_components_are_opt_in_and_report_all_variants(fixture, monkeypatch,
     report = json.loads(capsys.readouterr().out)
     assert set(report["folds"][0]["components"]) == {
         "assumptions", "constructor_prior", "team_form", "full_model", "recent_team_q1",
+        "paired_event_comparison",
     }
+    assert "paired_event_comparison" in report["aggregate"]["components"]
 
 
 def test_cli_default_report_has_no_component_diagnostic(fixture, monkeypatch, capsys):

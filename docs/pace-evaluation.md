@@ -163,6 +163,30 @@ It does not modify live qualifying, race pace, wet performance, or constructor
 ratings. The method was chosen after inspecting this season's errors and
 requires prospective validation before claiming future predictive improvement.
 
+Each component fold also reports `paired_event_comparison`, which compares
+`recent_team_q1` with `full_model` for that event. It intersects driver IDs
+whose two variants both have a prediction and an observed Q1 time, then scores
+both variants on that exact cohort and its shared Q1 labels and team assignments.
+The report gives the matched driver, team, and teammate-pair counts alongside
+candidate and reference errors for driver rank and relative pace, team-median
+rank and relative pace, and teammate-gap error. An error can remain `null` when
+its cohort is too small to define that metric.
+
+The aggregate event comparison summarizes defined event deltas, where each
+delta is candidate error minus reference error. Negative values favor
+`recent_team_q1`; positive values favor `full_model`. Every event receives equal
+weight in the mean and median summaries, regardless of its driver, team, or
+teammate-pair counts. The event count and improved, tied, and worsened counts
+are reported separately for each metric because a metric may be undefined in
+some events. This event summary complements the existing observation-weighted
+aggregate scores. Events reuse drivers and are not independent samples; these
+descriptive deltas do not establish statistical significance or future
+predictive improvement. Direction counts use the exact numerical sign of each
+delta, with exactly zero counted as tied and no practical-significance
+threshold. Tiny normalization differences therefore count as improved or
+worsened; inspect the delta magnitudes before treating those counts as
+meaningful.
+
 ## Current-season snapshot, 9 September 2026
 
 The initial evaluator at revision `30fed16`, using the default dry scenario

@@ -403,6 +403,130 @@ def _component_variant_metrics(predictions, scored_ids) -> dict:
     }
 
 
+_PAIRED_EVENT_METRICS = (
+    "driver_rank_mae",
+    "driver_relative_pace_mae_pct",
+    "team_median_rank_mae",
+    "team_median_relative_pace_mae_pct",
+    "teammate_gap_mae_pct",
+)
+
+
+def _paired_event_comparison(candidate_predictions, reference_predictions) -> dict:
+    """Compare two prediction variants on their shared observed-driver cohort."""
+    candidate_by_id = {row["driver_id"]: row for row in candidate_predictions}
+    reference_by_id = {row["driver_id"]: row for row in reference_predictions}
+    driver_ids = sorted(candidate_by_id.keys() & reference_by_id.keys())
+    candidate_rows = []
+    reference_rows = []
+    for driver_id in driver_ids:
+        candidate = candidate_by_id[driver_id]
+        reference = reference_by_id[driver_id]
+        if any(row.get(key) is None for row in (candidate, reference)
+               for key in ("predicted_seconds", "observed_q1_seconds")):
+            continue
+
+        # Q1 labels and team membership are shared observations, not properties
+        # of either prediction. Use the reference row for both metric inputs.
+        observed = reference["observed_q1_seconds"]
+        team_id = reference["team_id"]
+        candidate_rows.append({
+            "driver_id": driver_id, "team_id": team_id,
+            "predicted_seconds": candidate["predicted_seconds"],
+            "observed_q1_seconds": observed,
+        })
+        reference_rows.append({
+            "driver_id": driver_id, "team_id": team_id,
+            "predicted_seconds": reference["predicted_seconds"],
+            "observed_q1_seconds": observed,
+        })
+
+    candidate_driver = _metrics(
+        [row["predicted_seconds"] for row in candidate_rows],
+        [row["observed_q1_seconds"] for row in candidate_rows],
+    )
+    reference_driver = _metrics(
+        [row["predicted_seconds"] for row in reference_rows],
+        [row["observed_q1_seconds"] for row in reference_rows],
+    )
+    candidate_teams = _team_median_metrics(candidate_rows)
+    reference_teams = _team_median_metrics(reference_rows)
+    candidate_gaps = _teammate_gap_metrics(candidate_rows)
+    reference_gaps = _teammate_gap_metrics(reference_rows)
+    errors = {
+        "driver_rank_mae": (
+            candidate_driver["rank_mae"], reference_driver["rank_mae"],
+        ),
+        "driver_relative_pace_mae_pct": (
+            candidate_driver["relative_pace_mae_pct"],
+            reference_driver["relative_pace_mae_pct"],
+        ),
+        "team_median_rank_mae": (
+            candidate_teams["rank_mae"], reference_teams["rank_mae"],
+        ),
+        "team_median_relative_pace_mae_pct": (
+            candidate_teams["relative_pace_mae_pct"],
+            reference_teams["relative_pace_mae_pct"],
+        ),
+        "teammate_gap_mae_pct": (
+            candidate_gaps["gap_mae_pct"], reference_gaps["gap_mae_pct"],
+        ),
+    }
+    return {
+        "candidate_variant": "recent_team_q1",
+        "reference_variant": "full_model",
+        "matched_counts": {
+            "drivers": len(candidate_rows),
+            "teams": candidate_teams["teams"],
+            "teammate_pairs": candidate_gaps["teammate_pairs"],
+        },
+        "driver_ids": [row["driver_id"] for row in candidate_rows],
+        "metrics": {
+            name: {
+                "candidate_error": candidate_error,
+                "reference_error": reference_error,
+                "delta": (candidate_error - reference_error
+                          if candidate_error is not None and reference_error is not None
+                          else None),
+            }
+            for name, (candidate_error, reference_error) in errors.items()
+        },
+    }
+
+
+def _summarize_paired_event_comparisons(comparisons) -> dict:
+    """Summarize event deltas with each valid event receiving equal weight."""
+    metrics = {}
+    for name in _PAIRED_EVENT_METRICS:
+        deltas = [
+            comparison["metrics"][name]["delta"]
+            for comparison in comparisons
+            if comparison["metrics"][name]["delta"] is not None
+        ]
+        metrics[name] = {
+            "event_count": len(deltas),
+            "mean_delta": sum(deltas) / len(deltas) if deltas else None,
+            "median_delta": median(deltas) if deltas else None,
+            "min_delta": min(deltas) if deltas else None,
+            "max_delta": max(deltas) if deltas else None,
+            "improved_events": sum(delta < 0 for delta in deltas),
+            "tied_events": sum(delta == 0 for delta in deltas),
+            "worsened_events": sum(delta > 0 for delta in deltas),
+        }
+    return {
+        "candidate_variant": "recent_team_q1",
+        "reference_variant": "full_model",
+        "delta_definition": "candidate_error_minus_reference_error; negative favors candidate",
+        "event_weighting": "equal_weight_per_event",
+        "classification_definition": (
+            "improved, tied, and worsened counts use the exact numerical sign of the "
+            "candidate-minus-reference delta; zero is tied, with no practical-significance "
+            "threshold"
+        ),
+        "metrics": metrics,
+    }
+
+
 def _aggregate_team_metrics(metrics) -> dict:
     """Aggregate team medians using scored team observations as weights."""
     scored = [row for row in metrics if row["rank_mae"] is not None]
@@ -638,6 +762,9 @@ def evaluate_qualifying_pace(
                 },
             }
             fold["components"]["recent_team_q1"]["forecast"] = recent_team_q1_metadata
+            fold["components"]["paired_event_comparison"] = _paired_event_comparison(
+                variant_predictions["recent_team_q1"], variant_predictions["full_model"],
+            )
         folds.append(fold)
     provenance = loader.get_provenance()
     aggregate = {
@@ -656,6 +783,9 @@ def evaluate_qualifying_pace(
                     "constructor_prior", "team_form", "full_model", "recent_team_q1",
                 )
             },
+            "paired_event_comparison": _summarize_paired_event_comparisons([
+                fold["components"]["paired_event_comparison"] for fold in folds
+            ]),
         }
     return {
         "year": year, "evaluation": "round_holdout_q1", "form_races": form_races,
