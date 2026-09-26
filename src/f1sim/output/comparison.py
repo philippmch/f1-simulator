@@ -9,7 +9,12 @@ from numbers import Real
 from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.analysis.paired_comparison import paired_comparison_statistics
 from f1sim.output.export import Exporter
-from f1sim.output.paired_context import paired_coverage_text, paired_exclusion_detail
+from f1sim.output.paired_context import (
+    FINISHED_TIME_NOTE,
+    finished_race_time_text,
+    paired_coverage_text,
+    paired_exclusion_detail,
+)
 from f1sim.output.timing import format_seconds, suspension_statistics
 
 _PIT_DECISION_LABELS = {
@@ -420,8 +425,16 @@ def _paired_driver_table(driver_id: str, paired: dict | None) -> str:
     rows = []
     distance_rows = []
     cost_rows = []
+    time_rows = []
     for label, comparison in paired["variants"].items():
         prefix = f'<tr><th scope="row">{_text(label)}</th>'
+        time_stats = comparison.get("driver_statistics", {}).get(driver_id, {}).get(
+            "finished_race_time",
+        )
+        time_text = (f"Unavailable: {comparison['reason']}"
+                     if comparison["status"] == "unavailable"
+                     else finished_race_time_text(time_stats))
+        time_rows.append(prefix + f'<td>{_text(time_text)}</td></tr>')
         if comparison["status"] == "unavailable":
             rows.append(prefix + f'<td colspan="4">Unavailable: '
                         f'{_text(comparison["reason"])}</td></tr>')
@@ -591,7 +604,17 @@ def _paired_driver_table(driver_id: str, paired: dict | None) -> str:
            '<tr><td colspan="7">No alternative choices supplied</td></tr>')
         + '</tbody></table></div>'
     )
-    return main_table + (
+    time_table = (
+        '<div class="table-wrap paired-time" tabindex="0" role="region" '
+        f'aria-label="{_text(driver_id)} elapsed time changes">'
+        f'<table><caption>Elapsed time for {_text(driver_id)} compared with {reference}</caption>'
+        '<thead><tr><th scope="col">Choice</th><th scope="col">Same-distance finishes</th>'
+        '</tr></thead><tbody>' + ("".join(time_rows) or
+        '<tr><td colspan="2">No alternative choices supplied</td></tr>')
+        + '</tbody></table></div>'
+        + f'<p class="paired-time-note">{_text(FINISHED_TIME_NOTE)}</p>'
+    )
+    return main_table + time_table + (
         '<p class="paired-distance-note">Completed distance includes '
         'recorded laps for finishes and retirements. Positive changes mean more laps; '
         'missing distance is not zero. These descriptive differences do not establish '

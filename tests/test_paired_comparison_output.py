@@ -15,6 +15,29 @@ from f1sim.analysis.strategy_comparison import compare_saved_starting_tires
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.output import ConsoleOutput, Exporter
 from f1sim.output.comparison import render_comparison_report
+from f1sim.output.paired_context import finished_race_time_text
+
+
+def test_legacy_elapsed_time_is_not_recorded():
+    assert finished_race_time_text(None) == "Elapsed time: Not recorded."
+
+
+def test_missing_elapsed_time_keeps_other_outputs(tmp_path, capsys):
+    variants = compare_saved_starting_tires(
+        saved(tmp_path), "0", ["soft", "hard"], num_simulations=1,
+    )
+    for race in variants["soft"].race_results:
+        for row in race:
+            row.total_time = float("nan")
+    stats = paired_comparison_statistics(variants, "hard")["variants"]["soft"]
+    assert stats["driver_statistics"]["0"]["paired_races"] == 1
+    report = render_comparison_report(variants, reference_scenario="hard")
+    assert "0 same-distance finish pairs (1 excluded from time subset)" in report
+    assert "no comparable elapsed times" in report
+    ConsoleOutput.print_paired_comparison(variants, "hard")
+    printed = capsys.readouterr().out
+    assert "no comparable elapsed times" in printed
+    assert "Points change" in printed
 
 
 def saved(tmp_path, engine="standard"):
@@ -64,6 +87,12 @@ def test_console_json_html_and_replay_share_paired_summary(tmp_path, capsys, eng
         f'{distance["fewer_laps_races"]}' in report
     )
     assert "missing distance is not zero" in report
+    elapsed = stats["finished_race_time"]
+    assert elapsed["paired_races"] > 0
+    assert 'aria-label="0 elapsed time changes"' in report
+    assert f'{elapsed["mean_seconds_difference"]:+.3f} s' in report
+    assert f'{elapsed["paired_races"]} same-distance finish pairs' in report
+    assert "not an overall strategy ranking" in report
     costs = stats["paid_stop_costs"]
     assert costs["paired_races"] == 3
     assert 'aria-label="0 paid-stop cost changes"' in report
@@ -77,6 +106,9 @@ def test_console_json_html_and_replay_share_paired_summary(tmp_path, capsys, eng
     ConsoleOutput.print_paired_comparison(variants, "hard", driver_id="0")
     printed = capsys.readouterr().out
     assert "Paired changes compared with hard" in printed
+    assert f'{elapsed["mean_seconds_difference"]:+.3f} s' in printed
+    assert f'{elapsed["excluded_pairs"]} excluded from time subset' in printed
+
     assert f'{stats["mean_points_difference"]:+.3f}' in printed
     assert (
         f'DNF rate SE: {stats["dnf_rate_difference_standard_error_percentage_points"]:.3f} pp'

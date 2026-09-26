@@ -2,7 +2,12 @@
 
 from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.analysis.paired_comparison import paired_comparison_statistics
-from f1sim.output.paired_context import paired_coverage_text, paired_exclusion_detail
+from f1sim.output.paired_context import (
+    FINISHED_TIME_NOTE,
+    finished_race_time_text,
+    paired_coverage_text,
+    paired_exclusion_detail,
+)
 from f1sim.output.timing import (
     finite_time,
     format_lap_deficit,
@@ -115,6 +120,7 @@ class ConsoleOutput:
               "zero-stop races and retirements; missing details are not zero. Time losses are "
               "modeled seconds and can change with exposure and race events, so they do "
               "not isolate causal strategy savings.")
+        print(FINISHED_TIME_NOTE)
         ConsoleOutput._print_suspension_context(results)
         for label, comparison in paired["variants"].items():
             print(f"{label}:")
@@ -132,6 +138,7 @@ class ConsoleOutput:
                           f"({stats['excluded_pairs']} excluded pairs); "
                           f"{paired_exclusion_detail(comparison, stats['excluded_pairs'])}")
                     print(f"  {_completed_distance_line(stats['completed_distance'])}")
+                    print(f"  {finished_race_time_text(stats.get('finished_race_time'))}")
                     for line in _paid_stop_cost_lines(stats["paid_stop_costs"]):
                         print(f"  {line}")
                     continue
@@ -153,6 +160,7 @@ class ConsoleOutput:
                       f"reference-only DNF={stats['reference_only_dnf_races']}, "
                       f"variant-only DNF={stats['variant_only_dnf_races']}")
                 print(f"  {_completed_distance_line(stats['completed_distance'])}")
+                print(f"  {finished_race_time_text(stats.get('finished_race_time'))}")
                 for line in _paid_stop_cost_lines(stats["paid_stop_costs"]):
                     print(f"  {line}")
                 if stats["excluded_pairs"]:

@@ -3959,6 +3959,13 @@ function renderStrategyComparison(scenarioName) {
       distance.laps_difference_standard_error, distance, availablePairs, ' laps',
     ));
 
+    const elapsed = safeStats.finished_race_time && typeof safeStats.finished_race_time === 'object'
+      && !Array.isArray(safeStats.finished_race_time) ? safeStats.finished_race_time : {};
+    rows.push(renderComparisonMetricRow(
+      driverId, 'Elapsed time (same-distance finishes)', elapsed.mean_seconds_difference,
+      elapsed.seconds_difference_standard_error, elapsed, availablePairs, ' s',
+    ));
+
     const costs = safeStats.paid_stop_costs && typeof safeStats.paid_stop_costs === 'object'
       ? safeStats.paid_stop_costs : {};
     costFields.forEach(([field, label, suffix]) => {
@@ -3993,6 +4000,7 @@ function renderStrategyComparison(scenarioName) {
           </table>
         </div>
       </details>`}
+    <p class="strategy-comparison-note">Elapsed time includes only pairs where the driver finished both races over the same positive number of laps, including equal-distance lapped finishes. Retirements, unequal distances and missing times are excluded. Negative changes mean faster. This conditional subset is not an overall strategy ranking; compare points, retirements and distance too. Zero SE does not establish certainty.</p>
     <p class="strategy-comparison-note">A standard error is unavailable when fewer than two valid pairs support that metric. DNF changes use percentage points; all other differences use the units shown.</p>
   </section>`;
 }

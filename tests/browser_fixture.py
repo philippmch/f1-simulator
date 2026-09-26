@@ -141,6 +141,11 @@ def build_fixture() -> dict:
                             "mean_laps_difference": 0.5,
                             "laps_difference_standard_error": None,
                         },
+                        "finished_race_time": {
+                            "paired_races": 2, "excluded_pairs": 8,
+                            "mean_seconds_difference": -2.5,
+                            "seconds_difference_standard_error": 0.5,
+                        },
                         "paid_stop_costs": {
                             "paired_races": 1, "excluded_pairs": 9,
                             "mean_paid_stops_difference": 0,

@@ -177,3 +177,19 @@ changes describe modeled outcomes and sampling uncertainty, not isolated causal
 effects or a proven real-race strategy. Replay uses the installed model code.
 Snapshots with custom plans use schema 5; older supported snapshots retain
 their original automatic-policy interpretation.
+
+### Paired elapsed race time
+
+Comparisons also report elapsed-time changes in seconds, using only seed pairs
+where the driver finished both races with the same positive completed-lap count.
+Equal-distance lapped finishes are eligible; DNFs, unequal distances, and missing
+or invalid times are excluded. This subset has its own paired and excluded counts,
+mean reference and variant times, and standard error of the paired difference.
+Negative variant-minus-reference differences mean faster. Fewer than two pairs
+leave the standard error undefined; zero standard error does not prove certainty.
+
+This is a conditional comparison among matching finishes, not an overall strategy
+ranking: a risky plan can look fast in its surviving races. Check the paired points,
+retirements, and completed distance alongside time. Adaptive race events can differ
+even with matched seeds, so these differences do not isolate causal pit-plan savings
+or establish real-race accuracy. Missing time in older records is not zero.

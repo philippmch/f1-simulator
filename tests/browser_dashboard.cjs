@@ -1245,6 +1245,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         'Preset focus changes back to a saved weather must enable its report');
       await page.locator('#tab-race').click();
 
+      const elapsedRow = page.locator('#strategyComparisonPanel tr').filter({hasText: 'Elapsed time (same-distance finishes)'}).first();
+      assert((await elapsedRow.innerText()).includes('-2.500 s'));
+      assert((await elapsedRow.innerText()).includes('Valid pairs: 2 / 10'));
       const savedComparisonVariants = await page.evaluate(() => simResults.strategy_comparisons);
       const unavailableHtml = await page.evaluate(() => {
         simResults.strategy_comparisons.dry = {
@@ -1271,6 +1274,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         return renderStrategyComparison('dry');
       });
       assert(nullAndZeroHtml.includes('Not recorded'));
+      assert(nullAndZeroHtml.includes('Elapsed time (same-distance finishes)'));
+
       assert(nullAndZeroHtml.includes('+0.000 pp'));
       assert(nullAndZeroHtml.includes('Valid pairs: 0 / 10'));
       assert(nullAndZeroHtml.includes('&lt;svg') && !nullAndZeroHtml.includes('<svg'));

@@ -99,6 +99,12 @@ def test_paired_variance_and_operational_dnf_are_independent_of_awards():
             mean_queue_time_seconds_difference=None,
             queue_time_seconds_difference_standard_error=None,
         ),
+        finished_race_time=dict(
+            paired_races=0, excluded_pairs=3,
+            reference_mean_seconds=None, variant_mean_seconds=None,
+            mean_seconds_difference=None, seconds_difference_standard_error=None,
+            faster_races=0, equal_time_races=0, slower_races=0,
+        ),
     )
     assert (reference, variant) == before
     json.dumps(stats, allow_nan=False)
@@ -196,6 +202,127 @@ def test_completed_distance_normalizes_integral_types_for_statistics_and_json():
     assert distance["mean_laps_difference"] == pytest.approx(2 / 3)
     assert distance["laps_difference_standard_error"] == pytest.approx(1 / 3)
     json.dumps(distance, allow_nan=False)
+
+
+def test_finished_race_time_uses_paired_difference_se_at_matching_completed_distance():
+    reference, variant = result([12] * 3), result([12] * 3)
+    for index, (left_time, right_time) in enumerate(((100, 98), (100, 100), (100, 102))):
+        reference.race_results[index][0].laps_completed = 4
+        variant.race_results[index][0].laps_completed = 4
+        reference.race_results[index][0].total_time = left_time
+        variant.race_results[index][0].total_time = right_time
+
+    driver = compare(reference, variant)["driver_statistics"]["A"]
+    assert driver["paired_races"] == 3
+    assert driver["completed_distance"]["paired_races"] == 3
+    assert driver["finished_race_time"] == dict(
+        paired_races=3, excluded_pairs=0,
+        reference_mean_seconds=100., variant_mean_seconds=100.,
+        mean_seconds_difference=0.,
+        seconds_difference_standard_error=pytest.approx(2 / sqrt(3)),
+        faster_races=1, equal_time_races=1, slower_races=1,
+    )
+
+
+def test_finished_race_time_denominator_requires_finished_matching_valid_observations():
+    reference, variant = result([12] * 7), result([12] * 7)
+    for index, (left_laps, right_laps, left_time, right_time) in enumerate((
+        (2, 2, 100., 101.),
+        (2, 2, 100., 101.),
+        (2, 3, 100., 101.),
+        (2, 2, 100., float("nan")),
+        (2, 2, 100., 0.),
+        (2, 2, 100., None),
+        (2, 2, np.float64(100.), np.int64(101)),
+    )):
+        left, right = reference.race_results[index][0], variant.race_results[index][0]
+        left.laps_completed, right.laps_completed = left_laps, right_laps
+        left.total_time, right.total_time = left_time, right_time
+    reference.race_results[1][0].status = "dnf"
+    reference.race_results[5][0].__dict__.pop("total_time")
+
+    driver = compare(reference, variant)["driver_statistics"]["A"]
+    assert driver["paired_races"] == 7
+    assert driver["finished_race_time"] == dict(
+        paired_races=2, excluded_pairs=5,
+        reference_mean_seconds=100., variant_mean_seconds=101.,
+        mean_seconds_difference=1., seconds_difference_standard_error=0.,
+        faster_races=0, equal_time_races=0, slower_races=2,
+    )
+    json.dumps(driver, allow_nan=False)
+
+
+@pytest.mark.parametrize("invalid_time", [
+    True, float("nan"), float("inf"), pytest.param(10 ** 10000, id="huge-int"),
+])
+def test_invalid_elapsed_time_excludes_only_time_metric(invalid_time):
+    reference, variant = result([12]), result([12])
+    for sample in (reference, variant):
+        sample.race_results[0][0].laps_completed = 2
+        sample.race_results[0][0].total_time = 100.
+    variant.race_results[0][0].total_time = invalid_time
+
+    driver = compare(reference, variant)["driver_statistics"]["A"]
+    assert driver["paired_races"] == driver["completed_distance"]["paired_races"] == 1
+    assert driver["finished_race_time"] == dict(
+        paired_races=0, excluded_pairs=1,
+        reference_mean_seconds=None, variant_mean_seconds=None,
+        mean_seconds_difference=None, seconds_difference_standard_error=None,
+        faster_races=0, equal_time_races=0, slower_races=0,
+    )
+    json.dumps(driver, allow_nan=False)
+
+
+def test_equal_distance_lapped_finisher_is_included_in_elapsed_time_subset():
+    reference, variant = result([12]), result([12])
+    for sample, elapsed in ((reference, np.float64(195.5)), (variant, np.int64(196))):
+        sample.race_results[0][0].laps_completed = 2
+        sample.race_results[0][0].total_time = elapsed
+
+    time = compare(reference, variant)["driver_statistics"]["A"]["finished_race_time"]
+    assert time == dict(
+        paired_races=1, excluded_pairs=0,
+        reference_mean_seconds=195.5, variant_mean_seconds=196.,
+        mean_seconds_difference=.5, seconds_difference_standard_error=None,
+        faster_races=0, equal_time_races=0, slower_races=1,
+    )
+
+
+def test_finished_race_time_keeps_extreme_finite_means_and_standard_error_json_safe():
+    reference, variant = result([12] * 2), result([12] * 2)
+    for index, (left_time, right_time) in enumerate((
+        (1.7e308, 5e-324), (5e-324, 1.7e308),
+    )):
+        reference.race_results[index][0].laps_completed = 4
+        variant.race_results[index][0].laps_completed = 4
+        reference.race_results[index][0].total_time = left_time
+        variant.race_results[index][0].total_time = right_time
+
+    time = compare(reference, variant)["driver_statistics"]["A"]["finished_race_time"]
+    assert time["paired_races"] == 2
+    assert time["reference_mean_seconds"] == pytest.approx(8.5e307)
+    assert time["variant_mean_seconds"] == pytest.approx(8.5e307)
+    assert time["mean_seconds_difference"] == 0
+    assert time["seconds_difference_standard_error"] == pytest.approx(1.7e308)
+    assert (time["faster_races"], time["equal_time_races"], time["slower_races"]) == (1, 0, 1)
+    json.dumps(time, allow_nan=False)
+
+
+def test_finished_race_time_excludes_only_qualifying_mismatch_pair():
+    reference, variant = result([12] * 2), result([12] * 2)
+    for index in range(2):
+        reference.race_results[index][0].laps_completed = 4
+        variant.race_results[index][0].laps_completed = 4
+        reference.race_results[index][0].total_time = 100.
+        variant.race_results[index][0].total_time = 99.
+    variant.qualifying_results[1][0].position = 2
+
+    stats = compare(reference, variant)
+    time = stats["driver_statistics"]["A"]["finished_race_time"]
+    assert stats["qualifying_mismatches"] == 1
+    assert time["paired_races"] == 1
+    assert time["excluded_pairs"] == 1
+    assert time["mean_seconds_difference"] == -1.
 
 
 def test_paid_stop_cost_subset_pairs_complete_histories_without_changing_core():

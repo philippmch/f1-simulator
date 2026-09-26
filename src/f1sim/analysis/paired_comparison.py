@@ -168,7 +168,22 @@ def _observation(race, driver, scheduled_laps):
         laps = None
     elif not isinstance(laps, int):
         laps = int(laps)
-    return int(points_for_result(row)), int(status == "dnf"), laps, _pit_stop_cost(row)
+    total_time = _positive_finite_real(getattr(row, "total_time", None))
+    return (
+        int(points_for_result(row)), int(status == "dnf"), laps,
+        _pit_stop_cost(row), total_time,
+    )
+
+
+def _positive_finite_real(value):
+    """Return a JSON-safe positive finite real, or ``None`` when unavailable."""
+    if isinstance(value, bool) or not isinstance(value, Real):
+        return None
+    try:
+        normalized = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return None
+    return normalized if isfinite(normalized) and normalized > 0 else None
 
 
 _PIT_COST_FIELDS = ("total_loss", "lane_loss", "service_time", "queue_time")
@@ -288,6 +303,47 @@ def _paid_stop_cost_statistics(observations, available):
     return statistics
 
 
+def _finished_race_time_statistics(observations, available):
+    time_observations = [
+        (reference[4], variant[4])
+        for reference, variant in observations
+        if reference[1] == 0 and variant[1] == 0
+        and reference[2] is not None and reference[2] > 0
+        and reference[2] == variant[2]
+        and reference[4] is not None and variant[4] is not None
+    ]
+    differences = [variant - reference for reference, variant in time_observations]
+    count = len(differences)
+    error = None
+    if count > 1:
+        # Scale before calculating the sample standard deviation.  This keeps
+        # intermediate squares finite for extreme but valid elapsed times.
+        scale = max(abs(value) for value in differences)
+        if scale:
+            normalized_error = stdev(value / scale for value in differences) / sqrt(count)
+            # For n paired values bounded by ``scale``, the standard error
+            # cannot exceed that bound.  Clamp rounding noise before restoring
+            # units so even the largest finite input stays JSON-safe.
+            error = min(normalized_error, 1.0) * scale
+        else:
+            error = 0.0
+    return {
+        "paired_races": count,
+        "excluded_pairs": available - count,
+        "reference_mean_seconds": (
+            float(mean(reference for reference, _ in time_observations)) if count else None
+        ),
+        "variant_mean_seconds": (
+            float(mean(variant for _, variant in time_observations)) if count else None
+        ),
+        "mean_seconds_difference": float(mean(differences)) if count else None,
+        "seconds_difference_standard_error": error,
+        "faster_races": sum(value < 0 for value in differences),
+        "equal_time_races": sum(value == 0 for value in differences),
+        "slower_races": sum(value > 0 for value in differences),
+    }
+
+
 def _driver_statistics(observations, available):
     count = len(observations)
     differences = [variant[0] - reference[0] for reference, variant in observations]
@@ -324,6 +380,7 @@ def _driver_statistics(observations, available):
         ),
         "completed_distance": _completed_distance_statistics(observations, available),
         "paid_stop_costs": _paid_stop_cost_statistics(observations, available),
+        "finished_race_time": _finished_race_time_statistics(observations, available),
     }
 
 
