@@ -699,6 +699,25 @@ sampled after the batch's decisions. The observed pre-stop gaps still govern
 reactive style changes. Projected traffic does not mutate race clocks, reserve
 tyre sets, revisit earlier decisions or predict later rivals' choices.
 
+The standard engine projects native pit traffic with compact rows containing
+only driver identity, status, position and elapsed time. It reuses the same
+gap and merge helpers, including physical-order tie breaks and position-hole
+compaction, without copying complete tyre and strategy state for each branch.
+Instrumented or overridden helpers retain full-state copies. This changes
+allocation cost, not search limits, strategy decisions or cancellation checks.
+
+A 2026-09-26 check compared this path with revision `abc1c13` in alternating
+fresh processes. The synthetic workload used the standard engine, 22 drivers,
+58 laps, unlimited tyre inventory, automatic openings and three consecutive
+seeds starting at 42. Across three before/after pairs, median total simulation
+time for the three trials fell from 2.003 to 0.848 seconds with fixed dry
+weather, and from 8.051 to 6.683 seconds with weather-change probability 0.2.
+All paired complete race, qualifying, weather and event digests matched.
+Another 120 shorter cases retained identical digests across both engines,
+five starting weather patterns, finite/unlimited pools, both opening modes,
+and automatic/custom pit plans. These are local synthetic measurements, not
+a speed guarantee for live inputs or a change to model realism.
+
 Each retained or freshly fitted candidate receives its respective gap inside
 the current lap calculation, before the minimum lap-time floor and current
 control multiplier. A fast candidate whose clean and dirty laps both hit the

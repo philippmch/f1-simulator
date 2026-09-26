@@ -117,6 +117,16 @@ class DriverRaceState:
             self.tire_compound_history.append(self.current_tire.compound.value)
 
 
+@dataclass(slots=True)
+class _PitTrafficProjectionRow:
+    """The small mutable view needed by native pit-traffic merge helpers."""
+
+    driver: Driver
+    position: int
+    total_time: float
+    status: DriverStatus
+
+
 @dataclass
 class RaceResult:
     """Final race result for a driver."""
@@ -1327,11 +1337,37 @@ class RaceSimulator(InventoryStrategyMixin):
             # violate that invariant.
             return StrategyTrafficSnapshot(None, None, 0.0, None)
 
+        # The native gap and merge helpers read only driver.id, status,
+        # position, and total_time. Use compact rows on this hot path instead
+        # of cloning each DriverRaceState (which also carries tire history,
+        # proposals, inventory, and other nested mutable state). Preserve the
+        # historical full-state path for instrumented helpers and subclasses:
+        # overrides may rely on any DriverRaceState field.
+        native_helpers = (
+            getattr(self._get_gap_to_car_ahead, "__func__", None)
+            is RaceSimulator._NATIVE_PIT_TRAFFIC_GAP_AHEAD
+            and getattr(self._get_gap_to_car_behind, "__func__", None)
+            is RaceSimulator._NATIVE_PIT_TRAFFIC_GAP_BEHIND
+            and getattr(self._handle_pit_batch_position_changes, "__func__", None)
+            is RaceSimulator._NATIVE_PIT_BATCH_POSITION_CHANGES
+        )
+
         # A failed finite-inventory preparation can retire a car between two
         # decisions. Compact only the copied rows so a surviving car keeps
         # seeing its nearest physical predecessor despite the old position
         # hole; the live and frozen race states remain untouched.
-        base_rows = [replace(candidate) for candidate in frozen.values()]
+        if native_helpers:
+            base_rows = [
+                _PitTrafficProjectionRow(
+                    candidate.driver,
+                    candidate.position,
+                    candidate.total_time,
+                    candidate.status,
+                )
+                for candidate in frozen.values()
+            ]
+        else:
+            base_rows = [replace(candidate) for candidate in frozen.values()]
         if sorted(candidate.position for candidate in base_rows) != list(
             range(1, len(base_rows) + 1)
         ):
@@ -1340,7 +1376,11 @@ class RaceSimulator(InventoryStrategyMixin):
             ):
                 candidate.position = position
 
-        observed_rows = [replace(candidate) for candidate in base_rows]
+        observed_rows = (
+            base_rows
+            if native_helpers
+            else [replace(candidate) for candidate in base_rows]
+        )
         observed_by_id = {
             candidate.driver.id: candidate for candidate in observed_rows
         }
@@ -1359,7 +1399,15 @@ class RaceSimulator(InventoryStrategyMixin):
             # order. The stay branch may move a car ahead of a committed
             # pitter; that virtual position must not become the tie-breaker
             # for the candidate-inclusive pit branch.
-            projected = [replace(row) for row in base_rows]
+            if native_helpers:
+                projected = [
+                    _PitTrafficProjectionRow(
+                        row.driver, row.position, row.total_time, row.status,
+                    )
+                    for row in base_rows
+                ]
+            else:
+                projected = [replace(row) for row in base_rows]
             pitting = []
             for row in projected:
                 loss = committed_losses.get(row.driver.id)
@@ -2516,6 +2564,14 @@ class RaceSimulator(InventoryStrategyMixin):
         ordered.extend(pitting[pit_index:])
         for position, state in enumerate(ordered, 1):
             state.position = position
+
+    # Stable references let the projection detect instrumentation applied at
+    # either the instance or class level. Looking up RaceSimulator's current
+    # helper attributes would miss class-level monkeypatches because both
+    # sides of that comparison would resolve to the patched function.
+    _NATIVE_PIT_TRAFFIC_GAP_AHEAD = _get_gap_to_car_ahead
+    _NATIVE_PIT_TRAFFIC_GAP_BEHIND = _get_gap_to_car_behind
+    _NATIVE_PIT_BATCH_POSITION_CHANGES = _handle_pit_batch_position_changes
 
     def _reconcile_racing_times(self, states: list[DriverRaceState]) -> None:
         """Charge blocked running to the lap without changing track order.
