@@ -39,6 +39,7 @@ class InventoryStrategyMixin:
             scores = inventory_opening_policy_costs(
                 driver, car, track, weather, strategy, self.strategy_tuning,
                 self.strategy_profiles, records,
+                **({"tire_warmup": self.tire_warmup} if self.tire_warmup else {}),
             )
             selected = inventory.sets[min(scores, key=lambda item: item[1])[0]]
         return inventory, selected
@@ -127,6 +128,9 @@ class InventoryStrategyMixin:
         options = {}
         if weather_clock is not None:
             options["weather_clock"] = weather_clock
+        if self.tire_warmup:
+            options["tire_warmup"] = self.tire_warmup
+            options["current_fit_pending"] = state.fit_lap_pending
         return plan_inventory_strategy(
             state.driver, state.car, track, weather, state.tire_inventory, lap,
             tire_age=state.tire_laps, remaining_stops=max(0, maximum - state.pit_stops),
@@ -175,11 +179,16 @@ class InventoryStrategyMixin:
         def cost(item):
             driver.current_tire_laps = (state.tire_laps if item.id == inventory.current_set_id
                                        else item.age)
-            return simulator.calculate_lap_time(
+            value = simulator.calculate_lap_time(
                 driver, state.car, track, TIRE_COMPOUNDS[item.compound], ranking_weather,
                 lap, physical_total_laps or track.total_laps, sample_variation=False,
                 active_aero_enabled=self.event_manager.is_active_aero_allowed(),
             )
+            if self.tire_warmup and (
+                item.id != inventory.current_set_id or state.fit_lap_pending
+            ):
+                value += self.tire_warmup.get(item.compound.value, 0.0)
+            return value
 
         return min(candidates, key=cost).id
 

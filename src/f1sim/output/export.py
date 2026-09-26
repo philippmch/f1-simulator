@@ -16,6 +16,7 @@ from f1sim.output.timing import (
     race_suspension_seconds,
     suspension_statistics,
 )
+from f1sim.output.warmup_context import warmup_context
 from f1sim.simulation.race import result_is_classified
 from f1sim.simulation.race_points import points_for_result
 
@@ -563,6 +564,8 @@ class Exporter:
             _pit_plans,
         )
 
+        warmup_text = escape(warmup_context(results.input_snapshot))
+        warmup_html = f"<p>{warmup_text}</p>" if warmup_text else ""
         pit_plan_text = escape(_pit_plans(results))
         pit_plan_statistics = _pit_plan_statistics_html(results, "run")
         pit_plan_history = _pit_plan_history_html(results, "run")
@@ -646,6 +649,7 @@ class Exporter:
     · Race model: {engine_text}
     · Starting tyres: {starting_text}
     · Custom pit plans: {pit_plan_text}
+    {warmup_html}
     Input race set pools:
     {escape(json.dumps((results.input_snapshot or {}).get('tire_inventory', {})))}
   </div>

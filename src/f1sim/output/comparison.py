@@ -16,6 +16,7 @@ from f1sim.output.paired_context import (
     paired_exclusion_detail,
 )
 from f1sim.output.timing import format_seconds, suspension_statistics
+from f1sim.output.warmup_context import warmup_context
 
 _PIT_DECISION_LABELS = {
     "forced_repair": "Forced repair",
@@ -415,7 +416,8 @@ def _weather(result: SimulationResults) -> str:
     return (f'{condition}; rain {percent("rain_intensity")}; '
             f'surface wetness {percent("track_wetness")}; '
             f'weather change {percent("change_probability")}/lap; '
-            f'weather draws {randomness}')
+            f'weather draws {randomness}'
+            + (f"; {context}" if (context := warmup_context(snapshot)) else ""))
 
 
 def _paired_driver_table(driver_id: str, paired: dict | None) -> str:

@@ -187,7 +187,10 @@ weather generator from `SeedSequence(seed, spawn_key=(0x57454154,))`. That fixed
 namespace separates weather from race draws without advancing the race stream.
 `shared_v1` retains the former single generator. New snapshots use schema 2,
 schema 3 when opening ages are specified, or schema 4 for nonempty finite race
-pools, and require an explicit policy. Schema 4 records the initial inventory.
+pools, and require an explicit policy. Custom pit plans use schema 5; enabling
+[post-fit cost sensitivity](tyre-wear.md#optional-post-fit-cost-sensitivity)
+uses schema 6 and preserves any configured ages, inventory, and plans.
+Schema 4 records the initial inventory.
 Schema 3 also requires the age mapping, so older installations reject used-set
 runs instead of replaying them fresh. Replay and comparison still accept
 schemas 1 and 2 with fresh opening sets; schema 1 infers `shared_v1` when its

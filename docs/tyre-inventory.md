@@ -197,7 +197,8 @@ the optimization changes neither search allowances nor cancellation checks.
 ## Saved inputs and audit records
 
 The input pool is saved separately from the final pool, in request/scenario
-provenance and replay inputs. A nonempty finite pool uses snapshot schema 4;
+provenance and replay inputs. A nonempty finite pool uses snapshot schema 4,
+schema 5 with custom pit plans, or schema 6 with post-fit cost sensitivity;
 older supported snapshots retain their existing unlimited-set interpretation.
 Unsupported schemas are rejected instead of silently dropping the constraint.
 

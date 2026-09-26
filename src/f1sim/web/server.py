@@ -33,6 +33,7 @@ from f1sim.simulation.race import get_race_suspension_seconds, result_is_classif
 from f1sim.simulation.race_points import points_for_result
 from f1sim.simulation.randomness import DEFAULT_RNG_POLICY, validate_rng_policy
 from f1sim.simulation.tire_inventory import validate_tire_inventory
+from f1sim.simulation.warmup import validate_tire_warmup
 from f1sim.web.capacity import RunCapacity
 
 _LOGGER = logging.getLogger(__name__)
@@ -79,6 +80,7 @@ class DashboardRunRequest:
     pit_plans: Any = None
     compare_automatic: StrictBool = False
     rng_policy: StrictStr = DEFAULT_RNG_POLICY
+    tire_warmup: Any = None
 
 
 def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
@@ -87,6 +89,7 @@ def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
     validate_weather_mode(request.weather_mode)
     validate_race_engine(request.race_engine)
     validate_rng_policy(request.rng_policy)
+    validate_tire_warmup(request.tire_warmup)
     validate_starting_tires(request.starting_tires)
     validate_starting_tire_ages(request.starting_tire_ages, request.starting_tires)
     validate_tire_inventory(request.tire_inventory, request.starting_tires,
@@ -539,6 +542,9 @@ def _dashboard_runner(
         "race_engine": request.race_engine,
         "rng_policy": request.rng_policy,
     }
+    tire_warmup = validate_tire_warmup(request.tire_warmup)
+    if tire_warmup:
+        kwargs["tire_warmup"] = tire_warmup
     if tire_inventory:
         kwargs["tire_inventory"] = copy_value(tire_inventory)
     if starting_tires:
@@ -571,6 +577,8 @@ def _dashboard_request_metadata(
         "seed": request.seed,
         "race_engine": request.race_engine,
         "rng_policy": request.rng_policy,
+        **({"tire_warmup": warmup, "tire_warmup_policy": "post_fit_first_lap_v1"}
+           if (warmup := validate_tire_warmup(request.tire_warmup)) else {}),
         "tire_inventory": deepcopy(tire_inventory) if tire_inventory else {},
         "starting_tires": deepcopy(starting_tires),
         "starting_tire_ages": deepcopy(starting_tire_ages),

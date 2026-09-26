@@ -19,6 +19,7 @@ from f1sim.models import Car, Driver, Tire, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.strategy_traffic import normalize_current_traffic_gaps
+from f1sim.simulation.warmup import tire_warmup_seconds, validate_tire_warmup
 
 SLICKS = (TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD)
 
@@ -30,7 +31,8 @@ class _ScaledDryWeather(Weather):
         return self.pace_scale
 
 
-def _full_row(driver, car, track, tire, age, lap, physical, scale, aero=True, gap=None):
+def _full_row(driver, car, track, tire, age, lap, physical, scale, aero=True, gap=None,
+              first_fit_cost=0.0):
     driver = driver.model_copy(deep=True)
     simulator = LapSimulator(np.random.default_rng(0))
     weather = _ScaledDryWeather(pace_scale=scale)
@@ -38,28 +40,33 @@ def _full_row(driver, car, track, tire, age, lap, physical, scale, aero=True, ga
     for number in range(lap, track.total_laps + 1):
         cancellation_checkpoint()
         driver.current_tire_laps = age + number - lap
-        result.append(simulator.calculate_lap_time(
+        value = simulator.calculate_lap_time(
             driver, car, track, tire, weather, number, physical,
             active_aero_enabled=aero, sample_variation=False,
             gap_to_car_ahead=gap if number == lap else None,
-        ))
+        )
+        if number == lap:
+            value += first_fit_cost
+        result.append(value)
     return result
 
 
 @lru_cache(maxsize=32)
-def _floor_tables(models, fresh, physical, scale):
+def _floor_tables(models, fresh, physical, scale, warmup_profile=()):
     """Absolute clean-air costs for suffixes with lap-dependent fuel and clipping."""
     driver = Driver.model_validate_json(models[0])
     car = Car.model_construct(**json.loads(models[1]))
     track = Track.model_validate_json(models[2])
     end = track.total_laps
     prefixes = {}
+    warmup = dict(warmup_profile)
     for lap in range(1, end + 1):
         cancellation_checkpoint()
         for c, tire_json in enumerate(fresh):
             prefixes[lap, c] = np.cumsum(_full_row(
                 driver, car, track, Tire.model_validate_json(tire_json),
                 0, lap, physical, scale,
+                first_fit_cost=warmup.get(SLICKS[c].value, 0.0),
             ))
     costs = np.full((4, 8, end + 2), inf)
     green = track.pit_lane_delta + expected_stationary_time(car)
@@ -85,7 +92,8 @@ def _floor_tables(models, fresh, physical, scale):
 
 
 def _floor_plan(driver, car, track, tire, age, lap, budget, mask,
-                physical, scale, aero, modifier, lane, queue, gaps=None):
+                physical, scale, aero, modifier, lane, queue, gaps=None,
+                warmup_profile=(), current_fit_pending=False):
     projection = driver.model_copy(deep=True)
     projection.reset_race_state()
     projection.id = projection.name = projection.team_id = "projection"
@@ -93,19 +101,24 @@ def _floor_plan(driver, car, track, tire, age, lap, budget, mask,
     package.team_id = package.team_name = "projection"
     models = (projection.model_dump_json(), package.model_dump_json(), track.model_dump_json())
     fresh = tuple(TIRE_COMPOUNDS[c].model_dump_json() for c in SLICKS)
-    costs, prefixes = _floor_tables(models, fresh, physical, scale)
+    costs, prefixes = _floor_tables(models, fresh, physical, scale, warmup_profile)
     wait_mask = mask | (1 << SLICKS.index(tire.compound)) if tire.compound in SLICKS else mask
-    row = _full_row(projection, car, track, tire, age, lap, physical, scale)
+    warmup = dict(warmup_profile)
+    current_fee = (warmup.get(tire.compound.value, 0.0) if current_fit_pending else 0.0)
+    row = _full_row(projection, car, track, tire, age, lap, physical, scale,
+                    first_fit_cost=current_fee)
     old = np.cumsum(row)
     wait = float(old[-1]) if wait_mask.bit_count() >= 2 else inf
     if budget and lap < track.total_laps:
         wait = min(wait, float(np.min(
             old[:-1] + costs[budget, wait_mask, lap + 1:track.total_laps + 1]
         )))
-    def first(set_tire, set_age, gap):
-        return _full_row(projection, car, track, set_tire, set_age,
-                         lap, physical, scale, aero, gap)[0] * modifier
-    wait += first(tire, age, gaps[0] if gaps else None) - row[0]
+    def first(set_tire, set_age, gap, *, fitted=False):
+        value = _full_row(projection, car, track, set_tire, set_age,
+                          lap, physical, scale, aero, gap)[0] * modifier
+        return value + (warmup.get(set_tire.compound.value, 0.0) if fitted else 0.0)
+    wait += first(tire, age, gaps[0] if gaps else None,
+                  fitted=bool(current_fit_pending)) - row[0]
     pit, selected = inf, None
     if budget:
         for c, compound in enumerate(SLICKS):
@@ -117,7 +130,8 @@ def _floor_plan(driver, car, track, tire, age, lap, budget, mask,
                 best = min(best, float(np.min(
                     prefix[:-1] + costs[budget - 1, next_mask, lap + 1:track.total_laps + 1]
                 )))
-            candidate = (best + first(TIRE_COMPOUNDS[compound], 0, gaps[1] if gaps else None)
+            candidate = (best + first(TIRE_COMPOUNDS[compound], 0,
+                                      gaps[1] if gaps else None, fitted=True)
                          - prefix[0]
                          + track.pit_lane_delta * lane + expected_stationary_time(car) + queue)
             if candidate < pit:
@@ -172,7 +186,7 @@ def _pace_curve(base: float, management: float, degradation: float, stress: floa
 
 @lru_cache(maxsize=64)
 def _fresh_tables(physics: tuple, tire_keys: tuple, horizon: int,
-                  green_cost: float) -> tuple[np.ndarray, np.ndarray]:
+                  green_cost: float, warmup_profile=()) -> tuple[np.ndarray, np.ndarray]:
     """Cost/compound when buying a fresh set now, indexed stops, used mask, laps.
 
     A mask with two bits satisfies the dry rule. Mask 7 also represents a
@@ -184,6 +198,10 @@ def _fresh_tables(physics: tuple, tire_keys: tuple, horizon: int,
     curves = tuple(_pace_curve(*physics, key, horizon) for key in tire_keys)
     max_stops = 3
     prefix = np.pad(np.cumsum(np.asarray(curves), axis=1), ((0, 0), (1, 0)))
+    warmup = dict(warmup_profile)
+    for index, compound in enumerate(SLICKS):
+        if warmup.get(compound.value, 0.0):
+            prefix[index, 1:] += warmup[compound.value]
     costs = np.full((max_stops + 1, 8, horizon + 1), inf)
     compounds = np.full(costs.shape, -1, dtype=np.int8)
     for stops in range(1, max_stops + 1):
@@ -233,10 +251,16 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
                   active_aero_enabled: bool = True, *,
                   current_traffic_gaps: tuple[float | None, float | None] | None = None,
                   current_set_used: bool | None = None,
+                  tire_warmup: dict[str, float] | None = None,
+                  current_fit_pending: bool = False,
                   ) -> DryPitDecision:
     """Compare legal plans using tyre-relative, or floor-clipped absolute, costs."""
     if current_set_used is not None and not isinstance(current_set_used, bool):
         raise ValueError("current_set_used must be boolean or None")
+    if not isinstance(current_fit_pending, bool):
+        raise ValueError("current_fit_pending must be boolean")
+    tire_warmup = validate_tire_warmup(tire_warmup)
+    warmup_profile = tuple(sorted(tire_warmup.items()))
     used_current = tire_age > 0 if current_set_used is None else current_set_used
     gaps = normalize_current_traffic_gaps(current_traffic_gaps)
     if remaining_laps < 1 or remaining_stops < 0 or remaining_stops > 3:
@@ -256,7 +280,8 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
         return _floor_plan(driver, car, track, current_tire, tire_age, lap,
                            remaining_stops, mask, physical, tire_pace_multiplier,
                            active_aero_enabled, current_lap_time_modifier,
-                           pit_lane_factor, additional_current_stop_cost, gaps)
+                           pit_lane_factor, additional_current_stop_cost, gaps,
+                           warmup_profile, current_fit_pending)
     # Both compound pace and degradation are linear in reference lap time.
     # Scale only the private tyre-physics key, never the actual track or pit
     # costs. This also isolates differently scaled curves in existing caches.
@@ -267,7 +292,8 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
     green_cost = track.pit_lane_delta + expected_stationary_time(car)
     # Keep all ordinary budgets together so a driver reuses one table after
     # each stop, rather than evicting other drivers with separate budget keys.
-    costs, compounds = _fresh_tables(physics, tire_keys, horizon, green_cost)
+    costs, compounds = _fresh_tables(physics, tire_keys, horizon, green_cost,
+                                     warmup_profile)
     mask = 7 if wet_exemption else sum(1 << i for i, c in enumerate(SLICKS)
                                      if c in used_compounds
                                      or (used_current and c == current_tire.compound))
@@ -278,6 +304,10 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
     current_curve = _pace_curve(*physics, _tire_key(current_tire),
                                 max(horizon, tire_age + remaining_laps))
     old_cost = np.cumsum(current_curve[tire_age:tire_age + remaining_laps])
+    current_fee = (tire_warmup_seconds(tire_warmup, current_tire.compound)
+                   if current_fit_pending else 0.0)
+    if current_fee:
+        old_cost += current_fee
     wait_cost = float(old_cost[-1]) if wait_mask.bit_count() >= 2 else inf
     if remaining_laps > 1 and remaining_stops:
         wait_cost = min(wait_cost, float(np.min(
@@ -297,6 +327,9 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
                 next_mask = mask | (1 << candidate)
                 curve = _pace_curve(*physics, key, horizon)
                 prefix = np.cumsum(curve[:remaining_laps])
+                fee = tire_warmup_seconds(tire_warmup, SLICKS[candidate])
+                if fee:
+                    prefix += fee
                 best = float(prefix[-1]) if next_mask.bit_count() >= 2 else inf
                 if remaining_stops > 1 and remaining_laps > 1:
                     best = min(best, float(np.min(

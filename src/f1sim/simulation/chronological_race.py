@@ -723,6 +723,9 @@ class ChronologicalRace:
             projected_surface_at=lambda absolute: self._projected_surface_at(
                 absolute, now=now, restart=restart,
             ),
+            **({"tire_warmup": self.simulator.tire_warmup,
+                "current_fit_pending": state.fit_lap_pending}
+               if self.simulator.tire_warmup else {}),
         )
         return result.veto
 
@@ -1044,7 +1047,11 @@ class ChronologicalRace:
                 nominal = max(free_running, pending.sc_queue_pace or running)
                 queue_gap = self._physical_gap_ahead(state.driver.id, now, nominal)
                 running = safety_car_running_time(free_running, nominal, queue_gap)
-        pending.ready = now + running
+        fit_cost = (self.simulator._consume_tire_warmup(state)
+                    if self.simulator.tire_warmup else 0.0)
+        # The fitting sensitivity is elapsed running time after control has
+        # set this lap's pace. It delays the next crossing, never pit exit.
+        pending.ready = now + running + fit_cost
 
     def _retire(self, driver_id, now, reason):
         self.timeline.retire(driver_id, now)

@@ -24,6 +24,7 @@ from numbers import Integral, Real
 from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.lap import LapSimulator, minimum_lap_time
+from f1sim.simulation.warmup import tire_warmup_seconds, validate_tire_warmup
 
 
 @dataclass(frozen=True)
@@ -139,6 +140,8 @@ def evaluate_finish_protection(
     current_overtake_mode_active: bool = False,
     replacements: Iterable[ReplacementOption] | None = None,
     projected_surface_at: Callable[[float], Weather] | None = None,
+    tire_warmup=None,
+    current_fit_pending: bool = False,
 ) -> FinishProtectionResult:
     """Compare retained and optimistic-stop distances through the finish.
 
@@ -182,6 +185,12 @@ def evaluate_finish_protection(
     if not isinstance(weather, Weather):
         return _invalid_result("invalid current weather")
 
+    try:
+        tire_warmup = validate_tire_warmup(tire_warmup)
+    except ValueError:
+        return _invalid_result("invalid tire warmup profile")
+    if type(current_fit_pending) is not bool:
+        return _invalid_result("invalid pending tire fit")
     physics = lap_simulator or LapSimulator()
     base_surface = _surface_copy(weather)
     if base_surface is None:
@@ -204,6 +213,7 @@ def evaluate_finish_protection(
         *,
         first_gap: float | None,
         future_green_floor: bool,
+        fitted: bool = False,
     ) -> tuple[int, float] | None:
         """Return (distance, terminal crossing) for one deterministic path."""
         entry = entry_time
@@ -244,6 +254,8 @@ def evaluate_finish_protection(
                 lap_time = float(lap_time)
             if lap_number == current_lap:
                 lap_time *= modifier
+                if tire_warmup and (fitted or current_fit_pending):
+                    lap_time += tire_warmup_seconds(tire_warmup, tire.compound)
             crossing = entry + lap_time
             if not isfinite(crossing) or crossing < entry:
                 return None
@@ -270,6 +282,7 @@ def evaluate_finish_protection(
             stop_entry,
             first_gap=None,
             future_green_floor=True,
+            fitted=True,
         )
         if candidate is None:
             continue

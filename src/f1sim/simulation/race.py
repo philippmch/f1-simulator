@@ -40,6 +40,7 @@ from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.surface_projection import projected_surfaces
 from f1sim.simulation.tire_inventory import TireInventory, validate_tire_inventory
 from f1sim.simulation.validation import validate_unique_ids
+from f1sim.simulation.warmup import tire_warmup_seconds, validate_tire_warmup
 from f1sim.simulation.weather_strategy import weather_stop_costs
 
 
@@ -69,6 +70,7 @@ class DriverRaceState:
     total_time: float = 0.0
     current_tire: Tire = field(default_factory=lambda: TIRE_COMPOUNDS[TireCompound.MEDIUM])
     tire_laps: int = 0
+    fit_lap_pending: bool = False
     pit_stops: int = 0
     pit_laps: list[int] = field(default_factory=list)
     last_lap_time: float = 0.0
@@ -233,6 +235,7 @@ class RaceSimulator(InventoryStrategyMixin):
         weather_rng: np.random.Generator | None = None,
         mechanical_rng_factory: MechanicalRngFactory | None = None,
         red_flag_pause_seconds: float = 600.0,
+        tire_warmup: dict[str, float] | None = None,
     ):
         """Initialize race simulator.
 
@@ -242,6 +245,7 @@ class RaceSimulator(InventoryStrategyMixin):
             weather_rng: Independent weather stream; omitted callers share rng
             mechanical_rng_factory: Optional per-driver/per-lap mechanical stream factory
             red_flag_pause_seconds: Suspension pause after field collection
+            tire_warmup: Optional absolute cost on the first running lap after a fit
         """
         if (isinstance(red_flag_pause_seconds, bool)
                 or not isinstance(red_flag_pause_seconds, Real)
@@ -250,6 +254,7 @@ class RaceSimulator(InventoryStrategyMixin):
         self.rng = rng if rng is not None else np.random.default_rng()
         self.weather_rng = weather_rng if weather_rng is not None else self.rng
         self.red_flag_pause_seconds = float(red_flag_pause_seconds)
+        self.tire_warmup = validate_tire_warmup(tire_warmup)
         self.suspensions: list[tuple[float, float, tuple[str, ...]]] = []
         self.weather_history: list[dict] = []
         self.lap_simulator = LapSimulator(rng=self.rng)
@@ -610,6 +615,13 @@ class RaceSimulator(InventoryStrategyMixin):
                 lap_times = {driver_id: time * lap_time_modifier
                              for driver_id, time in lap_times.items()}
 
+            # This is an absolute elapsed-time sensitivity, not a tyre-physics
+            # multiplier. Charge it after neutralization scaling.
+            if self.tire_warmup:
+                for state in states:
+                    if state.driver.id in lap_times and state.fit_lap_pending:
+                        lap_times[state.driver.id] += self._consume_tire_warmup(state)
+
             for state in states:
                 if state.driver.id not in lap_times:
                     continue
@@ -936,6 +948,7 @@ class RaceSimulator(InventoryStrategyMixin):
                 costs = opening_policy_costs(
                     driver, car, track, weather, strategy,
                     self.strategy_tuning, self.strategy_profiles,
+                    **({"tire_warmup": self.tire_warmup} if self.tire_warmup else {}),
                 )
                 return min(costs, key=lambda candidate: candidate[1])[0]
             return TireCompound.INTERMEDIATE
@@ -974,6 +987,7 @@ class RaceSimulator(InventoryStrategyMixin):
             scores = dry_opening_policy_costs(
                 driver, car, track, weather, strategy,
                 self.strategy_tuning, self.strategy_profiles,
+                **({"tire_warmup": self.tire_warmup} if self.tire_warmup else {}),
             )
             best = min(score for _, score in scores)
             if np.isfinite(best.mean_time):
@@ -1627,6 +1641,9 @@ class RaceSimulator(InventoryStrategyMixin):
                 active_aero_enabled=self.event_manager.is_active_aero_allowed(),
                 **traffic_options,
                 current_set_used=state.tire_laps > state.prior_tire_laps,
+                **({"tire_warmup": self.tire_warmup,
+                    "current_fit_pending": state.fit_lap_pending}
+                   if self.tire_warmup else {}),
             )
             mode_gain = self._strategy_mode_gain(
                 state, track, weather, lap, mode_active,
@@ -1667,6 +1684,9 @@ class RaceSimulator(InventoryStrategyMixin):
                 weather_intervals=weather_intervals,
                 **traffic_options,
                 **({"weather_clock": weather_clock} if weather_clock is not None else {}),
+                **({"tire_warmup": self.tire_warmup,
+                    "current_fit_pending": state.fit_lap_pending}
+                   if self.tire_warmup else {}),
                 **({
                     "used_compounds": self._actually_used_compounds(state),
                     "remaining_dry_stops": max(
@@ -1891,6 +1911,14 @@ class RaceSimulator(InventoryStrategyMixin):
         state.tire_laps = 0
         state.prior_tire_laps = 0
         state.driver.current_tire_laps = 0
+        state.fit_lap_pending = True
+
+    def _consume_tire_warmup(self, state: DriverRaceState) -> float:
+        """Consume one fitted set's cost on its first sampled running lap."""
+        if not state.fit_lap_pending:
+            return 0.0
+        state.fit_lap_pending = False
+        return tire_warmup_seconds(self.tire_warmup, state.current_tire.compound)
 
     def _choose_distinct_dry_compound(
         self,
@@ -1962,6 +1990,7 @@ class RaceSimulator(InventoryStrategyMixin):
     def _projected_stint_weather(
         self, weather: Weather, weather_clock: StrategyWeatherClock | None,
         weather_intervals: tuple[int, ...] | None, target_stint: int,
+        *, fit_delay: float = 0.0,
     ) -> tuple[Weather, tuple[int, ...] | None]:
         """Rebase a paid-stop weather path onto the replacement's outlap.
 
@@ -1975,12 +2004,15 @@ class RaceSimulator(InventoryStrategyMixin):
         if target_stint <= 0:
             return weather, ()
         if weather_clock is not None:
+            if fit_delay and type(weather_clock) is not StrategyWeatherClock:
+                raise ValueError("tire_warmup requires the native StrategyWeatherClock")
             if target_stint > len(weather_clock.lap_start_offsets):
                 return weather, None
             try:
                 first = weather_clock.updates(0, 1, True)
                 counts = tuple(
-                    weather_clock.updates(offset, 1, True) - first
+                    (weather_clock.updates(offset, 1, True, fit_delay=fit_delay)
+                     if fit_delay else weather_clock.updates(offset, 1, True)) - first
                     for offset in range(target_stint)
                 )
             except (TypeError, ValueError, OverflowError):
@@ -2005,12 +2037,15 @@ class RaceSimulator(InventoryStrategyMixin):
         weather_clock: StrategyWeatherClock | None = None,
     ) -> TireCompound:
         target_stint = self._next_stint_laps(state, track, current_lap)
-        stint_weather, stint_intervals = self._projected_stint_weather(
-            weather if weather is not None else Weather(), weather_clock, weather_intervals,
-            target_stint,
-        )
-        costs = {
-            compound: self.lap_simulator.projected_stint_lap_cost(
+        costs = {}
+        for compound in available:
+            fit_cost = tire_warmup_seconds(self.tire_warmup, compound)
+            stint_weather, stint_intervals = self._projected_stint_weather(
+                weather if weather is not None else Weather(), weather_clock,
+                weather_intervals, target_stint,
+                fit_delay=fit_cost if self.tire_warmup else 0.0,
+            )
+            cost = self.lap_simulator.projected_stint_lap_cost(
                 state.driver, state.car, track, TIRE_COMPOUNDS[compound], target_stint,
                 current_lap, stint_weather,
                 physical_total_laps=physical_total_laps,
@@ -2018,8 +2053,8 @@ class RaceSimulator(InventoryStrategyMixin):
                 active_aero_enabled=self.event_manager.is_active_aero_allowed(),
                 **({"weather_intervals": stint_intervals}
                    if stint_intervals is not None else {}),
-            ) for compound in available
-        }
+            )
+            costs[compound] = cost + fit_cost if fit_cost else cost
         fastest = min(available, key=costs.__getitem__)
         preferred = self._preferred_stint_compound(state, target_stint)
         # Model tolerance: team style may sacrifice at most 0.05 seconds per
@@ -2088,6 +2123,9 @@ class RaceSimulator(InventoryStrategyMixin):
                 tire_pace_multiplier=(self.lap_simulator.weather_pace_multiplier(
                     state.driver, state.car, weather,
                 ) if weather is not None else 1.0),
+                **({"tire_warmup": self.tire_warmup,
+                    "current_fit_pending": True}
+                   if self.tire_warmup else {}),
             ).wait_cost
 
         return min(candidates, key=remaining_cost)
@@ -2883,6 +2921,9 @@ class RaceSimulator(InventoryStrategyMixin):
                     remaining_damp_stops=max(0, damp_limit - state.pit_stops),
                     used_compounds=actual_used | {compound},
                     weather_clock=weather_clock,
+                    **({"tire_warmup": self.tire_warmup,
+                        "current_fit_pending": True}
+                       if self.tire_warmup else {}),
                 ).wait_cost
 
             candidates = [compound for compound in TireCompound
@@ -2912,6 +2953,9 @@ class RaceSimulator(InventoryStrategyMixin):
                 tire_pace_multiplier=self.lap_simulator.weather_pace_multiplier(
                     state.driver, state.car, weather,
                 ),
+                **({"tire_warmup": self.tire_warmup,
+                    "current_fit_pending": True}
+                   if self.tire_warmup else {}),
             ).wait_cost
 
         return min(
@@ -2939,6 +2983,9 @@ class RaceSimulator(InventoryStrategyMixin):
             physical_total_laps=physical_total_laps,
             weather_intervals=weather_intervals,
             **({"weather_clock": weather_clock} if weather_clock is not None else {}),
+            **({"tire_warmup": self.tire_warmup,
+                "current_fit_pending": state.fit_lap_pending}
+               if self.tire_warmup else {}),
         )
         gain = self._strategy_mode_gain(
             state, track, weather, current_lap, current_overtake_mode_active,

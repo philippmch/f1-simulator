@@ -93,6 +93,14 @@ def _tire_inventory(value: str) -> dict:
         raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
+def _tire_warmup(value: str) -> dict:
+    from f1sim.simulation.warmup import parse_tire_warmup_spec
+    try:
+        return parse_tire_warmup_spec(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
 def _pit_plans(value: str) -> dict:
     from f1sim.simulation.pit_plans import parse_pit_plan_spec
     try:
@@ -209,6 +217,11 @@ def main() -> int:
         help=("Optional custom stops using own-lap shorthand, e.g. "
               "VER=18:medium,36:hard;NOR=none"),
     )
+    parser.add_argument(
+        "--tire-warmup", type=_tire_warmup,
+        help="Assumed first-lap cost after fitting, e.g. soft=0.5,medium=1 (seconds, 0-60). "
+             "Disabled by default; opening and qualifying tyres are ready. Not calibrated.",
+    )
     args = parser.parse_args()
     from f1sim.simulation.tire_inventory import validate_tire_inventory
     try:
@@ -324,6 +337,10 @@ def main() -> int:
             for driver, instructions in pit_plans.items()
         ))
 
+    if args.tire_warmup:
+        print(f"Assumed post-fit first-lap costs (seconds): {args.tire_warmup}")
+        print("Warm-up sensitivity only; opening and qualifying tyres are ready.")
+
     # Run Monte Carlo simulation
     print(f"\nRunning {args.simulations} simulations...")
     print("(This may take a while for large numbers of simulations)")
@@ -346,6 +363,7 @@ def main() -> int:
             **({"starting_tires": starting_tires} if starting_tires else {}),
             **({"starting_tire_ages": starting_tire_ages} if starting_tire_ages else {}),
             **({"pit_plans": pit_plans} if pit_plans else {}),
+            **({"tire_warmup": args.tire_warmup} if args.tire_warmup else {}),
         )
 
         scenario_result = runner.run(

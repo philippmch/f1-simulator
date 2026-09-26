@@ -47,6 +47,7 @@ from f1sim.simulation.randomness import (
 )
 from f1sim.simulation.tire_inventory import validate_tire_inventory
 from f1sim.simulation.validation import validate_unique_ids
+from f1sim.simulation.warmup import validate_tire_warmup
 
 _PIT_DECISION_REASONS = frozenset({
     "forced_repair", "critical_weather", "weather_reaction", "compound_requirement",
@@ -913,7 +914,7 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     Args:
         args: Tuple of (drivers_data, cars_data, track_data, weather_data, seed,
             race_engine, starting_tires, rng_policy, starting_tire_ages, tire_inventory,
-            pit_plans).
+            pit_plans, tire_warmup).
             Legacy five through nine-item calls remain supported; five/six/seven-item
             calls retain the shared random stream.
 
@@ -924,6 +925,7 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     starting_tire_ages = None
     tire_inventory = None
     pit_plans = None
+    tire_warmup = None
     rng_policy = "shared_v1"
     if len(args) == 5:
         drivers_data, cars_data, track_data, weather_data, seed = args
@@ -942,10 +944,15 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     elif len(args) == 10:
         (drivers_data, cars_data, track_data, weather_data, seed,
          race_engine, starting_tires, rng_policy, starting_tire_ages, tire_inventory) = args
-    else:
+    elif len(args) == 11:
         (drivers_data, cars_data, track_data, weather_data, seed,
          race_engine, starting_tires, rng_policy, starting_tire_ages,
          tire_inventory, pit_plans) = args
+    else:
+        (drivers_data, cars_data, track_data, weather_data, seed,
+         race_engine, starting_tires, rng_policy, starting_tire_ages,
+         tire_inventory, pit_plans, tire_warmup) = args
+    tire_warmup = validate_tire_warmup(tire_warmup)
     race_engine = validate_race_engine(race_engine)
     rng_policy = validate_rng_policy(rng_policy)
 
@@ -987,6 +994,8 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
         # Keep the keyword absent for old policies so legacy monkeypatched
         # RaceSimulator constructors remain source-compatible.
         race_kwargs["mechanical_rng_factory"] = mechanical_rng_factory
+    if tire_warmup:
+        race_kwargs["tire_warmup"] = tire_warmup
     race_sim = RaceSimulator(**race_kwargs)
     simulate = (
         ChronologicalRace(race_sim).run
@@ -1055,6 +1064,7 @@ class MonteCarloRunner:
         starting_tire_ages: dict[str, int] | None = None,
         tire_inventory: dict[str, list[dict]] | None = None,
         pit_plans: dict[str, list[dict]] | None = None,
+        tire_warmup: dict[str, float] | None = None,
     ):
         """Initialize Monte Carlo runner.
 
@@ -1070,7 +1080,10 @@ class MonteCarloRunner:
             tire_inventory: Finite reusable race sets for listed drivers; others unlimited
             pit_plans: Custom paid-stop instructions; omitted drivers remain automatic and
                 explicit empty lists disable elective stops.
+            tire_warmup: Optional assumed seconds on the first running lap after each fitting.
+                Openings and qualifying are ready; zero disables the sensitivity overlay.
         """
+        self.tire_warmup = validate_tire_warmup(tire_warmup)
         self.race_engine = validate_race_engine(race_engine)
         self.rng_policy = validate_rng_policy(rng_policy)
         validate_unique_ids((driver.id for driver in drivers), "drivers")
@@ -1136,6 +1149,7 @@ class MonteCarloRunner:
 
         _raise_if_cancelled(cancel_requested)
         validate_unique_ids((driver.id for driver in self.drivers), "drivers")
+        tire_warmup = validate_tire_warmup(self.tire_warmup)
         rng_policy = validate_rng_policy(self.rng_policy)
         starting_tires = validate_starting_tires(
             self.starting_tires, (driver.id for driver in self.drivers),
@@ -1158,7 +1172,8 @@ class MonteCarloRunner:
         track_data = self.track.model_dump()
         weather_data = self.weather.model_dump()
         input_snapshot = {
-            "schema_version": 5 if pit_plans else 4 if inventory else 3 if ages else 2,
+            "schema_version": (6 if tire_warmup else 5 if pit_plans
+                               else 4 if inventory else 3 if ages else 2),
             "drivers": deepcopy(drivers_data),
             "cars": deepcopy(cars_data),
             "track": deepcopy(track_data),
@@ -1174,13 +1189,16 @@ class MonteCarloRunner:
             input_snapshot["starting_tire_ages"] = ages.copy()
         if pit_plans:
             input_snapshot["pit_plans"] = deepcopy(pit_plans)
+        if tire_warmup:
+            input_snapshot["tire_warmup"] = tire_warmup.copy()
+            input_snapshot["tire_warmup_policy"] = "post_fit_first_lap_v1"
         # Generate unique seeds for each simulation
         seeds = [self.base_seed + i for i in range(num_simulations)]
 
         args_list = [
             (drivers_data, cars_data, track_data, weather_data, seed,
              self.race_engine, starting_tires, rng_policy, ages, deepcopy(inventory),
-             deepcopy(pit_plans))
+             deepcopy(pit_plans)) + ((tire_warmup.copy(),) if tire_warmup else ())
             for seed in seeds
         ]
 

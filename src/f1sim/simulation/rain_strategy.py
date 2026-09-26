@@ -23,6 +23,7 @@ from f1sim.simulation.surface_projection import (
     projected_surfaces,
     suffix_weather_intervals,
 )
+from f1sim.simulation.warmup import tire_warmup_seconds, validate_tire_warmup
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,7 @@ def _clock_rain_stop(
     driver, car, track, weather, current_tire, tire_age, current_lap, remaining_stops,
     *, pit_lane_factor, additional_current_stop_cost, current_lap_time_modifier,
     active_aero_enabled, physical_total_laps, current_traffic_gaps, weather_clock,
+    tire_warmup, current_fit_pending,
 ):
     """Compare complete same-compound stints on the paid-stop weather clock."""
     gaps = normalize_current_traffic_gaps(current_traffic_gaps)
@@ -65,43 +67,57 @@ def _clock_rain_stop(
     fresh_json = fresh.model_dump_json()
     service = expected_stationary_time(clean)
     green_stop = track.pit_lane_delta + service
+    warmup = tire_warmup
+    if warmup and type(weather_clock) is not StrategyWeatherClock:
+        raise ValueError("tire_warmup requires the native StrategyWeatherClock")
     projected = [weather]
     native_clock = type(weather_clock) is StrategyWeatherClock
     absolute_updates = {}
 
-    def schedule(paid, stopped_first):
-        key = (paid, stopped_first)
+    def schedule(paid, stopped_first, fit_delay=0.0):
+        key = (paid, stopped_first, fit_delay)
         values = absolute_updates.get(key)
         if values is None:
             values = tuple(
-                weather_clock.updates(index, paid, stopped_first)
+                (weather_clock.updates(index, paid, stopped_first, fit_delay=fit_delay)
+                 if fit_delay else weather_clock.updates(index, paid, stopped_first))
                 for index in range(horizon)
             )
             absolute_updates[key] = values
         return values
 
     @lru_cache(maxsize=None)
-    def row(offset, paid, stopped_first, retained=False):
+    def row(offset, paid, stopped_first, retained=False, fit_delay=0.0,
+            first_fit_fee=0.0):
         if native_clock:
-            updates = schedule(paid, stopped_first)
-            first = updates[offset]
+            clock_updates = schedule(paid, stopped_first, fit_delay)
+            first = clock_updates[offset]
         else:
             first = weather_clock.updates(offset, paid, stopped_first)
         while len(projected) <= first:
             projected.append(projected[-1].project_surface())
         if native_clock:
-            intervals = tuple(updates[index] - first for index in range(offset, horizon))
+            intervals = tuple(
+                ((weather_clock.updates(index, paid, stopped_first,
+                                        fit_delay=fit_delay + first_fit_fee)
+                  if fit_delay + first_fit_fee and index > offset
+                  else clock_updates[index]) - first)
+                for index in range(offset, horizon)
+            )
         else:
             intervals = tuple(
                 weather_clock.updates(index, paid, stopped_first) - first
                 for index in range(offset, horizon)
             )
-        return _running_row(
+        costs = _running_row(
             models, projected[first].model_dump_json(),
             retained_json if retained else fresh_json,
             tire_age if retained else 0, current_lap + offset,
             physical_total_laps, intervals,
         )
+        if first_fit_fee and costs:
+            costs = (costs[0] + first_fit_fee, *costs[1:])
+        return costs
 
     cache = {}
 
@@ -114,14 +130,17 @@ def _clock_rain_stop(
             cancellation_checkpoint()
             state, actions, index, best = frames[-1]
             if actions is None:
-                offset, paid, stopped_first = state
-                costs = row(offset, paid, stopped_first)
+                offset, paid, stopped_first, fit_delay, first_fit_fee = state
+                costs = row(offset, paid, stopped_first, fit_delay=fit_delay,
+                            first_fit_fee=first_fit_fee)
                 actions = []
                 prefix = 0.0
                 if paid < remaining_stops:
                     for next_stop in range(offset + 1, horizon):
                         prefix += costs[next_stop - offset - 1]
-                        actions.append(((next_stop, paid + 1, stopped_first),
+                        next_fee = tire_warmup_seconds(warmup, fresh.compound) if warmup else 0.0
+                        actions.append(((next_stop, paid + 1, stopped_first,
+                                         fit_delay + first_fit_fee, next_fee),
                                         prefix + green_stop))
                 frames[-1][1:] = [actions, 0, sum(costs)]
                 continue
@@ -143,21 +162,25 @@ def _clock_rain_stop(
 
     simulator = LapSimulator(np.random.default_rng(0))
 
-    def first_running(tire, age, paid, stopped_first, gap):
+    def first_running(tire, age, paid, stopped_first, gap, fit_fee=0.0):
         first = (schedule(paid, stopped_first)[0] if native_clock
                  else weather_clock.updates(0, paid, stopped_first))
         while len(projected) <= first:
             projected.append(projected[-1].project_surface())
         driver.current_tire_laps = age
-        return simulator.calculate_lap_time(
+        value = simulator.calculate_lap_time(
             driver, clean, track, tire, projected[first], current_lap,
             physical_total_laps, active_aero_enabled=active_aero_enabled,
             sample_variation=False, gap_to_car_ahead=gap,
         ) * current_lap_time_modifier
+        return value + fit_fee
 
-    old = row(0, 0, False, True)
+    current_fee = (tire_warmup_seconds(warmup, current_tire.compound)
+                   if current_fit_pending and warmup else 0.0)
+    fresh_fee = tire_warmup_seconds(warmup, fresh.compound) if warmup else 0.0
+    old = row(0, 0, False, True, first_fit_fee=current_fee)
     first_old = first_running(current_tire, tire_age, 0, False,
-                              gaps[0] if gaps is not None else None)
+                              gaps[0] if gaps is not None else None, current_fee)
     wait = first_old + sum(old[1:])
     prefix = first_old
     if remaining_stops:
@@ -165,14 +188,16 @@ def _clock_rain_stop(
             cancellation_checkpoint()
             if next_stop > 1:
                 prefix += old[next_stop - 1]
-            wait = min(wait, prefix + green_stop + future((next_stop, 1, False)))
+            wait = min(wait, prefix + green_stop + future((
+                next_stop, 1, False, current_fee, fresh_fee,
+            )))
     pit = inf
     if remaining_stops:
-        fresh_row = row(0, 1, True)
+        fresh_row = row(0, 1, True, first_fit_fee=fresh_fee)
         first_fresh = first_running(fresh, 0, 1, True,
-                                    gaps[1] if gaps is not None else None)
+                                    gaps[1] if gaps is not None else None, fresh_fee)
         pit = (track.pit_lane_delta * pit_lane_factor + service
-               + additional_current_stop_cost + future((0, 1, True))
+               + additional_current_stop_cost + future((0, 1, True, 0.0, fresh_fee))
                + first_fresh - fresh_row[0])
     return RainStopDecision(pit, wait)
 
@@ -182,6 +207,7 @@ def _clock_rain_transition(
     *, pit_lane_factor, additional_current_stop_cost, current_lap_time_modifier,
     active_aero_enabled, physical_total_laps, remaining_dry_stops,
     remaining_damp_stops, used_mask, current_traffic_gaps, weather_clock,
+    tire_warmup, current_fit_pending,
 ):
     """Evaluate rain/slick transitions while paid stops move an external clock."""
     gaps = normalize_current_traffic_gaps(current_traffic_gaps)
@@ -191,6 +217,9 @@ def _clock_rain_transition(
     driver.reset_race_state()
     clean = car.model_copy(deep=True)
     service = expected_stationary_time(clean)
+    warmup = tire_warmup
+    if warmup and type(weather_clock) is not StrategyWeatherClock:
+        raise ValueError("tire_warmup requires the native StrategyWeatherClock")
     bits = {compound: (1 << index if index < 3 else 8)
             for index, compound in enumerate(TireCompound)}
 
@@ -198,16 +227,22 @@ def _clock_rain_transition(
     branch_surfaces = {}
     surface_json = {id(weather): weather.model_dump_json()}
 
-    def branch_surface(offset, paid_stops, stopped_first):
-        branch = (offset, paid_stops, stopped_first)
+    def updates(offset, paid_stops, stopped_first, fit_delay=0.0):
+        if fit_delay:
+            return weather_clock.updates(offset, paid_stops, stopped_first,
+                                        fit_delay=fit_delay)
+        return weather_clock.updates(offset, paid_stops, stopped_first)
+
+    def branch_surface(offset, paid_stops, stopped_first, fit_delay=0.0):
+        branch = (offset, paid_stops, stopped_first, fit_delay)
         if branch in branch_surfaces:
             return branch_surfaces[branch]
-        updates = weather_clock.updates(offset, paid_stops, stopped_first)
-        while len(projected) <= updates:
+        update_index = updates(offset, paid_stops, stopped_first, fit_delay)
+        while len(projected) <= update_index:
             value = projected[-1].project_surface()
             projected.append(value)
             surface_json[id(value)] = value.model_dump_json()
-        value = projected[updates]
+        value = projected[update_index]
         branch_surfaces[branch] = value
         return value
 
@@ -227,13 +262,16 @@ def _clock_rain_transition(
         )
         return value * current_lap_time_modifier if offset == 0 else value
 
-    def run(offset, tire_key, compound, age, branch_surface, gap_kind=-1):
+    def run(offset, tire_key, compound, age, branch_surface, gap_kind=-1, fitted=False):
         if isinstance(compound, TireCompound):
             compound = compound.value
         elif isinstance(compound, Tire):
             compound = compound.compound.value
-        return running(offset, tire_key, compound, age, gap_kind,
-                       surface_json[id(branch_surface)])
+        value = running(offset, tire_key, compound, age, gap_kind,
+                        surface_json[id(branch_surface)])
+        if fitted and warmup:
+            value += tire_warmup_seconds(warmup, compound)
+        return value
 
     def legal(mask):
         return bool(mask & 8) or (mask & 7).bit_count() >= 2
@@ -255,21 +293,21 @@ def _clock_rain_transition(
                 frames.pop()
                 continue
             (offset, tire_key, compound, age, left, dry, damp, used,
-             paid_stops, stopped_first) = state
+             paid_stops, stopped_first, fit_delay) = state
             if actions is None:
                 if offset == horizon:
                     # Keep the terminal value in the frame so the common
                     # completion path can add its incoming edge.
                     frames[-1][1:] = [[], 0, 0.0 if legal(used) else inf]
                     continue
-                before = branch_surface(offset, paid_stops, stopped_first)
+                before = branch_surface(offset, paid_stops, stopped_first, fit_delay)
                 current = TireCompound(compound)
                 critical = before.tire_mismatch(current) == "critical"
                 actions = []
                 if not critical:
                     actions.append((
                         (offset + 1, tire_key, compound, age + 1, left, dry, damp,
-                         used | bits[current], paid_stops, stopped_first),
+                         used | bits[current], paid_stops, stopped_first, fit_delay),
                         run(offset, tire_key, current, age, before),
                     ))
                 rain = before.fresh_rain_compound()
@@ -290,13 +328,16 @@ def _clock_rain_transition(
                         if not allowed and (compliant or used & bits[candidate]):
                             continue
                         after_paid = paid_stops + 1
-                        after = branch_surface(offset, after_paid, stopped_first)
+                        after = branch_surface(offset, after_paid, stopped_first, fit_delay)
+                        fit_cost = tire_warmup_seconds(warmup, candidate) if warmup else 0.0
                         actions.append((
                             (offset + 1, candidate.value, candidate.value, 1,
                              max(0, left - 1), reduced(dry), reduced(damp),
-                             used | bits[candidate], after_paid, stopped_first),
+                             used | bits[candidate], after_paid, stopped_first,
+                             fit_delay + fit_cost),
                             track.pit_lane_delta + service
-                            + run(offset, candidate.value, candidate, 0, after),
+                            + run(offset, candidate.value, candidate, 0, after,
+                                  fitted=bool(warmup)),
                         ))
                 frames[-1][1:] = [actions, 0, inf]
                 continue
@@ -316,13 +357,16 @@ def _clock_rain_transition(
                 parent[3] = min(parent[3], edge + solve_cache[state])
         return solve_cache[initial]
 
-    first = branch_surface(0, 0, False)
+    first = branch_surface(0, 0, False, 0.0)
     wait = inf
     if first.tire_mismatch(current_tire.compound) != "critical":
-        wait = run(0, "retained", current_tire.compound, tire_age, first, 0)
+        current_fee = (tire_warmup_seconds(warmup, current_tire.compound)
+                       if current_fit_pending and warmup else 0.0)
+        wait = run(0, "retained", current_tire.compound, tire_age, first, 0,
+                   fitted=bool(current_fee))
         wait += solve((1, "retained", current_tire.compound.value, tire_age + 1,
                        remaining_stops, remaining_dry_stops, remaining_damp_stops,
-                       used_mask | bits[current_tire.compound], 0, False))
+                       used_mask | bits[current_tire.compound], 0, False, current_fee))
 
     pit = inf
     selected = None
@@ -344,14 +388,16 @@ def _clock_rain_transition(
                 continue
             if not allowed and (compliant or used_mask & bits[candidate]):
                 continue
-            after = branch_surface(0, 1, True)
+            after = branch_surface(0, 1, True, 0.0)
+            fit_cost = tire_warmup_seconds(warmup, candidate) if warmup else 0.0
             cost = (track.pit_lane_delta * pit_lane_factor + service
                     + additional_current_stop_cost
-                    + run(0, candidate.value, candidate, 0, after, 1))
+                    + run(0, candidate.value, candidate, 0, after, 1,
+                          fitted=bool(warmup)))
             cost += solve((1, candidate.value, candidate.value, 1,
                            max(0, remaining_stops - 1),
                            reduced(remaining_dry_stops), reduced(remaining_damp_stops),
-                           used_mask | bits[candidate], 1, True))
+                           used_mask | bits[candidate], 1, True, fit_cost))
             if cost < pit:
                 pit, selected = cost, candidate
     return RainTransitionDecision(pit, wait, selected)
@@ -410,29 +456,35 @@ def _surfaces(weather_json, horizon, intervals=None):
 
 
 @lru_cache(maxsize=8192)
-def _fresh_future(models, weather_json, fresh_json, lap, budget, physical, intervals=None):
+def _fresh_future(models, weather_json, fresh_json, lap, budget, physical, intervals=None,
+                  warmup_profile=()):
     """Best green cost after a fresh set is fitted; its service is excluded."""
     row = _running_row(models, weather_json, fresh_json, 0, lap, physical, intervals)
-    total = sum(row)
+    compound = Tire.model_validate_json(fresh_json).compound.value
+    fit_cost = dict(warmup_profile).get(compound, 0.0)
+    total = sum(row) + fit_cost
     if budget == 0:
         return total
     car = Car.model_construct(**json.loads(models[1]))
     track = Track.model_validate_json(models[2])
     stop = track.pit_lane_delta + expected_stationary_time(car)
     surfaces = _surfaces(weather_json, len(row), intervals)
-    stint = 0.0
+    # The first running lap is charged even when this fitted set is replaced
+    # later in the forecast, so carry its fee into every stop branch.
+    stint = fit_cost
     for offset in range(1, len(row)):
         stint += row[offset - 1]
         total = min(total, stint + stop + _fresh_future(
             models, surfaces[offset], fresh_json, lap + offset, budget - 1, physical,
             suffix_weather_intervals(intervals, offset),
+            warmup_profile,
         ))
     return total
 
 
 @lru_cache(maxsize=256)
 def _plan(snapshots, tire_age, current_lap, budget, lane, queue, modifier, aero, physical,
-          intervals=None, gaps=None):
+          intervals=None, gaps=None, warmup_profile=(), current_fit_pending=False):
     models = snapshots[:3]
     weather_json, retained_json, fresh_json = snapshots[3:]
     car = Car.model_construct(**json.loads(models[1]))
@@ -442,18 +494,26 @@ def _plan(snapshots, tire_age, current_lap, budget, lane, queue, modifier, aero,
     fresh_row = _running_row(models, weather_json, fresh_json, 0, current_lap, physical, intervals)
     surfaces = _surfaces(weather_json, len(row), intervals)
     service = expected_stationary_time(car)
-    wait = sum(row)
+    retained_compound = Tire.model_validate_json(retained_json).compound.value
+    current_fee = (dict(warmup_profile).get(retained_compound, 0.0)
+                   if current_fit_pending else 0.0)
+    wait = sum(row) + current_fee
     if budget:
-        stint = 0.0
+        # If we wait before refitting, the pending current-set cost belongs
+        # to the prefix of every such branch as well as the straight-through
+        # forecast above.
+        stint = current_fee
         for offset in range(1, len(row)):
             stint += row[offset - 1]
             wait = min(wait, stint + track.pit_lane_delta + service + _fresh_future(
                 models, surfaces[offset], fresh_json, current_lap + offset, budget - 1, physical,
                 suffix_weather_intervals(intervals, offset),
+                warmup_profile,
             ))
     pit = inf if budget == 0 else (
         track.pit_lane_delta * lane + service + queue + _fresh_future(
             models, weather_json, fresh_json, current_lap, budget - 1, physical, intervals,
+            warmup_profile,
         )
     )
     first_old, first_fresh = row[0], fresh_row[0]
@@ -482,6 +542,8 @@ def plan_rain_stop(
     weather_intervals: tuple[int, ...] | None = None,
     current_traffic_gaps: tuple[float | None, float | None] | None = None,
     weather_clock: StrategyWeatherClock | None = None,
+    tire_warmup=None,
+    current_fit_pending: bool = False,
 ) -> RainStopDecision:
     """Compare stopping now with driving at least one lap before any stop.
 
@@ -516,6 +578,9 @@ def plan_rain_stop(
         raise ValueError("current_lap_time_modifier must be positive")
     if not isinstance(active_aero_enabled, bool):
         raise ValueError("active_aero_enabled must be boolean")
+    tire_warmup = validate_tire_warmup(tire_warmup)
+    if type(current_fit_pending) is not bool:
+        raise ValueError("current_fit_pending must be boolean")
     gaps = normalize_current_traffic_gaps(current_traffic_gaps)
     intervals = normalize_weather_intervals(
         track.total_laps - current_lap + 1, weather_intervals, weather=weather,
@@ -530,6 +595,7 @@ def plan_rain_stop(
             current_lap_time_modifier=float(current_lap_time_modifier),
             active_aero_enabled=active_aero_enabled, physical_total_laps=int(physical),
             current_traffic_gaps=current_traffic_gaps, weather_clock=weather_clock,
+            tire_warmup=tire_warmup, current_fit_pending=current_fit_pending,
         )
     clean = driver.model_copy(deep=True)
     clean.reset_race_state()
@@ -544,7 +610,8 @@ def plan_rain_stop(
                  min(int(remaining_stops), track.total_laps - current_lap + 1),
                  float(pit_lane_factor), float(additional_current_stop_cost),
                  float(current_lap_time_modifier), active_aero_enabled, int(physical),
-                 intervals, gaps)
+                 intervals, gaps, tuple(sorted(tire_warmup.items())),
+                 current_fit_pending)
 
 
 @dataclass(frozen=True)
@@ -600,7 +667,7 @@ def _transition_stop_eligibility_row(surfaces, critical, compound, left, dry, da
 @lru_cache(maxsize=256)
 def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
                      modifier, aero, physical, dry_budget, damp_budget, intervals=None, gaps=None,
-                     used_mask=8):
+                     used_mask=8, warmup_profile=(), current_fit_pending=False):
     models = snapshots[:3]
     weather_json, retained_json, tires_json = snapshots[3:]
     track = Track.model_validate_json(models[2])
@@ -648,11 +715,11 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
 
     def cache_key(state):
         offset, compound, left, dry, damp, mask = state
-        return (models, surface_json[offset], tires_json, current_lap + offset,
+        return (models, surface_json[offset], tires_json, warmup_profile, current_lap + offset,
                 compound, left, dry, damp, mask, physical, cadence_suffixes[offset])
 
     solved = {}
-    def stint(start, compound, age, tire_json, left, dry, damp, mask):
+    def stint(start, compound, age, tire_json, left, dry, damp, mask, fitted=False):
         row = _running_row(models, surface_json[start], tire_json, age,
                            current_lap + start, physical,
                            cadence_suffixes[start])
@@ -662,6 +729,8 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
         if critical[compound][start]:
             return best_cost
         total += row[0]
+        if fitted and warmup_profile:
+            total += dict(warmup_profile).get(compound.value, 0.0)
         mask |= bits[compound]
         compliant = legal(mask)
         next_left, next_dry, next_damp = max(0, left - 1), reduced(dry), reduced(damp)
@@ -716,11 +785,13 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
             offset, compound, left, dry, damp, mask = child
             pending.append((child, stint(
                 offset, compound, 0, fresh[compound], left, dry, damp, mask,
+                fitted=True,
             )))
         return value
 
     wait = evaluate(stint(0, retained.compound, tire_age, retained_json,
-                          budget, dry_budget, damp_budget, used_mask))
+                          budget, dry_budget, damp_budget, used_mask,
+                          fitted=current_fit_pending))
 
     def first(tire_json, age, gap):
         row = _running_row(models, weather_json, tire_json, age, current_lap, physical, intervals)
@@ -771,6 +842,8 @@ def plan_rain_transition(
     used_compounds: set[TireCompound] | None = None,
     current_traffic_gaps: tuple[float | None, float | None] | None = None,
     weather_clock: StrategyWeatherClock | None = None,
+    tire_warmup=None,
+    current_fit_pending: bool = False,
 ) -> RainTransitionDecision:
     """Plan bounded paid stops across rain/slick transitions under fixed rainfall.
 
@@ -809,6 +882,9 @@ def plan_rain_transition(
         raise ValueError("current_lap_time_modifier must be positive")
     if not isinstance(active_aero_enabled, bool):
         raise ValueError("active_aero_enabled must be boolean")
+    tire_warmup = validate_tire_warmup(tire_warmup)
+    if type(current_fit_pending) is not bool:
+        raise ValueError("current_fit_pending must be boolean")
     for name, value in (("remaining_dry_stops", remaining_dry_stops),
                         ("remaining_damp_stops", remaining_damp_stops)):
         if value is not None and (
@@ -852,6 +928,7 @@ def plan_rain_transition(
                 current_lap_time_modifier=float(current_lap_time_modifier),
                 active_aero_enabled=active_aero_enabled, physical_total_laps=int(physical),
                 current_traffic_gaps=current_traffic_gaps, weather_clock=weather_clock,
+                tire_warmup=tire_warmup, current_fit_pending=current_fit_pending,
             )
             return RainTransitionDecision(
                 same_compound.pit_now_cost,
@@ -871,6 +948,7 @@ def plan_rain_transition(
                                   else int(remaining_damp_stops)),
             used_mask=mask, current_traffic_gaps=current_traffic_gaps,
             weather_clock=weather_clock,
+            tire_warmup=tire_warmup, current_fit_pending=current_fit_pending,
         )
     clean = driver.model_copy(deep=True)
     clean.reset_race_state()
@@ -887,4 +965,5 @@ def plan_rain_transition(
         float(current_lap_time_modifier), active_aero_enabled, int(physical),
         None if remaining_dry_stops is None else int(remaining_dry_stops),
         None if remaining_damp_stops is None else int(remaining_damp_stops), intervals, gaps, mask,
+        tuple(sorted(tire_warmup.items())), current_fit_pending,
     )

@@ -11,6 +11,7 @@ from f1sim.analysis.montecarlo import MonteCarloRunner, SimulationResults
 from f1sim.analysis.saved_validation import validate_saved_model as _validate_saved_model
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.simulation.execution import validate_race_engine
+from f1sim.simulation.warmup import validate_tire_warmup
 
 
 def _validate_pit_plans(
@@ -92,8 +93,17 @@ def _load_saved_runner(
     if not isinstance(inputs, dict):
         raise ValueError("simulation_inputs must be an object")
     version = inputs.get("schema_version")
-    if type(version) is not int or version not in (1, 2, 3, 4, 5):
-        raise ValueError("Unsupported simulation input schema_version; expected 1, 2, 3, 4 or 5")
+    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6):
+        raise ValueError("Unsupported simulation input schema_version; expected 1, 2, 3, 4, 5 or 6")
+    tire_warmup = {}
+    if version == 6:
+        if inputs.get("tire_warmup_policy") != "post_fit_first_lap_v1":
+            raise ValueError("Schema 6 requires the supported tire_warmup_policy")
+        tire_warmup = validate_tire_warmup(inputs.get("tire_warmup"))
+        if not tire_warmup:
+            raise ValueError("Schema 6 requires a nonzero tire_warmup profile")
+    elif "tire_warmup" in inputs or "tire_warmup_policy" in inputs:
+        raise ValueError("Schemas 1-5 cannot contain tire_warmup settings")
     if version == 4 and not isinstance(inputs.get("tire_inventory"), dict):
         raise ValueError("Schema 4 requires tire_inventory")
     if version < 4 and inputs.get("tire_inventory"):
@@ -129,7 +139,7 @@ def _load_saved_runner(
     weather = _validate_saved_model(Weather, inputs["weather"])
     driver_ids = [driver.id for driver in drivers]
     pit_plans = None
-    if version == 5:
+    if version >= 5 and "pit_plans" in inputs:
         pit_plans = _validate_pit_plans(
             inputs["pit_plans"],
             driver_ids,
@@ -144,6 +154,7 @@ def _load_saved_runner(
         starting_tires=inputs.get("starting_tires"),
         starting_tire_ages=inputs.get("starting_tire_ages"),
         tire_inventory=inputs.get("tire_inventory"),
+        tire_warmup=tire_warmup,
         rng_policy=inputs.get("rng_policy", "shared_v1" if version == 1 else None),
         pit_plans=pit_plans,
     ), count

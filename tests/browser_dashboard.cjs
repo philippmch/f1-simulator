@@ -1248,6 +1248,33 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       const elapsedRow = page.locator('#strategyComparisonPanel tr').filter({hasText: 'Elapsed time (same-distance finishes)'}).first();
       assert((await elapsedRow.innerText()).includes('-2.500 s'));
       assert((await elapsedRow.innerText()).includes('Valid pairs: 2 / 10'));
+      const warmupChecks = await page.evaluate(() => {
+        const input = document.getElementById('tireWarmupInput');
+        input.value = 'soft=0.5,medium=1';
+        const valid = parseTireWarmupInput();
+        const payload = buildRunPayload();
+        input.value = 'soft=1,soft=2';
+        const duplicate = parseTireWarmupInput();
+        input.value = 'soft=Infinity';
+        const invalid = parseTireWarmupInput();
+        input.value = '';
+        const saved = renderWarmupSnapshot({simulation_inputs: {
+          tire_warmup: {soft: 0.5}, tire_warmup_policy: 'post_fit_first_lap_v1',
+        }});
+        const malformed = renderWarmupSnapshot({simulation_inputs: {
+          tire_warmup: {'<img src=x onerror=alert(1)>': 1},
+          tire_warmup_policy: 'post_fit_first_lap_v1',
+        }});
+        return {profile: valid.profile, payload: payload?.tire_warmup,
+          duplicate: duplicate.ok, invalid: invalid.ok, saved, malformed};
+      });
+      assert.deepEqual(warmupChecks.profile, {soft: 0.5, medium: 1});
+      assert.deepEqual(warmupChecks.payload, {soft: 0.5, medium: 1});
+      assert.equal(warmupChecks.duplicate, false);
+      assert.equal(warmupChecks.invalid, false);
+      assert(warmupChecks.saved.includes('soft=0.5 s'));
+      assert(warmupChecks.saved.includes('not calibrated physics'));
+      assert(!warmupChecks.malformed.includes('<img'));
       const savedComparisonVariants = await page.evaluate(() => simResults.strategy_comparisons);
       const unavailableHtml = await page.evaluate(() => {
         simResults.strategy_comparisons.dry = {

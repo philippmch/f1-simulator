@@ -15,6 +15,7 @@ from f1sim.output.timing import (
     race_suspension_seconds,
     suspension_statistics,
 )
+from f1sim.output.warmup_context import warmup_context
 from f1sim.simulation.qualifying import QualifyingResult
 from f1sim.simulation.race import RaceResult, result_is_classified
 from f1sim.simulation.race_points import points_for_result
@@ -124,6 +125,8 @@ class ConsoleOutput:
         ConsoleOutput._print_suspension_context(results)
         for label, comparison in paired["variants"].items():
             print(f"{label}:")
+            if context := warmup_context(results[label].input_snapshot):
+                print(f"  {context}")
             if comparison["status"] == "unavailable":
                 print(f"  Unavailable: {comparison['reason']}")
                 continue
@@ -277,6 +280,8 @@ class ConsoleOutput:
         print("\n" + "=" * 80)
         print(f"MONTE CARLO SIMULATION RESULTS - {results.track_name}")
         print(f"({results.num_simulations} simulations)")
+        if context := warmup_context(results.input_snapshot):
+            print(context)
         if results.seed is not None:
             print(
                 f"seed={results.seed} "

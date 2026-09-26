@@ -175,7 +175,9 @@ and the existing paired points, retirement, distance and pit-cost comparisons.
 Equal seeds do not freeze later incidents, battles or service times. Paired
 changes describe modeled outcomes and sampling uncertainty, not isolated causal
 effects or a proven real-race strategy. Replay uses the installed model code.
-Snapshots with custom plans use schema 5; older supported snapshots retain
+Snapshots with custom plans use schema 5, or schema 6 when
+[post-fit cost sensitivity](tyre-wear.md#optional-post-fit-cost-sensitivity)
+is enabled; older supported snapshots retain
 their original automatic-policy interpretation.
 
 ### Paired elapsed race time

@@ -18,6 +18,7 @@ from f1sim.simulation.surface_projection import (
     projected_surfaces,
     suffix_weather_intervals,
 )
+from f1sim.simulation.warmup import tire_warmup_seconds, validate_tire_warmup
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,7 @@ def _clock_weather_stop_costs(
     driver, car, track, weather, current_tire, tire_age, current_lap,
     *, pit_lane_factor, additional_current_stop_cost, current_lap_time_modifier,
     active_aero_enabled, traffic_possible, physical_total_laps, weather_clock,
+    tire_warmup, current_fit_pending,
 ):
     """Evaluate weather-stop bounds while each paid stop delays the clock."""
     horizon = track.total_laps - current_lap + 1
@@ -49,16 +51,25 @@ def _clock_weather_stop_costs(
     branch_surfaces = {}
     surface_json = {id(weather): weather.model_dump_json()}
 
-    def surface(offset, paid_stops, stopped_first):
-        branch = (offset, paid_stops, stopped_first)
+    if tire_warmup and type(weather_clock) is not StrategyWeatherClock:
+        raise ValueError("tire_warmup requires the native StrategyWeatherClock")
+
+    def updates(offset, paid_stops, stopped_first, fit_delay=0.0):
+        if fit_delay:
+            return weather_clock.updates(offset, paid_stops, stopped_first,
+                                        fit_delay=fit_delay)
+        return weather_clock.updates(offset, paid_stops, stopped_first)
+
+    def surface(offset, paid_stops, stopped_first, fit_delay=0.0):
+        branch = (offset, paid_stops, stopped_first, fit_delay)
         if branch in branch_surfaces:
             return branch_surfaces[branch]
-        updates = weather_clock.updates(offset, paid_stops, stopped_first)
-        while len(projected) <= updates:
+        update_count = updates(offset, paid_stops, stopped_first, fit_delay)
+        while len(projected) <= update_count:
             value = projected[-1].project_surface()
             projected.append(value)
             surface_json[id(value)] = value.model_dump_json()
-        value = projected[updates]
+        value = projected[update_count]
         branch_surfaces[branch] = value
         return value
 
@@ -79,10 +90,15 @@ def _clock_weather_stop_costs(
         )
         return value * current_lap_time_modifier if offset == 0 else value
 
-    def run(offset, tire_key, compound, age, branch_surface, first=False, retained=False):
+    def run(offset, tire_key, compound, age, branch_surface, first=False, retained=False,
+            fitted=False):
         gap_kind = 1 if first else 2 if retained else 0
-        return running(offset, tire_key, compound.value if isinstance(compound, TireCompound)
-                       else compound, age, gap_kind, surface_json[id(branch_surface)])
+        name = compound.value if isinstance(compound, TireCompound) else compound
+        value = running(offset, tire_key, name, age, gap_kind,
+                        surface_json[id(branch_surface)])
+        if fitted and tire_warmup:
+            value += tire_warmup_seconds(tire_warmup, name)
+        return value
 
     def evaluate(initial, cache, actions_for):
         """Evaluate an offset-increasing strategy DAG without recursion."""
@@ -123,16 +139,21 @@ def _clock_weather_stop_costs(
     future_cache = {}
 
     def future_actions(state):
-        offset, tire_key, compound, age, paid_stops, stopped_first = state
-        before = surface(offset, paid_stops, stopped_first)
+        offset, tire_key, compound, age, paid_stops, stopped_first, fit_delay = state
+        before = surface(offset, paid_stops, stopped_first, fit_delay)
         current = TireCompound(compound)
         actions = []
         if before.tire_mismatch(current) != "critical":
             actions.append((
                 (offset + 1, tire_key, current.value, age + 1,
-                 paid_stops, stopped_first),
+                 paid_stops, stopped_first,
+                 fit_delay + (tire_warmup_seconds(tire_warmup, current)
+                              if tire_key == "retained" and offset == 0
+                              and current_fit_pending and tire_warmup else 0.0)),
                 run(offset, tire_key, current, age, before,
-                    retained=tire_key == "retained"),
+                    retained=tire_key == "retained",
+                    fitted=(tire_key == "retained" and offset == 0
+                            and current_fit_pending)),
             ))
         candidates = tuple(
             compound for compound in TireCompound
@@ -141,12 +162,13 @@ def _clock_weather_stop_costs(
         for candidate in candidates:
             cancellation_checkpoint()
             after_paid = paid_stops + 1
-            after = surface(offset, after_paid, stopped_first)
+            after = surface(offset, after_paid, stopped_first, fit_delay)
+            fit_cost = tire_warmup_seconds(tire_warmup, candidate) if tire_warmup else 0.0
             actions.append((
                 (offset + 1, candidate.value, candidate.value, 1,
-                 after_paid, stopped_first),
+                 after_paid, stopped_first, fit_delay + fit_cost),
                 track.pit_lane_delta + service
-                + run(offset, candidate.value, candidate, 0, after),
+                + run(offset, candidate.value, candidate, 0, after, fitted=bool(tire_warmup)),
             ))
         return actions
 
@@ -156,13 +178,17 @@ def _clock_weather_stop_costs(
     retained_cache = {}
 
     def retained_actions(state):
-        offset, tire_key, compound, age, paid_stops, stopped_first = state
-        before = surface(offset, paid_stops, stopped_first)
+        offset, tire_key, compound, age, paid_stops, stopped_first, fit_delay = state
+        before = surface(offset, paid_stops, stopped_first, fit_delay)
         current = TireCompound(compound)
         if before.tire_mismatch(current) != "critical":
+            fit_cost = (tire_warmup_seconds(tire_warmup, current)
+                        if tire_key == "retained" and offset == 0
+                        and current_fit_pending and tire_warmup else 0.0)
             return [((offset + 1, tire_key, current.value, age + 1,
-                      paid_stops, stopped_first),
-                     run(offset, tire_key, current, age, before, retained=True))]
+                      paid_stops, stopped_first, fit_delay + fit_cost),
+                     run(offset, tire_key, current, age, before, retained=True,
+                         fitted=bool(fit_cost)))]
         required = before.fresh_rain_compound()
         candidates = ((required,) if required is not None else tuple(
             compound for compound in (
@@ -174,20 +200,22 @@ def _clock_weather_stop_costs(
             if before.tire_mismatch(candidate) == "critical":
                 continue
             after_paid = paid_stops + 1
-            after = surface(offset, after_paid, stopped_first)
+            after = surface(offset, after_paid, stopped_first, fit_delay)
+            fit_cost = tire_warmup_seconds(tire_warmup, candidate) if tire_warmup else 0.0
             actions.append((
                 (offset + 1, candidate.value, candidate.value, 1,
-                 after_paid, stopped_first),
+                 after_paid, stopped_first, fit_delay + fit_cost),
                 track.pit_lane_delta + service
-                + run(offset, candidate.value, candidate, 0, after),
+                + run(offset, candidate.value, candidate, 0, after,
+                      fitted=bool(tire_warmup)),
             ))
         return actions
 
     def retained(initial):
         return evaluate(initial, retained_cache, retained_actions)
 
-    first = surface(0, 0, False)
-    wait = retained((0, "retained", current_tire.compound.value, tire_age, 0, False))
+    first = surface(0, 0, False, 0.0)
+    wait = retained((0, "retained", current_tire.compound.value, tire_age, 0, False, 0.0))
     pit = inf
     required = first.fresh_rain_compound()
     candidates = ((required,) if required is not None else tuple(
@@ -196,11 +224,13 @@ def _clock_weather_stop_costs(
         ) if first.tire_mismatch(compound) != "critical"
     ))
     for candidate in candidates:
-        after = surface(0, 1, True)
+        after = surface(0, 1, True, 0.0)
+        fit_cost = tire_warmup_seconds(tire_warmup, candidate) if tire_warmup else 0.0
         cost = (track.pit_lane_delta * pit_lane_factor + service
                 + additional_current_stop_cost
-                + run(0, candidate.value, candidate, 0, after)
-                + future((1, candidate.value, candidate.value, 1, 1, True)))
+                + run(0, candidate.value, candidate, 0, after,
+                      fitted=bool(tire_warmup))
+                + future((1, candidate.value, candidate.value, 1, 1, True, fit_cost)))
         pit = min(pit, cost)
     return WeatherStopCosts(pit, wait)
 
@@ -222,7 +252,7 @@ def _running(simulator, driver, car, track, tire, weather, lap, age, *, gap=None
 @lru_cache(maxsize=4096)
 def _fresh_plan_costs(driver_json: str, car_json: str, track_json: str,
                       weather_json: str, tires_json: str, current_lap: int,
-                      physical_total_laps: int, intervals=None
+                      physical_total_laps: int, intervals=None, warmup_profile=()
                       ) -> tuple[tuple[TireCompound, float, float], ...]:
     """Immutable first-set costs and first-lap times; cached futures assume green."""
     driver = Driver.model_validate_json(driver_json)
@@ -247,6 +277,7 @@ def _fresh_plan_costs(driver_json: str, car_json: str, track_json: str,
             json.dumps(surfaces[offset].model_dump(), sort_keys=True),
             tires_json, current_lap + offset, physical_total_laps,
             suffix_weather_intervals(intervals, offset, surfaces[offset]),
+            warmup_profile,
         )
         future[offset] = service + min(cost for _, cost, _ in suffix)
     first = []
@@ -262,6 +293,7 @@ def _fresh_plan_costs(driver_json: str, car_json: str, track_json: str,
                                physical_total_laps=physical_total_laps)
             if offset == 0:
                 first_lap = running
+                running += dict(warmup_profile).get(compound.value, 0.0)
             stint += running
             candidate = min(candidate, stint + future[offset + 1])
         first.append((compound, candidate, first_lap))
@@ -271,7 +303,7 @@ def _fresh_plan_costs(driver_json: str, car_json: str, track_json: str,
 @lru_cache(maxsize=4096)
 def _retained_costs(driver_json, car_json, track_json, weather_json, tire_json,
                     tire_age, current_lap, traffic_possible, physical_total_laps, tires_json,
-                    intervals=None):
+                    intervals=None, warmup_profile=(), fit_pending=False):
     """Retain while safe, paying for required future changes before running.
 
     This is a feasible waiting policy, not an optimal delayed-stop plan. Its
@@ -304,6 +336,7 @@ def _retained_costs(driver_json, car_json, track_json, weather_json, tire_json,
                     json.dumps(fresh[compound], sort_keys=True), 0, current_lap + offset,
                     traffic_possible, physical_total_laps, tires_json,
                     suffix_weather_intervals(intervals, offset, surface),
+                    warmup_profile, True,
                 )[0] for compound in candidates
                 if surface.tire_mismatch(compound) != "critical"
             ), default=inf)
@@ -315,6 +348,8 @@ def _retained_costs(driver_json, car_json, track_json, weather_json, tire_json,
                            physical_total_laps=physical_total_laps)
         if offset == 0:
             first = running
+            if fit_pending:
+                running += dict(warmup_profile).get(tire.compound.value, 0.0)
         total += running
     return total, first
 
@@ -327,6 +362,8 @@ def weather_stop_costs(
     physical_total_laps: int | None = None,
     weather_intervals: tuple[int, ...] | None = None,
     weather_clock: StrategyWeatherClock | None = None,
+    tire_warmup=None,
+    current_fit_pending: bool = False,
 ) -> WeatherStopCosts:
     """Compare retaining while safe with an optimistic schedule of paid refits.
 
@@ -346,6 +383,9 @@ def weather_stop_costs(
     if horizon <= 0:
         raise ValueError("current_lap must not exceed the race distance")
     intervals = normalize_weather_intervals(horizon, weather_intervals, weather=weather)
+    tire_warmup = validate_tire_warmup(tire_warmup)
+    if type(current_fit_pending) is not bool:
+        raise ValueError("current_fit_pending must be boolean")
     _validate_weather_clock(weather_clock, horizon)
     weather_json = json.dumps(weather.model_dump(), sort_keys=True)
     if weather.tire_mismatch(current_tire.compound) == "critical":
@@ -358,6 +398,7 @@ def weather_stop_costs(
             current_lap_time_modifier=float(current_lap_time_modifier),
             active_aero_enabled=active_aero_enabled, traffic_possible=traffic_possible,
             physical_total_laps=int(physical_total_laps), weather_clock=weather_clock,
+            tire_warmup=tire_warmup, current_fit_pending=current_fit_pending,
         )
     clean = driver.model_copy(deep=True)
     clean.reset_race_state()
@@ -373,12 +414,14 @@ def weather_stop_costs(
     fresh = _fresh_plan_costs(
         driver_json, car_json, track_json, weather_json,
         tires_json, current_lap, physical_total_laps, intervals,
+        tuple(sorted(tire_warmup.items())),
     )
     simulator = LapSimulator(np.random.default_rng(0))
     stay, stay_first = _retained_costs(
         driver_json, car_json, track_json, weather_json,
         json.dumps(current_tire.model_dump(), sort_keys=True), tire_age, current_lap,
         traffic_possible, physical_total_laps, tires_json, intervals,
+        tuple(sorted(tire_warmup.items())), current_fit_pending,
     )
     if current_lap_time_modifier != 1.0 or not active_aero_enabled:
         actual_stay_first = _running(

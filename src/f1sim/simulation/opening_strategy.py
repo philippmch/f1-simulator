@@ -11,6 +11,7 @@ from f1sim.cancellation import cancellation_checkpoint, raise_if_cancelled
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
 from f1sim.simulation.race_timing import RaceFinishClock, forecast_final_lap
+from f1sim.simulation.warmup import validate_tire_warmup
 
 REACTION_SEEDS = tuple(range(8))
 OPENING_CANDIDATES = (TireCompound.INTERMEDIATE, TireCompound.SOFT,
@@ -36,7 +37,8 @@ def _policy_snapshots(driver, car, track, weather, tuning, profiles):
             weather.model_dump(), tuning, profiles]
 
 
-def dry_opening_policy_costs(driver, car, track, weather, strategy, tuning, profiles):
+def dry_opening_policy_costs(driver, car, track, weather, strategy, tuning, profiles,
+                             *, tire_warmup=None):
     """Score actual slick-opening policies, including the timed race finish.
 
     Rain-free, dry surfaces have deterministic pit decisions, so one private
@@ -45,8 +47,10 @@ def dry_opening_policy_costs(driver, car, track, weather, strategy, tuning, prof
     """
     from f1sim.simulation import race_timing
 
+    tire_warmup = validate_tire_warmup(tire_warmup)
     snapshots = _policy_snapshots(driver, car, track, weather, tuning, profiles)
-    snapshots.append({c.value: tire.model_dump() for c, tire in TIRE_COMPOUNDS.items()})
+    snapshots.extend([tire_warmup,
+                      {c.value: tire.model_dump() for c, tire in TIRE_COMPOUNDS.items()}])
     return _cached_dry_policy_costs(
         *(json.dumps(value, sort_keys=True) for value in snapshots), strategy.value,
         race_timing.RACING_TIME_LIMIT_SECONDS,
@@ -55,7 +59,7 @@ def dry_opening_policy_costs(driver, car, track, weather, strategy, tuning, prof
 
 @lru_cache(maxsize=128)
 def _cached_dry_policy_costs(driver_json, car_json, track_json, weather_json,
-                             tuning_json, profiles_json, tire_config_json, strategy,
+                             tuning_json, profiles_json, warmup_json, tire_config_json, strategy,
                              racing_time_limit):
     # Configuration and deadline values key each synchronous projection. The
     # shared policy runner reads that same current configuration on a cache miss.
@@ -66,6 +70,7 @@ def _cached_dry_policy_costs(driver_json, car_json, track_json, weather_json,
     track = Track.model_validate_json(track_json)
     weather = Weather.model_validate_json(weather_json)
     tuning, profiles = json.loads(tuning_json), json.loads(profiles_json)
+    tire_warmup = json.loads(warmup_json)
     seeds = ((0,) if weather.rain_intensity == 0 and weather.track_wetness < 0.08
              else REACTION_SEEDS)
     scores = []
@@ -73,7 +78,7 @@ def _cached_dry_policy_costs(driver_json, car_json, track_json, weather_json,
         cancellation_checkpoint()
         outcomes = [_policy_path_outcome(
             driver, car, track, weather, TeamStrategyArchetype(strategy), tuning, profiles,
-            compound, seed,
+            compound, seed, **({"tire_warmup": tire_warmup} if tire_warmup else {}),
         ) for seed in seeds]
         mean_time = sum(time for _, time in outcomes) / len(outcomes)
         negative_mean_laps = (-sum(laps for laps, _ in outcomes) / len(outcomes)
@@ -82,12 +87,15 @@ def _cached_dry_policy_costs(driver_json, car_json, track_json, weather_json,
     return tuple(scores)
 
 
-def opening_policy_costs(driver, car, track, weather, strategy, tuning, profiles):
+def opening_policy_costs(driver, car, track, weather, strategy, tuning, profiles,
+                         *, tire_warmup=None):
     """Return immutable distance/time scores; normalize transient state for caching."""
     from f1sim.simulation import race_timing
 
+    tire_warmup = validate_tire_warmup(tire_warmup)
     snapshots = _policy_snapshots(driver, car, track, weather, tuning, profiles)
-    snapshots.append({c.value: tire.model_dump() for c, tire in TIRE_COMPOUNDS.items()})
+    snapshots.extend([tire_warmup,
+                      {c.value: tire.model_dump() for c, tire in TIRE_COMPOUNDS.items()}])
     return _cached_policy_costs(
         *(json.dumps(value, sort_keys=True) for value in snapshots), strategy.value,
         race_timing.RACING_TIME_LIMIT_SECONDS,
@@ -96,7 +104,7 @@ def opening_policy_costs(driver, car, track, weather, strategy, tuning, profiles
 
 @lru_cache(maxsize=128)
 def _cached_policy_costs(driver_json, car_json, track_json, weather_json,
-                         tuning_json, profiles_json, tire_config_json, strategy,
+                         tuning_json, profiles_json, warmup_json, tire_config_json, strategy,
                          racing_time_limit):
     # Local import avoids a race-selector import cycle. Configuration and the
     # deadline key each synchronous projection, as in dry/finite opening scores.
@@ -107,12 +115,13 @@ def _cached_policy_costs(driver_json, car_json, track_json, weather_json,
     track = Track.model_validate_json(track_json)
     weather = Weather.model_validate_json(weather_json)
     tuning, profiles = json.loads(tuning_json), json.loads(profiles_json)
+    tire_warmup = json.loads(warmup_json)
     scores = []
     for compound in OPENING_CANDIDATES:
         cancellation_checkpoint()
         outcomes = [_policy_path_outcome(
             driver, car, track, weather, TeamStrategyArchetype(strategy), tuning, profiles,
-            compound, seed,
+            compound, seed, **({"tire_warmup": tire_warmup} if tire_warmup else {}),
         ) for seed in REACTION_SEEDS]
         mean_time = sum(time for _, time in outcomes) / len(outcomes)
         # A policy that cannot finish legally must not win by running farther.
@@ -122,20 +131,23 @@ def _cached_policy_costs(driver_json, car_json, track_json, weather_json,
     return tuple(scores)
 
 
-def _policy_path_cost(driver, car, track, weather, strategy, tuning, profiles, compound, seed):
+def _policy_path_cost(driver, car, track, weather, strategy, tuning, profiles, compound, seed,
+                      *, tire_warmup=None):
     """Return elapsed time for direct comparisons with an isolated actual race."""
     return _policy_path_outcome(
         driver, car, track, weather, strategy, tuning, profiles, compound, seed,
+        tire_warmup=tire_warmup,
     )[1]
 
 
 def inventory_opening_policy_costs(driver, car, track, weather, strategy, tuning, profiles,
-                                    records):
+                                    records, *, tire_warmup=None):
     """Compare each physical opening set through the finite, timed race policy."""
     from f1sim.simulation import race_timing
 
+    tire_warmup = validate_tire_warmup(tire_warmup)
     snapshots = _policy_snapshots(driver, car, track, weather, tuning, profiles)
-    snapshots.extend([records,
+    snapshots.extend([tire_warmup, records,
                       {c.value: tire.model_dump() for c, tire in TIRE_COMPOUNDS.items()}])
     return _cached_inventory_policy_costs(
         *(json.dumps(value, sort_keys=True) for value in snapshots), strategy.value,
@@ -145,7 +157,8 @@ def inventory_opening_policy_costs(driver, car, track, weather, strategy, tuning
 
 @lru_cache(maxsize=128)
 def _cached_inventory_policy_costs(driver_json, car_json, track_json, weather_json,
-                                   tuning_json, profiles_json, records_json, tires_json,
+                                   tuning_json, profiles_json, warmup_json, records_json,
+                                   tires_json,
                                    strategy, racing_time_limit):
     from f1sim.simulation.race import TeamStrategyArchetype
 
@@ -154,6 +167,7 @@ def _cached_inventory_policy_costs(driver_json, car_json, track_json, weather_js
     track = Track.model_validate_json(track_json)
     weather = Weather.model_validate_json(weather_json)
     records = json.loads(records_json)
+    tire_warmup = json.loads(warmup_json)
     eligible = [item for item in records
                 if weather.tire_mismatch(TireCompound(item["compound"])) != "critical"]
     scores = []
@@ -170,7 +184,7 @@ def _cached_inventory_policy_costs(driver_json, car_json, track_json, weather_js
             equivalent_outcomes[key] = _policy_path_outcome(
                 driver, car, track, weather, TeamStrategyArchetype(strategy),
                 json.loads(tuning_json), json.loads(profiles_json),
-                TireCompound(item["compound"]), 0,
+                TireCompound(item["compound"]), 0, tire_warmup=tire_warmup,
                 tire_inventory=records, opening_set_id=item["id"],
             )
         laps, time = equivalent_outcomes[key]
@@ -179,11 +193,12 @@ def _cached_inventory_policy_costs(driver_json, car_json, track_json, weather_js
 
 
 def _policy_path_outcome(driver, car, track, weather, strategy, tuning, profiles, compound, seed,
-                          *, tire_inventory=None, opening_set_id=None):
+                         *, tire_inventory=None, opening_set_id=None, tire_warmup=None):
     """Run one isolated existing pit policy with deterministic pace and mean service."""
     from f1sim.simulation.race import DriverRaceState, DriverStatus, RaceSimulator
 
-    simulator = RaceSimulator(np.random.default_rng(seed), tuning, profiles)
+    simulator = RaceSimulator(np.random.default_rng(seed), tuning, profiles,
+                              tire_warmup=tire_warmup)
     local_driver = driver.model_copy(deep=True)
     local_driver.reset_race_state()
     plans = simulator._plan_pit_lap_options(strategy, track)
@@ -229,6 +244,8 @@ def _policy_path_outcome(driver, car, track, weather, strategy, tuning, profiles
             state.driver, state.car, track, state.current_tire, projected, lap, track.total_laps,
             sample_variation=False,
         )
+        if simulator.tire_warmup and state.fit_lap_pending:
+            running += simulator._consume_tire_warmup(state)
         observed_running_pace = running
         state.total_time += running
         state.last_lap_time = running + loss

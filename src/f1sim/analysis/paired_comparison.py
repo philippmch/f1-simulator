@@ -13,6 +13,7 @@ from f1sim.simulation.execution import validate_starting_tire_ages
 from f1sim.simulation.race_points import POINTS_SYSTEM, points_for_result
 from f1sim.simulation.randomness import RNG_POLICIES
 from f1sim.simulation.tire_inventory import validate_tire_inventory
+from f1sim.simulation.warmup import validate_tire_warmup
 
 
 def _integer(value, minimum=0):
@@ -24,7 +25,7 @@ def _snapshot(result):
     if not isinstance(snapshot, dict):
         return None
     version = snapshot.get("schema_version")
-    if not _integer(version, 1) or version not in (1, 2, 3, 4, 5):
+    if not _integer(version, 1) or version not in (1, 2, 3, 4, 5, 6):
         return None
     policy = snapshot.get("rng_policy", "shared_v1" if version == 1 else None)
     if policy not in RNG_POLICIES:
@@ -53,6 +54,15 @@ def _snapshot(result):
             if not isinstance(snapshot.get(key), dict) or not snapshot[key]:
                 return None
             validate_saved_model(model, snapshot[key])
+        tire_warmup = {}
+        if version == 6:
+            if snapshot.get("tire_warmup_policy") != "post_fit_first_lap_v1":
+                return None
+            tire_warmup = validate_tire_warmup(snapshot.get("tire_warmup"))
+            if not tire_warmup:
+                return None
+        elif "tire_warmup" in snapshot or "tire_warmup_policy" in snapshot:
+            return None
         ids = [driver.id for driver in roster]
         if version == 4 and not isinstance(snapshot.get("tire_inventory"), dict):
             return None
@@ -70,7 +80,7 @@ def _snapshot(result):
             return None
         validate_starting_tire_ages(snapshot.get("starting_tire_ages"),
                                     snapshot.get("starting_tires"), ids)
-        if version == 5:
+        if version >= 5 and "pit_plans" in snapshot:
             from f1sim.simulation.pit_plans import validate_pit_plans
 
             plans = validate_pit_plans(
@@ -86,7 +96,8 @@ def _snapshot(result):
     except (ValidationError, TypeError, ValueError):
         return None
     return ({key: snapshot[key] for key in ("drivers", "cars", "track", "weather", "runtime")}
-            | {"rng_policy": policy, "tire_inventory": inventory}, ids,
+            | {"rng_policy": policy, "tire_inventory": inventory,
+               "tire_warmup": tire_warmup}, ids,
             [driver.id for driver in roster if driver.team_id in cars])
 
 

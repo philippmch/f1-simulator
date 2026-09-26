@@ -52,7 +52,7 @@ questions. This change does not calibrate them from reported stint lengths.
 
 ## Temperature and warm-up
 
-The current model prices accumulated wear and weather mismatch, but a newly
+By default the model prices accumulated wear and weather mismatch, and a newly
 fitted tyre receives its configured grip immediately. The `optimal_temp_range`
 field is descriptive; lap physics does not track tyre temperature or charge
 for bringing a replacement set into its operating window. Formation laps,
@@ -165,6 +165,46 @@ The same thermal response would need to be applied in actual laps, opening and
 pit forecasts, qualifying assumptions and replay, rather than adding a cost to
 only one strategy path. The current controlled execution diagnostics establish
 consistency of the existing physics and do not resolve this calibration gap.
+
+## Optional post-fit cost sensitivity
+
+The optional `tire_warmup` profile explores an assumed first-running-lap cost;
+it does not model tyre temperature or fit coefficients from race observations.
+It maps canonical compounds to additive seconds, for example
+`{"soft": 0.5, "medium": 1.0}`. Omitted compounds cost zero. Values must be
+finite numbers from 0 through 60 seconds; this is an input bound, not an
+empirical warm-up range. Booleans and numeric strings are rejected by the API.
+Empty and all-zero profiles select the unchanged default behavior.
+
+In the dashboard, use **Post-fit cost sensitivity (optional)**. The CLI accepts:
+
+```powershell
+python examples/simulate_race.py --race 1 --tire-warmup "soft=0.5,medium=1" --export
+```
+
+Python callers can pass `tire_warmup={"soft": 0.5, "medium": 1.0}` to
+`MonteCarloRunner`. Opening-grid and timed qualifying tyres are assumed ready.
+Each later fitting incurs the selected compound's cost on its first running
+lap, including fitting a previously used physical set. Wear stays with that
+set and is never reset by this option. Keeping the same physical set at a red
+flag does not constitute another fitting. The cost is added after normal lap
+floor and race-control scaling, so its configured seconds are unchanged by
+SC/VSC running; it is not stationary service and does not delay pit exit.
+
+The option supplies no cooling, storage recovery, pressure, heat-cycle or
+neutralization-temperature model. It is deliberately limited to a fitting cost.
+Its strategy forecasts must price the same assumptions as executed laps,
+including later weather entries affected by elapsed running time. Existing
+forecast limits concerning future random weather, traffic and incidents remain.
+Timed finite-inventory forecasts also track elapsed fitting costs, which can
+increase planning time. Start with a small trial count when enabling this option.
+
+Nonzero profiles are saved in input schema 6 with policy
+`post_fit_first_lap_v1`; older snapshots retain disabled behavior. Replay and
+saved strategy alternatives preserve the profile, and paired comparisons
+require matching profiles. Reports label the saved assumption. A sensitivity
+run tests how a user-specified cost changes modeled strategy; it does not show
+which profile is realistic or identify a real-race optimum.
 
 ## Reproducible strategy evidence
 

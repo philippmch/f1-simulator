@@ -1825,6 +1825,12 @@ input:focus-visible {
           placeholder="VER=soft@5,medium,hard;NOR=soft,hard"
           title="All race sets including the opening set. Separate drivers with semicolons. Removed sets retain wear and can be reused. Qualifying is separate. Blank or unlisted drivers use unlimited sets.">
       </div>
+      <div class="control-group">
+        <label class="control-label" for="tireWarmupInput">Post-fit cost sensitivity (optional)</label>
+        <input type="text" id="tireWarmupInput" maxlength="256" spellcheck="false"
+          placeholder="Off · soft=0.5,medium=1" aria-describedby="tireWarmupHelp">
+        <p class="pit-plan-help" id="tireWarmupHelp">Assumed seconds on the first running lap after fitting each compound (0–60). Opening and qualifying tyres are ready. These are your assumptions, not calibrated tyre temperatures; blank disables the option.</p>
+      </div>
       <div class="control-group pit-plan-control">
         <label class="control-label" for="pitPlansInput">Custom pit plans (optional)</label>
         <textarea id="pitPlansInput" rows="2" maxlength="32768" spellcheck="false"
@@ -2865,6 +2871,23 @@ function tyreEditorCompoundOptions(selected, includeAutomatic = false) {
   )).join('');
 }
 
+function parseTireWarmupInput() {
+  const input = document.getElementById('tireWarmupInput');
+  const raw = input.value.trim();
+  const profile = {};
+  const seen = new Set();
+  if (raw) for (const item of raw.split(',')) {
+    const match = item.trim().match(/^(soft|medium|hard|intermediate|wet)\s*=\s*([+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)$/);
+    const value = match ? Number(match[2]) : NaN;
+    if (!match || seen.has(match[1]) || !Number.isFinite(value) || value < 0 || value > 60) {
+      return {ok: false, input, message: 'Use each compound once with 0–60 seconds, e.g. soft=0.5,medium=1.'};
+    }
+    seen.add(match[1]);
+    if (value > 0) profile[match[1]] = value;
+  }
+  return {ok: true, profile};
+}
+
 function parsePitPlanInput() {
   const input = document.getElementById('pitPlansInput');
   const raw = input?.value.trim() || '';
@@ -3496,6 +3519,12 @@ function buildRunPayload() {
     tyreSetup.input?.focus();
     return null;
   }
+  const warmupSetup = parseTireWarmupInput();
+  if (!warmupSetup.ok) {
+    setStatusMessage(warmupSetup.message, 'error');
+    warmupSetup.input.focus();
+    return null;
+  }
   const pitPlanSetup = parsePitPlanInput();
   if (!pitPlanSetup.ok) {
     setStatusMessage(pitPlanSetup.message, 'error');
@@ -3529,6 +3558,7 @@ function buildRunPayload() {
     max_workers: workersValue ? Number(workersValue) : null,
     compare_automatic: compareAutomatic,
   };
+  if (Object.keys(warmupSetup.profile).length) payload.tire_warmup = warmupSetup.profile;
   if (pitPlanSetup.pitPlans !== null) payload.pit_plans = pitPlanSetup.pitPlans;
   return payload;
 }
@@ -3679,6 +3709,24 @@ function savedRngPolicy(scenario) {
     return request.rng_policy;
   }
   return undefined;
+}
+
+function renderWarmupSnapshot(scenario) {
+  const saved = scenario?.simulation_inputs || simResults?.request;
+  if (!saved || !Object.hasOwn(saved, 'tire_warmup')) return '';
+  const profile = saved.tire_warmup;
+  const compounds = ['soft', 'medium', 'hard', 'intermediate', 'wet'];
+  if (!profile || typeof profile !== 'object' || Array.isArray(profile)
+      || Object.entries(profile).some(([key, value]) => !compounds.includes(key)
+        || typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 60)) {
+    return '<div class="race-meta">Post-fit cost sensitivity: invalid saved profile.</div>';
+  }
+  const values = Object.entries(profile).filter(([, value]) => value > 0);
+  if (!values.length) return '';
+  if (saved.tire_warmup_policy !== 'post_fit_first_lap_v1') {
+    return '<div class="race-meta">Post-fit cost sensitivity: unrecognized saved policy.</div>';
+  }
+  return `<div class="race-meta">Assumed post-fit first-running-lap costs: ${values.map(([key, value]) => `${key}=${value} s`).join(', ')}. Opening and qualifying tyres are ready. Sensitivity assumptions, not calibrated physics.</div>`;
 }
 
 function renderRngPolicySnapshot(scenario) {
@@ -4168,6 +4216,7 @@ function renderRace() {
         ${renderPitPlanSnapshot(scenario)}
         <div class="race-meta">${savedWeatherBehavior(scenario)}</div>
         ${renderRngPolicySnapshot(scenario)}
+        ${renderWarmupSnapshot(scenario)}
         <div class="race-meta">Completed race suspension: ${formatSuspensionSeconds(sampleSuspension)}</div>
         <div class="race-meta">Race-wide collection + restart pause; already in finish clocks, not an individual driver's stopped or driving time.</div>
         <div class="race-meta">${escapeHtml(track.country || 'Unknown country')} &middot; Scenario ${escapeHtml(titleFromKey(name))}${topTeam ? ` &middot; Top constructor ${escapeHtml(topTeam[0])}` : ''}</div>

@@ -32,6 +32,10 @@ Tyre pace follows the configured wear and cliff rates throughout a stint;
 the numerical grip floor does not stop degradation. See the
 [wear model and executed strategy checks](docs/tyre-wear.md).
 
+For explicit first-lap-after-fitting assumptions, see
+[post-fit cost sensitivity](docs/tyre-wear.md#optional-post-fit-cost-sensitivity).
+It is disabled by default and is not calibrated tyre-temperature physics.
+
 Retirements retain completed distance and can still qualify for points under the rounded 90% classification threshold; see [classification conventions and limits](docs/race-classification.md).
 
 Both engines apply driver consistency and wet skill to relative random-incident
@@ -202,7 +206,9 @@ that actually produced the new run; the original file remains unchanged.
 
 New snapshots use schema version 2, version 3 when opening tyre ages are
 specified, version 4 for a nonempty finite race pool, or version 5 when custom
-pit plans are supplied. Version 3 requires `starting_tire_ages`; version 4 also
+pit plans are supplied. Enabling post-fit cost sensitivity uses version 6,
+which retains any configured ages, inventory, and plans and requires
+`tire_warmup` plus `tire_warmup_policy`. Version 3 requires `starting_tire_ages`; version 4 also
 records `tire_inventory`, and version 5 retains `pit_plans`, including explicit
 empty plans. These versions require
 `rng_policy`, with new runs using `isolated_weather_v1`. Earlier installations

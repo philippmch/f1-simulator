@@ -100,7 +100,8 @@ class StrategyWeatherClock:
         if horizon != len(self.lap_start_offsets):
             raise ValueError("horizon must match lap_start_offsets")
 
-    def updates(self, offset: int, paid_stops: int, stopped_first: bool = False) -> int:
+    def updates(self, offset: int, paid_stops: int, stopped_first: bool = False,
+                *, fit_delay: float = 0.0) -> int:
         """Return external leading updates at or before a projected own start.
 
         ``offset`` indexes ``lap_start_offsets``.  The event time is that
@@ -115,6 +116,7 @@ class StrategyWeatherClock:
         if offset >= len(self.lap_start_offsets):
             raise ValueError("offset must be within lap_start_offsets")
         paid_stops = _nonnegative_integer(paid_stops, "paid_stops")
+        fit_delay = _finite_nonnegative(fit_delay, "fit_delay")
         if not isinstance(stopped_first, bool):
             raise ValueError("stopped_first must be a boolean")
         if stopped_first and paid_stops == 0:
@@ -128,6 +130,10 @@ class StrategyWeatherClock:
             elapsed = self.lap_start_offsets[offset] + paid_stops * self.future_stop_delay
         except OverflowError:
             return self.max_updates
+        # A fit penalty delays future lap entries only. The first running lap
+        # after a fit still sees the surface at its pit-exit entry time.
+        if offset > 0:
+            elapsed += fit_delay
         if stopped_first:
             elapsed += self.current_stop_delay - self.future_stop_delay
         if not isfinite(elapsed):
