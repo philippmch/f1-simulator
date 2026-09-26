@@ -1101,6 +1101,12 @@ The diagnostic makes no network requests or default file writes. Its synthetic
 inputs are not calibrated venues, and it does not search beyond three stops,
 different opening sets or future weather changes.
 
+The same diagnostic accepts `--tire-warmup "soft=0.5,medium=0.5,hard=0.5"`
+to include optional post-fit costs in both the adaptive and fixed schedules.
+Enabled output records the normalized profile and its policy. Omitting the
+option retains the original comparison. These are user-specified sensitivity
+assumptions, not measured tyre-temperature coefficients.
+
 Run `python examples/check_restart_choices.py` to compare selected free restart
 sets with forced soft, medium and hard alternatives in controlled 60-lap races.
 The diagnostic covers a five-lap sprint, a long final stint, and high wear with

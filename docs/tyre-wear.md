@@ -206,6 +206,19 @@ require matching profiles. Reports label the saved assumption. A sensitivity
 run tests how a user-specified cost changes modeled strategy; it does not show
 which profile is realistic or identify a real-race optimum.
 
+To check the assumed costs against independently executed dry schedules, run:
+
+```powershell
+python examples/check_dry_pit_schedules.py --tire-warmup "soft=0.5,medium=0.5,hard=0.5"
+```
+
+The diagnostic applies the profile to both the adaptive policy and every fixed
+schedule, and records the normalized profile and policy in its JSON output.
+Compare `selected`, `best_schedule`, and `gap_seconds` to see whether the chosen
+strategy matches the best executed alternative within the bounded search.
+This uses synthetic dry races with ready opening tyres, mean lap pace, expected
+service, and no traffic or incidents; it does not calibrate the assumed costs.
+
 ## Reproducible strategy evidence
 
 ```powershell

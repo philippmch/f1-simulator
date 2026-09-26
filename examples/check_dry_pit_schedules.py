@@ -19,6 +19,11 @@ from f1sim.models import Car, Driver, TireCompound, Track, Weather
 from f1sim.simulation.chronological_race import ChronologicalRace
 from f1sim.simulation.pit_strategy import expected_stationary_time
 from f1sim.simulation.race import DriverStatus, RaceSimulator, TeamStrategyArchetype
+from f1sim.simulation.warmup import (
+    TIRE_WARMUP_POLICY,
+    parse_tire_warmup_spec,
+    validate_tire_warmup,
+)
 
 ENGINES = ("standard", "chronological")
 SLICKS = (TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD)
@@ -43,17 +48,21 @@ def schedules(laps=8):
                     yield tuple(zip(stop_laps, compounds, strict=True))
 
 
-def run_race(case, engine, schedule=None):
+def run_race(case, engine, schedule=None, tire_warmup=None):
     """Run the adaptive policy or an explicit schedule with actual lap physics."""
     if engine not in ENGINES:
         raise ValueError(f"engine must be one of {ENGINES}")
+    tire_warmup = dict(sorted(validate_tire_warmup(tire_warmup).items()))
     driver = Driver(id="synthetic", name="Synthetic", team_id="synthetic")
     car = Car(team_id="synthetic", team_name="Synthetic",
               tire_degradation_factor=case["degradation"])
     track = Track(id="synthetic", name=case["name"], country="Synthetic",
                   total_laps=case["laps"], base_lap_time=case["base_lap_time"],
                   pit_lane_delta=case["pit_lane_delta"], tire_stress=case["tire_stress"])
-    simulator = RaceSimulator(rng=np.random.default_rng(42))
+    simulator = RaceSimulator(
+        rng=np.random.default_rng(42),
+        **({"tire_warmup": tire_warmup} if tire_warmup else {}),
+    )
     calculate = simulator.lap_simulator.calculate_lap_time
 
     def mean_lap(*args, **kwargs):
@@ -95,34 +104,46 @@ def run_race(case, engine, schedule=None):
             "total_seconds": result.total_time}
 
 
-def compare_schedules(cases=CASES, engines=ENGINES):
+def compare_schedules(cases=CASES, engines=ENGINES, tire_warmup=None):
     """Return adaptive results and the fastest actually executed bounded schedule."""
     engines = tuple(engines)
     if any(engine not in ENGINES for engine in engines):
         raise ValueError(f"engines must be drawn from {ENGINES}")
+    tire_warmup = dict(sorted(validate_tire_warmup(tire_warmup).items()))
     rows = []
     for case in cases:
         for engine in engines:
-            selected = run_race(case, engine)
+            selected = run_race(case, engine, tire_warmup=tire_warmup)
             best = None
             checked = 0
             for schedule in schedules(case["laps"]):
-                alternative = run_race(case, engine, schedule)
+                alternative = run_race(case, engine, schedule, tire_warmup=tire_warmup)
                 checked += 1
                 if best is None or alternative["total_seconds"] < best["total_seconds"]:
                     best = alternative
-            rows.append({"case": dict(case), "engine": engine, "selected": selected,
-                         "best_schedule": best, "schedules_checked": checked,
-                         "gap_seconds": selected["total_seconds"] - best["total_seconds"]})
+            row = {"case": dict(case), "engine": engine, "selected": selected,
+                   "best_schedule": best, "schedules_checked": checked,
+                   "gap_seconds": selected["total_seconds"] - best["total_seconds"]}
+            if tire_warmup:
+                row["tire_warmup"] = dict(tire_warmup)
+                row["tire_warmup_policy"] = TIRE_WARMUP_POLICY
+            rows.append(row)
     return rows
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--engine", choices=(*ENGINES, "both"), default="both")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--tire-warmup",
+        type=parse_tire_warmup_spec,
+        default=None,
+        metavar="COMPOUND=SECONDS[,COMPOUND=SECONDS...]",
+        help="optional first-running-lap fitting costs from 0 to 60 seconds per compound",
+    )
+    args = parser.parse_args(argv)
     engines = ENGINES if args.engine == "both" else (args.engine,)
-    print(json.dumps(compare_schedules(engines=engines), indent=2))
+    print(json.dumps(compare_schedules(engines=engines, tire_warmup=args.tire_warmup), indent=2))
 
 
 if __name__ == "__main__":
