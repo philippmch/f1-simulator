@@ -220,6 +220,8 @@ input[type="number"] { min-width: 80px; width: 80px; }
   max-width: 48rem;
 }
 
+.rng-policy-control { margin-top: 0.55rem; }
+
 .pit-plan-compare {
   align-items: flex-start;
   display: flex;
@@ -1832,6 +1834,14 @@ input:focus-visible {
             <small id="compareAutomaticHelp">Uses the same inputs and seeds for both variants. Comparison runs allow up to 500 simulations per alternative (1,000 total trials per weather scenario).</small>
           </span>
         </label>
+        <div class="control-group rng-policy-control">
+          <label class="control-label" for="rngPolicySelect">Match random draws</label>
+          <select id="rngPolicySelect" aria-describedby="rngPolicyHelp">
+            <option value="isolated_weather_v1" selected>Weather (default)</option>
+            <option value="isolated_weather_mechanical_v1">Weather and mechanical checks</option>
+          </select>
+          <p class="pit-plan-help" id="rngPolicyHelp">Both options keep weather draws aligned. The second also isolates mechanical checks by driver and lap. Failures can still differ when heat, risk, or laps driven differ; other events may vary.</p>
+        </div>
       </div>
       <button class="scenario-preset tyre-editor-trigger" type="button" id="btnTyreSetup"
         onclick="openTyreEditor()">Edit tyre setup</button>
@@ -3438,7 +3448,14 @@ function buildRunPayload() {
   const seedInput = document.getElementById('seedInput');
   const workersInput = document.getElementById('workersInput');
   const compareAutomaticInput = document.getElementById('compareAutomaticInput');
+  const rngPolicyInput = document.getElementById('rngPolicySelect');
   const compareAutomatic = Boolean(compareAutomaticInput?.checked);
+  const rngPolicy = rngPolicyInput?.value;
+  if (!['isolated_weather_v1', 'isolated_weather_mechanical_v1'].includes(rngPolicy)) {
+    setStatusMessage('Choose a valid random draw matching policy.', 'error');
+    rngPolicyInput?.focus();
+    return null;
+  }
   if (simulationsInput.value.trim() === '') {
     setStatusMessage('Enter a simulation count before running.', 'error');
     simulationsInput.focus();
@@ -3499,6 +3516,7 @@ function buildRunPayload() {
     seed,
     qualifying_mode: 'simulated',
     race_engine: document.getElementById('raceEngineSelect').value,
+    rng_policy: rngPolicy,
     starting_tires: tyreSetup.startingTires,
     starting_tire_ages: tyreSetup.startingTireAges,
     tire_inventory: tyreSetup.tireInventory,
@@ -3645,6 +3663,32 @@ function savedWeatherBehavior(scenario) {
   if (probability === 0) return 'Fixed rainfall; surface wetness still evolves';
   if (typeof probability === 'number' && probability > 0) return 'Evolving weather';
   return 'Weather behavior not recorded';
+}
+
+function savedRngPolicy(scenario) {
+  const inputs = scenario?.simulation_inputs;
+  if (inputs && typeof inputs === 'object' && Object.hasOwn(inputs, 'rng_policy')) {
+    return inputs.rng_policy;
+  }
+  const request = simResults?.request;
+  if (request && typeof request === 'object' && Object.hasOwn(request, 'rng_policy')) {
+    return request.rng_policy;
+  }
+  return undefined;
+}
+
+function renderRngPolicySnapshot(scenario) {
+  const policy = savedRngPolicy(scenario);
+  const labels = {
+    shared_v1: 'Shared random stream (legacy)',
+    isolated_weather_v1: 'Weather (default)',
+    isolated_weather_mechanical_v1: 'Weather and mechanical checks',
+  };
+  const label = typeof policy === 'string'
+    ? Object.hasOwn(labels, policy)
+      ? labels[policy] : `Unrecognized saved policy: ${escapeHtml(policy)}`
+    : 'Policy not recorded';
+  return `<div class="race-meta">Match random draws: ${label}</div>`;
 }
 
 function pitPlansSnapshot(scenario) {
@@ -4111,6 +4155,7 @@ function renderRace() {
         <div class="race-meta">Input race set pools: ${escapeHtml(JSON.stringify(scenario.simulation_inputs?.tire_inventory || simResults.request?.tire_inventory || {}))} · Unlisted drivers unlimited</div>
         ${renderPitPlanSnapshot(scenario)}
         <div class="race-meta">${savedWeatherBehavior(scenario)}</div>
+        ${renderRngPolicySnapshot(scenario)}
         <div class="race-meta">Completed race suspension: ${formatSuspensionSeconds(sampleSuspension)}</div>
         <div class="race-meta">Race-wide collection + restart pause; already in finish clocks, not an individual driver's stopped or driving time.</div>
         <div class="race-meta">${escapeHtml(track.country || 'Unknown country')} &middot; Scenario ${escapeHtml(titleFromKey(name))}${topTeam ? ` &middot; Top constructor ${escapeHtml(topTeam[0])}` : ''}</div>

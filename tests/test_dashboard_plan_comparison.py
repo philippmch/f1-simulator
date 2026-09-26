@@ -9,6 +9,7 @@ import pytest
 from f1sim.analysis.cancellation import SimulationCancelled
 from f1sim.analysis.replay import replay_saved_simulation
 from f1sim.models import Car, Driver, Track
+from f1sim.simulation.randomness import DEFAULT_RNG_POLICY
 from f1sim.web import server
 
 
@@ -94,11 +95,20 @@ def offline_loader(monkeypatch):
     return loader
 
 
+@pytest.mark.parametrize(
+    ("requested_policy", "expected_policy"),
+    [
+        (None, DEFAULT_RNG_POLICY),
+        ("shared_v1", "shared_v1"),
+        ("isolated_weather_mechanical_v1", "isolated_weather_mechanical_v1"),
+    ],
+)
 def test_comparison_runs_one_provider_snapshot_and_keeps_replayable_variants(
-    offline_loader, tmp_path,
+    offline_loader, tmp_path, requested_policy, expected_policy,
 ):
     source_plans = {"A": []}
-    request = _request(pit_plans=source_plans)
+    policy_override = {} if requested_policy is None else {"rng_policy": requested_policy}
+    request = _request(pit_plans=source_plans, **policy_override)
     payload = server.run_dashboard_simulation(request)
 
     assert CountingLoader.instances == 1
@@ -107,8 +117,10 @@ def test_comparison_runs_one_provider_snapshot_and_keeps_replayable_variants(
     assert offline_loader.calls.count("provenance") == 1
     assert source_plans == {"A": []}
     assert payload["request"]["compare_automatic"] is True
+    assert payload["request"]["rng_policy"] == expected_policy
     assert payload["request"]["pit_plans"] == {"A": []}
     assert payload["automatic_reference"]["request"]["compare_automatic"] is False
+    assert payload["automatic_reference"]["request"]["rng_policy"] == expected_policy
     assert payload["automatic_reference"]["request"]["pit_plans"] == {}
     assert "comparison_report_html" not in payload["automatic_reference"]
     assert "automatic_reference" not in payload["automatic_reference"]
@@ -123,6 +135,8 @@ def test_comparison_runs_one_provider_snapshot_and_keeps_replayable_variants(
     for name, custom in payload["scenarios"].items():
         reference = payload["automatic_reference"]["scenarios"][name]
         assert custom["seed"] == reference["seed"]
+        assert custom["simulation_inputs"]["rng_policy"] == expected_policy
+        assert reference["simulation_inputs"]["rng_policy"] == expected_policy
         assert custom["sample_qualifying"] == reference["sample_qualifying"]
         assert custom["simulation_inputs"]["track"] == reference["simulation_inputs"]["track"]
         assert custom["simulation_inputs"]["weather"] == reference["simulation_inputs"]["weather"]
@@ -160,6 +174,14 @@ def test_comparison_runs_one_provider_snapshot_and_keeps_replayable_variants(
     assert server._serialize_sample_qualifying(reference_replay) == payload[
         "automatic_reference"
     ]["scenarios"]["dry"]["sample_qualifying"]
+
+
+def test_unknown_rng_policy_is_rejected_before_loading(monkeypatch):
+    monkeypatch.setattr(server, "_current_season", lambda: 2026)
+    monkeypatch.setattr(server, "_get_loader", lambda: pytest.fail("live loading"))
+
+    with pytest.raises(ValueError, match="rng_policy must be one of"):
+        server.run_dashboard_simulation(_request(rng_policy="unknown_policy"))
 
 
 def test_compare_automatic_requires_nonempty_plan_and_caps_work_before_loading(monkeypatch):

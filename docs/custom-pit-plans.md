@@ -107,6 +107,14 @@ changes relative to automatic strategy, with recorded-pair counts and sampling
 uncertainty. Distance and pit-cost comparisons use their own valid-data subsets.
 Equal seeds do not freeze later incidents, battles or pit service.
 
+**Match random draws** defaults to **Weather (default)**. Choosing **Weather and
+mechanical checks** also gives each driver stable mechanical draws for each own
+lap across the alternatives. Both variants use the selected policy and record
+it in their saved inputs. Weather draws align by weather-update interval, not
+elapsed seconds. Changed heat, risk or laps driven can still change failures;
+other incidents, battles and pit service can also differ. This option does not
+guarantee lower sampling uncertainty or isolate every effect of a strategy.
+
 Download the automatic reference separately to replay it using the existing
 saved-input workflow. Both alternatives retain their own input snapshots; edits
 to the form after a run do not change the results or downloaded inputs.

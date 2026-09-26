@@ -14,7 +14,7 @@ from importlib.resources import files
 from threading import Event
 from typing import Any
 
-from pydantic import StrictBool, StrictInt
+from pydantic import StrictBool, StrictInt, StrictStr
 
 from f1sim.analysis import MonteCarloRunner, parse_scenario_labels, scenario_weather_from_label
 from f1sim.analysis.cancellation import SimulationCancelled
@@ -31,6 +31,7 @@ from f1sim.simulation.execution import (
 )
 from f1sim.simulation.race import get_race_suspension_seconds, result_is_classified
 from f1sim.simulation.race_points import points_for_result
+from f1sim.simulation.randomness import DEFAULT_RNG_POLICY, validate_rng_policy
 from f1sim.simulation.tire_inventory import validate_tire_inventory
 from f1sim.web.capacity import RunCapacity
 
@@ -77,6 +78,7 @@ class DashboardRunRequest:
     tire_inventory: Any = None
     pit_plans: Any = None
     compare_automatic: StrictBool = False
+    rng_policy: StrictStr = DEFAULT_RNG_POLICY
 
 
 def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
@@ -84,6 +86,7 @@ def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
 
     validate_weather_mode(request.weather_mode)
     validate_race_engine(request.race_engine)
+    validate_rng_policy(request.rng_policy)
     validate_starting_tires(request.starting_tires)
     validate_starting_tire_ages(request.starting_tire_ages, request.starting_tires)
     validate_tire_inventory(request.tire_inventory, request.starting_tires,
@@ -531,6 +534,7 @@ def _dashboard_runner(
         "weather": copy_value(weather),
         "seed": seed,
         "race_engine": request.race_engine,
+        "rng_policy": request.rng_policy,
     }
     if tire_inventory:
         kwargs["tire_inventory"] = copy_value(tire_inventory)
@@ -563,6 +567,7 @@ def _dashboard_request_metadata(
         "scenarios": request.scenarios,
         "seed": request.seed,
         "race_engine": request.race_engine,
+        "rng_policy": request.rng_policy,
         "tire_inventory": deepcopy(tire_inventory) if tire_inventory else {},
         "starting_tires": deepcopy(starting_tires),
         "starting_tire_ages": deepcopy(starting_tire_ages),

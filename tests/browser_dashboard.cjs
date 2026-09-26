@@ -256,6 +256,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     assert.deepEqual(pitPlanPrototype.record, {lap: 24, compound: 'wet'});
     const pitPlanInput = page.locator('#pitPlansInput');
     const compareAutomaticInput = page.locator('#compareAutomaticInput');
+    const rngPolicyInput = page.locator('#rngPolicySelect');
+    assert.equal(await rngPolicyInput.inputValue(), 'isolated_weather_v1');
     assert.equal(await compareAutomaticInput.isChecked(), false);
     await pitPlanInput.fill(offline ? 'S00=18:hard,36:soft;S01=none' : '');
     if (offline) {
@@ -279,6 +281,19 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         pitPlansNullPrototype: Object.getPrototypeOf(payload?.pit_plans) === null,
       };
     });
+    assert.equal(customPayload.payload.rng_policy, 'isolated_weather_v1');
+    await rngPolicyInput.selectOption('isolated_weather_mechanical_v1');
+    assert.equal(await page.evaluate(() => buildRunPayload().rng_policy),
+      'isolated_weather_mechanical_v1');
+    const invalidRngPolicy = await page.evaluate(() => {
+      const select = document.getElementById('rngPolicySelect');
+      select.value = 'unknown_policy';
+      const payload = buildRunPayload();
+      return {payload, message: document.getElementById('appStatus').innerText};
+    });
+    assert.equal(invalidRngPolicy.payload, null);
+    assert(invalidRngPolicy.message.includes('valid random draw matching policy'));
+    await rngPolicyInput.selectOption('isolated_weather_v1');
     if (offline) {
       assert.deepEqual(customPayload.payload.pit_plans, {
         S00: [{lap: 18, compound: 'hard'}, {lap: 36, compound: 'soft'}], S01: [],
@@ -325,6 +340,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     assert.equal(response.status(), 200);
     assert.equal(response.request().postDataJSON().race_engine, 'chronological');
     assert.equal(response.request().postDataJSON().weather_mode, 'fixed_rainfall');
+    assert.equal(response.request().postDataJSON().rng_policy, 'isolated_weather_v1');
     if (offline) {
       await page.locator('#sampleTireSetLedgers summary').click();
       await page.locator('#sampleTireSetLedgers table').first().waitFor({state: 'visible'});
@@ -346,12 +362,22 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     }
     const payload = await response.json();
     assert.equal(payload.request.race_engine, 'chronological');
+    assert.equal(payload.request.rng_policy, 'isolated_weather_v1');
+    assert.equal(Object.values(payload.scenarios)[0].simulation_inputs.rng_policy,
+      'isolated_weather_v1');
     // The matrix initially shows aggregate top contenders, which need not
     // include the winner of the representative individual race.
     const driverId = Object.values(payload.scenarios)[0].win_probabilities[0][0];
     await page.waitForFunction(() => !runInProgress);
     assert((await page.locator('#panel-race').textContent()).includes('Lap-aware model (experimental)'));
     assert((await page.locator('#panel-race').textContent()).includes('Fixed rainfall; surface wetness still evolves'));
+    assert((await page.locator('#panel-race').textContent())
+      .includes('Match random draws: Weather (default)'));
+    await rngPolicyInput.selectOption('isolated_weather_mechanical_v1');
+    await page.evaluate(() => renderRace());
+    assert((await page.locator('#panel-race').textContent())
+      .includes('Match random draws: Weather (default)'),
+    'Changing the current RNG control must not relabel saved results');
     const representativeScenario = Object.values(payload.scenarios)[0];
     const sampleSuspension = representativeScenario.sample_race_suspension_seconds;
     assert((await page.locator('#panel-race').textContent()).includes(
@@ -1000,9 +1026,23 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       assert.equal(comparisonResponse.status(), 200);
       assert.equal(comparisonResponse.request().postDataJSON().compare_automatic, true);
       assert.equal(comparisonResponse.request().postDataJSON().simulations, 10);
+      assert.equal(comparisonResponse.request().postDataJSON().rng_policy,
+        'isolated_weather_mechanical_v1');
+      const comparisonPayload = await comparisonResponse.json();
+      assert.equal(comparisonPayload.request.rng_policy, 'isolated_weather_mechanical_v1');
+      assert.equal(comparisonPayload.automatic_reference.request.rng_policy,
+        'isolated_weather_mechanical_v1');
+      for (const scenario of Object.values(comparisonPayload.scenarios)) {
+        assert.equal(scenario.simulation_inputs.rng_policy, 'isolated_weather_mechanical_v1');
+      }
+      for (const scenario of Object.values(comparisonPayload.automatic_reference.scenarios)) {
+        assert.equal(scenario.simulation_inputs.rng_policy, 'isolated_weather_mechanical_v1');
+      }
       await page.waitForFunction(() => !runInProgress);
       await page.locator('#tab-race').click();
       assert(await page.locator('#strategyComparisonPanel').isVisible());
+      assert((await page.locator('#panel-race').textContent())
+        .includes('Match random draws: Weather and mechanical checks'));
       const comparisonText = await page.locator('#strategyComparisonPanel').innerText();
       for (const label of [
         'Custom plan minus automatic strategy', '+1.250 pts', '-3.333 pp',
@@ -1039,6 +1079,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       assert.equal(referenceBundle.request.compare_automatic, false);
       assert.equal(referenceBundle.request.simulations, 10);
       assert.equal(referenceBundle.request.race_engine, 'chronological');
+      assert.equal(referenceBundle.request.rng_policy, 'isolated_weather_mechanical_v1');
+      assert(Object.values(referenceBundle.scenarios).every(scenario =>
+        scenario.simulation_inputs.rng_policy === 'isolated_weather_mechanical_v1'));
       assert.equal(referenceBundle.year, 2026);
       assert(referenceBundle.track && referenceBundle.ratings && referenceBundle.provenance);
       assert(referenceBundle.scenarios && Object.keys(referenceBundle.scenarios).length === 3);
@@ -1053,6 +1096,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         'Normal JSON downloads must omit generated HTML reports');
       assert(comparisonJson.strategy_comparisons, 'Paired statistics remain in JSON');
       assert(comparisonJson.automatic_reference, 'The automatic reference remains in JSON');
+      assert(Object.values(comparisonJson.scenarios).every(scenario =>
+        scenario.simulation_inputs.rng_policy === 'isolated_weather_mechanical_v1'));
 
       await page.locator('#weatherSelect').selectOption('LIGHT_RAIN');
       assert(await page.locator('#downloadStrategyReportBtn').isEnabled(),
@@ -1130,11 +1175,15 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         renderRace();
       }, savedComparisonVariants);
       const savedPanelText = await page.locator('#strategyComparisonPanel').innerText();
+      await rngPolicyInput.selectOption('isolated_weather_v1');
       await pitPlanInput.fill('S00=2:medium');
       await page.locator('#simCount').fill('500');
       await page.evaluate(() => renderRace());
       assert.equal(await page.locator('#strategyComparisonPanel').innerText(), savedPanelText,
         'Comparison results must come from the saved response, not edited controls');
+      assert((await page.locator('#panel-race').textContent())
+        .includes('Match random draws: Weather and mechanical checks'),
+      'Saved RNG policy must be rendered from the result after the form changes');
       await page.locator('#tab-scenarios').click();
       await page.locator('#weatherSelect').selectOption('LIGHT_RAIN');
       const editedFormReportPromise = page.waitForEvent('download');

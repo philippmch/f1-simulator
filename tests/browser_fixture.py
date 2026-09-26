@@ -67,20 +67,59 @@ def build_fixture() -> dict:
                  "starting_tires": {"S00": "hard", "S01": "soft"},
                  "starting_tire_ages": {"S00": 5},
                  "tire_inventory": inventory,
-                 "scenarios": "dry,light_rain,heavy_rain", "qualifying_mode": "simulated"},
+                 "scenarios": "dry,light_rain,heavy_rain", "qualifying_mode": "simulated",
+                 "rng_policy": "isolated_weather_v1"},
     )
+
+    # Keep the comparison fixture's selected policy truthful in both saved
+    # runner snapshots.  The ordinary fixture above continues to exercise the
+    # UI default independently.
+    comparison_automatic_results, comparison_custom_results = {}, {}
+    for index, label in enumerate(("dry", "light_rain", "heavy_rain")):
+        common = {
+            "seed": 42 + index * 1000,
+            "race_engine": "chronological",
+            "starting_tires": {"S00": "hard", "S01": "soft"},
+            "starting_tire_ages": {"S00": 5},
+            "tire_inventory": inventory,
+            "rng_policy": "isolated_weather_mechanical_v1",
+        }
+        automatic_result = MonteCarloRunner(
+            drivers, cars, track, weather[label], **common,
+        ).run(num_simulations=10, parallel=False)
+        custom_result = MonteCarloRunner(
+            drivers, cars, track, weather[label],
+            pit_plans={"S00": [{"lap": 4, "compound": "hard"}], "S01": []},
+            **common,
+        ).run(num_simulations=10, parallel=False)
+        for result in (automatic_result, custom_result):
+            result.event_stats.mechanical_failure_breakdown = {
+                "engine": 2,
+                "gearbox": 1,
+            }
+        comparison_automatic_results[label] = automatic_result
+        comparison_custom_results[label] = custom_result
+
     comparison_payload = copy.deepcopy(payload)
     comparison_payload["request"] = {
         **comparison_payload["request"],
         "pit_plans": {"S00": [{"lap": 4, "compound": "hard"}], "S01": []},
         "compare_automatic": True,
+        "rng_policy": "isolated_weather_mechanical_v1",
     }
+    comparison_payload["scenarios"] = _summarize_scenario_results(
+        comparison_custom_results, scenario_weather=weather,
+    )["scenarios"]
     automatic_reference = copy.deepcopy(payload)
     automatic_reference.pop("comparison_report_html", None)
+    automatic_reference["scenarios"] = _summarize_scenario_results(
+        comparison_automatic_results, scenario_weather=weather,
+    )["scenarios"]
     automatic_reference["request"] = {
         **automatic_reference["request"],
         "pit_plans": {},
         "compare_automatic": False,
+        "rng_policy": "isolated_weather_mechanical_v1",
     }
     comparison_payload["automatic_reference"] = automatic_reference
     comparison_payload["strategy_comparisons"] = {
@@ -122,13 +161,8 @@ def build_fixture() -> dict:
         for label in results
     }
     comparison_payload["strategy_comparison_reports"] = {}
-    for label, automatic_result in results.items():
-        custom_result = copy.deepcopy(automatic_result)
-        custom_result.input_snapshot = {
-            **(custom_result.input_snapshot or {}),
-            "schema_version": 5,
-            "pit_plans": comparison_payload["request"]["pit_plans"],
-        }
+    for label, automatic_result in comparison_automatic_results.items():
+        custom_result = comparison_custom_results[label]
         comparison_payload["strategy_comparison_reports"][label] = render_comparison_report(
             {"automatic": automatic_result, "custom": custom_result},
             reference_scenario="automatic",
