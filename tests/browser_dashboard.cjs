@@ -957,6 +957,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       if (extension === '.json') {
         const saved = JSON.parse(readFileSync(await download.path(), 'utf8'));
         assert.equal(saved.comparison_report_html, undefined);
+        assert.equal(saved.strategy_comparison_reports, undefined);
         for (const [name, scenario] of Object.entries(saved.scenarios)) {
           assert.deepEqual(scenario.simulation_inputs, payload.scenarios[name].simulation_inputs);
           assert.deepEqual(scenario.strategy_statistics, payload.scenarios[name].strategy_statistics);
@@ -986,7 +987,10 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       updateScenarioViews();
     });
     assert(await page.locator('#downloadScenarioReportBtn').isEnabled());
+    assert(await page.locator('#downloadStrategyReportBtn').isDisabled(),
+      'Ordinary scenario runs do not have a paired strategy report');
     if (offline) {
+      let savedLightRainStrategyReport = '';
       await pitPlanInput.fill('S00=18:hard;S01=none');
       await compareAutomaticInput.check();
       await page.locator('#simCount').fill('10');
@@ -1038,6 +1042,58 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       assert.equal(referenceBundle.year, 2026);
       assert(referenceBundle.track && referenceBundle.ratings && referenceBundle.provenance);
       assert(referenceBundle.scenarios && Object.keys(referenceBundle.scenarios).length === 3);
+
+      const savedStrategyReports = await page.evaluate(() => simResults.strategy_comparison_reports);
+      assert.deepEqual(Object.keys(savedStrategyReports), ['dry', 'light_rain', 'heavy_rain']);
+      const comparisonJsonPromise = page.waitForEvent('download');
+      await page.locator('#downloadScenarioJsonBtn').click();
+      const comparisonJsonDownload = await comparisonJsonPromise;
+      const comparisonJson = JSON.parse(readFileSync(await comparisonJsonDownload.path(), 'utf8'));
+      assert.equal(comparisonJson.strategy_comparison_reports, undefined,
+        'Normal JSON downloads must omit generated HTML reports');
+      assert(comparisonJson.strategy_comparisons, 'Paired statistics remain in JSON');
+      assert(comparisonJson.automatic_reference, 'The automatic reference remains in JSON');
+
+      await page.locator('#weatherSelect').selectOption('LIGHT_RAIN');
+      assert(await page.locator('#downloadStrategyReportBtn').isEnabled(),
+        'A paired report is available for the selected saved weather');
+      const lightRainReportPromise = page.waitForEvent('download');
+      await page.locator('#downloadStrategyReportBtn').click();
+      const lightRainReportDownload = await lightRainReportPromise;
+      assert.equal(lightRainReportDownload.suggestedFilename(), 'strategy_comparison_light_rain.html');
+      savedLightRainStrategyReport = readFileSync(await lightRainReportDownload.path(), 'utf8');
+      assert.equal(savedLightRainStrategyReport, savedStrategyReports.light_rain);
+      assert(savedLightRainStrategyReport.includes('Paired changes compare each choice with automatic'));
+      assert(savedLightRainStrategyReport.includes('<strong>custom</strong>'));
+      assert(savedLightRainStrategyReport.includes('Paired coverage:'));
+
+      await page.locator('#weatherSelect').selectOption('CLOUDY');
+      assert(await page.locator('#downloadStrategyReportBtn').isDisabled(),
+        'Reports are disabled when the focused weather is absent from the saved run');
+      await page.locator('#weatherSelect').selectOption('LIGHT_RAIN');
+      await page.evaluate(() => {
+        window.savedFocusedStrategyReport = simResults.strategy_comparison_reports.light_rain;
+        delete simResults.strategy_comparison_reports.light_rain;
+        updateStrategyReportButton(simResults);
+      });
+      assert(await page.locator('#downloadStrategyReportBtn').isDisabled(),
+        'Legacy comparison results without the focused report stay disabled');
+      await page.evaluate(() => {
+        simResults.strategy_comparison_reports.light_rain = window.savedFocusedStrategyReport;
+        delete window.savedFocusedStrategyReport;
+        updateStrategyReportButton(simResults);
+      });
+      assert(await page.locator('#downloadStrategyReportBtn').isEnabled());
+      await page.locator('#weatherSelect').selectOption('DRY');
+      assert(await page.locator('#downloadStrategyReportBtn').isEnabled());
+      await page.locator('#presetChaosBtn').click();
+      assert.equal(await page.locator('#weatherSelect').inputValue(), 'CLOUDY');
+      assert(await page.locator('#downloadStrategyReportBtn').isDisabled(),
+        'Preset focus changes must disable the report when the focused weather has no saved result');
+      await page.locator('#presetMixedBtn').click();
+      assert.equal(await page.locator('#weatherSelect').inputValue(), 'DRY');
+      assert(await page.locator('#downloadStrategyReportBtn').isEnabled(),
+        'Preset focus changes back to a saved weather must enable its report');
       await page.locator('#tab-race').click();
 
       const savedComparisonVariants = await page.evaluate(() => simResults.strategy_comparisons);
@@ -1079,6 +1135,14 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       await page.evaluate(() => renderRace());
       assert.equal(await page.locator('#strategyComparisonPanel').innerText(), savedPanelText,
         'Comparison results must come from the saved response, not edited controls');
+      await page.locator('#tab-scenarios').click();
+      await page.locator('#weatherSelect').selectOption('LIGHT_RAIN');
+      const editedFormReportPromise = page.waitForEvent('download');
+      await page.locator('#downloadStrategyReportBtn').click();
+      const editedFormReport = await editedFormReportPromise;
+      assert.equal(readFileSync(await editedFormReport.path(), 'utf8'), savedLightRainStrategyReport,
+        'Strategy downloads must use the saved response after form edits');
+      await page.locator('#weatherSelect').selectOption('DRY');
       await page.setViewportSize({width: 1440, height: 900});
       await compareAutomaticInput.uncheck();
       await pitPlanInput.fill('S00=18:hard,36:soft;S01=none');

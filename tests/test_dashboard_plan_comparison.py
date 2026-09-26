@@ -113,6 +113,12 @@ def test_comparison_runs_one_provider_snapshot_and_keeps_replayable_variants(
     assert "comparison_report_html" not in payload["automatic_reference"]
     assert "automatic_reference" not in payload["automatic_reference"]
     assert set(payload["strategy_comparisons"]) == {"dry", "light_rain"}
+    assert set(payload["strategy_comparison_reports"]) == {"dry", "light_rain"}
+    for report in payload["strategy_comparison_reports"].values():
+        assert "Paired changes compare each choice with automatic" in report
+        assert "<strong>custom</strong>" in report
+        assert "Paired coverage:" in report
+        assert "10 trials" in report
 
     for name, custom in payload["scenarios"].items():
         reference = payload["automatic_reference"]["scenarios"][name]
@@ -174,6 +180,7 @@ def test_false_comparison_mode_runs_only_submitted_plan(offline_loader):
 
     assert "automatic_reference" not in payload
     assert "strategy_comparisons" not in payload
+    assert "strategy_comparison_reports" not in payload
     assert payload["request"]["compare_automatic"] is False
 
 
@@ -276,6 +283,33 @@ def test_cancellation_during_second_variant_reaches_it_and_returns_no_payload(
 
     assert len(calls) == 2
     assert callback_calls == [cancel_requested, cancel_requested]
+
+
+def test_cancellation_during_strategy_report_render_returns_no_partial_payload(
+    monkeypatch, offline_loader,
+):
+    original_renderer = server.render_comparison_report
+    cancelled = False
+    report_calls = []
+
+    def cancel_requested():
+        return cancelled
+
+    def cancel_after_strategy_report(scenarios, **kwargs):
+        nonlocal cancelled
+        report_calls.append(kwargs.get("reference_scenario"))
+        rendered = original_renderer(scenarios, **kwargs)
+        if kwargs.get("reference_scenario") == "automatic":
+            cancelled = True
+        return rendered
+
+    monkeypatch.setattr(server, "render_comparison_report", cancel_after_strategy_report)
+    with pytest.raises(SimulationCancelled):
+        server.run_dashboard_simulation(
+            _request(scenarios="dry"), cancel_requested=cancel_requested,
+        )
+
+    assert report_calls == [None, "automatic"]
 
 
 def test_http_compare_automatic_is_strict_boolean(monkeypatch):

@@ -793,6 +793,19 @@ def run_dashboard_simulation(
             _check_dashboard_cancellation(cancel_requested)
         payload["strategy_comparisons"] = comparisons
 
+        strategy_reports: dict[str, str] = {}
+        for scenario_name in scenario_results:
+            _check_dashboard_cancellation(cancel_requested)
+            strategy_reports[scenario_name] = render_comparison_report(
+                {
+                    "automatic": automatic_results[scenario_name],
+                    "custom": scenario_results[scenario_name],
+                },
+                reference_scenario="automatic",
+            )
+            _check_dashboard_cancellation(cancel_requested)
+        payload["strategy_comparison_reports"] = strategy_reports
+
     return payload
 
 

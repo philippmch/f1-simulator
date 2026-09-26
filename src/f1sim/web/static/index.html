@@ -2482,6 +2482,8 @@ function setScenarioSelection(value, options = {}) {
     saveUiPrefs();
   }
 
+  updateStrategyReportButton(simResults);
+
   if (nextFocus && simResults) {
     if (simResults.scenarios?.[nextFocus]) {
       renderRace();
@@ -4857,7 +4859,7 @@ function csvCell(value) {
 }
 
 function downloadResultJson(data) {
-  const { comparison_report_html, ...savedResults } = data;
+  const { comparison_report_html, strategy_comparison_reports, ...savedResults } = data;
   const blob = new Blob([JSON.stringify(savedResults, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -4872,7 +4874,7 @@ function downloadResultJson(data) {
 function downloadAutomaticReferenceJson(data) {
   const reference = data?.automatic_reference;
   if (!reference || typeof reference !== 'object' || Array.isArray(reference)) return;
-  const { comparison_report_html, ...savedReference } = reference;
+  const { comparison_report_html, strategy_comparison_reports, ...savedReference } = reference;
   const blob = new Blob([JSON.stringify(savedReference, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -4897,6 +4899,47 @@ function downloadComparisonReport(data) {
   URL.revokeObjectURL(url);
 }
 
+function focusedSavedScenarioName(data) {
+  const scenarios = data?.scenarios;
+  if (!scenarios || typeof scenarios !== 'object' || Array.isArray(scenarios)) return null;
+  const focused = WEATHER_TO_SCENARIO[weatherSelectEl.value];
+  return focused && Object.hasOwn(scenarios, focused) ? focused : null;
+}
+
+function strategyComparisonReportForFocus(data) {
+  const scenarioName = focusedSavedScenarioName(data);
+  const reports = data?.strategy_comparison_reports;
+  if (!scenarioName || !reports || typeof reports !== 'object' || Array.isArray(reports)
+    || !Object.hasOwn(reports, scenarioName)) return null;
+  const html = reports[scenarioName];
+  return typeof html === 'string' && html.trim() ? {scenarioName, html} : null;
+}
+
+function downloadStrategyReport(data) {
+  const report = strategyComparisonReportForFocus(data);
+  if (!report) return;
+  const blob = new Blob([report.html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `strategy_comparison_${report.scenarioName
+    .toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') || 'weather'}.html`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function updateStrategyReportButton(data) {
+  const button = document.getElementById('downloadStrategyReportBtn');
+  if (!button) return;
+  const report = strategyComparisonReportForFocus(data);
+  button.disabled = !report;
+  button.title = report
+    ? `Download the saved paired strategy comparison for ${WEATHER_LABELS[report.scenarioName] || titleFromKey(report.scenarioName)} weather.`
+    : 'A strategy report is available only when the focused weather has saved comparison results.';
+}
+
 function updateScenarioViews() {
   if (!simResults) return;
   const reportButton = document.getElementById('downloadScenarioReportBtn');
@@ -4912,6 +4955,7 @@ function updateScenarioViews() {
     referenceButton.title = referenceButton.disabled
       ? 'Automatic reference is available only for comparison runs' : '';
   }
+  updateStrategyReportButton(simResults);
   renderScenarioCards(simResults);
   renderScenarioWinChart(simResults);
   renderScenarioTrends(simResults);
@@ -4983,6 +5027,7 @@ function renderScenarioLab() {
       <button class="btn-simulate" type="button" id="downloadScenarioJsonBtn">Download JSON</button>
       <button class="btn-simulate" type="button" id="downloadAutomaticReferenceBtn" disabled>Download automatic reference JSON</button>
       <button class="btn-simulate" type="button" id="downloadScenarioReportBtn">Download comparison report</button>
+      <button class="btn-simulate" type="button" id="downloadStrategyReportBtn" disabled>Download strategy report</button>
       <button class="btn-simulate" type="button" id="downloadScenarioMatrixBtn">Export Matrix CSV</button>
       <label class="control-label" style="display:flex;align-items:center;gap:0.45rem;margin:0 0 0 0.25rem;">
         <input type="checkbox" id="compareMatrixHighlight" checked>
@@ -5031,6 +5076,8 @@ function renderScenarioLab() {
   downloadReferenceBtn.addEventListener('click', () => downloadAutomaticReferenceJson(simResults));
   document.getElementById('downloadScenarioReportBtn').addEventListener('click',
     () => downloadComparisonReport(simResults));
+  document.getElementById('downloadStrategyReportBtn').addEventListener('click',
+    () => downloadStrategyReport(simResults));
   exportMatrixBtn.addEventListener('click', () => exportScenarioMatrixCsv(simResults));
   controlIds.forEach(id => {
     const el = document.getElementById(id);
@@ -5068,6 +5115,7 @@ function renderScenarioLab() {
       saveUiPrefs();
       syncScenarioControls();
     }
+    updateStrategyReportButton(simResults);
     if (simResults) {
       if (simResults.scenarios?.[focusedScenario]) {
         renderRace();

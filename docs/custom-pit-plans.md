@@ -111,6 +111,13 @@ Download the automatic reference separately to replay it using the existing
 saved-input workflow. Both alternatives retain their own input snapshots; edits
 to the form after a run do not change the results or downloaded inputs.
 
+Use **Download strategy report** to save an HTML comparison of the custom plans
+and automatic reference for the selected weather scenario. It includes paired
+outcomes, pit costs, coverage and uncertainty from the saved run. Switching
+weather selects that scenario's report; changing form inputs does not rewrite
+it. The ordinary comparison report continues to compare weather scenarios.
+JSON downloads retain replay inputs and statistics while omitting HTML reports.
+
 ## Comparing plans offline
 
 Create a JSON file of named alternatives:

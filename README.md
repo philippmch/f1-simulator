@@ -134,7 +134,8 @@ selection, deviations, replay, and offline comparisons against automatic policy.
 Enable **Compare with automatic strategy** to compare the submitted plans with
 an automatic reference for each weather scenario. Both alternatives use the same
 inputs and seed range, with up to 500 trials each. The dashboard shows paired
-outcome changes and offers a separate replayable reference download.
+outcome changes, a downloadable strategy report for the selected weather, and
+a separate replayable reference download.
 
 The same inputs and seed reproduce an overridden run, including across worker
 counts. Changing a tyre choice can change later random draws and race events;

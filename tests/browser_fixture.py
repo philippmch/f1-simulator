@@ -121,6 +121,18 @@ def build_fixture() -> dict:
         }
         for label in results
     }
+    comparison_payload["strategy_comparison_reports"] = {}
+    for label, automatic_result in results.items():
+        custom_result = copy.deepcopy(automatic_result)
+        custom_result.input_snapshot = {
+            **(custom_result.input_snapshot or {}),
+            "schema_version": 5,
+            "pit_plans": comparison_payload["request"]["pit_plans"],
+        }
+        comparison_payload["strategy_comparison_reports"][label] = render_comparison_report(
+            {"automatic": automatic_result, "custom": custom_result},
+            reference_scenario="automatic",
+        )
     return {
         "html": build_dashboard_html(), "payload": payload,
         "comparison_payload": comparison_payload,
