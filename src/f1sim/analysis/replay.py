@@ -55,11 +55,10 @@ def replay_saved_simulation(
     return runner.run(1, parallel=False)
 
 
-def _load_saved_runner(
-    path: str | Path, scenario: str | None = None,
-) -> tuple[MonteCarloRunner, int]:
-    """Validate saved models and metadata without running a simulation."""
-    saved = json.loads(Path(path).read_text(encoding="utf-8"))
+def _select_saved_scenario(
+    saved: object, scenario: str | None = None,
+) -> tuple[dict, object]:
+    """Select one saved scenario and its metadata using the replay contract."""
     if not isinstance(saved, dict):
         raise ValueError("Saved statistics must be a JSON object")
     if "scenarios" in saved:
@@ -72,14 +71,21 @@ def _load_saved_runner(
             scenario = next(iter(scenarios))
         if not isinstance(scenario, str) or scenario not in scenarios:
             raise ValueError("Unknown saved scenario")
-        saved = scenarios[scenario]
-        if not isinstance(saved, dict):
+        selected = scenarios[scenario]
+        if not isinstance(selected, dict):
             raise ValueError("Saved scenario must be an object")
-        metadata = saved
-    else:
-        if scenario is not None:
-            raise ValueError("This statistics file has no named scenarios")
-        metadata = saved.get("metadata")
+        return selected, selected
+    if scenario is not None:
+        raise ValueError("This statistics file has no named scenarios")
+    return saved, saved.get("metadata")
+
+
+def _load_saved_runner(
+    path: str | Path, scenario: str | None = None,
+) -> tuple[MonteCarloRunner, int]:
+    """Validate saved models and metadata without running a simulation."""
+    saved = json.loads(Path(path).read_text(encoding="utf-8"))
+    saved, metadata = _select_saved_scenario(saved, scenario)
     inputs = saved.get("simulation_inputs")
     if inputs is None:
         raise ValueError("Saved statistics have no simulation inputs; legacy exports cannot replay")
@@ -114,7 +120,7 @@ def _load_saved_runner(
         raise ValueError("Saved cars must be an object")
     if not all(isinstance(row, dict) for row in raw_cars.values()):
         raise ValueError("Each saved car must be an object")
-    for name in ("track", "weather", "runtime"):
+    for name in ("track", "weather"):
         if not isinstance(inputs.get(name), dict):
             raise ValueError(f"Saved {name} must be an object")
     drivers = [_validate_saved_model(Driver, row) for row in raw_drivers]

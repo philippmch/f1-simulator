@@ -18,12 +18,35 @@ from f1sim.output import Exporter
 from f1sim.output.comparison import render_comparison_report
 
 
-def runner(engine="standard", policy="isolated_weather_v1"):
+def runner(engine="standard", policy="isolated_weather_v1", setup="automatic"):
     drivers = [Driver(id=str(i), name=str(i), team_id=str(i)) for i in range(2)]
+    options = {}
+    if setup == "finite_inventory_custom_plan":
+        options = {
+            "starting_tires": {"0": "medium", "1": "medium"},
+            "starting_tire_ages": {"0": 2, "1": 3},
+            "tire_inventory": {
+                "0": [
+                    {"id": "0-medium", "compound": "medium", "age": 2},
+                    {"id": "0-hard", "compound": "hard", "age": 5},
+                ],
+                "1": [
+                    {"id": "1-medium", "compound": "medium", "age": 3},
+                    {"id": "1-hard", "compound": "hard", "age": 1},
+                ],
+            },
+            "pit_plans": {
+                "0": [{"lap": 3, "compound": "hard"}],
+                "1": [],
+            },
+        }
+    elif setup != "automatic":
+        raise ValueError(f"unknown runner setup: {setup}")
     return MonteCarloRunner(
         drivers, {d.id: Car(team_id=d.id, team_name=d.id) for d in drivers},
         Track(id="t", name="Saved", country="T", total_laps=8, base_lap_time=90),
         Weather(change_probability=1), seed=37, race_engine=engine, rng_policy=policy,
+        **options,
     )
 
 
@@ -41,8 +64,11 @@ def save(tmp_path, result, legacy=False):
 @pytest.mark.parametrize(
     "policy", ["shared_v1", "isolated_weather_v1", "isolated_weather_mechanical_v1"],
 )
-def test_serial_process_and_second_trial_replay(tmp_path, monkeypatch, engine, policy):
-    source = runner(engine, policy)
+@pytest.mark.parametrize("setup", ["automatic", "finite_inventory_custom_plan"])
+def test_serial_process_and_second_trial_replay(
+    tmp_path, monkeypatch, engine, policy, setup,
+):
+    source = runner(engine, policy, setup)
     serial = source.run(3, parallel=False)
     parallel = source.run(3, parallel=True, max_workers=2)
     assert parallel.race_results == serial.race_results
@@ -51,8 +77,27 @@ def test_serial_process_and_second_trial_replay(tmp_path, monkeypatch, engine, p
     assert parallel.weather_histories == serial.weather_histories
     assert parallel.input_snapshot == serial.input_snapshot
     assert serial.input_snapshot["rng_policy"] == policy
-    assert serial.input_snapshot["schema_version"] == 2
-    path = save(tmp_path, serial, legacy=policy == "shared_v1")
+    expected_schema = 5 if setup == "finite_inventory_custom_plan" else 2
+    assert serial.input_snapshot["schema_version"] == expected_schema
+    if setup == "finite_inventory_custom_plan":
+        assert serial.input_snapshot["tire_inventory"] == source.tire_inventory
+        assert serial.input_snapshot["pit_plans"] == {
+            "0": [{"lap": 3, "compound": "hard"}],
+            "1": [],
+        }
+        first_trial = {result.driver_id: result for result in serial.race_results[0]}
+        assert first_trial["0"].pit_plan_history == [{
+            "lap": 3,
+            "compound": "hard",
+            "status": "executed",
+            "reason": "user_plan",
+            "actual_compound": "hard",
+            "actual_set_id": "0-hard",
+        }]
+        assert first_trial["1"].pit_plan_history == []
+    # Preserve the schema-1 legacy replay case on its original automatic inputs.
+    legacy = policy == "shared_v1" and setup == "automatic"
+    path = save(tmp_path, serial, legacy=legacy)
     before = path.read_bytes()
 
     def no_network(*args, **kwargs):
@@ -64,6 +109,12 @@ def test_serial_process_and_second_trial_replay(tmp_path, monkeypatch, engine, p
     assert replay.qualifying_results == [serial.qualifying_results[1]]
     assert replay.weather_histories == [serial.weather_histories[1]]
     assert replay.input_snapshot["rng_policy"] == policy
+    if setup == "finite_inventory_custom_plan":
+        assert replay.input_snapshot == serial.input_snapshot
+        replay_trial = {result.driver_id: result for result in replay.race_results[0]}
+        serial_trial = {result.driver_id: result for result in serial.race_results[1]}
+        assert replay_trial["0"].pit_plan_history == serial_trial["0"].pit_plan_history
+        assert replay_trial["1"].pit_plan_history == serial_trial["1"].pit_plan_history
     assert path.read_bytes() == before
 
 

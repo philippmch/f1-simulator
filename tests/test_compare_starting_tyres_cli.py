@@ -42,6 +42,7 @@ def test_comparison_cli_export_is_unique_and_replayable(monkeypatch, tmp_path, c
         assert command.main() == 0
     output = capsys.readouterr().out
     assert "seeds 41–42" in output
+    assert "Runtime provenance (installed vs saved): match" in output
     assert "Win % [95% range]" in output
     assert "Equal seeds do not freeze later race events" in output
     comparisons = list(target.glob("starting_tyres_*.json"))

@@ -7,6 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from f1sim.analysis.provenance import format_saved_runtime_status, saved_runtime_status
 from f1sim.analysis.replay import replay_saved_simulation
 from f1sim.output import ConsoleOutput, Exporter
 
@@ -25,7 +26,9 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, default=Path("output/replays"))
     args = parser.parse_args()
     try:
+        runtime_status = saved_runtime_status(args.path, args.scenario)
         results = replay_saved_simulation(args.path, args.simulation, args.scenario)
+        print(format_saved_runtime_status(runtime_status))
         print(f"Saved scenario: {results.track_name} | model: {results.race_engine} | "
               f"simulation: {args.simulation} | effective seed: {results.seed}")
         ConsoleOutput.print_qualifying_results(results.qualifying_results[0])

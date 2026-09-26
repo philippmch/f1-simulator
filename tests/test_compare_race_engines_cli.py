@@ -42,6 +42,7 @@ def test_engine_cli_exports_unique_comparisons_and_replays(monkeypatch, tmp_path
         assert command.main() == 0
     output = capsys.readouterr().out
     assert "seeds 41–42" in output
+    assert "Runtime provenance (installed vs saved): match" in output
     assert "Win % [95% range]" in output
     assert "mean winning distance 3.00 laps (2 known winners)" in output
     assert "Equal seeds do not freeze later race events" in output

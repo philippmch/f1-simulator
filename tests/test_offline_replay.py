@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from f1sim.analysis.montecarlo import MonteCarloRunner
+from f1sim.analysis.provenance import simulation_runtime
 from f1sim.analysis.replay import _load_saved_runner, replay_saved_simulation
 from f1sim.analysis.strategy_comparison import (
     compare_saved_race_engines,
@@ -93,7 +94,7 @@ def test_invalid_metadata(saved, field, value):
 @pytest.mark.parametrize("field,value", [
     ("schema_version", True), ("schema_version", 3), ("schema_version", 1.0),
     ("drivers", {}), ("drivers", [None]), ("cars", []), ("cars", {"0": None}),
-    ("track", []), ("weather", None), ("runtime", []),
+    ("track", []), ("weather", None),
     ("track", {"id": "t", "name": "T", "country": "T", "total_laps": -1}),
 ])
 def test_invalid_inputs(saved, field, value):
@@ -210,6 +211,36 @@ def test_dashboard_scenario_selection(saved):
     assert replay_saved_simulation(saved, 2, "wet") == expected
 
 
+@pytest.mark.parametrize("runtime", [None, [], {"f1sim": "older"}])
+def test_runtime_provenance_is_optional_for_replay(saved, runtime):
+    data = json.loads(saved.read_text(encoding="utf-8"))
+    if runtime is None:
+        data["simulation_inputs"].pop("runtime")
+    else:
+        data["simulation_inputs"]["runtime"] = runtime
+    saved.write_text(json.dumps(data), encoding="utf-8")
+
+    replay = replay_saved_simulation(saved)
+
+    assert replay.num_simulations == 1
+    assert replay.input_snapshot["runtime"] == simulation_runtime()
+
+
+def test_mismatched_source_runtime_is_not_copied_into_replay_or_comparison(saved):
+    data = json.loads(saved.read_text(encoding="utf-8"))
+    source_runtime = data["simulation_inputs"]["runtime"]
+    source_runtime["f1sim"] = "older-version"
+    saved.write_text(json.dumps(data), encoding="utf-8")
+
+    replay = replay_saved_simulation(saved)
+    compared = compare_saved_race_engines(saved, num_simulations=1)
+
+    assert replay.input_snapshot["runtime"] == simulation_runtime()
+    assert replay.input_snapshot["runtime"]["f1sim"] != "older-version"
+    assert all(result.input_snapshot["runtime"] == simulation_runtime()
+               for result in compared.values())
+
+
 def test_statistics_rejects_named_scenario(saved):
     with pytest.raises(ValueError, match="no named scenarios"):
         replay_saved_simulation(saved, scenario="dry")
@@ -251,6 +282,7 @@ def test_cli_named_scenario(saved):
                             capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
     assert "effective seed: 71" in result.stdout
+    assert "Runtime provenance (installed vs saved): match" in result.stdout
 
 
 def test_cli_displays_actual_results_and_exports_unique_bundle(saved, tmp_path):
@@ -261,11 +293,15 @@ def test_cli_displays_actual_results_and_exports_unique_bundle(saved, tmp_path):
     first = subprocess.run(command, capture_output=True, text=True, check=False)
     assert first.returncode == 0, first.stderr
     assert "effective seed: 72" in first.stdout
+    assert "Runtime provenance (installed vs saved): match" in first.stdout
     assert "QUALIFYING RESULTS" in first.stdout
     assert "RACE RESULTS" in first.stdout
     second = subprocess.run(command, capture_output=True, text=True, check=False)
     assert second.returncode == 0, second.stderr
-    assert len(list(output.glob("replay_*statistics.json"))) == 2
+    bundles = list(output.glob("replay_*statistics.json"))
+    assert len(bundles) == 2
+    assert all(json.loads(path.read_text(encoding="utf-8"))["simulation_inputs"]["runtime"]
+               == simulation_runtime() for path in bundles)
 
 
 @pytest.mark.parametrize("content", ["{broken", "[]", "{}"])

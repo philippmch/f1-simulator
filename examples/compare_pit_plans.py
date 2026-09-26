@@ -9,6 +9,7 @@ from uuid import uuid4
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from f1sim.analysis.provenance import format_saved_runtime_status, saved_runtime_status
 from f1sim.analysis.strategy_comparison import compare_saved_pit_plans
 from f1sim.output import ConsoleOutput, Exporter
 from f1sim.simulation.randomness import RNG_POLICIES
@@ -95,12 +96,14 @@ def main() -> int:
         rng_policy = args.rng_policy or (
             "isolated_weather_v1" if args.independent_weather else None
         )
+        runtime_status = saved_runtime_status(args.path, args.scenario)
         results = compare_saved_pit_plans(
             args.path, args.driver, plans, scenario=args.scenario,
             num_simulations=args.simulations, parallel=args.parallel,
             max_workers=args.max_workers, rng_policy=rng_policy,
         )
         first = next(iter(results.values()))
+        print(format_saved_runtime_status(runtime_status))
         print(f"{first.track_name} | driver: {args.driver} | model: {first.race_engine}")
         print(f"{args.simulations} trials per plan | seeds {first.seed}–"
               f"{first.seed + args.simulations - 1}")

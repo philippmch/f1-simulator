@@ -5,10 +5,13 @@ import csv
 import importlib.util
 import json
 import runpy
+import sys
+from pathlib import Path
 
 import pytest
 
-from f1sim.analysis.montecarlo import SimulationResults
+from f1sim.analysis.montecarlo import MonteCarloRunner, SimulationResults
+from f1sim.models import Car, Driver, Track, Weather
 from f1sim.output import Exporter
 from f1sim.simulation.race import DriverStatus, RaceResult
 from f1sim.web import server
@@ -86,3 +89,25 @@ def test_cli_parser_and_duplicate_plan_json(tmp_path):
     spec.loader.exec_module(command)
     with pytest.raises(ValueError, match="duplicate JSON key"):
         command._load_plans(path)
+
+
+def test_pit_plan_cli_reports_saved_runtime(monkeypatch, tmp_path, capsys):
+    result = MonteCarloRunner(
+        [Driver(id="A", name="A", team_id="T")],
+        {"T": Car(team_id="T", team_name="T")},
+        Track(id="t", name="Track", country="Test", total_laps=3, base_lap_time=90),
+        Weather(change_probability=0), seed=41,
+    ).run(1, parallel=False)
+    saved = Exporter(tmp_path).export_statistics_json(result)
+    plans = tmp_path / "plans.json"
+    plans.write_text(json.dumps({"automatic": None, "none": []}), encoding="utf-8")
+    script = Path(__file__).parents[1] / "examples" / "compare_pit_plans.py"
+    spec = importlib.util.spec_from_file_location("compare_pit_plans_runtime_cli", script)
+    command = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(command)
+    monkeypatch.setattr(sys, "argv", [
+        str(script), str(saved), "--driver", "A", "--plans", str(plans), "--simulations", "1",
+    ])
+
+    assert command.main() == 0
+    assert "Runtime provenance (installed vs saved): match" in capsys.readouterr().out

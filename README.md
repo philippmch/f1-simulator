@@ -193,6 +193,13 @@ require matching model code, dependencies and runtime behavior. Snapshots do not
 archive executable code or runtime monkeypatches, and replay does not claim to
 reproduce a real race. Ordinary live runs still fetch current-season inputs.
 
+Replay and saved-input comparison commands report whether the saved runtime
+metadata matches the installed runtime. A mismatch names the differing fields;
+missing or malformed provenance is reported as unavailable. This status does
+not block replay or relax validation of the saved models. A match is not a
+guarantee of exact reproduction. Newly exported results describe the runtime
+that actually produced the new run; the original file remains unchanged.
+
 New snapshots use schema version 2, version 3 when opening tyre ages are
 specified, version 4 for a nonempty finite race pool, or version 5 when custom
 pit plans are supplied. Version 3 requires `starting_tire_ages`; version 4 also
