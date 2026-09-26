@@ -32,6 +32,10 @@ Tyre pace follows the configured wear and cliff rates throughout a stint;
 the numerical grip floor does not stop degradation. See the
 [wear model and executed strategy checks](docs/tyre-wear.md).
 
+An offline [relative tyre-wear evaluator](docs/relative-tyre-wear.md) compares
+compound trends in versioned timing evidence, with driver-cluster uncertainty
+and event sensitivity checks. It does not change the simulation's wear presets.
+
 For explicit first-lap-after-fitting assumptions, see
 [post-fit cost sensitivity](docs/tyre-wear.md#optional-post-fit-cost-sensitivity).
 It is disabled by default and is not calibrated tyre-temperature physics.

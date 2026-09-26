@@ -6,7 +6,11 @@ import json
 
 import pytest
 
-from f1sim.data.timing_evidence import TimingEvidenceError, normalize_timing_evidence
+from f1sim.data.timing_evidence import (
+    NORMALIZER_VERSION,
+    TimingEvidenceError,
+    normalize_timing_evidence,
+)
 
 
 def _stream(*rows: tuple[str, dict]) -> str:
@@ -63,6 +67,7 @@ def test_paired_sparse_updates_keep_crossing_evidence_and_ignore_flag_only_updat
     )
     report = normalize_timing_evidence(_feeds(timing))
 
+    assert report["normalizer_version"] == NORMALIZER_VERSION == 1
     lap = _lap(report, 2)
     assert lap["duration_seconds"] == pytest.approx(90.5)
     assert lap["observed_start"] == "00:00:00.000"

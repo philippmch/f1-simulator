@@ -50,6 +50,12 @@ numerical curves or a real tyre's safe lifetime. Temperature history, graining,
 damage-dependent pace and age-dependent puncture risk are separate modeling
 questions. This change does not calibrate them from reported stint lengths.
 
+For a reproducible comparison of relative linear compound trends in normalized
+lap evidence, use the [offline relative-wear evaluator](relative-tyre-wear.md).
+It controls for stint starting pace and shared race-lap effects, reports
+driver-cluster uncertainty and event sensitivity, and leaves these presets
+unchanged. Absolute wear remains confounded with shared race progression.
+
 ## Temperature and warm-up
 
 By default the model prices accumulated wear and weather mismatch, and a newly

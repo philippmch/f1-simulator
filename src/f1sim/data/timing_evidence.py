@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
 _FEED_NAMES = ("TimingData", "TimingAppData", "TrackStatus", "WeatherData", "SessionStatus")
+# Increment when a change alters which observations are considered eligible.
+NORMALIZER_VERSION = 1
 _TIME_RE = re.compile(
     r"^(?P<hours>\d{2}):(?P<minutes>[0-5]\d):(?P<seconds>[0-5]\d)\.(?P<millis>\d{3})"
 )
@@ -1063,6 +1065,7 @@ def normalize_timing_evidence(feeds: Mapping[str, str | bytes]) -> dict[str, Any
             "last": rows[-1].display_time if rows else None,
         }
     return {
+        "normalizer_version": NORMALIZER_VERSION,
         "laps": laps,
         "summary": summary,
         "coverage": coverage,
@@ -1104,4 +1107,4 @@ def _display_seconds(seconds: float) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d}.{millis:03d}"
 
 
-__all__ = ["TimingEvidenceError", "normalize_timing_evidence"]
+__all__ = ["NORMALIZER_VERSION", "TimingEvidenceError", "normalize_timing_evidence"]
