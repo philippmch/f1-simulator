@@ -3,6 +3,8 @@
 The evaluator asks whether the current rating model orders qualifying pace
 better than a simple previous-Q1 baseline when target performance is withheld.
 It does not use the live simulator's current-strength snapshot for a past target.
+The [race-winner probability evaluator](race-probability-evaluation.md) shares
+these historical input rules and scores simulated race outcomes separately.
 
 ```powershell
 python examples/evaluate_qualifying_pace.py --race 13

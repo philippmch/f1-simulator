@@ -430,6 +430,14 @@ team Q1 times. See the
 [evaluation scope and metrics](docs/pace-evaluation.md); this separate diagnostic
 does not change live ratings or simulate a historical race.
 
+For race-winner probability evaluation, run
+`python examples/evaluate_race_probabilities.py --race 14 --trials 100 --seed 42`
+or select `--all` for all completed current-season targets. Each forecast uses
+earlier evidence and simulates its own qualifying session. The report compares
+winner probabilities with observed winners using multiclass Brier loss and an
+equal-chance baseline. See the [scope and assumptions](docs/race-probability-evaluation.md)
+before interpreting scores or Monte Carlo sampling intervals.
+
 For controlled strategy comparisons, select **Fixed rainfall** under Weather
 behavior, pass `--weather-mode fixed_rainfall` to the CLI, or set
 `"weather_mode": "fixed_rainfall"` in `/api/run`. This keeps each scenario's

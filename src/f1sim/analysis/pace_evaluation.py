@@ -12,111 +12,19 @@ from statistics import median
 
 import numpy as np
 
+from f1sim.analysis.holdout_folds import (
+    _constructor_standings,  # noqa: F401 - preserved import for existing callers
+    _integer,
+    assemble_holdout_fold,
+)
 from f1sim.analysis.qualifying_history import (
     build_historical_q1_events,
     recent_team_q1_predictions,
 )
-from f1sim.data.current import CurrentSeasonDataError, CurrentSeasonDataLoader, _parse_time_seconds
+from f1sim.data.current import CurrentSeasonDataLoader, _parse_time_seconds
 from f1sim.models import Weather
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.lap import LapSimulator
-
-
-def _integer(value):
-    if type(value) is int:
-        return value
-    if isinstance(value, str) and value.isdecimal():
-        return int(value)
-    return None
-
-
-def _unique_rows(loader, rows):
-    """Reject conflicting per-round driver evidence, rather than choose by order."""
-    unique = {}
-    for row in rows:
-        identity = loader._strong_driver_identity(row)
-        key = (_integer(row.get("round")), identity)
-        if identity is None or key[0] is None:
-            raise CurrentSeasonDataError("Evaluation requires round and driver identities")
-        if key in unique and unique[key] != row:
-            raise CurrentSeasonDataError("Conflicting evaluation driver records")
-        unique[key] = row
-    return list(unique.values())
-
-
-def _target_roster(loader, rows):
-    """Whitelist entrant identity fields; never copy performance into the roster."""
-    roster = []
-    for row in rows:
-        driver = loader._extract_driver(row)
-        code = driver.get("code") or driver.get("driverId")
-        name = loader._driver_name(driver)
-        team = loader._row_team_id(row)
-        if not isinstance(code, str) or not code.strip() or not name or team is None:
-            raise CurrentSeasonDataError("Incomplete target qualifying entrant identity")
-        roster.append({
-            "id": code, "name": name, "team_name": team,
-            "driverId": driver.get("driverId"), "code": driver.get("code"),
-            "permanentNumber": driver.get("permanentNumber"),
-        })
-    return sorted(roster, key=lambda row: row["id"])
-
-
-def _check_resolved_identities(loader, rows, aliases):
-    seen = set()
-    for row in rows:
-        driver = loader._resolve_row_driver(row, aliases)
-        if driver is not None:
-            identity = (_integer(row["round"]), driver)
-            if identity in seen:
-                raise CurrentSeasonDataError("Conflicting aliases in evaluation driver records")
-            seen.add(identity)
-
-
-def _constructor_standings(loader, year, round_number):
-    if round_number == 0:
-        return []
-    url = loader._with_pagination(
-        f"{loader.JOLPICA_BASE_URL}/{year}/{round_number}/constructorstandings.json", 0,
-    )
-    payload = loader._fetch_json(url)
-    loader._validate_payload_season(payload, year, url)
-    try:
-        root = payload["MRData"]
-        table = root["StandingsTable"]
-        if (_integer(table.get("season")) != year
-                or _integer(table.get("round")) != round_number):
-            raise ValueError("Wrong standings table cutoff")
-        lists = table["StandingsLists"]
-        if (not isinstance(lists, list) or len(lists) != 1
-                or not isinstance(lists[0], dict)
-                or _integer(lists[0].get("season")) != year
-                or _integer(lists[0].get("round")) != round_number):
-            raise ValueError("Wrong standings cutoff")
-        rows = lists[0]["ConstructorStandings"]
-        total = _integer(root.get("total"))
-        if (not isinstance(rows, list) or not rows or total != len(rows)
-                or total > 100 or _integer(root.get("offset")) != 0):
-            raise ValueError("Incomplete standings page")
-        ids, teams, aliases = set(), set(), set()
-        for row in rows:
-            constructor = row["Constructor"]
-            key, team = constructor["constructorId"], loader._row_team_id(row)
-            points = row["points"]
-            row_aliases = set(loader._constructor_map([row]))
-            if (not isinstance(key, str) or not key or team is None or key in ids
-                    or team in teams or aliases & row_aliases or isinstance(points, bool)
-                    or not math.isfinite(float(points))):
-                raise ValueError("Invalid constructor evidence")
-            ids.add(key)
-            teams.add(team)
-            aliases.update(row_aliases)
-    except (KeyError, TypeError, ValueError, OverflowError, AttributeError) as exc:
-        loader._mark_failed_url(url)
-        raise CurrentSeasonDataError(
-            f"Expected complete constructor standings for {year} round {round_number}"
-        ) from exc
-    return rows
 
 
 def _midranks(values):
@@ -633,7 +541,6 @@ def evaluate_qualifying_pace(
         targets = [loader._event_for_race(year, target_race)]
         if int(targets[0]["round"]) not in completed:
             raise ValueError("Evaluation requires a completed current-season target")
-    calendar_rounds = {int(event["round"]) for event in events}
     historical_q1 = (
         build_historical_q1_events(
             loader,
@@ -647,61 +554,28 @@ def evaluate_qualifying_pace(
     )
     folds = []
     for event in sorted(targets, key=lambda row: int(row["round"])):
-        target = int(event["round"])
-        target_rows = _unique_rows(loader, [row for row in qualifying
-                                           if _integer(row.get("round")) == target])
-        if not target_rows:
-            raise CurrentSeasonDataError(f"No target qualifying evidence for round {target}")
-        roster = _target_roster(loader, target_rows)
-        active, aliases = loader._build_active_driver_map(roster, {})
-        target_results = _unique_rows(loader, [row for row in results
-                                              if _integer(row.get("round")) == target])
-        matched_results = {loader._resolve_row_driver(row, aliases) for row in target_results}
-        matched_results.discard(None)
-        expected = max(len(active), len(target_results))
-        if not loader._near_complete(len(matched_results), expected):
-            raise CurrentSeasonDataError(f"Incomplete target entrant coverage for round {target}")
-        past_results = _unique_rows(loader, [row for row in results
-                                            if _integer(row.get("round")) in calendar_rounds
-                                            and _integer(row.get("round")) < target])
-        past_qualifying = _unique_rows(loader, [row for row in qualifying
-                                               if _integer(row.get("round")) in calendar_rounds
-                                               and _integer(row.get("round")) < target])
-        _check_resolved_identities(loader, past_results, aliases)
-        _check_resolved_identities(loader, past_qualifying, aliases)
-        for row in past_qualifying:
-            value = loader._row_qualifying_time(row)
-            if value is not None and not math.isfinite(value):
-                raise CurrentSeasonDataError("Non-finite historical qualifying pace")
-        for row in past_results:
-            _, value = loader._row_race_metric(row)
-            if value is not None and not math.isfinite(value):
-                raise CurrentSeasonDataError("Non-finite historical race pace")
-        result_ids = loader._round_driver_ids(past_results, aliases, qualifying=False)
-        qualifying_ids = loader._round_driver_ids(past_qualifying, aliases, qualifying=True)
-        eligible = sorted(round_number for round_number in result_ids
-                          if loader._near_complete(len(result_ids[round_number]), len(active))
-                          and loader._near_complete(len(qualifying_ids.get(round_number, set())),
-                                                    len(active)))
-        selected = eligible[-form_races:] if form_races else []
-        race_rows = [row for row in past_results if _integer(row["round"]) in selected]
-        quali_rows = [row for row in past_qualifying if _integer(row["round"]) in selected]
-        constructor_standings = _constructor_standings(loader, year, target - 1)
-        stats = loader._build_driver_stats(
-            year=year, target_event=event, roster=roster, driver_standings=[],
-            constructor_standings=constructor_standings,
-            race_rows=race_rows, quali_rows=quali_rows,
-            target_qualifying_rows=[], track_weight=0.0, form_weight=0.3, quali_weight=0.2,
+        assembled, observations = assemble_holdout_fold(
+            loader, year, event, events, results, qualifying, form_races=form_races,
         )
-        track = loader.create_track_from_stats(loader._track_stats_from_event(year, event))
-        drivers = loader.create_drivers_from_stats(stats)
-        cars = loader.create_cars_from_stats(stats)
+        target = assembled.metadata.target_round
+        roster = assembled.roster
+        aliases = assembled.aliases
+        stats = assembled.stats
+        track = assembled.track
+        drivers = assembled.drivers
+        cars = assembled.cars
+        constructor_standings = assembled.constructor_standings
+        race_rows = assembled.race_rows
+        quali_rows = assembled.quali_rows
         simulator = LapSimulator(np.random.default_rng(0))
-        labels = {loader._resolve_row_driver(row, aliases): _q1_time(row)
-                  for row in target_rows}
-        baseline_round = eligible[-1] if eligible else None
+        labels = {
+            loader._resolve_row_driver(row, aliases): _q1_time(row)
+            for row in observations.target_qualifying_rows
+        }
+        baseline_round = assembled.metadata.baseline_round
         previous = {loader._resolve_row_driver(row, aliases): _q1_time(row)
-                    for row in past_qualifying if _integer(row["round"]) == baseline_round}
+                    for row in observations.prior_qualifying_rows
+                    if _integer(row["round"]) == baseline_round}
         predictions = _qualifying_predictions(
             drivers, cars, stats, track, weather, simulator, labels, previous,
         )
@@ -718,10 +592,13 @@ def evaluate_qualifying_pace(
         obs = [row["observed_q1_seconds"] for row in scored]
         paired_obs = [row["observed_q1_seconds"] for row in paired]
         fold = {
-            "round": target, "race": event["race"], "entrants": len(active),
+            "round": target, "race": event["race"],
+            "entrants": assembled.metadata.coverage.qualifying_entrants,
             "status": "scored" if len(scored) >= 2 else "insufficient_q1_times",
-            "result_entrants": len(target_results), "matched_result_entrants": len(matched_results),
-            "form_rounds": selected, "standings_round": target - 1 or None,
+            "result_entrants": assembled.metadata.coverage.result_entrants,
+            "matched_result_entrants": assembled.metadata.coverage.matched_result_entrants,
+            "form_rounds": list(assembled.metadata.form_rounds),
+            "standings_round": assembled.metadata.standings_round,
             "baseline_round": baseline_round, "static_reference_lap_seconds": track.base_lap_time,
             "predictions": predictions,
             "model": _metrics([row["predicted_seconds"] for row in scored], obs),
