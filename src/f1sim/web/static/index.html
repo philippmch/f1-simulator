@@ -842,11 +842,11 @@ input:focus-visible {
   grid-column: 1 / -1;
 }
 
-.pit-summary-card, .pit-decision-summary-card, .strategy-summary-card {
+.pit-summary-card, .pit-decision-summary-card, .pit-plan-statistics-card, .strategy-summary-card {
   grid-column: 1 / -1;
 }
 
-.pit-summary-card table, .pit-decision-summary-card table, .strategy-summary-card table {
+.pit-summary-card table, .pit-decision-summary-card table, .pit-plan-statistics-card table, .strategy-summary-card table {
   min-width: 34rem;
 }
 
@@ -862,7 +862,11 @@ input:focus-visible {
 .pit-decision-driver summary { cursor: pointer; line-height: 1.5; }
 .pit-decision-driver table { font-size: 0.8rem; }
 .pit-decision-summary-card .inline-note { color: var(--text-secondary); }
-.strategy-sequence tbody th, .pit-decision-driver tbody th {
+.pit-plan-driver { margin: 12px 0; }
+.pit-plan-driver summary { cursor: pointer; line-height: 1.5; }
+.pit-plan-driver table { font-size: 0.8rem; }
+.pit-plan-statistics-card .inline-note { color: var(--text-secondary); }
+.strategy-sequence tbody th, .pit-decision-driver tbody th, .pit-plan-driver tbody th {
   text-transform: none;
   font-size: inherit;
   letter-spacing: normal;
@@ -4402,6 +4406,105 @@ function renderStrategyStatistics(statistics) {
     }).join('')}`;
 }
 
+function renderPitPlanStatistics(statistics, scenario) {
+  const missingSummary = () => {
+    const plans = pitPlansSnapshot(scenario);
+    if (plans === undefined) {
+      return '<div class="inline-note">Aggregate custom pit-plan outcomes are absent, and this saved result does not record whether custom plans were supplied. This can occur with legacy results.</div>';
+    }
+    if (plans === null || (typeof plans === 'object' && !Array.isArray(plans)
+        && Object.keys(plans).length === 0)) {
+      return '<div class="inline-note">Aggregate custom pit-plan outcomes were not recorded; this saved result used automatic strategy.</div>';
+    }
+    if (typeof plans !== 'object' || Array.isArray(plans)) {
+      return '<div class="inline-note">Aggregate custom pit-plan outcomes are unavailable because the saved plan input is malformed.</div>';
+    }
+    return '<div class="inline-note">Aggregate custom pit-plan outcomes were not recorded, although this saved result contains custom plan input.</div>';
+  };
+  if (!statistics || typeof statistics !== 'object' || Array.isArray(statistics)) {
+    return missingSummary();
+  }
+  if (statistics.status === 'invalid') {
+    return '<div class="inline-note">This result has an invalid pit-plan summary context. Aggregate counts are unavailable.</div>';
+  }
+  if (statistics.status === 'not_recorded') return missingSummary();
+  if (statistics.status !== 'available') {
+    return '<div class="inline-note">The saved pit-plan summary has an unrecognized status and cannot be displayed.</div>';
+  }
+
+  const recordedTrials = Number.isSafeInteger(statistics.recorded_trials)
+      && statistics.recorded_trials >= 0 ? statistics.recorded_trials : null;
+  if (recordedTrials === null || !Array.isArray(statistics.drivers)) {
+    return '<div class="inline-note">The saved pit-plan summary is incomplete or malformed. Coverage and instruction counts are not recorded.</div>';
+  }
+  if (!statistics.drivers.length) {
+    return '<div class="inline-note">No driver-level custom pit-plan outcomes were recorded.</div>';
+  }
+
+  const count = (value, maximum = recordedTrials) => Number.isSafeInteger(value)
+      && value >= 0 && (maximum === null || value <= maximum) ? String(value) : 'Not recorded';
+  return `<p class="inline-note">Coverage is shown per driver against all recorded trials. Instruction counts show recorded outcomes only; they do not rank strategies or predict performance.</p>
+    ${statistics.drivers.map(driver => {
+      if (!driver || typeof driver !== 'object' || Array.isArray(driver)) {
+        return '<p class="inline-note">A driver summary was malformed and is not displayed.</p>';
+      }
+      const driverId = escapeHtml(typeof driver.driver_id === 'string' && driver.driver_id.trim()
+        ? driver.driver_id : 'Not recorded');
+      const coverageValues = [driver.valid_histories, driver.missing_histories, driver.invalid_histories];
+      const coverageValuesValid = coverageValues.every(value => Number.isSafeInteger(value)
+        && value >= 0 && value <= recordedTrials);
+      const coverageTotal = coverageValuesValid
+        ? coverageValues.reduce((total, value) => total + value, 0) : null;
+      const coverageRecorded = coverageValuesValid && Number.isSafeInteger(coverageTotal)
+        && coverageTotal === recordedTrials;
+      const valid = coverageRecorded ? count(driver.valid_histories) : 'Not recorded';
+      const missing = coverageRecorded ? count(driver.missing_histories) : 'Not recorded';
+      const invalid = coverageRecorded ? count(driver.invalid_histories) : 'Not recorded';
+      const coverage = `Coverage: ${valid} valid, ${missing} missing, ${invalid} invalid of ${recordedTrials} recorded trials.`;
+      const instructions = Array.isArray(driver.instructions) ? driver.instructions : null;
+      const noElectiveStops = driver.no_elective_stops === true
+        && instructions !== null && instructions.length === 0;
+      const instructionRows = instructions?.map(instruction => {
+        if (!instruction || typeof instruction !== 'object' || Array.isArray(instruction)) {
+          return '<tr><th scope="row">Not recorded</th><td>Not recorded</td><td>Not recorded</td><td>Not recorded</td><td>Not recorded</td><td>Not recorded</td></tr>';
+        }
+        const lap = Number.isSafeInteger(instruction.lap) && instruction.lap >= 1
+          ? `L${instruction.lap}` : 'Not recorded';
+        const compound = pitPlanCompoundDisplay(instruction.compound);
+        const outcomes = [instruction.executed, instruction.overridden,
+          instruction.skipped, instruction.not_reached];
+        const outcomesValid = coverageRecorded && outcomes.every(value => Number.isSafeInteger(value)
+          && value >= 0 && value <= driver.valid_histories);
+        const outcomeTotal = outcomesValid ? outcomes.reduce((total, value) => total + value, 0) : null;
+        const outcomesRecorded = outcomesValid && Number.isSafeInteger(outcomeTotal)
+          && outcomeTotal === driver.valid_histories;
+        return `<tr><th scope="row">${lap}</th><td>${compound}</td>
+          <td>${outcomesRecorded ? count(instruction.executed, driver.valid_histories) : 'Not recorded'}</td>
+          <td>${outcomesRecorded ? count(instruction.overridden, driver.valid_histories) : 'Not recorded'}</td>
+          <td>${outcomesRecorded ? count(instruction.skipped, driver.valid_histories) : 'Not recorded'}</td>
+          <td>${outcomesRecorded ? count(instruction.not_reached, driver.valid_histories) : 'Not recorded'}</td></tr>`;
+      }).join('');
+      const outcome = noElectiveStops
+        ? '<p class="inline-note">No elective instructions; compulsory stops may still occur.</p>'
+        : instructions === null
+          ? '<p class="inline-note">Instruction outcome details were not recorded.</p>'
+          : instructions.length
+            ? `<div class="results-table" tabindex="0" role="region" aria-label="${driverId} pit-plan outcomes">
+                <table class="matrix-table"><caption>Instruction outcomes across valid histories</caption>
+                  <thead><tr><th scope="col">Requested lap</th><th scope="col">Compound</th>
+                    <th scope="col">Executed</th><th scope="col">Overridden</th>
+                    <th scope="col">Skipped</th><th scope="col">Not reached</th></tr></thead>
+                  <tbody>${instructionRows}</tbody>
+                </table></div>`
+            : '<p class="inline-note">No instruction outcomes were recorded for this driver.</p>';
+      const planLabel = noElectiveStops ? 'No elective instructions' : 'Custom pit-plan outcomes';
+      return `<details class="pit-plan-driver">
+        <summary>${driverId}: ${planLabel} · ${coverage}</summary>
+        ${outcome}
+      </details>`;
+    }).join('')}`;
+}
+
 function renderRaceDistanceStatistics(stats) {
   if (!stats || !Number.isInteger(stats.recorded_races) || stats.recorded_races <= 0) {
     return '<div class="inline-note">Race distance was not recorded for this run.</div>';
@@ -4600,6 +4703,11 @@ function renderStats() {
       <div class="stat-card pit-decision-summary-card" id="pitDecisionStatistics">
         <div class="stat-card-title">Paid-stop decision reasons</div>
         ${renderPitDecisionStatistics(scenario.pit_decision_statistics)}
+      </div>
+
+      <div class="stat-card pit-plan-statistics-card" id="pitPlanStatistics">
+        <div class="stat-card-title">Custom pit-plan outcomes across trials</div>
+        ${renderPitPlanStatistics(scenario.pit_plan_statistics, scenario)}
       </div>
 
       <div class="stat-card strategy-summary-card" id="strategyStatistics">

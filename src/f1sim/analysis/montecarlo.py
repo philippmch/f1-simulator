@@ -322,6 +322,139 @@ class SimulationResults:
             "lapped_finisher_rate": lapped / comparable if comparable else None,
         }
 
+    def get_pit_plan_statistics(self) -> dict:
+        """Summarize recorded outcomes for each saved custom pit plan.
+
+        A history contributes instruction counts only when every requested
+        lap/compound pair is present in order and every status is recognized.
+        Missing or malformed histories stay in separate trial counts.
+        """
+        races = getattr(self, "race_results", None)
+        try:
+            recorded_trials = len(races)
+        except (TypeError, AttributeError):
+            recorded_trials = 0
+
+        snapshot = getattr(self, "input_snapshot", None)
+        if snapshot is None:
+            return {
+                "status": "not_recorded", "recorded_trials": recorded_trials,
+                "drivers": [],
+            }
+        if not isinstance(snapshot, dict):
+            return {"status": "invalid", "recorded_trials": recorded_trials, "drivers": []}
+        if "pit_plans" not in snapshot:
+            return {
+                "status": "not_recorded", "recorded_trials": recorded_trials,
+                "drivers": [],
+            }
+
+        raw_plans = snapshot["pit_plans"]
+        if not isinstance(raw_plans, dict):
+            return {"status": "invalid", "recorded_trials": recorded_trials, "drivers": []}
+        try:
+            plans = _validate_pit_plans(raw_plans)
+        except (TypeError, ValueError):
+            return {"status": "invalid", "recorded_trials": recorded_trials, "drivers": []}
+
+        drivers = []
+        for driver_id, plan in plans.items():
+            driver_summary = {
+                "driver_id": driver_id,
+                "no_elective_stops": not plan,
+                "valid_histories": 0,
+                "missing_histories": 0,
+                "invalid_histories": 0,
+                "instructions": [
+                    {
+                        "lap": instruction["lap"],
+                        "compound": instruction["compound"],
+                        "executed": 0,
+                        "overridden": 0,
+                        "skipped": 0,
+                        "not_reached": 0,
+                    }
+                    for instruction in plan
+                ],
+            }
+            drivers.append(driver_summary)
+
+        if not isinstance(races, (list, tuple)):
+            for driver_summary in drivers:
+                driver_summary["invalid_histories"] = recorded_trials
+            return {
+                "status": "available", "recorded_trials": recorded_trials,
+                "drivers": drivers,
+            }
+
+        recognized = {"executed", "overridden", "skipped", "not_reached"}
+        for race in races:
+            for driver_summary, plan in zip(drivers, plans.values()):
+                if not isinstance(race, (list, tuple)):
+                    driver_summary["invalid_histories"] += 1
+                    continue
+
+                matching_rows = []
+                for row in race:
+                    row_driver_id = (
+                        row.get("driver_id") if isinstance(row, dict)
+                        else getattr(row, "driver_id", None)
+                    )
+                    if row_driver_id == driver_summary["driver_id"]:
+                        matching_rows.append(row)
+                if not matching_rows:
+                    driver_summary["missing_histories"] += 1
+                    continue
+                if len(matching_rows) != 1:
+                    driver_summary["invalid_histories"] += 1
+                    continue
+
+                row = matching_rows[0]
+                history = (
+                    row.get("pit_plan_history") if isinstance(row, dict)
+                    else getattr(row, "pit_plan_history", None)
+                )
+                if history is None:
+                    driver_summary["missing_histories"] += 1
+                    continue
+                if not isinstance(history, list) or len(history) != len(plan):
+                    driver_summary["invalid_histories"] += 1
+                    continue
+
+                statuses = []
+                valid = True
+                for instruction, outcome in zip(plan, history):
+                    if not isinstance(outcome, dict):
+                        valid = False
+                        break
+                    lap = outcome.get("lap")
+                    compound = outcome.get("compound")
+                    status = outcome.get("status")
+                    if (
+                        type(lap) is not int
+                        or lap != instruction["lap"]
+                        or compound != instruction["compound"]
+                        or not isinstance(status, str)
+                        or status not in recognized
+                    ):
+                        valid = False
+                        break
+                    statuses.append(status)
+                if not valid:
+                    driver_summary["invalid_histories"] += 1
+                    continue
+
+                driver_summary["valid_histories"] += 1
+                for instruction_summary, status in zip(
+                    driver_summary["instructions"], statuses,
+                ):
+                    instruction_summary[status] += 1
+
+        return {
+            "status": "available", "recorded_trials": recorded_trials,
+            "drivers": drivers,
+        }
+
     def get_suspension_statistics(self) -> dict[str, int | float | None]:
         """Summarize globally recorded suspension duration once per race.
 

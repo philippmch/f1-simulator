@@ -104,34 +104,68 @@ def _pit_plan_history_html(result: SimulationResults, scenario: str) -> str:
         return ""
     listed = set(plans)
     rows = []
-    for simulation, race in enumerate(result.race_results, start=1):
+    races = getattr(result, "race_results", [])
+    if not isinstance(races, (list, tuple)):
+        return f'<p>No individual pit-plan histories are available for {_text(scenario)}.</p>'
+    for simulation, race in enumerate(races, start=1):
+        if not isinstance(race, (list, tuple)):
+            continue
         for row in race:
-            if row.driver_id not in listed:
+            driver_id = row.get("driver_id") if isinstance(row, dict) else getattr(
+                row, "driver_id", None,
+            )
+            try:
+                is_listed = driver_id in listed
+            except TypeError:
+                is_listed = False
+            if not is_listed:
                 continue
-            history = getattr(row, "pit_plan_history", None)
+            history = row.get("pit_plan_history") if isinstance(row, dict) else getattr(
+                row, "pit_plan_history", None,
+            )
             if history is None:
                 rows.append(
-                    f"<tr><td>{simulation}</td><td>{_text(row.driver_id)}</td>"
+                    f"<tr><td>{simulation}</td><td>{_text(driver_id)}</td>"
                     '<td colspan="6">Not recorded</td></tr>'
                 )
                 continue
-            if not history:
+            if not isinstance(history, list):
                 rows.append(
-                    f"<tr><td>{simulation}</td><td>{_text(row.driver_id)}</td>"
-                    '<td colspan="6">Explicit no elective stops</td></tr>'
+                    f"<tr><td>{simulation}</td><td>{_text(driver_id)}</td>"
+                    '<td colspan="6">Malformed history</td></tr>'
                 )
+                continue
+            if not history:
+                configured_plan = plans[driver_id]
+                if isinstance(configured_plan, list) and not configured_plan:
+                    rows.append(
+                        f"<tr><td>{simulation}</td><td>{_text(driver_id)}</td>"
+                        '<td colspan="6">Explicit no elective stops</td></tr>'
+                    )
+                elif isinstance(configured_plan, list):
+                    rows.append(
+                        f"<tr><td>{simulation}</td><td>{_text(driver_id)}</td>"
+                        '<td colspan="6">Incomplete history; '
+                        'requested instructions are missing</td></tr>'
+                    )
+                else:
+                    rows.append(
+                        f"<tr><td>{simulation}</td><td>{_text(driver_id)}</td>"
+                        '<td colspan="6">Invalid saved plan</td></tr>'
+                    )
                 continue
             for record in history:
                 if not isinstance(record, dict):
                     rows.append(
-                        f"<tr><td>{simulation}</td><td>{_text(row.driver_id)}</td>"
+                        f"<tr><td>{simulation}</td><td>{_text(driver_id)}</td>"
                         '<td colspan="6">Malformed history record</td></tr>'
                     )
                     continue
                 raw_status = record.get("status")
                 status = (
-                    "—" if raw_status is None else
-                    _PIT_PLAN_STATUS_LABELS.get(raw_status, raw_status)
+                    "—" if raw_status is None else _PIT_PLAN_STATUS_LABELS.get(
+                        raw_status, raw_status,
+                    ) if isinstance(raw_status, str) else str(raw_status)
                 )
                 requested_lap = record.get("lap", "Not recorded")
                 requested_text = (
@@ -139,13 +173,15 @@ def _pit_plan_history_html(result: SimulationResults, scenario: str) -> str:
                     and not isinstance(requested_lap, bool) else str(requested_lap)
                 )
                 reason = record.get("reason")
-                reason_text = "—" if reason is None else _PIT_PLAN_REASON_LABELS.get(
-                    reason, reason,
+                reason_text = (
+                    "—" if reason is None else _PIT_PLAN_REASON_LABELS.get(
+                        reason, reason,
+                    ) if isinstance(reason, str) else str(reason)
                 )
                 actual_compound = record.get("actual_compound")
                 actual_set_id = record.get("actual_set_id")
                 rows.append(
-                    f"<tr><td>{simulation}</td><td>{_text(row.driver_id)}</td>"
+                    f"<tr><td>{simulation}</td><td>{_text(driver_id)}</td>"
                     f"<td>{_text(requested_text)}</td>"
                     f"<td>{_text(record.get('compound', 'Not recorded'))}</td>"
                     f"<td>{_text(status)}</td>"
@@ -168,6 +204,60 @@ def _pit_plan_history_html(result: SimulationResults, scenario: str) -> str:
         '<th scope="col">Status</th><th scope="col">Reason</th>'
         '<th scope="col">Actual compound</th><th scope="col">Actual set</th>'
         '</tr></thead><tbody>' + "".join(rows) + '</tbody></table></div>'
+    )
+
+
+def _pit_plan_statistics_html(result: SimulationResults, scenario: str) -> str:
+    """Render aggregate custom-plan coverage and status counts without raw labels."""
+    statistics = result.get_pit_plan_statistics()
+    status = statistics["status"]
+    if status == "not_recorded":
+        return '<p>Custom pit-plan outcomes were not recorded for this run.</p>'
+    if status == "invalid":
+        return '<p>Saved custom pit-plan inputs are invalid; outcomes cannot be summarized.</p>'
+
+    recorded = statistics["recorded_trials"]
+    unit = "trial" if recorded == 1 else "trials"
+    if not statistics["drivers"]:
+        return (
+            f'<p>No driver-specific custom pit plans were configured for {_text(scenario)}. '
+            f'{recorded} recorded {unit}.</p>'
+        )
+
+    rows = []
+    for driver in statistics["drivers"]:
+        coverage = (
+            f'{driver["valid_histories"]} valid, {driver["missing_histories"]} missing, '
+            f'{driver["invalid_histories"]} invalid of {recorded} recorded {unit}'
+        )
+        if driver["no_elective_stops"]:
+            rows.append(
+                f'<tr><th scope="row">{_text(driver["driver_id"])}</th>'
+                f'<td>{_text(coverage)}</td><td colspan="5">No elective stops configured</td></tr>'
+            )
+            continue
+        for instruction in driver["instructions"]:
+            counts = "".join(
+                f'<td>{instruction[key]}</td>'
+                for key in ("executed", "overridden", "skipped", "not_reached")
+            )
+            rows.append(
+                f'<tr><th scope="row">{_text(driver["driver_id"])}</th>'
+                f'<td>{_text(coverage)}</td>'
+                f'<td>{instruction["lap"]} (own lap): '
+                f'{_text(instruction["compound"])}</td>{counts}</tr>'
+            )
+    return (
+        f'<p>Instruction counts use complete valid histories only. Coverage is '
+        f'per driver out of {recorded} recorded {unit}.</p>'
+        '<div class="table-wrap pit-plan-statistics" tabindex="0" role="region" '
+        f'aria-label="{_text(scenario)} aggregate custom pit-plan outcomes">'
+        '<table><caption>Custom pit-plan outcomes for ' + _text(scenario) + '</caption>'
+        '<thead><tr><th scope="col">Driver</th><th scope="col">History coverage</th>'
+        '<th scope="col">Requested instruction</th><th scope="col">Executed</th>'
+        '<th scope="col">Overridden</th><th scope="col">Skipped</th>'
+        '<th scope="col">Not reached</th></tr></thead><tbody>'
+        + "".join(rows) + '</tbody></table></div>'
     )
 
 
@@ -628,14 +718,19 @@ def render_comparison_report(
         if any(getattr(row, 'tire_set_history', None) is not None
                for race in result.race_results for row in race)
     )
-    plan_sections = ''.join(
-        f'<details><summary>{_text(name)}</summary>'
-        + _pit_plan_history_html(result, name) + '</details>'
-        for name, result in scenario_results.items()
-        if isinstance(result.input_snapshot, dict)
-        and isinstance(result.input_snapshot.get("pit_plans"), dict)
-        and result.input_snapshot.get("pit_plans")
-    )
+    plan_sections = []
+    for name, result in scenario_results.items():
+        aggregate = _pit_plan_statistics_html(result, name)
+        if result.get_pit_plan_statistics()["status"] == "not_recorded":
+            continue
+        history = _pit_plan_history_html(result, name)
+        plan_sections.append(
+            f'<section class="pit-plan-scenario"><h3>{_text(name)}</h3>{aggregate}'
+            f'<details><summary>Trial-by-trial pit-plan history</summary>'
+            f'{history or "<p>No individual pit-plan history was recorded.</p>"}'
+            '</details></section>'
+        )
+    plan_sections = ''.join(plan_sections)
     return """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

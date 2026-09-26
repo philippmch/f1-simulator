@@ -91,6 +91,21 @@ stop plan, while null means no custom plan was recorded for that driver.
 Paid-stop totals and physical tyre ledgers remain separate records of what
 actually happened.
 
+The dashboard and exported reports also summarize instruction outcomes across
+recorded trials. Each saved driver instruction has counts for executed,
+overridden, skipped and not reached. Coverage shows valid, missing and invalid
+histories separately; missing evidence never counts as an instruction that was
+not reached. A duplicate driver row or incomplete, duplicated or mismatched
+instruction history makes that driver-trial invalid rather than multiplying
+its counts. Only complete valid histories contribute instruction outcomes.
+
+The denominator is the number of recorded trials, not the requested simulation
+count. Explicit empty plans retain their own history coverage and mean no
+elective instructions, not no compulsory stops. Legacy results without saved
+plan context remain unknown. JSON exports include these counts under
+`pit_plan_statistics`; detailed per-trial histories remain available. These
+frequencies describe how the model executed the requests, not strategy quality.
+
 ## Comparing with automatic strategy in the dashboard
 
 After entering custom plans, enable **Compare with automatic strategy** to run

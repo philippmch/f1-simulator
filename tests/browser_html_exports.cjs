@@ -170,9 +170,21 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       }
     }
     await page.goto('http://f1sim.test/plans.html');
-    await page.locator('details > summary').filter({hasText: /^Custom plan$/}).click();
-    await page.locator('details > summary').filter({hasText: /^No elective stops$/}).click();
-    const planHistory = page.getByRole('region', {name: 'Custom plan custom pit-plan history', exact: true});
+    const customPlanSection = page.locator('.pit-plan-scenario').filter({
+      has: page.locator('h3', {hasText: /^Custom plan$/}),
+    });
+    const aggregatePlan = customPlanSection.getByRole('region', {
+      name: 'Custom plan aggregate custom pit-plan outcomes', exact: true,
+    });
+    const aggregateText = await aggregatePlan.innerText();
+    assert(aggregateText.includes('1 valid, 0 missing, 0 invalid of 1 recorded trial'));
+    assert.equal(await aggregatePlan.locator('tbody tr').count(), 4);
+    assert.deepEqual(await aggregatePlan.locator('tbody tr').first().locator('td').allTextContents(),
+      ['1 valid, 0 missing, 0 invalid of 1 recorded trial', '2 (own lap): hard', '1', '0', '0', '0']);
+    await customPlanSection.locator('details > summary').click();
+    const planHistory = customPlanSection.getByRole('region', {
+      name: 'Custom plan custom pit-plan history', exact: true,
+    });
     const planText = await planHistory.innerText();
     for (const label of ['Executed', 'Overridden', 'Skipped', 'Not reached',
       '2 (own lap)', '5 (own lap)', 'Requested compound unavailable', fixture.driver,
@@ -183,7 +195,17 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       const cells = await planHistory.locator('tbody tr').nth(index).locator('td').allTextContents();
       assert.deepEqual(cells.slice(-2), ['—', '—']);
     }
-    const heldHistory = page.getByRole('region', {name: 'No elective stops custom pit-plan history', exact: true});
+    const noElectiveSection = page.locator('.pit-plan-scenario').filter({
+      has: page.locator('h3', {hasText: /^No elective stops$/}),
+    });
+    const aggregateNoElective = noElectiveSection.getByRole('region', {
+      name: 'No elective stops aggregate custom pit-plan outcomes', exact: true,
+    });
+    assert((await aggregateNoElective.innerText()).includes('No elective stops configured'));
+    await noElectiveSection.locator('details > summary').click();
+    const heldHistory = noElectiveSection.getByRole('region', {
+      name: 'No elective stops custom pit-plan history', exact: true,
+    });
     assert((await heldHistory.innerText()).includes('Explicit no elective stops'));
     assert.equal(await page.getByRole('region', {name: 'Legacy custom pit-plan history', exact: true}).count(), 0);
     assert.equal(await page.locator('script, img, svg').count(), 0);

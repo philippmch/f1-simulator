@@ -378,6 +378,7 @@ class Exporter:
             "pit_stop_details": self._pit_stop_details(results),
             "tire_set_ledgers": self._tire_set_ledgers(results),
             "pit_plan_histories": self._pit_plan_histories(results),
+            "pit_plan_statistics": results.get_pit_plan_statistics(),
             "metadata": {
                 "num_simulations": results.num_simulations,
                 "track_name": results.track_name,
@@ -487,6 +488,7 @@ class Exporter:
                 "pit_stop_details": self._pit_stop_details(results),
                 "tire_set_ledgers": self._tire_set_ledgers(results),
                 "pit_plan_histories": self._pit_plan_histories(results),
+                "pit_plan_statistics": results.get_pit_plan_statistics(),
                 "strategy_statistics": results.get_strategy_statistics(),
                 "simulation_inputs": results.input_snapshot,
                 "team_championship_projection": results.get_team_championship_projection(),
@@ -555,9 +557,14 @@ class Exporter:
             + (f"@{starting_ages[driver]}" if starting_ages.get(driver) else "")
             for driver, compound in sorted(starting_tires.items())
         ) or "Automatic")
-        from f1sim.output.comparison import _pit_plan_history_html, _pit_plans
+        from f1sim.output.comparison import (
+            _pit_plan_history_html,
+            _pit_plan_statistics_html,
+            _pit_plans,
+        )
 
         pit_plan_text = escape(_pit_plans(results))
+        pit_plan_statistics = _pit_plan_statistics_html(results, "run")
         pit_plan_history = _pit_plan_history_html(results, "run")
         distance = results.get_race_distance_statistics()
         recorded = distance["recorded_races"]
@@ -663,7 +670,9 @@ class Exporter:
     </div>
     <div class="card" id="pit-plan-history"><h2>Custom pit-plan execution</h2>
       <p>Requested laps are each driver's own lap. Statuses describe the recorded
-      instruction outcome; missing history is not inferred.</p>
+      instruction outcome; missing history is not inferred. Aggregate counts use
+      complete valid histories, with coverage shown against recorded trials.</p>
+      {pit_plan_statistics}
       {pit_plan_history or '<p>No custom pit-plan history was recorded.</p>'}
     </div>
     <div class="card" id="tire-set-ledgers"><h2>Race tyre sets</h2>

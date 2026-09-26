@@ -441,6 +441,9 @@ def _summarize_scenario_results(
                 results, "get_pit_decision_statistics", default={},
             ) or {},
             "strategy_statistics": _safe_call(results, "get_strategy_statistics", default={}) or {},
+            "pit_plan_statistics": _safe_call(
+                results, "get_pit_plan_statistics", default={}
+            ) or {},
             "race_distance_statistics": _safe_call(
                 results, "get_race_distance_statistics", default={},
             ) or {},

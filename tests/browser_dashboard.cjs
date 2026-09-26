@@ -704,6 +704,110 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       delete window.savedStrategyStatistics;
       renderStats();
     });
+    const pitPlanAggregateDraft = await pitPlanInput.inputValue();
+    await page.evaluate(() => {
+      const scenario = getScenarioEntry().data;
+      window.savedPitPlanAggregateState = {
+        hadStatistics: Object.hasOwn(scenario, 'pit_plan_statistics'),
+        statistics: scenario.pit_plan_statistics,
+        hadInputs: Object.hasOwn(scenario, 'simulation_inputs'),
+        inputs: scenario.simulation_inputs,
+        request: simResults.request,
+      };
+      scenario.simulation_inputs = {...(scenario.simulation_inputs || {}), pit_plans: {
+        S00: [{lap: 18, compound: 'hard'}], S01: [],
+      }};
+      scenario.pit_plan_statistics = {
+        status: 'available', recorded_trials: 10,
+        drivers: [
+          {driver_id: '<img src=x onerror="window.planInjected=true">', no_elective_stops: false,
+            valid_histories: 7, missing_histories: 2, invalid_histories: 1,
+            instructions: [
+              {lap: 18, compound: 'hard', executed: 3, overridden: 1, skipped: 2, not_reached: 1},
+              {lap: 36, compound: '<svg onload=alert(1)>', executed: '3', overridden: -1,
+                skipped: 11, not_reached: null},
+              {lap: 48, compound: 'soft', executed: 1, overridden: 1, skipped: 1, not_reached: 1},
+              {lap: 56, compound: 'hard', executed: {valueOf: 'x', toString: 'x'},
+                overridden: 1, skipped: 1, not_reached: 4},
+            ]},
+          {driver_id: 'S01', no_elective_stops: true, valid_histories: 10,
+            missing_histories: 0, invalid_histories: 0, instructions: []},
+          {driver_id: 'S02', no_elective_stops: false,
+            valid_histories: {valueOf: 'x', toString: 'x'}, missing_histories: 0, invalid_histories: 10,
+            instructions: [{lap: 2, compound: 'soft', executed: 1, overridden: 1,
+              skipped: 1, not_reached: 1}]},
+        ],
+      };
+      renderStats();
+    });
+    const pitPlanStatistics = page.locator('#pitPlanStatistics');
+    const hostilePlanDriver = pitPlanStatistics.locator('details').first();
+    assert((await hostilePlanDriver.locator('summary').innerText())
+      .includes('Coverage: 7 valid, 2 missing, 1 invalid of 10 recorded trials.'));
+    assert.equal(await pitPlanStatistics.locator('img, svg').count(), 0);
+    await hostilePlanDriver.locator('summary').click();
+    assert.equal(await hostilePlanDriver.locator('tbody tr').count(), 4);
+    assert.deepEqual(await hostilePlanDriver.locator('tbody tr').first().locator('td').allTextContents(),
+      ['Hard', '3', '1', '2', '1']);
+    assert((await hostilePlanDriver.innerText()).includes('<Svg Onload=Alert(1)>'));
+    assert.deepEqual(await hostilePlanDriver.locator('tbody tr').nth(1).locator('td').allTextContents(),
+      ['<Svg Onload=Alert(1)>', 'Not recorded', 'Not recorded', 'Not recorded', 'Not recorded']);
+    assert.deepEqual(await hostilePlanDriver.locator('tbody tr').nth(2).locator('td').allTextContents(),
+      ['Soft', 'Not recorded', 'Not recorded', 'Not recorded', 'Not recorded']);
+    assert.deepEqual(await hostilePlanDriver.locator('tbody tr').nth(3).locator('td').allTextContents(),
+      ['Hard', 'Not recorded', 'Not recorded', 'Not recorded', 'Not recorded']);
+    const noElectiveDriver = pitPlanStatistics.locator('details').nth(1);
+    assert((await noElectiveDriver.locator('summary').innerText()).includes('No elective instructions'));
+    assert((await noElectiveDriver.locator('summary').innerText())
+      .includes('Coverage: 10 valid, 0 missing, 0 invalid of 10 recorded trials.'));
+    await noElectiveDriver.locator('summary').click();
+    assert((await noElectiveDriver.innerText()).includes('compulsory stops may still occur'));
+    assert((await pitPlanStatistics.locator('details').nth(2).locator('summary').innerText())
+      .includes('Coverage: Not recorded valid, Not recorded missing, Not recorded invalid of 10 recorded trials.'));
+    await pitPlanInput.fill('S00=2:medium');
+    await page.evaluate(() => renderStats());
+    assert((await pitPlanStatistics.innerText()).includes('Coverage: 7 valid, 2 missing, 1 invalid of 10 recorded trials.'));
+    await page.evaluate(() => {
+      const scenario = getScenarioEntry().data;
+      delete scenario.pit_plan_statistics;
+      scenario.simulation_inputs = {...(scenario.simulation_inputs || {}), pit_plans: null};
+      renderStats();
+    });
+    assert((await pitPlanStatistics.innerText()).includes('used automatic strategy'));
+    await page.evaluate(() => {
+      const scenario = getScenarioEntry().data;
+      scenario.pit_plan_statistics = {status: 'not_recorded'};
+      scenario.simulation_inputs = {...(scenario.simulation_inputs || {}), pit_plans: {
+        S00: [{lap: 18, compound: 'hard'}],
+      }};
+      renderStats();
+    });
+    assert((await pitPlanStatistics.innerText()).includes('although this saved result contains custom plan input'));
+    await page.evaluate(() => {
+      const scenario = getScenarioEntry().data;
+      delete scenario.pit_plan_statistics;
+      delete scenario.simulation_inputs.pit_plans;
+      simResults.request = {};
+      renderStats();
+    });
+    assert((await pitPlanStatistics.innerText()).includes('This can occur with legacy results'));
+    await page.evaluate(() => {
+      getScenarioEntry().data.pit_plan_statistics = {status: 'invalid'};
+      renderStats();
+    });
+    assert((await pitPlanStatistics.innerText()).includes('invalid pit-plan summary context'));
+    await page.evaluate(() => {
+      const scenario = getScenarioEntry().data;
+      const saved = window.savedPitPlanAggregateState;
+      if (saved.hadStatistics) scenario.pit_plan_statistics = saved.statistics;
+      else delete scenario.pit_plan_statistics;
+      if (saved.hadInputs) scenario.simulation_inputs = saved.inputs;
+      else delete scenario.simulation_inputs;
+      simResults.request = saved.request;
+      delete window.savedPitPlanAggregateState;
+      renderStats();
+    });
+    await pitPlanInput.fill(pitPlanAggregateDraft);
     assert.equal(await page.locator('#pitStopStatistics tbody tr').count(),
       Object.keys(pitStatistics).length);
     await page.locator('#pitLossDetails summary').focus();
