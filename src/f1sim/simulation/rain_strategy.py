@@ -579,6 +579,24 @@ def _remember_transition(key, value):
             _transition_suffixes.popitem(last=False)
 
 
+def _transition_stop_eligibility_row(surfaces, critical, compound, left, dry, damp):
+    """Return exact stop eligibility for one compound and remaining budget state."""
+    rain_compound = compound in (TireCompound.INTERMEDIATE, TireCompound.WET)
+    row = []
+    for offset, surface in enumerate(surfaces):
+        if critical[offset]:
+            row.append(True)
+        elif left <= 0:
+            row.append(False)
+        elif rain_compound or surface.track_wetness > .3:
+            row.append(True)
+        else:
+            limit = (dry if surface.track_wetness < .08 and surface.rain_intensity < .15
+                     else damp)
+            row.append(limit is None or limit > 0)
+    return tuple(row)
+
+
 @lru_cache(maxsize=256)
 def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
                      modifier, aero, physical, dry_budget, damp_budget, intervals=None, gaps=None,
@@ -616,14 +634,17 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
     def legal(mask):
         return bool(mask & 8) or (mask & 7).bit_count() >= 2
 
-    def may_stop(offset, compound, left, dry, damp):
-        if critical[compound][offset]:
-            return True
-        limit = dry if (surfaces[offset].track_wetness < .08
-                        and surfaces[offset].rain_intensity < .15) else damp
-        return left > 0 and (compound in (TireCompound.INTERMEDIATE, TireCompound.WET)
-                             or surfaces[offset].track_wetness > .3
-                             or limit is None or limit > 0)
+    eligibility_rows = {}
+
+    def stop_eligibility(compound, left, dry, damp):
+        key = (compound, left, dry, damp)
+        row = eligibility_rows.get(key)
+        if row is None:
+            row = _transition_stop_eligibility_row(
+                surfaces, critical[compound], compound, left, dry, damp,
+            )
+            eligibility_rows[key] = row
+        return row
 
     def cache_key(state):
         offset, compound, left, dry, damp, mask = state
@@ -646,8 +667,9 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
         next_left, next_dry, next_damp = max(0, left - 1), reduced(dry), reduced(damp)
         # Keeping this same set cannot change either its used-compound mask or
         # the remaining stop allowances. Only the surface eligibility varies.
+        allowed_by_offset = stop_eligibility(compound, left, dry, damp)
         for offset in range(start + 1, horizon):
-            allowed = may_stop(offset, compound, left, dry, damp)
+            allowed = allowed_by_offset[offset]
             for candidate in candidates[offset]:
                 if (not critical[candidate][offset] and (
                     allowed or (not compliant and not mask & bits[candidate])
@@ -716,10 +738,13 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
 
     wait += first(retained_json, tire_age, gaps[0] if gaps else None)
     pit, compound = inf, None
-    if may_stop(0, retained.compound, budget, dry_budget, damp_budget) or not legal(used_mask):
+    current_stop_allowed = stop_eligibility(
+        retained.compound, budget, dry_budget, damp_budget,
+    )[0]
+    if current_stop_allowed or not legal(used_mask):
         for candidate in candidates[0]:
             if critical[candidate][0] or (
-                not may_stop(0, retained.compound, budget, dry_budget, damp_budget)
+                not current_stop_allowed
                 and (legal(used_mask) or used_mask & bits[candidate])
             ):
                 continue

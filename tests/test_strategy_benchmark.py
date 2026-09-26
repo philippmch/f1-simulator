@@ -1,5 +1,6 @@
 """The benchmark compares outcomes independently of process cache warmth."""
 
+import json
 import runpy
 from pathlib import Path
 
@@ -53,10 +54,49 @@ def test_explicit_finite_opening_matches_a_physical_set(script, scenario, compou
 
 def test_default_opening_keeps_existing_unlimited_ages(script):
     result = script["benchmark"](drivers=3, laps=3, trials=1)
+    assert result["benchmark_version"] == 3
+    assert result["change_probability"] == 0.0
     assert result["inventory"] == "unlimited"
     assert result["opening"] == "explicit"
     assert result["tire_inventory"] is None
     assert result["starting_tire_ages"] == {"D00": 0, "D01": 6, "D02": 12}
+
+
+@pytest.mark.parametrize("probability", [0, .35, 1])
+def test_change_probability_is_forwarded_to_weather(script, monkeypatch, probability):
+    globals_ = script["benchmark"].__globals__
+    original_weather = globals_["Weather"]
+    observed = []
+
+    def capture_weather(*args, **kwargs):
+        weather = original_weather(*args, **kwargs)
+        observed.append(weather.change_probability)
+        return weather
+
+    monkeypatch.setitem(globals_, "Weather", capture_weather)
+    result = script["benchmark"](drivers=1, laps=2, trials=1,
+                                 change_probability=probability)
+    assert observed == [float(probability)]
+    assert result["change_probability"] == float(probability)
+
+
+def test_evolving_weather_benchmark_is_reproducible(script):
+    options = dict(engine="standard", scenario="dry", drivers=2, laps=6,
+                   trials=2, seed=17, change_probability=.4)
+    first = script["benchmark"](**options)
+    second = script["benchmark"](**options)
+    assert first["outcome_sha256"] == second["outcome_sha256"]
+    assert first["change_probability"] == .4
+
+
+@pytest.mark.parametrize("probability", [
+    True, False, "0.5", None, 1j, float("nan"), float("inf"), float("-inf"),
+    -.01, 1.01, 10**1000,
+])
+def test_python_api_rejects_invalid_change_probability(script, probability):
+    with pytest.raises(ValueError, match="change_probability"):
+        script["benchmark"](drivers=1, laps=2, trials=1,
+                            change_probability=probability)
 
 
 @pytest.mark.parametrize("field,key", [("tire_set_history", "set_id"), ("tire_inventory", "id")])
@@ -82,6 +122,26 @@ def test_digest_includes_physical_ledger_and_final_inventory(script, monkeypatch
                                        ("--opening", "invented"), ("--laps", "1")])
 def test_cli_rejects_invalid_modes_and_bounds(script, monkeypatch, capsys, flag, value):
     monkeypatch.setattr("sys.argv", ["benchmark_strategy_planning.py", flag, value])
+    with pytest.raises(SystemExit) as error:
+        script["main"]()
+    assert error.value.code == 2
+    assert "error:" in capsys.readouterr().err
+
+
+def test_cli_accepts_and_records_change_probability(script, monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["benchmark_strategy_planning.py", "--drivers", "1",
+                                     "--laps", "2", "--trials", "1",
+                                     "--change-probability", ".35"])
+    script["main"]()
+    result = json.loads(capsys.readouterr().out)
+    assert result["change_probability"] == .35
+    assert result["benchmark_version"] == 3
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "-0.01", "1.01", "not-a-number"])
+def test_cli_rejects_invalid_change_probability(script, monkeypatch, capsys, value):
+    monkeypatch.setattr("sys.argv", ["benchmark_strategy_planning.py",
+                                     "--change-probability", value])
     with pytest.raises(SystemExit) as error:
         script["main"]()
     assert error.value.code == 2

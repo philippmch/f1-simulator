@@ -1180,14 +1180,18 @@ including qualifying and adaptive pit decisions, without fetching provider data
 or writing files. The default uses 22 drivers, 53 laps and three consecutive
 seeds beginning at 42. Every driver starts on an explicit compound, with prior
 wear cycling through zero, six and twelve laps. Driver and car performance
-vary across the grid. Rainfall and weather condition remain fixed while surface
-wetness evolves; ordinary race incidents remain enabled.
+vary across the grid. By default, rainfall and weather condition remain fixed
+while surface wetness evolves; ordinary race incidents remain enabled. Set
+`--change-probability` to a value from zero through one to allow stochastic
+weather changes using the same seeded weather model as a normal race. The
+scenario then describes the initial weather, not the whole race.
 
 ```powershell
 python examples/benchmark_strategy_planning.py --engine chronological --scenario steady_damp
 python examples/benchmark_strategy_planning.py --engine standard --scenario drying
 python examples/benchmark_strategy_planning.py --scenario wetting --trials 3
 python examples/benchmark_strategy_planning.py --scenario rain_transition --trials 3
+python examples/benchmark_strategy_planning.py --engine standard --scenario dry --drivers 22 --laps 58 --trials 3 --opening automatic --change-probability 0.2
 ```
 
 Use `--drivers`, `--laps`, `--trials` and `--seed` to change workload size and
@@ -1200,8 +1204,8 @@ they are not calibrated circuit or weather forecasts.
 five laps, fresh hard and intermediate aged four laps. Explicit starting ages
 then match the selected physical set. `--opening automatic` removes the opening
 override and includes native starting-set selection in the workload, for either
-finite or unlimited pools. These modes are recorded in benchmark version 2 JSON
-alongside the initial pools and overrides. See the
+finite or unlimited pools. These modes and the weather change probability are
+recorded in benchmark version 3 JSON alongside the initial pools and overrides. See the
 [finite-pool search and benchmark notes](tyre-inventory.md#search-and-benchmark).
 
 JSON output includes individual trial times, the first trial, the mean of later
@@ -1226,3 +1230,19 @@ Python recursion. Completed suffix costs retain the shared 8,192-entry bound,
 locking and fork reset. Working memory also includes per-plan completed states,
 active frames and their running-lap rows. The optimization preserves candidate
 order, cost arithmetic and modeled strategy rules.
+
+Stop eligibility is also computed once per compound and remaining stop-budget
+combination within a transition plan, then reused across its future-lap search.
+These rows stay local to the plan's forecast. Critical-tyre exceptions, dry and
+damp allowances, and the distinction between intermediates and wets are retained.
+
+A local comparison against revision `600bfe6` used the standard engine, 22
+drivers, 58 laps, automatic openings, unlimited tyres and seeds 42–44. Three
+alternating fresh-process pairs per weather setting reduced median simulation
+time from 5.463 to 4.995 seconds (8.6%) when starting dry with weather change
+probability 0.2. Fixed dry weather was effectively unchanged (0.819 versus 0.814
+seconds). These timings exclude process setup and provider loading; they are
+synthetic workload measurements, not a general speed guarantee. Outcome hashes
+matched for every timed pair and 120 additional short-race cases spanning both
+engines, five weather patterns, finite and unlimited inventories, explicit and
+automatic openings, evolving weather, and custom pit plans.

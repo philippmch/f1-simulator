@@ -11,6 +11,8 @@ import argparse
 import hashlib
 import json
 from dataclasses import asdict
+from math import isfinite
+from numbers import Real
 from statistics import mean
 from time import perf_counter
 
@@ -27,7 +29,8 @@ SCENARIOS = {
 
 
 def benchmark(engine="chronological", scenario="steady_damp", trials=3, drivers=22,
-              laps=53, seed=42, inventory="unlimited", opening="explicit"):
+              laps=53, seed=42, inventory="unlimited", opening="explicit",
+              change_probability=0.0):
     """Run controlled synthetic races without network access or writing files."""
     for value, low, high, name in ((trials, 1, 100, "trials"), (drivers, 1, 22, "drivers"),
                                   (laps, 2, 100, "laps"), (seed, 0, 2**32 - 1, "seed")):
@@ -39,6 +42,10 @@ def benchmark(engine="chronological", scenario="steady_damp", trials=3, drivers=
         raise ValueError("inventory must be unlimited or finite")
     if opening not in ("explicit", "automatic"):
         raise ValueError("opening must be explicit or automatic")
+    if (isinstance(change_probability, bool) or not isinstance(change_probability, Real)
+            or not 0 <= change_probability <= 1 or not isfinite(change_probability)):
+        raise ValueError("change_probability must be a finite real number from 0 through 1")
+    change_probability = float(change_probability)
     roster = [Driver(id=f"D{i:02}", name=f"Driver {i}", team_id=f"T{i // 2}",
                      skill_rating=.8 + i * .008, tire_management=.8 + i * .008)
               for i in range(drivers)]
@@ -61,7 +68,7 @@ def benchmark(engine="chronological", scenario="steady_damp", trials=3, drivers=
         roster, cars, Track(id="benchmark", name="Synthetic", country="Synthetic",
                             total_laps=laps, base_lap_time=90),
         Weather(condition=WeatherCondition.CLOUDY, track_wetness=wetness,
-                rain_intensity=rain, change_probability=0),
+                rain_intensity=rain, change_probability=change_probability),
         race_engine=engine, seed=seed, starting_tires=starting_tires,
         starting_tire_ages=starting_ages, tire_inventory=pools,
     )
@@ -80,7 +87,8 @@ def benchmark(engine="chronological", scenario="steady_damp", trials=3, drivers=
     encoded = json.dumps(outputs, sort_keys=True, allow_nan=False,
                          separators=(",", ":")).encode("utf-8")
     return {
-        "benchmark_version": 2, "engine": engine, "scenario": scenario,
+        "benchmark_version": 3, "engine": engine, "scenario": scenario,
+        "change_probability": change_probability,
         "inventory": inventory, "opening": opening, "tire_inventory": pools,
         "starting_tires": starting_tires, "starting_tire_ages": starting_ages,
         "drivers": drivers, "laps": laps, "trials": trials, "seed": seed,
@@ -102,6 +110,7 @@ def main():
     parser.add_argument("--drivers", type=int, default=22)
     parser.add_argument("--laps", type=int, default=53)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--change-probability", type=float, default=0.0)
     args = parser.parse_args()
     try:
         result = benchmark(**vars(args))

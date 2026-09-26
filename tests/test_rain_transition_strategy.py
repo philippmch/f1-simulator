@@ -42,6 +42,7 @@ def exhaustive(args, age, lap, budget, **options):
                             and surface.rain_intensity < .15 else "remaining_damp_stops")
         elective = stops < budget and (
             fitted.compound in (TireCompound.INTERMEDIATE, TireCompound.WET)
+            or surface.track_wetness > .3
             or limit is None or stops < limit
         )
         if elective or critical:
@@ -150,6 +151,29 @@ def test_slick_allowances_match_exhaustive_schedules(dry, damp):
     options = dict(remaining_dry_stops=dry, remaining_damp_stops=damp)
     expected = exhaustive(args, 1, 1, 4, **options)
     result = plan_rain_transition(*args, 1, 1, 4, **options)
+    assert result.pit_now_cost == pytest.approx(expected[0])
+    assert result.wait_cost == pytest.approx(expected[1])
+    assert result.compound == expected[2]
+
+
+@pytest.mark.parametrize("wetness,rain,dry,damp", [
+    (.079999, .149999, 0, None),
+    (.079999, .15, None, 0),
+    (.08, .149999, None, 0),
+    (.3, .149999, None, 0),
+    (.300001, .149999, 0, 0),
+])
+def test_transition_eligibility_boundaries_match_exhaustive_schedules(
+        wetness, rain, dry, damp):
+    args = inputs(TireCompound.HARD, wetness=wetness, rain=rain, laps=6)
+    options = dict(remaining_dry_stops=dry, remaining_damp_stops=damp)
+    expected = exhaustive(args, 1, 1, 3, **options)
+
+    result = plan_rain_transition(
+        *args, 1, 1, 3, used_compounds={TireCompound.HARD, TireCompound.MEDIUM},
+        **options,
+    )
+
     assert result.pit_now_cost == pytest.approx(expected[0])
     assert result.wait_cost == pytest.approx(expected[1])
     assert result.compound == expected[2]
