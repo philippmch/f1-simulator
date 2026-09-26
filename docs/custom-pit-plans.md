@@ -106,6 +106,12 @@ plan context remain unknown. JSON exports include these counts under
 `pit_plan_statistics`; detailed per-trial histories remain available. These
 frequencies describe how the model executed the requests, not strategy quality.
 
+Large standalone HTML histories show one selected trial at a time. Use the
+trial selector to inspect the remaining records; every history row is retained in
+the offline report. The aggregate summary still covers all recorded trials,
+and JSON and CSV exports retain their complete histories. This limits the
+number of table rows rendered at once without truncating the audit trail.
+
 ## Comparing with automatic strategy in the dashboard
 
 After entering custom plans, enable **Compare with automatic strategy** to run

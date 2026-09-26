@@ -11,6 +11,29 @@ from f1sim.output.export import Exporter
 from f1sim.simulation.race import DriverStatus, RaceResult
 
 
+def _scalable_plan_result(driver_id, marker, *, hostile_last=False):
+    races = []
+    for trial in range(1, 1002):
+        set_id = f"{marker}-{trial}"
+        if hostile_last and trial == 1001:
+            set_id = "</script><script>globalThis.planHistoryInjected=true</script>"
+        races.append([RaceResult(
+            driver_id, driver_id, "Scalability Team", 1, 90, 0, 1, 90,
+            DriverStatus.FINISHED,
+            pit_plan_history=[{
+                "lap": 1, "compound": "hard", "status": "executed",
+                "actual_compound": "hard", "actual_set_id": set_id,
+            }],
+        )])
+    if hostile_last:
+        races = [[], *races[:500], [], *races[500:]]
+    return SimulationResults(
+        num_simulations=len(races), track_name="Scalable history", driver_stats={}, seed=71,
+        race_results=races, qualifying_results=[],
+        input_snapshot={"pit_plans": {driver_id: [{"lap": 1, "compound": "hard"}]}},
+    )
+
+
 def build_fixture():
     script = "</script><script>globalThis.exportInjected=true</script>"
     track = f'Montréal </title>{script}<img src=x onerror="globalThis.exportInjected=true">'
@@ -71,12 +94,21 @@ def build_fixture():
                 (5, "not_reached", "retired"),
             )
         ]
+        scalable_first = _scalable_plan_result("Scale A", "first", hostile_last=True)
+        scalable_second = _scalable_plan_result("Scale B", "second")
         held = deepcopy(planned)
         held.input_snapshot["pit_plans"][driver] = []
         held.race_results[0][0].pit_plan_history = []
         plan_report = exporter.export_scenario_comparison_html(
             {"Custom plan": planned, "No elective stops": held, "Legacy": results},
             filename="plans.html", focus_driver=driver,
+        ).read_text(encoding="utf-8")
+        scalable_plan_report = exporter.export_scenario_comparison_html(
+            {"First large plan": scalable_first, "Second large plan": scalable_second},
+            filename="large-plans.html",
+        ).read_text(encoding="utf-8")
+        scalable_run_report = exporter.export_report_html(
+            scalable_first, filename="large-run.html",
         ).read_text(encoding="utf-8")
         exporter._write_history([{
             "timestamp": "<img src=x onerror=globalThis.exportInjected=true>",
@@ -86,6 +118,8 @@ def build_fixture():
         index = exporter.export_run_index_html().read_text(encoding="utf-8")
     return {"report": report, "comparison": comparison, "index": index,
             "paired": paired, "plan_report": plan_report,
+            "scalable_plan_report": scalable_plan_report,
+            "scalable_run_report": scalable_run_report,
             "paired_stats": paired_stats["variants"]["soft"]["driver_statistics"]["A"],
             "track": track, "driver": driver,
             "team": team, "filename": filename, "stats_name": stats_name}

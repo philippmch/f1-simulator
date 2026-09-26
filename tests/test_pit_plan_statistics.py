@@ -1,10 +1,11 @@
 import json
+import re
 
 import pytest
 
 from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.output import Exporter
-from f1sim.output.comparison import render_comparison_report
+from f1sim.output.comparison import _pit_plan_history_html, render_comparison_report
 from f1sim.simulation.race import DriverStatus, RaceResult
 from f1sim.web import server
 
@@ -229,3 +230,151 @@ def test_trial_report_does_not_call_empty_malformed_histories_no_stop_plan():
     ) in report
     assert '<td>1</td><td>B</td><td colspan="6">Malformed history</td>' in report
     assert '<td>1</td><td>C</td><td colspan="6">Explicit no elective stops</td>' in report
+
+
+def test_history_html_lazy_threshold_and_compact_payload_preserve_every_row(tmp_path):
+    from f1sim.output.comparison import (
+        _PIT_PLAN_HISTORY_LAZY_RENDER_ROW_THRESHOLD as threshold,
+    )
+
+    plan = [{"lap": 1, "compound": "hard"}]
+    exact = _results(
+        {"A": plan},
+        [[_row("A", [
+            {"lap": lap, "compound": "hard", "status": "executed"}
+            for lap in range(threshold)
+        ])]],
+    )
+    exact_html = render_comparison_report({"exact": exact})
+    assert "data-pit-plan-lazy" not in exact_html
+    assert exact_html.count("<tr><td>") == threshold
+
+    one_trial_large = _results(
+        {"A": plan},
+        [[_row("A", [
+            {"lap": lap, "compound": "hard", "status": "executed"}
+            for lap in range(threshold + 1)
+        ])]],
+    )
+    one_trial_html = render_comparison_report({"one trial": one_trial_large})
+    assert "data-pit-plan-lazy" in one_trial_html
+    assert one_trial_html.count("<tr><td>") == threshold + 1
+
+    hostile = "</script><script>globalThis.planHistoryInjected=true</script>"
+    large = _results(
+        {"A": plan},
+        [
+            [_row("A", [
+                {"lap": lap, "compound": "hard", "status": "executed"}
+                for lap in (1, 2)
+            ])],
+            [_row("A", [
+                {"lap": lap, "compound": "hard", "status": "executed"}
+                for lap in range(3, threshold + 2)
+            ])],
+        ],
+    )
+    large.race_results[-1][0].pit_plan_history[-1]["actual_set_id"] = hostile
+    report = render_comparison_report({"large": large})
+    assert "data-pit-plan-lazy" in report
+    assert report.count("<tr><td>") == 2
+    embedded = re.search(
+        r'<script type="application/json" data-pit-plan-history-data>(.*?)</script>',
+        report,
+    )
+    assert embedded is not None
+    assert hostile not in embedded.group(1)
+    assert "\\u003c/script\\u003e" in embedded.group(1)
+    payload = json.loads(embedded.group(1))
+    assert [(trial, count) for trial, count, _ in payload] == [
+        (1, 2), (2, threshold - 1),
+    ]
+    assert sum(count for _, count, _ in payload) == threshold + 1
+    assert payload[-1][2][-1][-1] == hostile
+    assert "Showing recorded trial 1 (2 trials available in this table; 2 display rows)" in report
+    assert "Showing recorded trial 1 of 2" not in report
+
+    run_report = Exporter(tmp_path).export_report_html(large).read_text(encoding="utf-8")
+    assert "data-pit-plan-lazy" in run_report
+    run_payload = re.search(
+        r'<script type="application/json" data-pit-plan-history-data>(.*?)</script>',
+        run_report,
+    )
+    assert run_payload is not None
+    assert json.loads(run_payload.group(1)) == payload
+
+
+def test_large_history_payload_retains_unknown_labels_and_all_sentinel_rows():
+    from f1sim.output.comparison import (
+        _PIT_PLAN_HISTORY_LAZY_RENDER_ROW_THRESHOLD as threshold,
+    )
+
+    plans = {
+        "A": [{"lap": 2, "compound": "hard"}],
+        "B": [],
+        "C": [{"lap": 3, "compound": "medium"}],
+        "D": None,
+        "E": [{"lap": 4, "compound": "soft"}],
+    }
+    sentinels = [
+        _row("A", None),
+        _row("B", []),
+        _row("C", "malformed"),
+        _row("D", []),
+        _row("E", [None]),
+    ]
+    padding = [
+        _row("A", [{"lap": lap, "compound": "hard", "status": "new status"}])
+        for lap in range(threshold)
+    ]
+    result = _results(plans, [sentinels + padding])
+    report = render_comparison_report({"sentinels": result})
+    embedded = re.search(
+        r'<script type="application/json" data-pit-plan-history-data>(.*?)</script>',
+        report,
+    )
+    assert embedded is not None
+    payload = json.loads(embedded.group(1))
+    rows = payload[0][2]
+    assert rows[:5] == [
+        ["1", "A", "Not recorded"],
+        ["1", "B", "Explicit no elective stops"],
+        ["1", "C", "Malformed history"],
+        ["1", "D", "Invalid saved plan"],
+        ["1", "E", "Malformed history record"],
+    ]
+    assert rows[-1][4] == "new status"
+
+
+def test_lazy_history_label_keeps_original_trial_ids_when_races_are_skipped():
+    from f1sim.output.comparison import (
+        _PIT_PLAN_HISTORY_LAZY_RENDER_ROW_THRESHOLD as threshold,
+    )
+
+    plan = [{"lap": 1, "compound": "hard"}]
+    result = _results(
+        {"A": plan},
+        [
+            None,
+            [_row("A", [
+                {"lap": 1, "compound": "hard", "status": "executed"}
+                for _ in range(2)
+            ])],
+            [],
+            "unavailable race rows",
+            [_row("A", [
+                {"lap": 1, "compound": "hard", "status": "executed"}
+                for _ in range(threshold - 1)
+            ])],
+        ],
+    )
+    history = _pit_plan_history_html(result, "skipped trials")
+    embedded = re.search(
+        r'<script type="application/json" data-pit-plan-history-data>(.*?)</script>',
+        history,
+    )
+    assert embedded is not None
+    payload = json.loads(embedded.group(1))
+    assert [(trial, count) for trial, count, _ in payload] == [(2, 2), (5, threshold - 1)]
+    assert "Showing recorded trial 2 (2 trials available in this table; 2 display rows)" in history
+    assert "Showing recorded trial 2 of 2" not in history

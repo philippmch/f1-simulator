@@ -28,6 +28,14 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         if (name === 'plans.html') {
           return route.fulfill({contentType: 'text/html; charset=utf-8', body: fixture.plan_report});
         }
+        if (name === 'large-plans.html') {
+          return route.fulfill({contentType: 'text/html; charset=utf-8',
+            body: fixture.scalable_plan_report});
+        }
+        if (name === 'large-run.html') {
+          return route.fulfill({contentType: 'text/html; charset=utf-8',
+            body: fixture.scalable_run_report});
+        }
         if (name === 'index.html' || name === fixture.filename) {
           return route.fulfill({contentType: 'text/html; charset=utf-8',
             body: name === 'index.html' ? fixture.index : fixture.report});
@@ -220,6 +228,48 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
           `custom-pit-plans-${width}.png`)});
       }
     }
+    await page.goto('http://f1sim.test/large-plans.html');
+    const firstLargeScenario = page.locator('.pit-plan-scenario').filter({
+      has: page.locator('h3', {hasText: /^First large plan$/}),
+    });
+    const secondLargeScenario = page.locator('.pit-plan-scenario').filter({
+      has: page.locator('h3', {hasText: /^Second large plan$/}),
+    });
+    await firstLargeScenario.locator('details > summary').click();
+    await secondLargeScenario.locator('details > summary').click();
+    const firstLargeHistory = firstLargeScenario.locator('.pit-plan-history');
+    const secondLargeHistory = secondLargeScenario.locator('.pit-plan-history');
+    const firstSelector = firstLargeHistory.locator('[data-pit-plan-history-selector]');
+    const secondSelector = secondLargeHistory.locator('[data-pit-plan-history-selector]');
+    assert.equal(await firstSelector.locator('option').count(), 1001);
+    assert.equal(await firstLargeHistory.locator('tbody tr').count(), 1);
+    assert((await firstLargeHistory.innerText()).includes(
+      'Showing recorded trial 2 (1001 trials available in this table; 1 display row)'));
+    assert((await firstLargeHistory.locator('tbody tr').first().innerText()).includes('first-1'));
+    await firstSelector.selectOption('1000');
+    assert((await firstLargeHistory.innerText()).includes(
+      'Showing recorded trial 1003 (1001 trials available in this table; 1 display row)'));
+    assert(!(await firstLargeHistory.innerText()).includes('1003 of 1001'));
+    assert((await firstLargeHistory.locator('tbody tr').last().innerText()).includes(
+      '</script><script>globalThis.planHistoryInjected=true</script>'));
+    assert((await secondLargeHistory.innerText()).includes(
+      'Showing recorded trial 1 (1001 trials available in this table; 1 display row)'));
+    assert((await secondLargeHistory.locator('tbody tr').first().innerText()).includes('second-1'));
+    await secondSelector.selectOption('1000');
+    assert((await secondLargeHistory.innerText()).includes(
+      'Showing recorded trial 1001 (1001 trials available in this table; 1 display row)'));
+    await firstSelector.selectOption('0');
+    assert((await firstLargeHistory.locator('tbody tr').first().innerText()).includes('first-1'));
+    assert.equal(await page.evaluate(() => Boolean(globalThis.planHistoryInjected)), false);
+    await page.goto('http://f1sim.test/large-run.html');
+    const standaloneHistory = page.locator('[data-pit-plan-lazy]');
+    const standaloneSelector = standaloneHistory.locator('[data-pit-plan-history-selector]');
+    assert.equal(await standaloneSelector.locator('option').count(), 1001);
+    assert.equal(await standaloneHistory.locator('tbody tr').count(), 1);
+    await standaloneSelector.selectOption('1000');
+    assert((await standaloneHistory.locator('tbody tr').last().innerText()).includes(
+      '</script><script>globalThis.planHistoryInjected=true</script>'));
+    assert.equal(await page.evaluate(() => Boolean(globalThis.planHistoryInjected)), false);
     assert.deepEqual(errors, []);
     assert.deepEqual(unexpected, []);
     console.log('HTML export browser checks passed: text, script data, and filename links.');

@@ -40,6 +40,9 @@ _PIT_PLAN_REASON_LABELS = {
     "race_finished": "Race finished",
 }
 
+_PIT_PLAN_HISTORY_LAZY_RENDER_ROW_THRESHOLD = 1000
+_PIT_PLAN_HISTORY_JSON_CHUNK_ROWS = 256
+
 
 def _text(value: object) -> str:
     return escape(str(value), quote=True)
@@ -96,20 +99,96 @@ def _pit_plans(result: SimulationResults) -> str:
     return "; ".join(rendered) or "Automatic (no custom plans)"
 
 
+def _pit_plan_history_display_row(
+    simulation: int, driver_id: object, history: object, configured_plan: object,
+) -> list[list[str]]:
+    """Convert one saved history into the exact display cells used by both renderers."""
+    driver = str(driver_id)
+    if history is None:
+        return [[str(simulation), driver, "Not recorded"]]
+    if not isinstance(history, list):
+        return [[str(simulation), driver, "Malformed history"]]
+    if not history:
+        if isinstance(configured_plan, list) and not configured_plan:
+            message = "Explicit no elective stops"
+        elif isinstance(configured_plan, list):
+            message = "Incomplete history; requested instructions are missing"
+        else:
+            message = "Invalid saved plan"
+        return [[str(simulation), driver, message]]
+
+    rows = []
+    for record in history:
+        if not isinstance(record, dict):
+            rows.append([str(simulation), driver, "Malformed history record"])
+            continue
+        raw_status = record.get("status")
+        status = (
+            "—" if raw_status is None else _PIT_PLAN_STATUS_LABELS.get(
+                raw_status, raw_status,
+            ) if isinstance(raw_status, str) else str(raw_status)
+        )
+        requested_lap = record.get("lap", "Not recorded")
+        requested_text = (
+            f"{requested_lap} (own lap)" if isinstance(requested_lap, int)
+            and not isinstance(requested_lap, bool) else str(requested_lap)
+        )
+        reason = record.get("reason")
+        reason_text = (
+            "—" if reason is None else _PIT_PLAN_REASON_LABELS.get(
+                reason, reason,
+            ) if isinstance(reason, str) else str(reason)
+        )
+        actual_compound = record.get("actual_compound")
+        actual_set_id = record.get("actual_set_id")
+        rows.append([
+            str(simulation), driver, requested_text,
+            str(record.get("compound", "Not recorded")), str(status), str(reason_text),
+            str(actual_compound if actual_compound is not None else "—"),
+            str(actual_set_id if actual_set_id is not None else "—"),
+        ])
+    return rows
+
+
+def _pit_plan_history_row_html(row: list[str]) -> str:
+    if len(row) == 3:
+        return (
+            f"<tr><td>{_text(row[0])}</td><td>{_text(row[1])}</td>"
+            f'<td colspan="6">{_text(row[2])}</td></tr>'
+        )
+    return "<tr>" + "".join(f"<td>{_text(value)}</td>" for value in row) + "</tr>"
+
+
+def _pit_plan_history_json(value: object) -> str:
+    """Encode JSON safely inside an inert script element, including hostile saved text."""
+    return (json.dumps(value, ensure_ascii=True, separators=(",", ":"))
+            .replace("&", r"\u0026").replace("<", r"\u003c").replace(">", r"\u003e"))
+
+
 def _pit_plan_history_html(result: SimulationResults, scenario: str) -> str:
-    """Render recorded requested-plan histories, keeping absent data explicit."""
+    """Render recorded histories compactly, switching large tables by selected trial."""
     snapshot = result.input_snapshot
     plans = snapshot.get("pit_plans") if isinstance(snapshot, dict) else None
     if not isinstance(plans, dict) or not plans:
         return ""
     listed = set(plans)
-    rows = []
+    rows_by_trial = []
+    compact_trials = []
+    compact_trial_counts = []
+    total_rows = 0
+    lazy = False
+    selected_trial = None
+    selected_trial_html = []
     races = getattr(result, "race_results", [])
     if not isinstance(races, (list, tuple)):
         return f'<p>No individual pit-plan histories are available for {_text(scenario)}.</p>'
     for simulation, race in enumerate(races, start=1):
         if not isinstance(race, (list, tuple)):
             continue
+        trial_rows = []
+        encoded_batches = []
+        encoded_batch = []
+        trial_row_count = 0
         for row in race:
             driver_id = row.get("driver_id") if isinstance(row, dict) else getattr(
                 row, "driver_id", None,
@@ -123,87 +202,127 @@ def _pit_plan_history_html(result: SimulationResults, scenario: str) -> str:
             history = row.get("pit_plan_history") if isinstance(row, dict) else getattr(
                 row, "pit_plan_history", None,
             )
-            if history is None:
-                rows.append(
-                    f"<tr><td>{simulation}</td><td>{_text(driver_id)}</td>"
-                    '<td colspan="6">Not recorded</td></tr>'
-                )
-                continue
-            if not isinstance(history, list):
-                rows.append(
-                    f"<tr><td>{simulation}</td><td>{_text(driver_id)}</td>"
-                    '<td colspan="6">Malformed history</td></tr>'
-                )
-                continue
-            if not history:
-                configured_plan = plans[driver_id]
-                if isinstance(configured_plan, list) and not configured_plan:
-                    rows.append(
-                        f"<tr><td>{simulation}</td><td>{_text(driver_id)}</td>"
-                        '<td colspan="6">Explicit no elective stops</td></tr>'
-                    )
-                elif isinstance(configured_plan, list):
-                    rows.append(
-                        f"<tr><td>{simulation}</td><td>{_text(driver_id)}</td>"
-                        '<td colspan="6">Incomplete history; '
-                        'requested instructions are missing</td></tr>'
-                    )
-                else:
-                    rows.append(
-                        f"<tr><td>{simulation}</td><td>{_text(driver_id)}</td>"
-                        '<td colspan="6">Invalid saved plan</td></tr>'
-                    )
-                continue
-            for record in history:
-                if not isinstance(record, dict):
-                    rows.append(
-                        f"<tr><td>{simulation}</td><td>{_text(driver_id)}</td>"
-                        '<td colspan="6">Malformed history record</td></tr>'
-                    )
-                    continue
-                raw_status = record.get("status")
-                status = (
-                    "—" if raw_status is None else _PIT_PLAN_STATUS_LABELS.get(
-                        raw_status, raw_status,
-                    ) if isinstance(raw_status, str) else str(raw_status)
-                )
-                requested_lap = record.get("lap", "Not recorded")
-                requested_text = (
-                    f"{requested_lap} (own lap)" if isinstance(requested_lap, int)
-                    and not isinstance(requested_lap, bool) else str(requested_lap)
-                )
-                reason = record.get("reason")
-                reason_text = (
-                    "—" if reason is None else _PIT_PLAN_REASON_LABELS.get(
-                        reason, reason,
-                    ) if isinstance(reason, str) else str(reason)
-                )
-                actual_compound = record.get("actual_compound")
-                actual_set_id = record.get("actual_set_id")
-                rows.append(
-                    f"<tr><td>{simulation}</td><td>{_text(driver_id)}</td>"
-                    f"<td>{_text(requested_text)}</td>"
-                    f"<td>{_text(record.get('compound', 'Not recorded'))}</td>"
-                    f"<td>{_text(status)}</td>"
-                    f"<td>{_text(reason_text)}</td>"
-                    f"<td>{_text(actual_compound if actual_compound is not None else '—')}</td>"
-                    f"<td>{_text(actual_set_id if actual_set_id is not None else '—')}</td></tr>"
-                )
-    if not rows:
+            display_rows = _pit_plan_history_display_row(
+                simulation, driver_id, history, plans[driver_id],
+            )
+            for display_row in display_rows:
+                total_rows += 1
+                trial_row_count += 1
+                encoded_batch.append(display_row)
+                if len(encoded_batch) >= _PIT_PLAN_HISTORY_JSON_CHUNK_ROWS:
+                    encoded_batches.append(_pit_plan_history_json(encoded_batch)[1:-1])
+                    encoded_batch.clear()
+
+                if not lazy:
+                    trial_rows.append(display_row)
+                    if selected_trial is None:
+                        selected_trial = simulation
+                    if total_rows > _PIT_PLAN_HISTORY_LAZY_RENDER_ROW_THRESHOLD:
+                        lazy = True
+                        all_small_trials = rows_by_trial + [(simulation, trial_rows)]
+                        selected_rows = next(
+                            trial for number, trial in all_small_trials
+                            if trial and (number == selected_trial)
+                        )
+                        selected_trial_html = [
+                            _pit_plan_history_row_html(selected_row)
+                            for selected_row in selected_rows
+                        ]
+                        rows_by_trial.clear()
+                        trial_rows.clear()
+                elif simulation == selected_trial:
+                    selected_trial_html.append(_pit_plan_history_row_html(display_row))
+        if encoded_batch:
+            encoded_batches.append(_pit_plan_history_json(encoded_batch)[1:-1])
+        if trial_row_count:
+            compact_trials.append((simulation, trial_row_count, ",".join(encoded_batches)))
+            compact_trial_counts.append((simulation, trial_row_count))
+            if not lazy:
+                rows_by_trial.append((simulation, trial_rows))
+    if not total_rows:
         return (
             f'<p>No recorded custom pit-plan history for {_text(scenario)}. '
             'Missing histories remain unknown.</p>'
         )
-    return (
-        '<div class="table-wrap pit-plan-history" tabindex="0" role="region" '
-        f'aria-label="{_text(scenario)} custom pit-plan history">'
+    table = (
         f'<table><caption>Requested and executed custom pit-plan history for {_text(scenario)} '
         '(requested laps are each driver\'s own lap)</caption><thead><tr>'
         '<th scope="col">Trial</th><th scope="col">Driver</th>'
         '<th scope="col">Requested lap</th><th scope="col">Requested compound</th>'
         '<th scope="col">Status</th><th scope="col">Reason</th>'
         '<th scope="col">Actual compound</th><th scope="col">Actual set</th>'
-        '</tr></thead><tbody>' + "".join(rows) + '</tbody></table></div>'
+        '</tr></thead><tbody>'
+    )
+    if not lazy:
+        return (
+            '<div class="table-wrap pit-plan-history" tabindex="0" role="region" '
+            f'aria-label="{_text(scenario)} custom pit-plan history">'
+            + table
+            + "".join(
+                _pit_plan_history_row_html(row)
+                for _, trial_rows in rows_by_trial for row in trial_rows
+            )
+            + '</tbody></table></div>'
+        )
+
+    selected_index = next(
+        index for index, (number, _) in enumerate(compact_trial_counts)
+        if number == selected_trial
+    )
+    options = "".join(
+        f'<option value="{index}"{" selected" if index == selected_index else ""}>'
+        f"Trial {number} ({count} rows)</option>"
+        for index, (number, count) in enumerate(compact_trial_counts)
+    )
+    selected_row_count = compact_trial_counts[selected_index][1]
+    selected_row_unit = "row" if selected_row_count == 1 else "rows"
+    coverage = (
+        f"Showing recorded trial {selected_trial} ({len(compact_trial_counts)} trials available "
+        f"in this table; {selected_row_count} display {selected_row_unit}). All {total_rows} "
+        f"display rows from {len(compact_trial_counts)} trials are retained and available "
+        "using this selector."
+    )
+    data = "[" + ",".join(
+        f"[{number},{count},[{rows}]]" for number, count, rows in compact_trials
+    ) + "]"
+    return (
+        '<div class="table-wrap pit-plan-history" tabindex="0" role="region" '
+        f'aria-label="{_text(scenario)} custom pit-plan history" data-pit-plan-lazy>'
+        '<label>Trial to display: <select data-pit-plan-history-selector>'
+        + options
+        + '</select></label>'
+        f'<p data-pit-plan-history-coverage role="status" aria-live="polite">'
+        f'{_text(coverage)}</p>'
+        + table
+        + "".join(selected_trial_html)
+        + '</tbody></table>'
+        '<noscript><p>Showing the first available trial. Selecting another trial requires '
+        'JavaScript; this offline report retains all history records in its data.</p></noscript>'
+        f'<script type="application/json" data-pit-plan-history-data>{data}</script>'
+        '<script>(function(){'
+        'const section=document.currentScript.closest("[data-pit-plan-lazy]");'
+        'const selector=section.querySelector("[data-pit-plan-history-selector]");'
+        'const coverage=section.querySelector("[data-pit-plan-history-coverage]");'
+        'const body=section.querySelector("tbody");'
+        'const trials=JSON.parse(section.querySelector('
+        '"[data-pit-plan-history-data]").textContent);'
+        'function render(){'
+        'const index=Number(selector.value);const [number,count,rows]=trials[index];'
+        'const fragment=document.createDocumentFragment();'
+        'for(const row of rows){const tr=document.createElement("tr");'
+        'const cells=row.length===3?[row[0],row[1]]:row;'
+        'for(const value of cells){const td=document.createElement("td");'
+        'td.textContent=value;tr.append(td);}'
+        'if(row.length===3){const td=document.createElement("td");td.colSpan=6;'
+        'td.textContent=row[2];tr.append(td);}fragment.append(tr);}'
+        'body.replaceChildren(fragment);'
+        'coverage.textContent=`Showing recorded trial ${number} (${trials.length} trials '
+        'available in this table; ${count} display ${count===1?"row":"rows"}). All '
+        '${trials.reduce((n,t)=>n+t[1],0)} display rows from ${trials.length} trials are retained '
+        'and available using this selector.`;'
+        '}'
+        'selector.addEventListener("change",render);'
+        '})();</script></div>'
     )
 
 
