@@ -23,6 +23,10 @@ Use `--engine chronological` to select the alternative execution engine,
 `--scenario light_rain` or `--scenario heavy_rain` for wet assumptions, and
 `--form-races 0` to disable recent form inputs. Live collection defaults to a
 120-second total fetch budget; `--fetch-budget` accepts 1–300 seconds.
+The evaluator collects and validates inputs for every selected event before
+starting simulations. A later collection failure therefore spends no simulation
+trials, and Monte Carlo computation cannot use up the time available to fetch
+another event's standings. Collection still shares one bounded fetch deadline.
 
 ## What the forecast knows
 
@@ -104,3 +108,53 @@ neither a significance test nor a fitted probability correction.
 Only the current UTC season is supported. Data is fetched for each invocation
 without a persistent provider-feed cache. Saved reports contain derived
 evaluation evidence and model inputs, not a reusable raw-feed cache.
+
+## Initial whole-season snapshot, 26 September 2026
+
+The standard engine, default dry scenario, three-round form window, and seed 42
+completed 100 trials for each of 15 available races (1,500 trials total). All
+15 events had a scoreable observed winner. Reproduce the collection with:
+
+```powershell
+python examples/evaluate_race_probabilities.py --all --trials 100 --seed 42 --fetch-budget 180
+```
+
+Mean Brier loss was **0.8174**, against **0.9538** for the equal-chance baseline;
+the mean event delta was **−0.1363**. These are empirical probabilities at the
+stated trial budget, not an uncertainty-adjusted score or significance result.
+
+| Round | Modeled entrants | Observed winner | Estimated winner probability | Model Brier loss |
+|---|---:|---|---:|---:|
+| 1 | 19 | RUS | 0.03 | 1.0050 |
+| 2 | 22 | ANT | 0.36 | 0.7706 |
+| 3 | 22 | ANT | 0.39 | 0.6390 |
+| 4 | 22 | ANT | 0.55 | 0.3356 |
+| 5 | 22 | ANT | 0.53 | 0.3624 |
+| 6 | 22 | ANT | 0.41 | 0.4768 |
+| 7 | 22 | HAM | 0.02 | 1.4262 |
+| 8 | 22 | RUS | 0.43 | 0.5324 |
+| 9 | 22 | LEC | 0.03 | 1.4580 |
+| 10 | 22 | ANT | 0.19 | 1.1136 |
+| 11 | 22 | NOR | 0.00 | 1.4184 |
+| 12 | 22 | NOR | 0.03 | 1.3212 |
+| 13 | 22 | ANT | 0.46 | 0.3952 |
+| 14 | 20 | ANT | 0.45 | 0.4520 |
+| 15 | 22 | RUS | 0.44 | 0.5550 |
+
+Every event had 22 result entrants. The qualifying feeds for rounds 1 and 14
+therefore supplied incomplete modeled rosters, admitted under the documented
+coverage gate. No trial produced a no-classified-winner outcome. Zero estimates
+mean unobserved in 100 trials: for example, the round-11 winner's individual
+95% Wilson sampling interval is approximately 0–0.037, not proof of impossibility.
+
+The lower aggregate loss coexists with substantial event-level misses. This
+small retrospective sample uses an assumed dry scenario for every target and
+overlapping training windows. It neither establishes calibrated real-world
+probabilities nor justifies fitting a correction to these 15 outcomes. No
+ratings, strategy settings, or probability coefficients were changed from
+these scores.
+
+The run used Python 3.11.9, NumPy 2.4.6, and Pydantic 2.13.5. Saved input
+snapshots recorded simulation source fingerprint
+`7a1986db791a42ea73936d3ea1c7c846d665c79e6b30990f7a8cc23efa942a15`.
+Current provider revisions and runtime changes may alter a later run.

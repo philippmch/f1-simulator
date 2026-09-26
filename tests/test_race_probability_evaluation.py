@@ -294,6 +294,104 @@ def test_insufficient_coverage_is_reported_without_partial_scoring(evaluation_da
     assert fake_runner == []
 
 
+def test_all_target_coverage_exclusion_does_not_run_that_event(evaluation_data, fake_runner):
+    loader, results, _qualifying, _events = evaluation_data
+    target_rows = [record for record in results if record["round"] == 2]
+    results[:] = [record for record in results if record["round"] != 2]
+    results.extend(target_rows[:-1])
+
+    report = evaluation.evaluate_race_probabilities(
+        loader, YEAR, all_targets=True, trials=1,
+    )
+
+    excluded = next(fold for fold in report["folds"] if fold["round"] == 2)
+    assert excluded["status"] == "excluded"
+    assert excluded["reason"] == "insufficient_target_coverage"
+    assert excluded["forecast"] is None
+    assert report["trial_budget"] == {
+        "requested_total": 3,
+        "executed_total": 2,
+        "max_total": 10_000,
+    }
+    assert [call["seed"] for call in fake_runner] == [
+        fold["simulation"]["event_seed"]
+        for fold in report["folds"] if fold["round"] != 2
+    ]
+
+
+def test_all_target_preparation_finishes_before_simulation_uses_fetch_budget(
+    evaluation_data, monkeypatch,
+):
+    loader, _results, _qualifying, _events = evaluation_data
+    now = [0]
+    deadline = 10
+    trace = []
+
+    def budgeted_fetch(url):
+        round_number = int(url.split(f"/{YEAR}/")[1].split("/")[0])
+        trace.append(("standings", round_number, now[0]))
+        if now[0] >= deadline:
+            raise CurrentSeasonDataError("Live fetch budget exhausted")
+        return standings(round_number)
+
+    monkeypatch.setattr(loader, "_fetch_json", budgeted_fetch)
+    loader._fetched_at = "after-collection"
+
+    class SlowRunner(_FakeRunner):
+        def __init__(self, **kwargs):
+            trace.append(("runner_construct", kwargs["seed"]))
+            self.loader = loader
+            super().__init__(**kwargs)
+
+        def run(self, **kwargs):
+            result = super().run(**kwargs)
+            now[0] = deadline + 1
+            self.loader._fetched_at = "after-simulation"
+            trace.append(("runner_complete", self.seed))
+            return result
+
+    monkeypatch.setattr(evaluation, "MonteCarloRunner", SlowRunner)
+    report = evaluation.evaluate_race_probabilities(
+        loader, YEAR, all_targets=True, trials=1,
+    )
+
+    standings_indexes = [i for i, item in enumerate(trace) if item[0] == "standings"]
+    runner_indexes = [i for i, item in enumerate(trace) if item[0] == "runner_construct"]
+    assert len(standings_indexes) == 2
+    assert len(runner_indexes) == 3
+    assert max(standings_indexes) < min(runner_indexes)
+    assert all(trace[i][2] == 0 for i in standings_indexes)
+    assert report["fetched_at"] == "after-collection"
+
+
+def test_late_standings_failure_prevents_all_runs_and_cli_json(
+    evaluation_data, monkeypatch, fake_runner, capsys,
+):
+    loader, _results, _qualifying, _events = evaluation_data
+    requested_rounds = []
+
+    def fail_late_fetch(url):
+        round_number = int(url.split(f"/{YEAR}/")[1].split("/")[0])
+        requested_rounds.append(round_number)
+        if round_number == 2:
+            raise CurrentSeasonDataError("late constructor standings unavailable")
+        return standings(round_number)
+
+    monkeypatch.setattr(loader, "_fetch_json", fail_late_fetch)
+    cli = load_cli_module()
+    monkeypatch.setattr(cli, "CurrentSeasonDataLoader", lambda **kwargs: loader)
+
+    with pytest.raises(SystemExit) as failed:
+        cli.main(["--all", "--trials", "1"])
+    captured = capsys.readouterr()
+
+    assert failed.value.code == 1
+    assert captured.out == ""
+    assert "late constructor standings unavailable" in captured.err
+    assert requested_rounds == [1, 2]
+    assert fake_runner == []
+
+
 def test_identical_duplicate_position_one_feed_row_is_counted_once(evaluation_data, fake_runner):
     loader, results, _qualifying, _events = evaluation_data
     winner = next(

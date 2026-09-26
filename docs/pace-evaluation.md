@@ -290,6 +290,38 @@ The evaluator includes this forecast so later events can test the same fixed
 method. It reports all eligible events by default; the dated table above is
 the explicitly selected primary subset, not the all-event aggregate.
 
+## Subsequent-event check, 26 September 2026
+
+Round 15 became available with complete matching qualifying/result coverage
+for 22 entrants. The earlier-team-Q1 method selected after rounds 4–14 was
+evaluated unchanged, using `--race 15 --components`, default dry weather,
+form rounds 12–14 and constructor standings through round 14. No coefficients
+were adjusted after seeing this event.
+
+The common previous-Q1 cohort contains 19 drivers, 11 team observations and
+8 teammate pairs. The table compares identical cohorts; pace and gap errors
+are percentage points.
+
+| Paired metric | Native model | Earlier team Q1 | Previous Q1 |
+|---|---:|---:|---:|
+| Driver rank MAE (places) | 2.7368 | 3.3684 | 3.4737 |
+| Relative pace MAE | 0.6415 | 0.5562 | 0.6028 |
+| Team rank MAE (places) | 1.2727 | 1.2727 | 1.2727 |
+| Team relative pace MAE | 0.5755 | 0.4299 | 0.4789 |
+| Teammate gap MAE | 0.5922 | 0.5922 | 0.6360 |
+
+On all 22 observed drivers, the candidate also improved pace error
+(0.6807 to 0.5674) while worsening rank error (3.1818 to 3.8182). Team rank
+error on that full cohort worsened from 1.0909 to 1.2727. The essentially
+unchanged teammate gap errors are consistent with retaining native within-team
+differences.
+
+This later-event result is mixed: better pace spacing does not imply better
+ordering. One new event is insufficient to promote the candidate into live
+ratings. It remains a diagnostic, with later events needed for further checks.
+The report still uses revised provider data collected after the event; it is
+not a reconstruction of a forecast published beforehand.
+
 ## Interpretation limits
 
 This is a round holdout using today's revised provider data and today's model

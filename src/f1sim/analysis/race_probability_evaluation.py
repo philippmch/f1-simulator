@@ -230,7 +230,12 @@ def evaluate_race_probabilities(
     weather = scenario_weather_from_label(
         Weather(), scenario, weather_mode="fixed_rainfall",
     ).weather
-    folds: list[dict[str, Any]] = []
+
+    # Finish every network-dependent holdout assembly before spending any race
+    # simulation work. The loader's fetch deadline is shared across the whole
+    # invocation; lengthy Monte Carlo runs must not consume time needed by a
+    # later fold's constructor standings request.
+    prepared_folds: list[dict[str, Any]] = []
     for event in targets:
         round_number = _round_number(event.get("round"))
         if round_number is None:
@@ -242,6 +247,34 @@ def evaluate_race_probabilities(
                 loader, year, event, events, results, qualifying, form_races=form_races,
             )
         except InsufficientTargetCoverage as exc:
+            prepared_folds.append({
+                "event": event,
+                "round": round_number,
+                "target_results": target_results,
+                "event_seed": per_event_seed,
+                "coverage_error": exc,
+            })
+        else:
+            prepared_folds.append({
+                "event": event,
+                "round": round_number,
+                "target_results": target_results,
+                "event_seed": per_event_seed,
+                "assembled": assembled,
+            })
+
+    # Capture provenance after all required collection and model assembly, and
+    # before simulation duration can affect the point-in-time metadata.
+    provenance = loader.get_provenance()
+    folds: list[dict[str, Any]] = []
+    for prepared in prepared_folds:
+        event = prepared["event"]
+        round_number = prepared["round"]
+        target_results = prepared["target_results"]
+        per_event_seed = prepared["event_seed"]
+        coverage_error = prepared.get("coverage_error")
+        if coverage_error is not None:
+            exc = coverage_error
             active, aliases = loader._build_active_driver_map(exc.roster, {})
             driver_ids = {driver_id for driver_id in active}
             observed = _observed_winner(loader, target_results, aliases, driver_ids)
@@ -272,6 +305,7 @@ def evaluate_race_probabilities(
             })
             continue
 
+        assembled = prepared["assembled"]
         # Do not let provider row order decide which entrant receives a random
         # stream. Car keys are sorted for the same reproducibility reason.
         drivers = sorted(assembled.drivers, key=lambda driver: driver.id)
@@ -360,7 +394,6 @@ def evaluate_race_probabilities(
             },
         })
 
-    provenance = loader.get_provenance()
     return {
         "year": year,
         "evaluation": "round_holdout_race_winner_probabilities",
