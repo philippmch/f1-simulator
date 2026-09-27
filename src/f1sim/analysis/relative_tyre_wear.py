@@ -53,7 +53,18 @@ def evaluate_relative_tyre_wear(reports: Mapping[str, Any] | Sequence[Any]) -> d
             _require_coverage([event])
             fitted = _fit([event], weighting="single_event", driver_trend=False)
         except _Unavailable as exc:
-            event_results.append({"event": _event_identity(event), **_unavailable(exc, coverage)})
+            event_results.append(
+                {
+                    "event": _event_identity(event),
+                    **_unavailable_for_fit(
+                        exc,
+                        [event],
+                        weighting="single_event",
+                        driver_trend=False,
+                        coverage=coverage,
+                    ),
+                }
+            )
             continue
         event_results.append({"event": _event_identity(event), **fitted})
 
@@ -75,7 +86,13 @@ def evaluate_relative_tyre_wear(reports: Mapping[str, Any] | Sequence[Any]) -> d
         try:
             fitted = _fit([event], weighting="single_event", driver_trend=True)
         except _Unavailable as exc:
-            fitted = _unavailable(exc, _coverage([event]))
+            fitted = _unavailable_for_fit(
+                exc,
+                [event],
+                weighting="single_event",
+                driver_trend=True,
+                coverage=_coverage([event]),
+            )
         trend_events.append({"event": _event_identity(event), **fitted})
     trend_pool_events, trend_pool_blocks, trend_pool_exclusions = _select_pooled_events(
         events, driver_trend=True
@@ -549,6 +566,210 @@ def _contrast_rank(residualized_x: np.ndarray, original_x: np.ndarray) -> int:
     return int(np.count_nonzero(singular_values > tolerance))
 
 
+def _identifiable_contrasts(
+    events: Sequence[dict[str, Any]], *, weighting: str, driver_trend: bool
+) -> dict[str, dict[str, Any]]:
+    """Report only requested contrasts supported by the retained design row space."""
+    coverage = _diagnostic_coverage(_coverage(events))
+    if not events:
+        return _empty_contrast_diagnostics("insufficient_events", coverage)
+    if not coverage["eligible_laps"]:
+        return _empty_contrast_diagnostics("insufficient_lap_variation", coverage)
+
+    prepared: list[tuple[dict[str, Any], np.ndarray, np.ndarray, np.ndarray, int]] = []
+    try:
+        for event in events:
+            y, x, original_x, nuisance_rank = _residualize_event(
+                event, driver_trend=driver_trend
+            )
+            prepared.append((event, y, x, original_x, nuisance_rank))
+
+        y_parts: list[np.ndarray] = []
+        x_parts: list[np.ndarray] = []
+        original_x_parts: list[np.ndarray] = []
+        weight_parts: list[np.ndarray] = []
+        cluster_parts: list[np.ndarray] = []
+        nuisance_rank = 0
+        cluster_labels: dict[tuple[int, int, tuple[str, int | str]], int] = {}
+        for event, y, x, original_x, event_nuisance_rank in prepared:
+            nuisance_rank += event_nuisance_rank
+            y_parts.append(y)
+            x_parts.append(x)
+            original_x_parts.append(original_x)
+            weight_parts.append(
+                np.full(len(y), 1.0 / len(y), dtype=np.float64)
+                if weighting == "equal_event_total"
+                else np.ones(len(y), dtype=np.float64)
+            )
+            labels: list[int] = []
+            for lap in event["laps"]:
+                cluster = (event["season"], event["session_key"], lap["driver_key"])
+                if cluster not in cluster_labels:
+                    cluster_labels[cluster] = len(cluster_labels)
+                labels.append(cluster_labels[cluster])
+            cluster_parts.append(np.asarray(labels, dtype=np.int64))
+
+        y_all = np.concatenate(y_parts)
+        x_all = np.concatenate(x_parts)
+        original_x_all = np.concatenate(original_x_parts)
+        weights = np.concatenate(weight_parts)
+        clusters = np.concatenate(cluster_parts)
+        root_weights = np.sqrt(weights)
+        weighted_x = x_all * root_weights[:, None]
+        weighted_y = y_all * root_weights
+        original_weighted_x = original_x_all * root_weights[:, None]
+        left_vectors, singular_values, right_vectors = np.linalg.svd(
+            weighted_x, full_matrices=False
+        )
+        original_singular_values = np.linalg.svd(original_weighted_x, compute_uv=False)
+    except _Unavailable as exc:
+        return _empty_contrast_diagnostics(exc.reason, coverage)
+    except np.linalg.LinAlgError:
+        return _empty_contrast_diagnostics("numerical_failure", coverage)
+
+    largest_original = (
+        float(original_singular_values[0]) if len(original_singular_values) else 0.0
+    )
+    reference_scale = max(largest_original, 1.0)
+    tolerance = (
+        10.0 * np.finfo(np.float64).eps * max(weighted_x.shape) * reference_scale
+    )
+    contrast_rank = int(np.count_nonzero(singular_values > tolerance))
+    retained = singular_values[:contrast_rank]
+    retained_vectors = right_vectors[:contrast_rank, :]
+    residual_df = len(y_all) - nuisance_rank - contrast_rank
+    full_rank = nuisance_rank + contrast_rank
+    condition_number = float(retained[0] / retained[-1]) if contrast_rank else None
+    rank_base = {
+        "nuisance": nuisance_rank,
+        "contrast": contrast_rank,
+        "full": full_rank,
+        "residual_degrees_of_freedom": residual_df,
+        "condition_number": condition_number,
+    }
+
+    beta = np.zeros(2, dtype=np.float64)
+    bread = np.zeros((2, 2), dtype=np.float64)
+    covariance: np.ndarray | None = None
+    covariance_reason: str | None = None
+    if contrast_rank:
+        try:
+            beta = retained_vectors.T @ (
+                (left_vectors[:, :contrast_rank].T @ weighted_y) / retained
+            )
+            inverse_squares = 1.0 / np.square(retained)
+            bread = (retained_vectors.T * inverse_squares) @ retained_vectors
+        except (FloatingPointError, ZeroDivisionError):
+            return _empty_contrast_diagnostics(
+                "numerical_failure", coverage, rank={**rank_base, "estimable": False}
+            )
+        if not np.all(np.isfinite(beta)) or not np.all(np.isfinite(bread)):
+            return _empty_contrast_diagnostics(
+                "numerical_failure", coverage, rank={**rank_base, "estimable": False}
+            )
+        if not math.isfinite(condition_number) or condition_number > _CONDITION_LIMIT:
+            covariance_reason = "compound_contrast_ill_conditioned"
+
+    compound_clusters = coverage["driver_event_clusters_by_compound"]
+    cluster_count = len(cluster_labels)
+    if covariance_reason is None and contrast_rank and cluster_count >= 10 and residual_df > 0:
+        try:
+            residual = y_all - x_all @ beta
+            scores = np.zeros((cluster_count, 2), dtype=np.float64)
+            np.add.at(scores, clusters, (weights * residual)[:, None] * x_all)
+            correction = (cluster_count / (cluster_count - 1)) * (
+                (len(y_all) - 1) / residual_df
+            )
+            covariance = correction * bread @ (scores.T @ scores) @ bread
+            if not np.all(np.isfinite(covariance)):
+                covariance = None
+                covariance_reason = "non_finite_cluster_covariance"
+        except (FloatingPointError, ZeroDivisionError):
+            covariance_reason = "singular_contrast_covariance"
+    elif cluster_count < 10:
+        covariance_reason = "fewer_than_ten_driver_event_clusters"
+    elif residual_df <= 0:
+        covariance_reason = "no_residual_degrees_of_freedom"
+    elif contrast_rank == 0:
+        covariance_reason = "point_estimate_unavailable"
+
+    contrast_vectors = (
+        np.array([1.0, 0.0]),
+        np.array([0.0, 1.0]),
+        np.array([1.0, -1.0]),
+    )
+    result: dict[str, dict[str, Any]] = {}
+    estimability_tolerance = 10.0 * np.finfo(np.float64).eps * max(weighted_x.shape)
+    participating_compounds = {
+        "soft_minus_hard": ("SOFT", "HARD"),
+        "medium_minus_hard": ("MEDIUM", "HARD"),
+        "soft_minus_medium": ("SOFT", "MEDIUM"),
+    }
+    for name, contrast in zip(_ESTIMATE_NAMES, contrast_vectors):
+        if contrast_rank:
+            projection = retained_vectors.T @ (retained_vectors @ contrast)
+            is_estimable = bool(
+                np.linalg.norm(contrast - projection) <= estimability_tolerance
+            )
+        else:
+            is_estimable = False
+        rank = {**rank_base, "estimable": is_estimable}
+        pair = participating_compounds[name]
+        point_coverage_ok = all(compound_clusters.get(compound, 0) >= 2 for compound in pair)
+        if not is_estimable:
+            reason = "contrast_not_estimable"
+        elif not point_coverage_ok:
+            reason = "minimum_compound_coverage"
+        elif covariance_reason == "compound_contrast_ill_conditioned":
+            reason = "compound_contrast_ill_conditioned"
+        else:
+            reason = None
+
+        estimate: float | None = None
+        if reason is None:
+            estimate_value = float(contrast @ beta)
+            if math.isfinite(estimate_value):
+                estimate = estimate_value
+            else:
+                reason = "numerical_failure"
+
+        standard_error: float | None = None
+        interval: dict[str, float] | None = None
+        uncertainty_reason: str | None = "point_estimate_unavailable"
+        if estimate is not None:
+            uncertainty_reason = covariance_reason
+            pair_clusters_ok = all(compound_clusters.get(compound, 0) >= 5 for compound in pair)
+            if covariance is not None and not pair_clusters_ok:
+                uncertainty_reason = "fewer_than_five_driver_event_clusters_for_a_compound"
+            if covariance is not None and pair_clusters_ok:
+                variance = float(contrast @ covariance @ contrast)
+                if variance < 0.0 and variance > -1e-12:
+                    variance = 0.0
+                if variance < 0.0 or not math.isfinite(variance):
+                    uncertainty_reason = "invalid_cluster_variance"
+                else:
+                    standard_error = math.sqrt(variance)
+                    half_width = 1.96 * standard_error
+                    lower = estimate - half_width
+                    upper = estimate + half_width
+                    if math.isfinite(lower) and math.isfinite(upper):
+                        interval = {"lower": lower, "upper": upper}
+                        uncertainty_reason = None
+                    else:
+                        uncertainty_reason = "non_finite_cluster_interval"
+        result[name] = {
+            "status": "available" if estimate is not None else "unavailable",
+            "reason": reason,
+            "estimate_seconds_per_lap": estimate,
+            "standard_error_seconds_per_lap": standard_error,
+            "interval_seconds_per_lap": interval,
+            "uncertainty_reason": uncertainty_reason,
+            "coverage": dict(coverage),
+            "rank": rank,
+        }
+    return result
+
+
 def _require_coverage(events: Sequence[Mapping[str, Any]], *, pooled: bool = False) -> None:
     if not events:
         raise _Unavailable("insufficient_events", "No events meet the minimum compound coverage.")
@@ -596,7 +817,68 @@ def _unavailable(exc: _Unavailable, coverage: Mapping[str, Any]) -> dict[str, An
         "condition_number": None,
         "estimates_seconds_per_lap": None,
         "intervals_seconds_per_lap": None,
+        "identifiable_contrasts": _empty_contrast_diagnostics(
+            exc.reason, _diagnostic_coverage(coverage)
+        ),
     }
+
+
+def _diagnostic_coverage(coverage: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "driver_event_clusters": coverage.get("driver_event_clusters", 0),
+        "eligible_laps": coverage.get("eligible_laps", 0),
+        "event_count": coverage.get("event_count", 0),
+        "driver_event_clusters_by_compound": dict(
+            coverage.get("driver_event_clusters_by_compound", {})
+        ),
+    }
+
+
+def _empty_contrast_diagnostics(
+    reason: str,
+    coverage: Mapping[str, Any],
+    *,
+    rank: Mapping[str, Any] | None = None,
+) -> dict[str, dict[str, Any]]:
+    rank_metadata = dict(
+        rank
+        or {
+            "nuisance": None,
+            "contrast": None,
+            "full": None,
+            "residual_degrees_of_freedom": None,
+            "estimable": False,
+            "condition_number": None,
+        }
+    )
+    return {
+        name: {
+            "status": "unavailable",
+            "reason": reason,
+            "estimate_seconds_per_lap": None,
+            "standard_error_seconds_per_lap": None,
+            "interval_seconds_per_lap": None,
+            "uncertainty_reason": "point_estimate_unavailable",
+            "coverage": dict(coverage),
+            "rank": dict(rank_metadata),
+        }
+        for name in _ESTIMATE_NAMES
+    }
+
+
+def _unavailable_for_fit(
+    exc: _Unavailable,
+    events: Sequence[dict[str, Any]],
+    *,
+    weighting: str,
+    driver_trend: bool,
+    coverage: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    result = _unavailable(exc, _coverage(events) if coverage is None else coverage)
+    result["identifiable_contrasts"] = _identifiable_contrasts(
+        events, weighting=weighting, driver_trend=driver_trend
+    )
+    return result
 
 
 def _pooled_result(
@@ -612,7 +894,13 @@ def _pooled_result(
         _require_coverage(events, pooled=weighting == "equal_event_total")
         return _fit(events, weighting=weighting, driver_trend=driver_trend)
     except _Unavailable as exc:
-        return _unavailable(exc, coverage)
+        return _unavailable_for_fit(
+            exc,
+            events,
+            weighting=weighting,
+            driver_trend=driver_trend,
+            coverage=coverage,
+        )
 
 
 def _fit(events: Sequence[dict[str, Any]], *, weighting: str, driver_trend: bool) -> dict[str, Any]:
@@ -770,6 +1058,9 @@ def _fit(events: Sequence[dict[str, Any]], *, weighting: str, driver_trend: bool
             "available": covariance is not None,
             "reason": interval_reason,
         },
+        "identifiable_contrasts": _identifiable_contrasts(
+            events, weighting=weighting, driver_trend=driver_trend
+        ),
     }
 
 

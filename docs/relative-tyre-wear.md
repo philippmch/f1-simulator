@@ -89,6 +89,48 @@ is accurate. The ranges describe sampling
 uncertainty conditional on this model and these events; they do not measure
 uncertainty about unobserved confounders or performance at another circuit.
 
+## Individually identifiable contrasts
+
+An event can identify a relative trend for two compounds without identifying
+all three reported contrasts. For example, eligible soft and medium laps can
+support a soft-minus-medium estimate even when there are no eligible hard laps.
+They cannot supply either hard-relative estimate.
+
+Every fit includes an additive `identifiable_contrasts` map with entries for
+`soft_minus_hard`, `medium_minus_hard` and `soft_minus_medium`. Each entry
+reports its own availability, point estimate, standard error, interval,
+coverage and rank diagnostics. An available point estimate can have a null
+standard error and interval, with `uncertainty_reason` explaining why they
+were withheld. Unavailable point estimates remain null, never zero.
+
+The existing top-level fit status, estimates and intervals retain their
+three-compound requirements. A top-level `unavailable` result can therefore
+contain an available individual contrast. Read the per-contrast status before
+using its value; the new map does not turn an incomplete event into a complete
+three-compound fit.
+
+The diagnostic checks whether each requested contrast lies in the retained
+row space of the residualized, weighted design. This is the standard
+[estimability criterion](https://www.statsmodels.org/devel/generated/statsmodels.tools.tools.isestimable.html).
+It does not project an unidentified contrast into a different, estimable one
+and label that as the requested result. The numerical rank tolerance retains
+the original-design scale, so tiny residual rounding errors do not create
+information. Driver-trend sensitivity checks use their own residualized design.
+
+A point estimate needs at least two driver-event clusters for each participating
+compound. Its approximate range additionally needs at least ten total
+driver-event clusters, at least five for each participating compound, and
+positive residual degrees of freedom. The third compound is not required for
+a contrast that is identified without it. The legacy three-compound ranges
+keep their existing guards.
+
+Partial-rank estimates and cluster covariance use only the retained singular
+directions. Residual degrees of freedom account for both the nuisance effects
+and the actual contrast rank. Events with no remaining compound contrast still
+contribute no pooled observations or clusters. These checks protect numerical
+and coverage validity; they do not remove observational confounding or make
+the normal approximation reliable in every finite sample.
+
 ## Interpretation
 
 Compare event-specific results and the sensitivity to omitting each event.

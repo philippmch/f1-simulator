@@ -6,6 +6,7 @@ import copy
 import importlib.util
 import json
 import math
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -153,6 +154,15 @@ def _synchronize_compounds_by_lap(report: dict) -> dict:
     return report
 
 
+def _retain_compounds(report: dict, compounds: set[str]) -> dict:
+    for lap in report["evidence"]["laps"]:
+        if lap["compound"] not in compounds:
+            lap["eligible"] = False
+            lap["exclusions"] = ["pit_affected"]
+    report["evidence"]["summary"] = _summary(report["evidence"]["laps"])
+    return report
+
+
 def _manual_single_event_intervals(report: dict) -> dict[str, tuple[float, float]]:
     laps = report["evidence"]["laps"]
     drivers = sorted({lap["driver_number"] for lap in laps})
@@ -204,6 +214,41 @@ def _manual_single_event_intervals(report: dict) -> dict[str, tuple[float, float
     }
 
 
+def _manual_partial_soft_medium(report: dict) -> tuple[float, float, float]:
+    """Independent full-design oracle for the estimable SOFT-MEDIUM contrast."""
+    laps = [lap for lap in report["evidence"]["laps"] if lap["eligible"]]
+    drivers = sorted({lap["driver_number"] for lap in laps})
+    lap_numbers = sorted({lap["lap_number"] for lap in laps})
+    stints = sorted({(lap["driver_number"], lap["stint"]) for lap in laps})
+    stint_index = {key: index for index, key in enumerate(stints)}
+    lap_index = {value: index for index, value in enumerate(lap_numbers)}
+    y = np.asarray([lap["duration_seconds"] for lap in laps])
+    centered_lap = np.asarray([lap["lap_number"] for lap in laps], dtype=float)
+    centered_lap -= centered_lap.mean()
+    nuisance = np.zeros((len(laps), len(stints) + len(lap_numbers)))
+    contrast_regressor = np.zeros(len(laps))
+    for row, lap in enumerate(laps):
+        nuisance[row, stint_index[(lap["driver_number"], lap["stint"])]] = 1
+        nuisance[row, len(stints) + lap_index[lap["lap_number"]]] = 1
+        sign = 1.0 if lap["compound"] == "SOFT" else -1.0
+        contrast_regressor[row] = 0.5 * sign * centered_lap[row]
+    full = np.column_stack((nuisance, contrast_regressor))
+    beta, _, full_rank, _ = np.linalg.lstsq(full, y, rcond=None)
+    residual = y - full @ beta
+    projected_contrast = contrast_regressor - nuisance @ np.linalg.lstsq(
+        nuisance, contrast_regressor, rcond=None
+    )[0]
+    bread = 1 / float(projected_contrast @ projected_contrast)
+    driver_index = {driver: index for index, driver in enumerate(drivers)}
+    scores = np.zeros(len(drivers))
+    for row, lap in enumerate(laps):
+        scores[driver_index[lap["driver_number"]]] += projected_contrast[row] * residual[row]
+    df = len(y) - full_rank
+    correction = len(drivers) / (len(drivers) - 1) * (len(y) - 1) / df
+    variance = correction * bread**2 * float(scores @ scores)
+    return float(beta[-1]), math.sqrt(variance), df
+
+
 def test_recovers_relative_slopes_and_serializes_finite_json() -> None:
     result = evaluate_relative_tyre_wear(_report())
     event = result["events"][0]
@@ -218,7 +263,163 @@ def test_recovers_relative_slopes_and_serializes_finite_json() -> None:
         "MEDIUM": 4,
         "HARD": 4,
     }
+    assert event["identifiable_contrasts"]["soft_minus_medium"][
+        "estimate_seconds_per_lap"
+    ] == pytest.approx(0.03)
+    assert event["identifiable_contrasts"]["soft_minus_medium"][
+        "standard_error_seconds_per_lap"
+    ] is None
+    assert event["identifiable_contrasts"]["soft_minus_medium"][
+        "uncertainty_reason"
+    ] == "fewer_than_five_driver_event_clusters_for_a_compound"
     json.dumps(result, allow_nan=False)
+
+
+def test_full_rank_legacy_fields_keep_their_existing_contract() -> None:
+    event = evaluate_relative_tyre_wear(_report())["events"][0]
+    assert event["status"] == "available"
+    assert event["rank"] == {
+        "nuisance": 31,
+        "contrast": 2,
+        "full": 33,
+        "residual_degrees_of_freedom": 207,
+    }
+    assert event["estimates_seconds_per_lap"] == pytest.approx(
+        {
+            "soft_minus_hard": 0.06,
+            "medium_minus_hard": 0.03,
+            "soft_minus_medium": 0.03,
+        }
+    )
+    assert event["intervals_seconds_per_lap"] == {
+        "soft_minus_hard": None,
+        "medium_minus_hard": None,
+        "soft_minus_medium": None,
+    }
+    assert event["uncertainty"]["reason"] == (
+        "fewer_than_five_driver_event_clusters_for_a_compound"
+    )
+
+
+@pytest.mark.parametrize(
+    ("compounds", "expected_name", "expected_estimate", "unidentified_name"),
+    [
+        ({"SOFT", "MEDIUM"}, "soft_minus_medium", 0.03, "soft_minus_hard"),
+        ({"SOFT", "HARD"}, "soft_minus_hard", 0.06, "medium_minus_hard"),
+        ({"MEDIUM", "HARD"}, "medium_minus_hard", 0.03, "soft_minus_hard"),
+    ],
+)
+def test_partial_compound_sets_report_only_estimable_contrasts(
+    compounds, expected_name, expected_estimate, unidentified_name
+) -> None:
+    event = evaluate_relative_tyre_wear(
+        _retain_compounds(_report(drivers_per_compound=6), compounds)
+    )["events"][0]
+    assert event["status"] == "unavailable"
+    assert event["reason"] == "minimum_compound_coverage"
+    diagnostics = event["identifiable_contrasts"]
+    assert diagnostics[expected_name]["status"] == "available"
+    assert diagnostics[expected_name]["reason"] is None
+    assert diagnostics[expected_name]["estimate_seconds_per_lap"] == pytest.approx(
+        expected_estimate
+    )
+    assert diagnostics[expected_name]["rank"]["contrast"] == 1
+    assert diagnostics[unidentified_name]["status"] == "unavailable"
+    assert diagnostics[unidentified_name]["reason"] == "contrast_not_estimable"
+    assert diagnostics[unidentified_name]["estimate_seconds_per_lap"] is None
+
+
+def test_partial_soft_medium_cr1_matches_independent_reparameterized_full_design() -> None:
+    report = _retain_compounds(_report(drivers_per_compound=6, noise=True), {"SOFT", "MEDIUM"})
+    diagnostic = evaluate_relative_tyre_wear(report)["events"][0]["identifiable_contrasts"][
+        "soft_minus_medium"
+    ]
+    expected_estimate, expected_se, expected_df = _manual_partial_soft_medium(report)
+    assert diagnostic["status"] == "available"
+    assert diagnostic["rank"]["contrast"] == 1
+    assert diagnostic["rank"]["residual_degrees_of_freedom"] == expected_df
+    assert diagnostic["estimate_seconds_per_lap"] == pytest.approx(expected_estimate, abs=1e-9)
+    assert diagnostic["standard_error_seconds_per_lap"] == pytest.approx(expected_se, abs=1e-9)
+    assert diagnostic["interval_seconds_per_lap"]["lower"] == pytest.approx(
+        expected_estimate - 1.96 * expected_se, abs=1e-9
+    )
+    assert diagnostic["interval_seconds_per_lap"]["upper"] == pytest.approx(
+        expected_estimate + 1.96 * expected_se, abs=1e-9
+    )
+
+
+def test_partial_contrast_minimum_coverage_and_interval_guards_are_separate() -> None:
+    one_driver = _retain_compounds(_report(drivers_per_compound=1), {"SOFT", "MEDIUM"})
+    insufficient_point = evaluate_relative_tyre_wear(one_driver)["events"][0][
+        "identifiable_contrasts"
+    ]["soft_minus_medium"]
+    assert insufficient_point["rank"]["estimable"] is True
+    assert insufficient_point["status"] == "unavailable"
+    assert insufficient_point["reason"] == "minimum_compound_coverage"
+    assert insufficient_point["estimate_seconds_per_lap"] is None
+
+    eight_clusters = _retain_compounds(
+        _report(drivers_per_compound=4), {"SOFT", "MEDIUM"}
+    )
+    low_cluster_interval = evaluate_relative_tyre_wear(eight_clusters)["events"][0][
+        "identifiable_contrasts"
+    ]["soft_minus_medium"]
+    assert low_cluster_interval["status"] == "available"
+    assert low_cluster_interval["estimate_seconds_per_lap"] == pytest.approx(0.03)
+    assert low_cluster_interval["standard_error_seconds_per_lap"] is None
+    assert low_cluster_interval["interval_seconds_per_lap"] is None
+    assert low_cluster_interval["uncertainty_reason"] == (
+        "fewer_than_ten_driver_event_clusters"
+    )
+
+    ten_clusters = _retain_compounds(
+        _report(drivers_per_compound=6, noise=True), {"SOFT", "MEDIUM"}
+    )
+    for lap in ten_clusters["evidence"]["laps"]:
+        if lap["driver_number"] in {11, 12}:
+            lap["eligible"] = False
+            lap["exclusions"] = ["pit_affected"]
+    ten_clusters["evidence"]["summary"] = _summary(ten_clusters["evidence"]["laps"])
+    low_pair_interval = evaluate_relative_tyre_wear(ten_clusters)["events"][0][
+        "identifiable_contrasts"
+    ]["soft_minus_medium"]
+    assert low_pair_interval["coverage"]["driver_event_clusters"] == 10
+    assert low_pair_interval["coverage"]["driver_event_clusters_by_compound"] == {
+        "SOFT": 6,
+        "MEDIUM": 4,
+        "HARD": 0,
+    }
+    assert low_pair_interval["status"] == "available"
+    assert low_pair_interval["estimate_seconds_per_lap"] is not None
+    assert low_pair_interval["standard_error_seconds_per_lap"] is None
+    assert low_pair_interval["uncertainty_reason"] == (
+        "fewer_than_five_driver_event_clusters_for_a_compound"
+    )
+
+
+def test_driver_trend_can_remove_an_otherwise_estimable_partial_contrast() -> None:
+    report = _retain_compounds(_report(drivers_per_compound=6), {"SOFT", "MEDIUM"})
+    result = evaluate_relative_tyre_wear(report)
+    base = result["events"][0]["identifiable_contrasts"]["soft_minus_medium"]
+    trend = result["driver_trend_sensitivity"]["events"][0]["identifiable_contrasts"][
+        "soft_minus_medium"
+    ]
+    assert base["status"] == "available"
+    assert base["rank"]["contrast"] == 1
+    assert trend["status"] == "unavailable"
+    assert trend["reason"] == "contrast_not_estimable"
+    assert trend["rank"]["contrast"] == 0
+
+
+def test_rank_zero_fit_reports_no_identifiable_contrasts() -> None:
+    report = _synchronize_compounds_by_lap(_report(lap_count=18, drivers_per_compound=6))
+    event = evaluate_relative_tyre_wear(report)["events"][0]
+    assert event["status"] == "unavailable"
+    for diagnostic in event["identifiable_contrasts"].values():
+        assert diagnostic["status"] == "unavailable"
+        assert diagnostic["reason"] == "contrast_not_estimable"
+        assert diagnostic["estimate_seconds_per_lap"] is None
+        assert diagnostic["rank"]["contrast"] == 0
 
 
 def test_estimates_ignore_common_lap_trend_and_stint_origin_offsets() -> None:
@@ -313,6 +514,7 @@ def test_rank_zero_event_is_excluded_without_changing_pooled_uncertainty() -> No
     )
     assert actual["intervals_seconds_per_lap"] == reference["intervals_seconds_per_lap"]
     assert actual["uncertainty"] == reference["uncertainty"]
+    assert actual["identifiable_contrasts"] == reference["identifiable_contrasts"]
 
 
 def test_rank_one_event_blocks_can_identify_pooled_contrasts_collectively() -> None:
@@ -334,6 +536,10 @@ def test_rank_one_event_blocks_can_identify_pooled_contrasts_collectively() -> N
     assert result["pooled_event_exclusions"] == []
     assert result["pooled"]["status"] == "available"
     assert result["pooled"]["rank"]["contrast"] == 2
+    assert all(
+        contrast["rank"]["estimable"]
+        for contrast in result["pooled"]["identifiable_contrasts"].values()
+    )
 
 
 def test_equal_event_weighting_and_leave_one_event_out() -> None:
@@ -422,6 +628,28 @@ def test_duplicate_event_and_duplicate_driver_lap_are_rejected() -> None:
 def test_null_prior_wear_is_counted_as_unknown() -> None:
     result = evaluate_relative_tyre_wear(_report(prior_wear=None))
     assert result["coverage"]["unknown_prior_wear_laps"] == 12 * 20
+
+
+@pytest.mark.parametrize("all_excluded", [False, True])
+def test_no_eligible_laps_returns_unavailable_without_runtime_warnings(all_excluded) -> None:
+    report = _report(lap_count=20 if all_excluded else 0)
+    for lap in report["evidence"]["laps"]:
+        lap["eligible"] = False
+        lap["exclusions"] = ["track_status_not_green"]
+    report["evidence"]["summary"] = _summary(report["evidence"]["laps"])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        result = evaluate_relative_tyre_wear(report)
+    fits = result["events"] + [result["pooled"]]
+    fits += result["driver_trend_sensitivity"]["events"]
+    fits += [result["driver_trend_sensitivity"]["pooled"]]
+    for fit in fits:
+        assert fit["status"] == "unavailable"
+        for contrast in fit["identifiable_contrasts"].values():
+            assert contrast["status"] == "unavailable"
+            assert contrast["estimate_seconds_per_lap"] is None
+            assert contrast["interval_seconds_per_lap"] is None
+            assert contrast["coverage"]["eligible_laps"] == 0
 
 
 def test_cli_reads_bom_json_and_emits_nothing_for_bad_input(tmp_path, capsys) -> None:
