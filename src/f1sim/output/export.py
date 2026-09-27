@@ -535,6 +535,24 @@ class Exporter:
         )
         return filepath
 
+    def export_rival_strategy_selection_html(
+        self,
+        manifest: dict,
+        filename: str = "rival_selection_summary.html",
+        *,
+        manifest_filename: str,
+    ) -> Path:
+        """Write the consolidated offline summary for a weighted rival selection."""
+        from f1sim.output.comparison import render_rival_strategy_selection_report
+
+        filepath = self.output_dir / filename
+        payload = dict(manifest)
+        payload["manifest_filename"] = manifest_filename
+        filepath.write_text(
+            render_rival_strategy_selection_report(payload), encoding="utf-8",
+        )
+        return filepath
+
     def export_report_html(
         self,
         results: SimulationResults,

@@ -284,10 +284,28 @@ def main() -> int:
                     f"validation comparison {valid_json}",
                 )
             manifest_path = args.output_dir / f"rival_selection_manifest_{run_id}.json"
-            manifest = {"selection": selection, "rival_scenarios": exported_scenarios}
+            report_name = f"rival_selection_{run_id}_summary.html"
+            manifest = {
+                "selection": selection,
+                "rival_scenarios": exported_scenarios,
+                "target_plans": {
+                    label: plans[label]
+                    for label in dict.fromkeys((selection["reference_label"],
+                                                selection["selected_label"]))
+                },
+                "report_context": {
+                    "track_name": first.track_name,
+                    "race_engine": first.race_engine,
+                },
+                "selection_report_html": report_name,
+            }
+            report_path = exporter.export_rival_strategy_selection_html(
+                manifest, filename=report_name, manifest_filename=manifest_path.name,
+            )
             manifest_path.write_text(
                 json.dumps(manifest, indent=2, allow_nan=False) + "\n", encoding="utf-8",
             )
+            print(f"Consolidated selection report: {report_path}")
             print(f"Selection manifest: {manifest_path}")
     except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
         parser.error(str(error))

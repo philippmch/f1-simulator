@@ -106,6 +106,19 @@ def test_cli_exports_weighted_selection_and_each_scenario_for_replay(
     assert len(manifests) == 1
     manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
     selection = manifest["selection"]
+    assert manifest["selection_report_html"].endswith("_summary.html")
+    report_path = output / manifest["selection_report_html"]
+    assert report_path.is_file()
+    report_html = report_path.read_text(encoding="utf-8")
+    assert "Weighted rival strategy selection" in report_html
+    assert "Track: Saved" in report_html
+    assert "Race engine:" in report_html
+    assert "Weighted mean target points" in report_html
+    assert "within-seed cross-scenario covariance" in report_html
+    assert "not zero uncertainty" in report_html
+    assert "../conservative &lt;rival&gt;" in report_html
+    assert manifest["target_plans"][selection["reference_label"]] is None
+    assert selection["selected_label"] in manifest["target_plans"]
     assert selection["rival_scenarios"] == [
         {
             "name": "../conservative <rival>",
@@ -154,6 +167,7 @@ def test_cli_exports_weighted_selection_and_each_scenario_for_replay(
 
     assert source.read_bytes() == original_source
     assert all(path.parent == output for path in output.iterdir())
+    assert str(report_path) in printed
 
 
 def test_cli_export_uses_core_normalized_weights_for_large_finite_values(

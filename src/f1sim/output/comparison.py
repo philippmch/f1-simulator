@@ -4,7 +4,7 @@ import json
 from enum import Enum
 from html import escape
 from math import isfinite
-from numbers import Real
+from numbers import Integral, Real
 
 from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.analysis.paired_comparison import paired_comparison_statistics
@@ -1225,3 +1225,296 @@ failures; other race processes continue sharing the race stream.</p>""" + (
     ) + (
         '<h2>Custom pit-plan execution</h2>' + plan_sections if plan_sections else ''
     ) + "</main></body></html>"
+
+
+def _selection_report_filename(value: object) -> str | None:
+    """Accept generated local basenames only; report data never supplies URLs."""
+    if not isinstance(value, str) or not value or len(value) > 255:
+        return None
+    if value in {".", ".."} or not value[0].isascii() or not value[0].isalnum():
+        return None
+    if any(not (character.isascii() and (character.isalnum() or character in "._-"))
+           for character in value):
+        return None
+    return value
+
+
+def _selection_report_link(filename: object, label: object) -> str:
+    safe_name = _selection_report_filename(filename)
+    if safe_name is None:
+        return _text(label)
+    return f'<a href="{_text(safe_name)}">{_text(label)}</a>'
+
+
+def _selection_report_number(value: object) -> str:
+    try:
+        if (not isinstance(value, Real) or isinstance(value, bool) or not isfinite(value)):
+            return "Not recorded"
+        return f"{float(value):.3f}"
+    except (TypeError, ValueError, OverflowError):
+        return "Not recorded"
+
+
+def _selection_report_standard_error(value: object, paired_races: object) -> str:
+    if value is not None:
+        return f"{_selection_report_number(value)} sample SE"
+    if isinstance(paired_races, Integral) and not isinstance(paired_races, bool) \
+            and paired_races == 1:
+        return "Not estimated (1 paired race); this is not zero uncertainty"
+    return "Not estimated"
+
+
+def render_rival_strategy_selection_report(manifest: dict) -> str:
+    """Render a standalone summary of existing weighted selection evidence."""
+    selection = manifest.get("selection", {})
+    selection = selection if isinstance(selection, dict) else {}
+    selected = selection.get("selected_label", "Not recorded")
+    reference = selection.get("reference_label", "Not recorded")
+    target_mode = selection.get("target_mode", "Not recorded")
+    target_id = selection.get("target_id", "Not recorded")
+    report_context = manifest.get("report_context", {})
+    report_context = report_context if isinstance(report_context, dict) else {}
+    track_name = report_context.get("track_name", "Not recorded")
+    race_engine = report_context.get("race_engine", "Not recorded")
+    members = selection.get("target_member_ids", [])
+    members_text = ", ".join(str(member) for member in members) if members else "Not recorded"
+    target_plans = manifest.get("target_plans", {})
+    target_plans = target_plans if isinstance(target_plans, dict) else {}
+    plan_rows = []
+    for label, role in ((reference, "Fixed reference"), (selected, "Selected and frozen")):
+        plan = target_plans.get(label, "Not included in manifest")
+        plan_text = json.dumps(plan, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        plan_rows.append(
+            f'<tr><th scope="row">{_text(role)}</th><td>{_text(label)}</td>'
+            f'<td><code>{_text(plan_text)}</code></td></tr>'
+        )
+    if selected == reference:
+        plan_rows = plan_rows[:1]
+
+    training = selection.get("training_score_table", [])
+    training_rows = "".join(
+        f'<tr><th scope="row">{_text(row.get("label", "Not recorded"))}</th>'
+        f'<td>{_selection_report_number(row.get("mean_points"))}</td>'
+        f'<td>{_text(row.get("trials", "Not recorded"))}</td></tr>'
+        for row in training if isinstance(row, dict)
+    ) or '<tr><td colspan="3">No training scores recorded.</td></tr>'
+    scenario_training = selection.get("training_scenario_score_tables", {})
+    scenario_training = scenario_training if isinstance(scenario_training, dict) else {}
+    rival_training_sections = []
+    for scenario_name, score_data in scenario_training.items():
+        if not isinstance(score_data, dict):
+            continue
+        scores = score_data.get("scores", [])
+        score_rows = "".join(
+            f'<tr><th scope="row">{_text(row.get("label", "Not recorded"))}</th>'
+            f'<td>{_selection_report_number(row.get("mean_points"))}</td>'
+            f'<td>{_text(row.get("trials", "Not recorded"))}</td></tr>'
+            for row in scores if isinstance(row, dict)
+        ) or '<tr><td colspan="3">No per-rival training scores recorded.</td></tr>'
+        rival_training_sections.append(
+            f'<h3>{_text(scenario_name)}</h3><div class="table-wrap" tabindex="0" '
+            f'role="region" aria-label="Training scores for {_text(scenario_name)}">'
+            '<table><thead><tr><th scope="col">Candidate plan</th>'
+            '<th scope="col">Mean target points</th><th scope="col">Training trials</th>'
+            f'</tr></thead><tbody>{score_rows}</tbody></table></div>'
+        )
+    rival_training_html = (
+        "".join(rival_training_sections) or "<p>No rival training tables recorded.</p>"
+    )
+
+    rival_rows = []
+    scenario_exports = manifest.get("rival_scenarios", {})
+    scenario_exports = scenario_exports if isinstance(scenario_exports, dict) else {}
+    for scenario in selection.get("rival_scenarios", []):
+        if not isinstance(scenario, dict):
+            continue
+        name = scenario.get("name", "Not recorded")
+        overrides = scenario.get("rival_pit_plans", {})
+        overrides = overrides if isinstance(overrides, dict) else {}
+        override_text = "; ".join(
+            f"{driver_id}: {json.dumps(plan, ensure_ascii=False, sort_keys=True)}"
+            for driver_id, plan in overrides.items()
+        ) or "No rival overrides; source plans apply"
+        files = scenario_exports.get(name, {})
+        files = files if isinstance(files, dict) else {}
+        detail_links = " · ".join((
+            _selection_report_link(files.get("training_comparison_html"), "Training details"),
+            _selection_report_link(files.get("validation_comparison_html"), "Held-out details"),
+            _selection_report_link(files.get("training_comparison_json"), "Training replay JSON"),
+            _selection_report_link(files.get("validation_comparison_json"), "Held-out replay JSON"),
+        ))
+        rival_rows.append(
+            f'<tr><th scope="row">{_text(name)}</th>'
+            f'<td>{_selection_report_number(scenario.get("weight"))}</td>'
+            f'<td>{_selection_report_number(scenario.get("normalized_weight"))}</td>'
+            f'<td><code>{_text(override_text)}</code></td><td>{detail_links}</td></tr>'
+        )
+    rival_rows_html = (
+        "".join(rival_rows)
+        or '<tr><td colspan="5">No rival assumptions recorded.</td></tr>'
+    )
+
+    target_metrics = selection.get("validation_target_metrics", {})
+    target_metrics = target_metrics if isinstance(target_metrics, dict) else {}
+    identity = selection.get("validation_status") == "no_change" or selected == reference
+    if identity:
+        weighted_note = (
+            "Identity comparison: selected plan equals the reference, so the difference is "
+            "zero by definition. No independent alternative estimate or standard error exists."
+        )
+        weighted_delta = "0.000 (identity by definition)"
+        weighted_se = "No independent alternative estimate"
+    else:
+        weighted_note = (
+            "Weighted selected-minus-reference changes are combined within each seed before "
+            "the sample SE is computed, retaining covariance across rival scenarios."
+        )
+        weighted_delta = _selection_report_number(target_metrics.get("mean_points_difference"))
+        weighted_se = _selection_report_standard_error(
+            target_metrics.get("points_difference_standard_error"),
+            target_metrics.get("paired_races"),
+        )
+    weighted_rows = (
+        f'<tr><th scope="row">Weighted across rival scenarios</th>'
+        f'<td>{_selection_report_number(target_metrics.get("reference_mean_points"))}</td>'
+        f'<td>{_selection_report_number(target_metrics.get("selected_mean_points"))}</td>'
+        f'<td>{weighted_delta}</td><td>{_text(weighted_se)}</td>'
+        f'<td>{_text(target_metrics.get("paired_races", "Not recorded"))}</td></tr>'
+    )
+    scenario_metrics = selection.get("validation_scenario_metrics", {})
+    scenario_metrics = scenario_metrics if isinstance(scenario_metrics, dict) else {}
+    heldout_rows = []
+    for name, metrics in scenario_metrics.items():
+        if not isinstance(metrics, dict):
+            continue
+        delta = "0.000 (identity by definition)" if identity else _selection_report_number(
+            metrics.get("mean_points_difference"),
+        )
+        se = (
+            "No independent alternative estimate" if identity else
+            _selection_report_standard_error(
+                metrics.get("points_difference_standard_error"), metrics.get("paired_races"),
+            )
+        )
+        heldout_rows.append(
+            f'<tr><th scope="row">{_text(name)}</th>'
+            f'<td>{_selection_report_number(metrics.get("reference_mean_points"))}</td>'
+            f'<td>{_selection_report_number(metrics.get("selected_mean_points"))}</td>'
+            f'<td>{delta}</td><td>{_text(se)}</td>'
+            f'<td>{_text(metrics.get("paired_races", "Not recorded"))}</td></tr>'
+        )
+    scenario_rows_html = (
+        "".join(heldout_rows)
+        or '<tr><td colspan="6">No per-rival held-out metrics recorded.</td></tr>'
+    )
+
+    methodology_limits = selection.get("methodology_limits", [])
+    methodology_html = "".join(
+        f"<li>{_text(limit)}</li>" for limit in methodology_limits
+    ) if isinstance(methodology_limits, list) else ""
+    methodology_section = (
+        f"<h2>Methodology limits</h2><ul>{methodology_html}</ul>"
+        if methodology_html else ""
+    )
+
+    ranges = selection.get("seed_ranges", {})
+    ranges = ranges if isinstance(ranges, dict) else {}
+    seed_rows = []
+    for phase in ("training", "validation"):
+        cohort = ranges.get(phase, {})
+        cohort = cohort if isinstance(cohort, dict) else {}
+        seed_rows.append(
+            f'<tr><th scope="row">{_text(phase.title())}</th>'
+            f'<td>{_text(cohort.get("first_seed", "Not recorded"))}–'
+            f'{_text(cohort.get("last_seed", "Not recorded"))} inclusive</td>'
+            f'<td>{_text(cohort.get("trials", "Not recorded"))}</td></tr>'
+        )
+    manifest_link = _selection_report_link(
+        manifest.get("manifest_filename"), "Selection manifest (JSON)",
+    )
+    return f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rival strategy selection report</title><style>
+:root {{ color-scheme: dark; }}
+* {{ box-sizing: border-box; }}
+body {{ margin: 0; background: #0f1220; color: #e8ebff;
+  font-family: "Segoe UI", system-ui, sans-serif; line-height: 1.55; }}
+main {{ max-width: 1440px; margin: auto; padding: clamp(16px, 3vw, 40px); }}
+h1 {{ margin: 0 0 12px; font-size: clamp(1.6rem, 4vw, 2.4rem); }}
+h2 {{ font-size: 1.2rem; margin-top: 30px; }}
+h3 {{ font-size: 1rem; margin: 20px 0 8px; }}
+p {{ max-width: 78ch; color: #b6c0ff; }}
+h1, h2, h3, p, li {{ overflow-wrap: anywhere; }}
+a {{ color: #9cbbff; }}
+.table-wrap {{ overflow-x: auto; max-width: 100%; border-radius: 6px; margin: 12px 0; }}
+.scroll-hint {{ display: none; }}
+@media (max-width: 700px) {{ .scroll-hint {{ display: block; }} }}
+table {{ border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }}
+th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid #2a3156;
+  vertical-align: top; overflow-wrap: anywhere; min-width: 110px; }}
+thead th {{ color: #b6c0ff; font-weight: 600; }}
+tbody th {{ font-weight: 600; }}
+.context {{ background: #181c30; border: 1px solid #2a3156; border-radius: 8px; }}
+code {{ white-space: pre-wrap; overflow-wrap: anywhere; color: #d7dcff; }}
+:focus-visible {{ outline: 3px solid #9cbbff; outline-offset: 2px; }}
+</style></head><body><main>
+<h1>Weighted rival strategy selection</h1>
+<p>The target plan was chosen using weighted training results and then frozen for a
+separate held-out seed cohort. Supplied rival-scenario weights are analysis assumptions,
+not probabilities learned from race data. Held-out results do not feed back into selection.</p>
+<p>Track: {_text(track_name)}. Race engine: {_text(race_engine)}.</p>
+<p class="scroll-hint">Scroll tables sideways to see every column.</p>
+<h2>Frozen target plans</h2>
+<p>Target: {_text(target_mode)} {_text(target_id)}. Member driver IDs: {_text(members_text)}.
+Reference: {_text(reference)}. Selected and frozen: {_text(selected)}.</p>
+<div class="table-wrap context" tabindex="0" role="region" aria-label="Frozen target plans">
+<table><thead><tr><th scope="col">Role</th><th scope="col">Plan label</th>
+<th scope="col">Target pit plan</th></tr></thead><tbody>{''.join(plan_rows)}</tbody></table></div>
+<h2>Training scores</h2>
+<p>All values in this section use the training cohort only. Weighted mean points are the
+per-seed target points averaged after weighting rival scenarios within each seed.</p>
+<div class="table-wrap context" tabindex="0" role="region" aria-label="Weighted training scores">
+<table><thead><tr><th scope="col">Candidate plan</th>
+<th scope="col">Weighted mean target points</th>
+<th scope="col">Training trials</th></tr></thead><tbody>{training_rows}</tbody></table></div>
+{rival_training_html}
+<h2>Rival assumptions</h2>
+<p>Supplied weights are normalized to sum to one for the weighted result. A listed null
+override restores that rival driver to automatic policy; an empty list means no elective
+pit stops; an instruction list supplies the custom plan. Unlisted drivers keep their saved
+source pit-plan configuration. These weights describe assumptions for this comparison.</p>
+<div class="table-wrap context" tabindex="0" role="region" aria-label="Rival assumptions">
+<table><thead><tr><th scope="col">Rival scenario</th><th scope="col">Supplied weight</th>
+<th scope="col">Normalized weight</th><th scope="col">Rival driver overrides</th>
+<th scope="col">Detailed local exports</th></tr></thead>
+<tbody>{rival_rows_html}</tbody></table></div>
+<h2>Held-out validation</h2>
+<p>{_text(weighted_note)} Standard errors are sample standard errors of paired differences,
+not confidence intervals. A missing one-trial standard error is not zero uncertainty and
+must not be read as zero.</p>
+<div class="table-wrap context" tabindex="0" role="region" aria-label="Weighted held-out metrics">
+<table><thead><tr><th scope="col">Comparison</th><th scope="col">Reference mean points</th>
+<th scope="col">Selected mean points</th><th scope="col">Selected minus reference</th>
+<th scope="col">Uncertainty</th><th scope="col">Paired races</th></tr></thead>
+<tbody>{weighted_rows}</tbody></table></div>
+<h3>Per-rival held-out changes</h3>
+<div class="table-wrap context" tabindex="0" role="region" aria-label="Per-rival held-out metrics">
+<table><thead><tr><th scope="col">Rival scenario</th><th scope="col">Reference mean points</th>
+<th scope="col">Selected mean points</th><th scope="col">Selected minus reference</th>
+<th scope="col">Uncertainty</th><th scope="col">Paired races</th></tr></thead>
+<tbody>{scenario_rows_html}</tbody></table></div>
+<p>Weighted differences combine scenario results within each seed before calculating their
+sample SE, retaining within-seed cross-scenario covariance. Per-rival differences are paired
+within each scenario by seed. Results describe this saved simulator experiment; they do not
+establish causal or real-world advantage.</p>
+{methodology_section}
+<h2>Seed cohorts and procedure</h2>
+<p>These are the actual disjoint seed cohorts recorded by the selection run; each range is
+inclusive. Only the fixed reference and training winner were evaluated in validation. The
+selected plan remained frozen regardless of held-out results.</p>
+<div class="table-wrap context" tabindex="0" role="region" aria-label="Seed cohorts">
+<table><thead><tr><th scope="col">Phase</th><th scope="col">Seeds</th>
+<th scope="col">Trials</th></tr></thead><tbody>{''.join(seed_rows)}</tbody></table></div>
+<p>{manifest_link}</p>
+</main></body></html>"""

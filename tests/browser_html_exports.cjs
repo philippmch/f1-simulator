@@ -36,6 +36,10 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
           return route.fulfill({contentType: 'text/html; charset=utf-8',
             body: fixture.scalable_run_report});
         }
+        if (name === 'rival-selection.html') {
+          return route.fulfill({contentType: 'text/html; charset=utf-8',
+            body: fixture.rival_selection_report});
+        }
         if (name === 'index.html' || name === fixture.filename) {
           return route.fulfill({contentType: 'text/html; charset=utf-8',
             body: name === 'index.html' ? fixture.index : fixture.report});
@@ -309,6 +313,39 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     assert((await standaloneHistory.locator('tbody tr').last().innerText()).includes(
       '</script><script>globalThis.planHistoryInjected=true</script>'));
     assert.equal(await page.evaluate(() => Boolean(globalThis.planHistoryInjected)), false);
+    await page.goto('http://f1sim.test/rival-selection.html');
+    assert.equal(await page.title(), 'Rival strategy selection report');
+    assert.equal(await page.getByRole('heading', {
+      name: 'Weighted rival strategy selection', exact: true,
+    }).count(), 1);
+    assert((await page.locator('body').innerText()).includes('Silverstone'));
+    assert((await page.locator('body').innerText()).includes('Chronological'));
+    assert((await page.locator('body').innerText()).includes('Selected and frozen'));
+    assert((await page.locator('body').innerText()).includes('101–104 inclusive'));
+    assert((await page.locator('body').innerText()).toLowerCase().includes('selected minus reference'));
+    assert.equal(await page.locator('script, img, svg, link').count(), 0);
+    assert.equal(await page.evaluate(() => Boolean(globalThis.reportInjected)), false);
+    const selectionLinks = await page.locator('a').evaluateAll(nodes => nodes.map(node => ({
+      href: node.href, raw: node.getAttribute('href'),
+    })));
+    assert.equal(selectionLinks.length, 5);
+    for (const link of selectionLinks) {
+      assert(link.href.startsWith('http://f1sim.test/'));
+      assert(!link.raw.includes('/') && !link.raw.includes('\\') && !link.raw.includes(':'));
+    }
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({width, height: 1100});
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+      const assumptions = page.getByRole('region', {name: 'Rival assumptions', exact: true});
+      if (width === 390) {
+        assert(await assumptions.evaluate(node => node.scrollWidth > node.clientWidth));
+      }
+      if (process.env.F1SIM_SCREENSHOTS) {
+        fs.mkdirSync(process.env.F1SIM_SCREENSHOTS, {recursive: true});
+        await page.screenshot({path: path.join(process.env.F1SIM_SCREENSHOTS,
+          `rival-selection-${width}.png`), fullPage: true});
+      }
+    }
     assert.deepEqual(errors, []);
     assert.deepEqual(unexpected, []);
     console.log('HTML export browser checks passed: text, script data, and filename links.');

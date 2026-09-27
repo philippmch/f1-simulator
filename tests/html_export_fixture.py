@@ -34,6 +34,63 @@ def _scalable_plan_result(driver_id, marker, *, hostile_last=False):
     )
 
 
+def _selection_report_fixture(exporter):
+    name = "../cautious <rival>"
+    run_id = "abc123"
+    manifest_name = f"rival_selection_manifest_{run_id}.json"
+    manifest = {
+        "selection": {
+            "target_mode": "constructor", "target_id": "Target <team>",
+            "target_member_ids": ["A<&", "B"],
+            "reference_label": "Automatic", "selected_label": "Planned <plan>",
+            "validation_status": "evaluated",
+            "rival_scenarios": [{
+                "name": name, "weight": 1, "normalized_weight": 1,
+                "rival_pit_plans": {"C": None, "D": [], "E": [{"lap": 3, "compound": "hard"}]},
+            }],
+            "training_score_table": [
+                {"label": "Automatic", "mean_points": 8.5, "trials": 4},
+                {"label": "Planned <plan>", "mean_points": 12.25, "trials": 4},
+            ],
+            "training_scenario_score_tables": {name: {"scores": [
+                {"label": "Automatic", "mean_points": 8.5, "trials": 4},
+                {"label": "Planned <plan>", "mean_points": 12.25, "trials": 4},
+            ]}},
+            "validation_target_metrics": {
+                "reference_mean_points": 8, "selected_mean_points": 10,
+                "mean_points_difference": 2,
+                "points_difference_standard_error": 0.5, "paired_races": 4,
+            },
+            "validation_scenario_metrics": {name: {
+                "reference_mean_points": 8, "selected_mean_points": 10,
+                "mean_points_difference": 2,
+                "points_difference_standard_error": 0.5, "paired_races": 4,
+            }},
+            "seed_ranges": {
+                "training": {"first_seed": 101, "last_seed": 104, "trials": 4},
+                "validation": {"first_seed": 105, "last_seed": 108, "trials": 4},
+            },
+            "methodology_limits": [
+                "Scenario weights are supplied assumptions, not learned probabilities.",
+                "A hostile note </script><script>globalThis.reportInjected=true</script> "
+                "stays text.",
+            ],
+        },
+        "target_plans": {"Automatic": None, "Planned <plan>": [{"lap": 4, "compound": "hard"}]},
+        "report_context": {"track_name": "Silverstone", "race_engine": "Chronological"},
+        "rival_scenarios": {name: {
+            "training_comparison_html": f"rival_selection_{run_id}_scenario_00_training.html",
+            "validation_comparison_html": f"rival_selection_{run_id}_scenario_00_validation.html",
+            "training_comparison_json": f"rival_selection_{run_id}_scenario_00_training.json",
+            "validation_comparison_json": f"rival_selection_{run_id}_scenario_00_validation.json",
+        }},
+        "selection_report_html": f"rival_selection_{run_id}_summary.html",
+    }
+    return exporter.export_rival_strategy_selection_html(
+        manifest, filename=manifest["selection_report_html"], manifest_filename=manifest_name,
+    ).read_text(encoding="utf-8")
+
+
 def build_fixture():
     script = "</script><script>globalThis.exportInjected=true</script>"
     track = f'Montréal </title>{script}<img src=x onerror="globalThis.exportInjected=true">'
@@ -124,6 +181,7 @@ def build_fixture():
         scalable_run_report = exporter.export_report_html(
             scalable_first, filename="large-run.html",
         ).read_text(encoding="utf-8")
+        rival_selection_report = _selection_report_fixture(exporter)
         exporter._write_history([{
             "timestamp": "<img src=x onerror=globalThis.exportInjected=true>",
             "track": track, "num_simulations": 1, "seed": 42,
@@ -134,6 +192,7 @@ def build_fixture():
             "paired": paired, "plan_report": plan_report,
             "scalable_plan_report": scalable_plan_report,
             "scalable_run_report": scalable_run_report,
+            "rival_selection_report": rival_selection_report,
             "paired_stats": paired_stats["variants"]["soft"]["driver_statistics"]["A"],
             "paired_constructor_stats": paired_constructor_stats,
             "track": track, "driver": driver,

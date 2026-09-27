@@ -94,13 +94,21 @@ selection step.
 
 ## Exports and API
 
-With `--export`, the command writes a selection manifest and separate
-scenario-specific training and validation comparison JSON/HTML files. Each
-comparison contains its own saved inputs and seeds for offline replay. The
-weighted aggregate is metadata computed from seed-level target points; it is
-not fabricated as a pooled `SimulationResults` object. Generated filenames
-use scenario indexes, so user-supplied scenario labels cannot select or
-overwrite filesystem paths. The source export is never modified.
+With `--export`, the command writes a standalone weighted selection HTML report,
+a selection manifest, and separate scenario-specific training and validation
+comparison JSON/HTML files. The summary report shows the frozen selected and
+reference target plans, supplied and normalized rival weights, training scores,
+held-out paired changes, and the actual disjoint seed cohorts. It links to each
+local comparison export and the JSON manifest. Each detailed comparison
+contains its own saved inputs and seeds for offline replay. The weighted
+aggregate is metadata computed from seed-level target points; it is not
+fabricated as a pooled `SimulationResults` object. Standard errors describe
+paired sampling error, not confidence intervals. For one validation trial the
+standard error is unavailable; if selection returns the reference itself, the
+zero difference is identity by definition and has no independent alternative
+estimate. The held-out result does not feed back into selection. Generated
+filenames use scenario indexes, so user-supplied scenario labels cannot select
+or overwrite filesystem paths. The source export is never modified.
 
 The Python entry point is
 `f1sim.analysis.rival_strategy_selection.evaluate_saved_rival_pit_plan_selection`.
