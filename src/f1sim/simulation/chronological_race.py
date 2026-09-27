@@ -1142,6 +1142,9 @@ class ChronologicalRace:
                     restart_boost=pending.restart_boost,
                     is_wet=pending.weather.is_wet(), tire_pace_advantage_seconds=advantage,
                 )
+                state.overtake_attempts += 1
+                state.overtake_successes += int(success)
+                state.overtake_contacts += int(incident)
             if success:
                 self.order[index - 1], self.order[index] = driver_id, defender_id
                 continue
@@ -1255,6 +1258,9 @@ class ChronologicalRace:
                     state,
                     "retired" if state.status == DriverStatus.DNF else "race_finished",
                 ),
+                overtake_attempts=state.overtake_attempts,
+                overtake_successes=state.overtake_successes,
+                overtake_contacts=state.overtake_contacts,
                 **self.simulator._inventory_result_fields(state),
             ))
         return results

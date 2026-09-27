@@ -54,6 +54,102 @@ def _text(value: object) -> str:
     return escape(str(value), quote=True)
 
 
+def _overtake_summary_row(scope: str, summary: object) -> str:
+    if not isinstance(summary, dict):
+        summary = {}
+    status = summary.get("status")
+    status_text = {
+        "recorded": "Recorded",
+        "partial": "Partial coverage",
+        "not_recorded": "Not recorded",
+    }.get(status, "Not recorded")
+    attempts, successes, contacts = (
+        summary.get("attempts"), summary.get("successes"), summary.get("contacts"),
+    )
+    valid_counts = all(
+        isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        for value in (attempts, successes, contacts)
+    ) and successes + contacts <= attempts
+    if valid_counts and status in ("recorded", "partial"):
+        count_text = f"{attempts} / {successes} / {contacts}"
+    else:
+        count_text = "Not recorded"
+
+    def rate_text(value: object) -> str:
+        if valid_counts and attempts == 0 and status in ("recorded", "partial"):
+            return "Not defined (0 attempts)"
+        if (not valid_counts or status not in ("recorded", "partial")
+                or isinstance(value, bool) or not isinstance(value, Real)
+                or not isfinite(value) or not 0 <= value <= 1):
+            return "Not recorded"
+        return f"{value * 100:.1f}%"
+
+    recorded = summary.get("recorded_driver_races")
+    missing = summary.get("missing_driver_races")
+    if (isinstance(recorded, int) and not isinstance(recorded, bool) and recorded >= 0
+            and isinstance(missing, int) and not isinstance(missing, bool) and missing >= 0):
+        coverage = f"{recorded} recorded / {missing} missing available driver-race rows"
+    else:
+        coverage = "Not recorded"
+    return (
+        f"<tr><th scope=\"row\">{_text(scope)}</th>"
+        f"<td>{status_text}</td><td>{_text(coverage)}</td>"
+        f"<td>{_text(count_text)}</td>"
+        f"<td>{_text(rate_text(summary.get('success_rate')))}</td>"
+        f"<td>{_text(rate_text(summary.get('contact_rate')))}</td></tr>"
+    )
+
+
+def _overtaking_statistics_html(
+    result: SimulationResults,
+    *,
+    scenario: str = "run",
+    focus_driver: str | None = None,
+    include_note: bool = True,
+) -> str:
+    """Render pooled overtake-call counts while distinguishing legacy/missing rows."""
+    method = getattr(result, "get_overtake_statistics", None)
+    statistics = method() if callable(method) else None
+    overall = statistics.get("overall") if isinstance(statistics, dict) else None
+    drivers = statistics.get("drivers") if isinstance(statistics, dict) else None
+    rows = [_overtake_summary_row("Full field", overall)]
+    if isinstance(drivers, dict):
+        selected = sorted(
+            (driver_id, summary) for driver_id, summary in drivers.items()
+            if isinstance(driver_id, str)
+            and (focus_driver is None or driver_id == focus_driver)
+        )
+        for driver_id, summary in selected:
+            identity = getattr(result, "driver_stats", {}).get(driver_id)
+            name = getattr(identity, "driver_name", None)
+            label = f"{name} ({driver_id})" if isinstance(name, str) and name else driver_id
+            rows.append(_overtake_summary_row(label, summary))
+        if focus_driver is not None and not any(row[0] == focus_driver for row in selected):
+            rows.append(_overtake_summary_row(focus_driver, None))
+    elif focus_driver is not None:
+        rows.append(_overtake_summary_row(focus_driver, None))
+
+    note = (
+        "Counts include calls to the passing model only; rejected proximity gates and "
+        "compliant blue-flag yields are not attempts. Contact counts cover passing calls, "
+        "not every collision. Rates are pooled per attempt and describe this model; attempts "
+        "are correlated, so no binomial interval is shown."
+        if include_note else ""
+    )
+    note_html = f'<p>{_text(note)}</p>' if note else ""
+    return (
+        note_html
+        + '<div class="table-wrap overtaking-statistics" tabindex="0" role="region" '
+        f'aria-label="{_text(scenario)} overtaking attempts and outcomes">'
+        f'<table><caption>Overtaking attempts and outcomes for {_text(scenario)}</caption>'
+        '<thead><tr><th scope="col">Scope</th><th scope="col">Coverage status</th>'
+        '<th scope="col">Available driver-race row coverage</th>'
+        '<th scope="col">Attempts / successes / contacts</th>'
+        '<th scope="col">Success per attempt</th><th scope="col">Contact per attempt</th>'
+        '</tr></thead><tbody>' + "".join(rows) + '</tbody></table></div>'
+    )
+
+
 def _paired_coverage_html(paired: dict) -> str:
     lines = []
     for label, comparison in paired["variants"].items():
@@ -832,6 +928,7 @@ def render_comparison_report(
     context = []
     distance_rows = []
     suspension_rows = []
+    overtake_sections = []
     drivers = {}
     summaries = {}
     paired = (
@@ -851,6 +948,13 @@ def render_comparison_report(
         ) + "</tr>")
         for driver_id, stats in result.driver_stats.items():
             drivers.setdefault(driver_id, stats)
+        overtake_sections.append(
+            f'<section><h3 class="overtake-scenario-heading">{_text(name)}</h3>'
+            + _overtaking_statistics_html(
+                result, scenario=name, focus_driver=focus_driver,
+            )
+            + '</section>'
+        )
         summaries[name] = (
             result.get_probability_intervals(), result.get_pit_stop_statistics(),
             result.get_strategy_statistics(),
@@ -1030,6 +1134,7 @@ summary:hover { color: #9cbbff; }
 .paired-cost-note { font-size: .875rem; }
 .paired-constructor-note { font-size: .875rem; }
 .paired-constructor { margin: 12px 0 20px; }
+.overtake-scenario-heading { overflow-wrap: anywhere; }
 .joint-count { white-space: normal; }
 </style></head><body><main><h1>Simulation comparison</h1>
 <p>Scenarios appear in supplied order. Check their context and saved inputs when
@@ -1055,7 +1160,14 @@ time.</p>
 <th scope="col">Scenario</th><th scope="col">Mean completed suspension</th>
 <th scope="col">Positive suspensions</th></tr></thead><tbody>""" + (
         "".join(suspension_rows) or '<tr><td colspan="3">No scenarios recorded</td></tr>'
-    ) + """</tbody></table></div><h2>Race distance</h2>
+    ) + """</tbody></table></div><h2>Overtaking attempts and outcomes</h2>
+<p>Counts cover available driver-race rows. The standard engine counts passing-model
+calls after its adjacent-car proximity gate; the chronological engine counts attempts
+when the physical predecessor is caught. Rejected gates and compliant blue-flag yields
+are not attempts. Contact counts cover passing calls, not every collision. Rates are
+descriptive, not real-world calibration; attempts can be correlated.</p>""" + (
+        "".join(overtake_sections) or '<p>Not recorded.</p>'
+    ) + """<h2>Race distance</h2>
 <p>Shortened races and lapped finishes can change points and pit-stop counts.
 Winning distance uses finished P1 results with a recorded distance. Lapping
 compares only finishers whose distance and winner's distance are both known.</p>

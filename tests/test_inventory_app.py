@@ -72,7 +72,10 @@ def test_inventory_serialization_and_escaped_ledger(tmp_path):
     legacy_results = SimulationResults(1, "T", {}, [[legacy]], [])
     with exporter.export_race_results_csv(legacy_results).open(encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
-        assert reader.fieldnames[-1] == 'points_awarded'
+        assert 'points_awarded' in reader.fieldnames
+        assert reader.fieldnames[-3:] == [
+            'overtake_attempts', 'overtake_successes', 'overtake_contacts',
+        ]
         assert 'tire_inventory' not in reader.fieldnames
     result.tire_set_history = [{"lap": 1, "kind": "start", "set_id": '<img src=x>',
         "compound": "soft", "age_at_fit": 5, "age_at_end": 6, "laps_used": 1}]

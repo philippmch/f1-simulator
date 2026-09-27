@@ -211,6 +211,9 @@ def _serialize_race_result(result: Any) -> dict[str, Any]:
         "fastest_lap": result.fastest_lap,
         "status": result.status.value,
         "laps_completed": getattr(result, "laps_completed", None),
+        "overtake_attempts": getattr(result, "overtake_attempts", None),
+        "overtake_successes": getattr(result, "overtake_successes", None),
+        "overtake_contacts": getattr(result, "overtake_contacts", None),
         "classified": result_is_classified(result),
         "race_time_limited": getattr(result, "race_time_limited", False),
         "points_awarded": points_for_result(result),
@@ -449,6 +452,9 @@ def _summarize_scenario_results(
             ) or {},
             "race_distance_statistics": _safe_call(
                 results, "get_race_distance_statistics", default={},
+            ) or {},
+            "overtaking_statistics": _safe_call(
+                results, "get_overtake_statistics", default={},
             ) or {},
             "suspension_statistics": suspension_statistics(results),
             "simulation_inputs": getattr(results, "input_snapshot", None),

@@ -64,7 +64,10 @@ def test_csv_distinguishes_known_empty_and_unknown_history(tmp_path, laps):
     with path.open(newline="") as handle:
         reader = csv.DictReader(handle)
         row = next(reader)
-        assert reader.fieldnames[-3:] == ["pit_laps", "race_time_limited", "points_awarded"]
+        assert reader.fieldnames[-6:] == [
+            "pit_laps", "race_time_limited", "points_awarded",
+            "overtake_attempts", "overtake_successes", "overtake_contacts",
+        ]
     assert row["pit_laps"] == (json.dumps(laps) if laps is not None else "")
 
 

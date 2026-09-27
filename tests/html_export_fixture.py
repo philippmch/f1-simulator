@@ -45,6 +45,8 @@ def build_fixture():
         num_simulations=1, track_name=track, seed=42,
         race_results=[[RaceResult(driver, driver, team, 1, 100, 0, 2, 90, DriverStatus.DNF,
                                   strategy=["soft", script, "soft"],
+                                  overtake_attempts=5, overtake_successes=4,
+                                  overtake_contacts=0,
                                   pit_stop_details=[
                                       {"decision_reason": "dry_forecast"},
                                       {"decision_reason": script},

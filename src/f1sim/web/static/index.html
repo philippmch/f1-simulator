@@ -842,12 +842,22 @@ input:focus-visible {
   grid-column: 1 / -1;
 }
 
-.pit-summary-card, .pit-decision-summary-card, .pit-plan-statistics-card, .strategy-summary-card {
+.pit-summary-card, .pit-decision-summary-card, .pit-plan-statistics-card, .strategy-summary-card,
+.overtaking-statistics-card {
   grid-column: 1 / -1;
 }
 
-.pit-summary-card table, .pit-decision-summary-card table, .pit-plan-statistics-card table, .strategy-summary-card table {
+.pit-summary-card table, .pit-decision-summary-card table, .pit-plan-statistics-card table,
+.strategy-summary-card table, .overtaking-statistics-card table {
   min-width: 34rem;
+}
+
+.overtaking-statistics-card .overtaking-statistics-table-wrap { max-width: 100%; }
+.overtaking-statistics-card tbody th {
+  text-transform: none;
+  font-size: inherit;
+  letter-spacing: normal;
+  color: inherit;
 }
 
 #pitLossDetails { margin-top: 1rem; }
@@ -4661,6 +4671,60 @@ function renderSuspensionStatistics(stats) {
       not an individual driver's stopped or driving time.</p>`;
 }
 
+function renderOvertakingStatistics(stats) {
+  if (!stats || typeof stats !== 'object') {
+    return '<div class="inline-note">Overtaking counters were not recorded for this run.</div>';
+  }
+  const formatSummary = summary => {
+    if (!summary || typeof summary !== 'object') summary = {};
+    const status = ['recorded', 'partial', 'not_recorded'].includes(summary.status)
+      ? summary.status : 'not_recorded';
+    const validCounts = Number.isSafeInteger(summary.attempts) && summary.attempts >= 0
+      && Number.isSafeInteger(summary.successes) && summary.successes >= 0
+      && Number.isSafeInteger(summary.contacts) && summary.contacts >= 0
+      && summary.successes + summary.contacts <= summary.attempts;
+    const counts = validCounts && status !== 'not_recorded'
+      ? summary.attempts + ' / ' + summary.successes + ' / ' + summary.contacts
+      : 'Not recorded';
+    const rate = value => {
+      if (validCounts && summary.attempts === 0 && status !== 'not_recorded')
+        return 'Not defined (0 attempts)';
+      return validCounts && status !== 'not_recorded' && Number.isFinite(value)
+        && value >= 0 && value <= 1 ? (value * 100).toFixed(1) + '%' : 'Not recorded';
+    };
+    const recorded = Number.isSafeInteger(summary.recorded_driver_races)
+      && summary.recorded_driver_races >= 0 ? summary.recorded_driver_races : null;
+    const missing = Number.isSafeInteger(summary.missing_driver_races)
+      && summary.missing_driver_races >= 0 ? summary.missing_driver_races : null;
+    const coverage = recorded !== null && missing !== null
+      ? recorded + ' recorded / ' + missing + ' missing available driver-race rows'
+      : 'Not recorded';
+    const statusText = status === 'recorded' ? 'Recorded'
+      : status === 'partial' ? 'Partial coverage' : 'Not recorded';
+    return '<td>' + statusText + '</td><td>' + escapeHtml(coverage) + '</td><td>'
+      + escapeHtml(counts) + '</td><td>' + escapeHtml(rate(summary.success_rate))
+      + '</td><td>' + escapeHtml(rate(summary.contact_rate)) + '</td>';
+  };
+  const rows = ['<tr><th scope="row">Full field</th>' + formatSummary(stats.overall) + '</tr>'];
+  if (stats.drivers && typeof stats.drivers === 'object' && !Array.isArray(stats.drivers)) {
+    for (const [driverId, summary] of Object.entries(stats.drivers).sort(([a], [b]) => a.localeCompare(b))) {
+      rows.push('<tr><th scope="row">' + escapeHtml(driverId) + '</th>'
+        + formatSummary(summary) + '</tr>');
+    }
+  }
+  return '<div class="stats-table-wrap overtaking-statistics-table-wrap" role="region" tabindex="0" '
+    + 'aria-label="Overtaking attempts and outcomes"><table class="metrics-table">'
+    + '<caption>Attempts / successes / contacts; rates per attempt</caption>'
+    + '<thead><tr><th scope="col">Scope</th><th scope="col">Status</th>'
+    + '<th scope="col">Available driver-race row coverage</th>'
+    + '<th scope="col">Attempts / successes / contacts</th>'
+    + '<th scope="col">Success per attempt</th><th scope="col">Contact per attempt</th>'
+    + '</tr></thead><tbody>' + rows.join('') + '</tbody></table></div>'
+    + '<p class="inline-note">Counts include calls to the passing model only. Rejected proximity '
+    + 'gates and compliant blue-flag yields are not attempts; contacts are not all collisions. '
+    + 'Rates describe this model, not real-world calibration, and attempts can be correlated.</p>';
+}
+
 function renderStats() {
   const container = document.getElementById('statsContent');
   const empty = document.getElementById('emptyStats');
@@ -4734,6 +4798,10 @@ function renderStats() {
       <div class="stat-card" id="suspensionStatistics">
         <div class="stat-card-title">Completed race suspension</div>
         ${renderSuspensionStatistics(scenario.suspension_statistics)}
+      </div>
+      <div class="stat-card overtaking-statistics-card" id="overtakingStatistics">
+        <div class="stat-card-title">Overtaking attempts and outcomes</div>
+        ${renderOvertakingStatistics(scenario.overtaking_statistics)}
       </div>
       <div class="stat-card">
         <div class="stat-card-title">Win Probability</div>

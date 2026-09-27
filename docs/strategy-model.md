@@ -843,6 +843,22 @@ window, so an eligible restart attempt between 1.5 and two seconds can succeed.
 The outer gate still rejects larger gaps. These windows are model parameters;
 the wider passing opportunity does not override Overtake Mode eligibility.
 
+### Overtaking-counter reporting
+
+The attempt counters record calls that reach the passing model. In the standard
+engine, the adjacent-car end-of-lap proximity gate runs first, so rejected
+larger gaps are not attempts. In the chronological engine, an attempt is
+recorded when a car catches its physical predecessor and the passing model is
+used; a compliant blue-flag yield is not an attempt. Success and contact counts
+describe those calls only, not every collision in the race.
+
+Reports show pooled success and contact rates per recorded attempt, alongside
+counts and coverage over available driver-race rows. A complete recorded zero
+is distinct from a missing or inconsistent legacy counter triplet. These rates
+describe the simulator, not real-world calibration. Repeated attempts in one
+driver's race are correlated, so they are not presented with a naive binomial
+confidence interval.
+
 Battles are resolved from the front toward the back of the physical queue.
 After a successful pass, the next attacker faces its new immediate neighbour;
 it cannot skip a car by using the pre-pass order. Passing changes positions,

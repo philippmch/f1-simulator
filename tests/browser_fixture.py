@@ -50,6 +50,18 @@ def build_fixture() -> dict:
             starting_tire_ages={"S00": 5},
             tire_inventory=inventory,
         ).run(num_simulations=10, parallel=False)
+        # Give output smoke tests deterministic recorded, zero, and partial cases.
+        for race in results[label].race_results:
+            for row in race:
+                row.overtake_attempts = row.overtake_successes = row.overtake_contacts = 0
+            by_id = {row.driver_id: row for row in race}
+            by_id["S00"].overtake_attempts = 2
+            by_id["S00"].overtake_successes = 1
+            by_id["S00"].overtake_contacts = 1
+        if results[label].race_results:
+            missing = next(row for row in results[label].race_results[0] if row.driver_id == "S02")
+            (missing.overtake_attempts, missing.overtake_successes,
+             missing.overtake_contacts) = (None, None, None)
         # Exercise the reliability table with observed simulated shares.  The
         # dashboard must render these observations without a reference split.
         results[label].event_stats.mechanical_failure_breakdown = {

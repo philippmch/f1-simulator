@@ -158,6 +158,51 @@ def _pit_plan_context(results: SimulationResults) -> tuple[dict, dict] | None:
     return plans, counts
 
 
+def _print_overtaking_summary(results: SimulationResults) -> None:
+    """Print one results object's overtake-call aggregate with its denominator."""
+    print("\nOVERTAKING ATTEMPTS AND OUTCOMES:")
+    method = getattr(results, "get_overtake_statistics", None)
+    data = method() if callable(method) else None
+    summary = data.get("overall") if isinstance(data, dict) else None
+    if not isinstance(summary, dict) or summary.get("status") == "not_recorded":
+        print("  Full field: Not recorded")
+    else:
+        attempts, successes, contacts = (
+            summary.get("attempts"), summary.get("successes"), summary.get("contacts")
+        )
+        valid = all(
+            isinstance(value, int) and not isinstance(value, bool) and value >= 0
+            for value in (attempts, successes, contacts)
+        ) and successes + contacts <= attempts
+        recorded, missing = (
+            summary.get("recorded_driver_races"), summary.get("missing_driver_races")
+        )
+        coverage = (
+            f"{recorded} recorded / {missing} missing available driver-race rows"
+            if all(isinstance(value, int) and not isinstance(value, bool) and value >= 0
+                   for value in (recorded, missing)) else "coverage not recorded"
+        )
+
+        def rate_text(value: object) -> str:
+            if valid and attempts == 0:
+                return "not defined (0 attempts)"
+            if (not valid or isinstance(value, bool) or not isinstance(value, (int, float))
+                    or not isfinite(value) or not 0 <= value <= 1):
+                return "not recorded"
+            return f"{value * 100:.1f}%"
+
+        counts = f"{attempts} / {successes} / {contacts}" if valid else "Not recorded"
+        print(
+            f"  Full field, attempts / successes / contacts: {counts}; "
+            f"success per attempt {rate_text(summary.get('success_rate'))}; "
+            f"contact per attempt {rate_text(summary.get('contact_rate'))}; {coverage}"
+        )
+    print(
+        "  Attempts count passing-model calls only; rejected gates and compliant blue-flag "
+        "yields are excluded. Contacts are not all collisions; rates describe this model."
+    )
+
+
 class ConsoleOutput:
     """Formats simulation results for console display."""
 
@@ -503,6 +548,7 @@ class ConsoleOutput:
             "descriptive only."
         )
 
+        _print_overtaking_summary(results)
         ConsoleOutput._print_suspension_context(results)
 
         print("=" * 80)

@@ -323,6 +323,69 @@ class SimulationResults:
             "lapped_finisher_rate": lapped / comparable if comparable else None,
         }
 
+    def get_overtake_statistics(self) -> dict[str, object]:
+        """Summarize recorded overtake model calls and outcomes.
+
+        Counters are carried by each driver's race result, including retired
+        drivers.  Legacy rows without a complete, internally consistent
+        counter triplet remain missing rather than being treated as zero.
+        Rates are pooled counts per model call; they do not estimate
+        uncertainty or include opportunities rejected before a model call.
+        """
+        rows_by_driver: dict[str, list[tuple[int, int, int] | None]] = defaultdict(list)
+        all_rows: list[tuple[int, int, int] | None] = []
+
+        races = getattr(self, "race_results", None)
+        if isinstance(races, list):
+            for race in races:
+                if not isinstance(race, (list, tuple)):
+                    continue
+                for result in race:
+                    raw = (
+                        getattr(result, "overtake_attempts", None),
+                        getattr(result, "overtake_successes", None),
+                        getattr(result, "overtake_contacts", None),
+                    )
+                    valid = all(
+                        isinstance(value, Integral) and not isinstance(value, bool)
+                        and value >= 0
+                        for value in raw
+                    )
+                    row = tuple(int(value) for value in raw) if valid else None
+                    if row is not None and row[1] + row[2] > row[0]:
+                        row = None
+                    all_rows.append(row)
+                    driver_id = getattr(result, "driver_id", None)
+                    if isinstance(driver_id, str):
+                        rows_by_driver[driver_id].append(row)
+
+        def summarize(rows: list[tuple[int, int, int] | None]) -> dict[str, object]:
+            recorded = [row for row in rows if row is not None]
+            missing = len(rows) - len(recorded)
+            attempts = sum(row[0] for row in recorded) if recorded else None
+            successes = sum(row[1] for row in recorded) if recorded else None
+            contacts = sum(row[2] for row in recorded) if recorded else None
+            return {
+                "status": (
+                    "not_recorded" if not recorded else "partial" if missing else "recorded"
+                ),
+                "recorded_driver_races": len(recorded),
+                "missing_driver_races": missing,
+                "attempts": attempts,
+                "successes": successes,
+                "contacts": contacts,
+                "success_rate": successes / attempts if attempts else None,
+                "contact_rate": contacts / attempts if attempts else None,
+            }
+
+        return {
+            "overall": summarize(all_rows),
+            "drivers": {
+                driver_id: summarize(rows)
+                for driver_id, rows in sorted(rows_by_driver.items())
+            },
+        }
+
     def get_pit_plan_statistics(self) -> dict:
         """Summarize recorded outcomes for each saved custom pit plan.
 

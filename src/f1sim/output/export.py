@@ -185,6 +185,7 @@ class Exporter:
                 "status", "dnf_reason", "strategy", "race_suspension_seconds",
                 "laps_completed", "classified",
                 "pit_laps", "race_time_limited", "points_awarded",
+                "overtake_attempts", "overtake_successes", "overtake_contacts",
                 *inventory_fields, *plan_field,
             ])
 
@@ -211,6 +212,9 @@ class Exporter:
                         if getattr(result, "pit_laps", None) is not None else "",
                         str(getattr(result, "race_time_limited", False)).lower(),
                         points_for_result(result),
+                        getattr(result, "overtake_attempts", None),
+                        getattr(result, "overtake_successes", None),
+                        getattr(result, "overtake_contacts", None),
                         *(json.dumps(getattr(result, key))
                           if getattr(result, key, None) is not None else ""
                           for key in inventory_fields),
@@ -393,6 +397,10 @@ class Exporter:
             "event_rates": results.get_event_rates(),
             "event_rate_trials": results.get_event_rate_trials(),
             "pit_stop_statistics": results.get_pit_stop_statistics(),
+            "overtaking_statistics": (
+                results.get_overtake_statistics()
+                if callable(getattr(results, "get_overtake_statistics", None)) else None
+            ),
             "pit_loss_statistics": results.get_pit_loss_statistics(),
             "pit_decision_statistics": results.get_pit_decision_statistics(),
             "strategy_statistics": results.get_strategy_statistics(),
@@ -479,6 +487,10 @@ class Exporter:
                 "probability_intervals": results.get_probability_intervals(),
                 "driver_statistics": self._driver_statistics(results),
                 "pit_stop_statistics": results.get_pit_stop_statistics(),
+                "overtaking_statistics": (
+                    results.get_overtake_statistics()
+                    if callable(getattr(results, "get_overtake_statistics", None)) else None
+                ),
                 "pit_loss_statistics": results.get_pit_loss_statistics(),
                 "pit_decision_statistics": results.get_pit_decision_statistics(),
                 "event_rates": results.get_event_rates(),
@@ -559,6 +571,7 @@ class Exporter:
             for driver, compound in sorted(starting_tires.items())
         ) or "Automatic")
         from f1sim.output.comparison import (
+            _overtaking_statistics_html,
             _pit_plan_history_html,
             _pit_plan_statistics_html,
             _pit_plans,
@@ -569,6 +582,7 @@ class Exporter:
         pit_plan_text = escape(_pit_plans(results))
         pit_plan_statistics = _pit_plan_statistics_html(results, "run")
         pit_plan_history = _pit_plan_history_html(results, "run")
+        overtaking_html = _overtaking_statistics_html(results, scenario="run")
         distance = results.get_race_distance_statistics()
         recorded = distance["recorded_races"]
         comparable = distance["finishers_with_comparable_distance"]
@@ -665,6 +679,11 @@ class Exporter:
       <p>Known suspension durations: {escape(suspension_coverage)}</p>
       <p>Race-wide collection + restart pause are already in finish clocks. This
       elapsed-race context is not an individual driver's stopped or driving time.</p>
+    </div>
+    <div class=\"card\" id=\"overtaking-statistics\"><h2>Overtaking attempts and outcomes</h2>
+      <p>The counters record attempts that reach the passing model, not rejected gates.
+      Contact counts cover passing calls, not every collision; rates describe this model.</p>
+      {overtaking_html}
     </div>
     <div class=\"card\" id=\"strategy-statistics\"><h2>Recorded tyre sequences</h2>
       <p>Open a driver to see every sequence. Counts include retirements and free tyre

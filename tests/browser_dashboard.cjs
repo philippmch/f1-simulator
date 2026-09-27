@@ -979,6 +979,46 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       renderQualifying();
     });
     await page.locator('#tab-stats').click();
+    const overtakePanel = page.locator('#overtakingStatistics');
+    const overtakeText = await overtakePanel.innerText();
+    assert(overtakeText.includes('20 / 10 / 10'), 'Fixture must show all-field attempts/outcomes');
+    assert(overtakeText.includes('219 recorded / 1 missing available driver-race rows'));
+    assert(overtakeText.includes('50.0%'));
+    assert(overtakeText.includes('S00'));
+    assert(overtakeText.includes('0 / 0 / 0'), 'Recorded zero attempts must stay explicit');
+    assert(overtakeText.includes('Not defined (0 attempts)'));
+    await page.evaluate(() => {
+      const scenario = getScenarioEntry().data;
+      window.savedOvertakingStatistics = scenario.overtaking_statistics;
+      scenario.overtaking_statistics = {
+        overall: window.savedOvertakingStatistics.overall,
+        drivers: {...window.savedOvertakingStatistics.drivers,
+          '<img src=x onerror=globalThis.overtakeInjected=true>':
+            window.savedOvertakingStatistics.drivers.S00},
+      };
+      renderStats();
+    });
+    assert.equal(await overtakePanel.locator('img').count(), 0);
+    assert.equal(await page.evaluate(() => Boolean(globalThis.overtakeInjected)), false);
+    await page.evaluate(() => {
+      const scenario = getScenarioEntry().data;
+      scenario.overtaking_statistics = window.savedOvertakingStatistics;
+      delete window.savedOvertakingStatistics;
+      renderStats();
+    });
+    assert((await overtakePanel.innerText()).includes('Full field'));
+    await page.evaluate(() => {
+      const scenario = getScenarioEntry().data;
+      window.savedOvertakingStatistics = scenario.overtaking_statistics;
+      delete scenario.overtaking_statistics;
+      renderStats();
+    });
+    assert((await overtakePanel.innerText()).includes('not recorded for this run'));
+    await page.evaluate(() => {
+      getScenarioEntry().data.overtaking_statistics = window.savedOvertakingStatistics;
+      delete window.savedOvertakingStatistics;
+      renderStats();
+    });
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       for (const tab of ['race', 'qualifying', 'stats', 'scenarios']) {
@@ -1004,6 +1044,19 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
           }
         }
         if (tab === 'stats' && process.env.F1SIM_SCREENSHOTS && [390, 1440].includes(width)) {
+          if (width === 1440) await page.setViewportSize({width, height: 2600});
+          if (width === 390) {
+            const metrics = await overtakePanel.locator('.stats-table-wrap').evaluate(node => ({
+              clientWidth: node.clientWidth,
+              scrollWidth: node.scrollWidth,
+            }));
+            assert(metrics.scrollWidth > metrics.clientWidth,
+              'Narrow overtake statistics should scroll horizontally without page overflow');
+          }
+          await overtakePanel.evaluate(card => card.scrollIntoView({block: 'center'}));
+          await overtakePanel.screenshot({
+            path: path.join(process.env.F1SIM_SCREENSHOTS, `overtaking-${width}.png`),
+          });
           if (width === 1440) await page.setViewportSize({width, height: 1600});
           await page.locator('#strategyStatistics details').first().evaluate(node => { node.open = true; });
           await page.locator('#strategyStatistics').screenshot({

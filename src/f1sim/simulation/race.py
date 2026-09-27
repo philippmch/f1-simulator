@@ -91,6 +91,11 @@ class DriverRaceState:
     overtake_mode_energy: float = 1.0
     overtake_mode_deployments: int = 0
     overtake_mode_active_lap: bool = False
+    # Counts of model calls and their returned outcomes.  Opportunity gates
+    # that never call the model do not contribute to these race-level totals.
+    overtake_attempts: int = 0
+    overtake_successes: int = 0
+    overtake_contacts: int = 0
     laps_completed: int = 0
     last_crossing_position: int | None = None
     pit_stop_details: list[dict] = field(default_factory=list)
@@ -154,6 +159,10 @@ class RaceResult:
     tire_inventory: list[dict] | None = None
     race_suspension_seconds: float | None = None
     pit_plan_history: list[dict] | None = None
+    # None distinguishes pre-accounting/legacy rows from a recorded zero.
+    overtake_attempts: int | None = None
+    overtake_successes: int | None = None
+    overtake_contacts: int | None = None
 
 
 def get_race_suspension_seconds(results: Iterable[RaceResult]) -> float | None:
@@ -893,6 +902,9 @@ class RaceSimulator(InventoryStrategyMixin):
                         state,
                         "retired" if state.status == DriverStatus.DNF else "race_finished",
                     ),
+                    overtake_attempts=state.overtake_attempts,
+                    overtake_successes=state.overtake_successes,
+                    overtake_contacts=state.overtake_contacts,
                     **self._inventory_result_fields(state),
                 )
             )
@@ -2528,6 +2540,9 @@ class RaceSimulator(InventoryStrategyMixin):
                 restart_boost=restart_lap,  # Extra chance on restart
                 tire_pace_advantage_seconds=tire_advantage,
             )
+            attacker.overtake_attempts += 1
+            attacker.overtake_successes += int(success)
+            attacker.overtake_contacts += int(incident)
 
             if success:
                 # Swap positions

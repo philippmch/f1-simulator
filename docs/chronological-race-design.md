@@ -190,6 +190,18 @@ describe yielding at the first opportunity, with allowance for the next straight
 The engine has no sector geometry, so it does not model that wait, noncompliance
 or penalties, or add an uncalibrated time loss for yielding.
 
+Overtaking reports count an attempt only when this encounter reaches the passing
+model. The automatic compliant yield above is excluded; ordinary same-lap
+attacks and attempts to unlap are included. Counts are kept on the attacker's
+result and cover passing-call outcomes, not every collision. Reports pool rates
+per attempt and show available driver-race row coverage, as described in
+[overtaking-counter reporting](strategy-model.md#overtaking-counter-reporting).
+At a catch, passing probability is evaluated at modeled zero gap, while
+Overtake Mode eligibility separately uses the gap observed at lap entry; close
+pairs that never catch therefore produce no chronological attempt. Its
+opportunity trigger differs from the standard engine's proximity gate, so
+attempt rates across engines are not directly comparable.
+
 Chronological execution is integrated with the runner, process workers, CLI,
 API, dashboard, exports and replay, but remains opt-in. The standard engine is
 still the default while runtime cost and model readiness are assessed. Detailed
