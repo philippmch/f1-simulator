@@ -61,6 +61,24 @@ def _runner_variant(runner: MonteCarloRunner, **overrides) -> MonteCarloRunner:
     )
 
 
+def _validate_pit_plan_variant_requests(plans: Mapping, *, constructor_mode: bool) -> None:
+    value_description = "member mappings or null" if constructor_mode else "lists or null"
+    if not isinstance(plans, Mapping) or not plans:
+        raise ValueError(f"plans must be a nonempty mapping of labels to {value_description}")
+    if len(plans) > 10:
+        raise ValueError("plans must contain at most 10 variants")
+    for label, requested in plans.items():
+        if not isinstance(label, str) or not label.strip() or len(label) > 80:
+            raise ValueError("plan labels must be nonempty strings of at most 80 characters")
+        if constructor_mode:
+            if requested is not None and not isinstance(requested, Mapping):
+                raise ValueError(f"plan variant {label!r} must be a member mapping or null")
+            if isinstance(requested, Mapping) and not requested:
+                raise ValueError(f"plan variant {label!r} must name every constructor member")
+        elif requested is not None and not isinstance(requested, list):
+            raise ValueError(f"plan variant {label!r} must be a list or null")
+
+
 def compare_saved_race_engines(
     path: str | Path,
     engines: Iterable[str] = ("standard", "chronological"),
@@ -289,23 +307,36 @@ def _prepare_saved_pit_plan_variants(
     if (driver_id is None) == (constructor_id is None):
         raise ValueError("exactly one driver_id or constructor_id is required")
     constructor_mode = constructor_id is not None
-    value_description = "member mappings or null" if constructor_mode else "lists or null"
-    if not isinstance(plans, Mapping) or not plans:
-        raise ValueError(f"plans must be a nonempty mapping of labels to {value_description}")
-    if len(plans) > 10:
-        raise ValueError("plans must contain at most 10 variants")
-    for label, requested in plans.items():
-        if not isinstance(label, str) or not label.strip() or len(label) > 80:
-            raise ValueError("plan labels must be nonempty strings of at most 80 characters")
-        if constructor_mode:
-            if requested is not None and not isinstance(requested, Mapping):
-                raise ValueError(f"plan variant {label!r} must be a member mapping or null")
-            if isinstance(requested, Mapping) and not requested:
-                raise ValueError(f"plan variant {label!r} must name every constructor member")
-        elif requested is not None and not isinstance(requested, list):
-            raise ValueError(f"plan variant {label!r} must be a list or null")
+    _validate_pit_plan_variant_requests(plans, constructor_mode=constructor_mode)
 
     runner, saved_count = _load_saved_runner(path, scenario)
+    variant_runners = _build_pit_plan_variant_runners(
+        runner, plans, driver_id=driver_id, constructor_id=constructor_id,
+        rng_policy=rng_policy,
+    )
+    return runner, saved_count, variant_runners
+
+
+def _build_pit_plan_variant_runners(
+    runner: MonteCarloRunner,
+    plans: Mapping,
+    *,
+    driver_id: str | None = None,
+    constructor_id: str | None = None,
+    rng_policy: str | None = None,
+    base_pit_plans: Mapping | None = None,
+) -> dict[str, MonteCarloRunner]:
+    """Build target-plan variants from a loaded runner and optional rival plans.
+
+    ``base_pit_plans`` replaces the saved plan mapping before the target
+    variants are applied. This lets multi-scenario selection reuse one loaded
+    source while validating each rival-plan/candidate combination identically
+    to the ordinary saved-plan comparison path.
+    """
+    if (driver_id is None) == (constructor_id is None):
+        raise ValueError("exactly one driver_id or constructor_id is required")
+    constructor_mode = constructor_id is not None
+    _validate_pit_plan_variant_requests(plans, constructor_mode=constructor_mode)
     drivers = list(runner.drivers)
     driver_ids = [driver.id for driver in drivers]
     if constructor_mode:
@@ -327,7 +358,10 @@ def _prepare_saved_pit_plan_variants(
             raise ValueError(f"No saved car available for driver ID: {driver_id}")
         member_ids = [driver_id]
 
-    source_plans = deepcopy(getattr(runner, "pit_plans", None) or {})
+    original_plans = (
+        getattr(runner, "pit_plans", None) if base_pit_plans is None else base_pit_plans
+    )
+    source_plans = deepcopy(original_plans or {})
     variant_runners: dict[str, MonteCarloRunner] = {}
     for label, requested in plans.items():
         candidate = deepcopy(source_plans)
@@ -370,4 +404,4 @@ def _prepare_saved_pit_plan_variants(
             pit_plans=canonical,
         )
 
-    return runner, saved_count, variant_runners
+    return variant_runners
