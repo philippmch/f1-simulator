@@ -95,10 +95,21 @@ def _snapshot(result):
             return None
     except (ValidationError, TypeError, ValueError):
         return None
+    team_members = {}
+    for driver in roster:
+        if driver.team_id in cars:
+            team_members.setdefault(driver.team_id, []).append(driver.id)
+    teams = {
+        team_id: {
+            "team_name": cars[team_id].get("team_name") or team_id,
+            "driver_ids": sorted(driver_ids),
+        }
+        for team_id, driver_ids in team_members.items()
+    }
     return ({key: snapshot[key] for key in ("drivers", "cars", "track", "weather", "runtime")}
             | {"rng_policy": policy, "tire_inventory": inventory,
                "tire_warmup": tire_warmup}, ids,
-            [driver.id for driver in roster if driver.team_id in cars])
+            [driver.id for driver in roster if driver.team_id in cars], teams)
 
 
 def _qualifying_valid(rows, roster, runnable):
@@ -395,6 +406,30 @@ def _driver_statistics(observations, available):
     }
 
 
+def _constructor_statistics(observations, available, team_name, driver_ids):
+    count = len(observations)
+    differences = [variant - reference for reference, variant in observations]
+    return {
+        "team_name": team_name,
+        "driver_ids": list(driver_ids),
+        "paired_races": count,
+        "excluded_pairs": available - count,
+        "reference_mean_points": (
+            float(mean(reference for reference, _ in observations)) if count else None
+        ),
+        "variant_mean_points": (
+            float(mean(variant for _, variant in observations)) if count else None
+        ),
+        "mean_points_difference": float(mean(differences)) if count else None,
+        "points_difference_standard_error": (
+            stdev(differences) / sqrt(count) if count > 1 else None
+        ),
+        "more_points_races": sum(value > 0 for value in differences),
+        "equal_points_races": sum(value == 0 for value in differences),
+        "fewer_points_races": sum(value < 0 for value in differences),
+    }
+
+
 def paired_comparison_statistics(
     scenario_results: dict[str, SimulationResults], reference_scenario: str,
 ) -> dict:
@@ -402,7 +437,8 @@ def paired_comparison_statistics(
 
     Differences are variant minus reference. Standard errors describe the sampled
     paired differences, not a causal effect or an empirical calibration guarantee.
-    Missing driver observations are excluded only for the affected driver.
+    Missing driver observations exclude that driver's driver-level sample; a team
+    sample requires valid observations for every runnable teammate on both sides.
     """
     if not isinstance(reference_scenario, str) or reference_scenario not in scenario_results:
         raise ValueError("reference_scenario must name a supplied scenario")
@@ -414,7 +450,7 @@ def paired_comparison_statistics(
             continue
         summary = dict(status="unavailable", reason=None, available_seed_pairs=0,
                        qualifying_mismatches=0, seed_from=None, seed_to=None,
-                       driver_statistics={})
+                       driver_statistics={}, constructor_statistics={})
         variants[label] = summary
         variant_inputs = _snapshot(variant)
         if reference_inputs is None or variant_inputs is None:
@@ -438,6 +474,7 @@ def paired_comparison_statistics(
             continue
         summary.update(status="paired", seed_from=lower, seed_to=upper - 1)
         observations = {driver: [] for driver in reference_inputs[1]}
+        constructor_observations = {team_id: [] for team_id in reference_inputs[3]}
         scheduled_laps = reference_inputs[0]["track"]["total_laps"]
         for seed in range(lower, upper):
             ri, vi = seed - int(reference.seed), seed - int(variant.seed)
@@ -447,6 +484,7 @@ def paired_comparison_statistics(
             ):
                 summary["qualifying_mismatches"] += 1
                 continue
+            paired_driver_observations = {}
             for driver, samples in observations.items():
                 if driver not in reference_inputs[2]:
                     continue
@@ -454,8 +492,23 @@ def paired_comparison_statistics(
                 right = _observation(variant.race_results[vi], driver, scheduled_laps)
                 if left is not None and right is not None:
                     samples.append((left, right))
+                    paired_driver_observations[driver] = (left, right)
+            for team_id, team in reference_inputs[3].items():
+                members = team["driver_ids"]
+                if all(driver in paired_driver_observations for driver in members):
+                    constructor_observations[team_id].append((
+                        sum(paired_driver_observations[driver][0][0] for driver in members),
+                        sum(paired_driver_observations[driver][1][0] for driver in members),
+                    ))
         summary["driver_statistics"] = {
             driver: _driver_statistics(samples, available)
             for driver, samples in observations.items()
+        }
+        summary["constructor_statistics"] = {
+            team_id: _constructor_statistics(
+                constructor_observations[team_id], available,
+                team["team_name"], team["driver_ids"],
+            )
+            for team_id, team in reference_inputs[3].items()
         }
     return {"reference_scenario": reference_scenario, "variants": variants}

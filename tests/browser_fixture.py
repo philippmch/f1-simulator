@@ -9,6 +9,7 @@ import json
 import sys
 
 from f1sim.analysis import MonteCarloRunner, scenario_weather_from_label
+from f1sim.analysis.paired_comparison import paired_comparison_statistics
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.output.comparison import render_comparison_report
 from f1sim.web.server import (
@@ -122,13 +123,20 @@ def build_fixture() -> dict:
         "rng_policy": "isolated_weather_mechanical_v1",
     }
     comparison_payload["automatic_reference"] = automatic_reference
-    comparison_payload["strategy_comparisons"] = {
-        label: {
+    comparison_payload["strategy_comparisons"] = {}
+    for label in results:
+        actual_paired = paired_comparison_statistics(
+            {"automatic": comparison_automatic_results[label],
+             "custom": comparison_custom_results[label]},
+            "automatic",
+        )["variants"]["custom"]
+        comparison_payload["strategy_comparisons"][label] = {
             "reference_scenario": "automatic",
             "variants": {"custom": {
                 "status": "paired",
                 "available_seed_pairs": 10,
                 "qualifying_mismatches": 0,
+                "constructor_statistics": actual_paired["constructor_statistics"],
                 "driver_statistics": {
                     "S00": {
                         "paired_races": 3, "excluded_pairs": 7,
@@ -163,8 +171,6 @@ def build_fixture() -> dict:
                 },
             }},
         }
-        for label in results
-    }
     comparison_payload["strategy_comparison_reports"] = {}
     for label, automatic_result in comparison_automatic_results.items():
         custom_result = comparison_custom_results[label]

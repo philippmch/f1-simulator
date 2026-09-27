@@ -144,6 +144,8 @@ an automatic reference for each weather scenario. Both alternatives use the same
 inputs and seed range, with up to 500 trials each. The dashboard shows paired
 outcome changes, a downloadable strategy report for the selected weather, and
 a separate replayable reference download.
+Paired constructor points show whether a driver's gain outweighs a teammate's
+loss, using complete team results and the sampling error of their combined change.
 
 The same inputs and seed reproduce an overridden run, including across worker
 counts. Changing a tyre choice can change later random draws and race events;

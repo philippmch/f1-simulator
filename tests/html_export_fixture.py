@@ -65,19 +65,31 @@ def build_fixture():
         comparison = exporter.export_scenario_comparison_html(
             {script: results, "No observations": empty}, focus_driver=driver,
         ).read_text(encoding="utf-8")
+        paired_drivers = [
+            Driver(id="A", name="Driver A", team_id="T"),
+            Driver(id="B", name="Driver B", team_id="T"),
+        ]
         paired_variants = {
             compound: MonteCarloRunner(
-                [Driver(id="A", name="Driver A", team_id="T")],
+                paired_drivers,
                 {"T": Car(team_id="T", team_name="Team")},
                 Track(id="t", name="Test", country="Test", total_laps=5, base_lap_time=90),
                 Weather(change_probability=0), seed=41, starting_tires={"A": compound},
             ).run(3, parallel=False)
             for compound in ("soft", "hard")
         }
+        for race in paired_variants["hard"].race_results:
+            for row in race:
+                row.points_awarded = 10
+        for race_index, race in enumerate(paired_variants["soft"].race_results):
+            awards = {"A": (15, 19, 10)[race_index], "B": (4, 0, 9)[race_index]}
+            for row in race:
+                row.points_awarded = awards[row.driver_id]
         paired = exporter.export_scenario_comparison_html(
             paired_variants, filename="paired.html", focus_driver="A", reference_scenario="hard",
         ).read_text(encoding="utf-8")
         paired_stats = paired_comparison_statistics(paired_variants, "hard")
+        paired_constructor_stats = paired_stats["variants"]["soft"]["constructor_statistics"]["T"]
         report = exporter.export_report_html(results, filename).read_text(encoding="utf-8")
         planned = deepcopy(results)
         planned.input_snapshot["pit_plans"] = {
@@ -121,6 +133,7 @@ def build_fixture():
             "scalable_plan_report": scalable_plan_report,
             "scalable_run_report": scalable_run_report,
             "paired_stats": paired_stats["variants"]["soft"]["driver_statistics"]["A"],
+            "paired_constructor_stats": paired_constructor_stats,
             "track": track, "driver": driver,
             "team": team, "filename": filename, "stats_name": stats_name}
 

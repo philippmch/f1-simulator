@@ -631,6 +631,129 @@ def _paired_driver_table(driver_id: str, paired: dict | None) -> str:
     ) + cost_table
 
 
+def _paired_constructor_table(paired: dict | None, focus_driver: str | None = None) -> str:
+    """Render team points with complete-team coverage and the full focused team roster."""
+    if paired is None:
+        return ""
+
+    def metric(value: object, *, signed: bool = False) -> str:
+        if isinstance(value, bool) or not isinstance(value, Real):
+            return "Not recorded"
+        try:
+            normalized = float(value)
+        except (OverflowError, TypeError, ValueError):
+            return "Not recorded"
+        if not isfinite(normalized):
+            return "Not recorded"
+        return f"{normalized:+.3f}" if signed else f"{normalized:.3f}"
+
+    def count(value: object) -> str:
+        return (str(value) if isinstance(value, int) and not isinstance(value, bool)
+                and value >= 0 else "Not recorded")
+
+    rows = []
+    for label, comparison in paired.get("variants", {}).items():
+        prefix = f'<tr><th scope="row">{_text(label)}</th>'
+        if not isinstance(comparison, dict):
+            rows.append(prefix + '<td colspan="7">Not recorded</td></tr>')
+            continue
+        if comparison.get("status") != "paired":
+            rows.append(
+                prefix + '<td colspan="7">Unavailable: '
+                f'{_text(comparison.get("reason") or "Comparison unavailable.")}</td></tr>'
+            )
+            continue
+        summaries = comparison.get("constructor_statistics")
+        if not isinstance(summaries, dict):
+            rows.append(prefix + '<td colspan="7">Not recorded in this saved comparison.</td></tr>')
+            continue
+        selected = []
+        for team_id, summary in summaries.items():
+            if not isinstance(team_id, str) or not isinstance(summary, dict):
+                continue
+            driver_ids = summary.get("driver_ids")
+            driver_ids = sorted(set(
+                driver for driver in driver_ids
+                if isinstance(driver, str)
+            )) if isinstance(driver_ids, (list, tuple)) else []
+            if focus_driver is not None and focus_driver not in driver_ids:
+                continue
+            selected.append((team_id, summary, driver_ids))
+        if not selected:
+            detail = (
+                "Not recorded for the focused driver's team."
+                if focus_driver is not None else "No constructor summaries recorded."
+            )
+            rows.append(prefix + f'<td colspan="7">{_text(detail)}</td></tr>')
+            continue
+        for team_id, summary, driver_ids in selected:
+            pairs = summary.get("paired_races")
+            excluded = summary.get("excluded_pairs")
+            coverage = (
+                f'{count(pairs)} paired / {count(excluded)} excluded'
+                if count(pairs) != "Not recorded" and count(excluded) != "Not recorded"
+                else "Not recorded"
+            )
+            mean_text = (
+                f'{metric(summary.get("reference_mean_points"))} → '
+                f'{metric(summary.get("variant_mean_points"))}'
+            )
+            error = summary.get("points_difference_standard_error")
+            if isinstance(error, bool) or not isinstance(error, Real):
+                normalized_error = None
+            else:
+                try:
+                    normalized_error = float(error)
+                except (OverflowError, TypeError, ValueError):
+                    normalized_error = None
+            if normalized_error is None or not isfinite(normalized_error):
+                valid_pairs = (
+                    pairs if isinstance(pairs, int) and not isinstance(pairs, bool)
+                    and pairs >= 0 else None
+                )
+                if valid_pairs == 0:
+                    error_text = "No usable pairs"
+                elif valid_pairs == 1:
+                    error_text = "Needs at least 2 pairs"
+                else:
+                    error_text = "Not recorded"
+            else:
+                error_text = f"{normalized_error:.3f} points"
+            team_name = summary.get("team_name")
+            team_name = team_name if isinstance(team_name, str) and team_name else team_id
+            members = ", ".join(_text(driver) for driver in driver_ids) or "Not recorded"
+            more_equal_fewer = " / ".join(count(summary.get(field)) for field in (
+                "more_points_races", "equal_points_races", "fewer_points_races",
+            ))
+            rows.append(
+                prefix + f'<td>{_text(team_name)} <span class="interval">({_text(team_id)})'
+                f'</span></td><td>{members}</td><td>{coverage}</td><td>{mean_text}</td>'
+                f'<td>{metric(summary.get("mean_points_difference"), signed=True)}</td>'
+                f'<td>{error_text}</td><td>{more_equal_fewer}</td></tr>'
+            )
+
+    if not rows:
+        rows.append('<tr><td colspan="8">No alternative choices supplied</td></tr>')
+    note = (
+        "Complete pairs require every modeled runnable team member in both alternatives. "
+        "Points are summed within each seed before the SE is calculated; positive changes "
+        "mean more points. The SE describes sampling variation, not a causal effect."
+    )
+    return (
+        '<p class="paired-constructor-note">' + _text(note) + '</p>'
+        '<div class="table-wrap paired-constructor" tabindex="0" role="region" '
+        'aria-label="Constructor paired points">'
+        f'<table><caption>Constructor paired points compared with '
+        f'{_text(paired.get("reference_scenario", "reference"))}</caption>'
+        '<thead><tr><th scope="col">Alternative</th><th scope="col">Constructor</th>'
+        '<th scope="col">Modeled members</th><th scope="col">Complete pairs / excluded</th>'
+        '<th scope="col">Mean points (reference → variant)</th>'
+        '<th scope="col">Change</th><th scope="col">SE</th>'
+        '<th scope="col">More / equal / fewer</th></tr></thead><tbody>'
+        + "".join(rows) + '</tbody></table></div>'
+    )
+
+
 def _pit_decision_driver_table(
     driver_id: str, label: str, scenario_results: dict[str, SimulationResults], summaries: dict,
 ) -> str:
@@ -905,6 +1028,8 @@ summary:hover { color: #9cbbff; }
 .interval { display: block; color: #b6c0ff; white-space: nowrap; font-size: .875rem; }
 .paired-distance-note { font-size: .875rem; }
 .paired-cost-note { font-size: .875rem; }
+.paired-constructor-note { font-size: .875rem; }
+.paired-constructor { margin: 12px 0 20px; }
 .joint-count { white-space: normal; }
 </style></head><body><main><h1>Simulation comparison</h1>
 <p>Scenarios appear in supplied order. Check their context and saved inputs when
@@ -979,6 +1104,8 @@ failures; other race processes continue sharing the race stream.</p>""" + (
         if paired is not None else ""
     ) + (
         _paired_coverage_html(paired) if paired is not None else ""
+    ) + (
+        _paired_constructor_table(paired, focus_driver) if paired is not None else ""
     ) + (
         "".join(sections) or "<p>No driver outcomes recorded.</p>"
     ) + (

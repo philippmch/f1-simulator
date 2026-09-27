@@ -180,6 +180,33 @@ Snapshots with custom plans use schema 5, or schema 6 when
 is enabled; older supported snapshots retain
 their original automatic-policy interpretation.
 
+### Paired constructor points
+
+The dashboard, console and comparison export also show the change in total
+points for each modeled constructor. This matters when a stop helps one driver
+but costs a teammate time in the shared pit box. A four-point gain for one
+driver and a five-point loss for the other is a one-point loss for the team.
+
+For each matching seed, the comparison sums the points of every modeled runnable
+driver in the constructor before computing the variant-minus-reference change.
+The standard error uses those team differences directly, preserving correlation
+between teammates. It is not the sum of the individual standard errors.
+
+A team pair needs a valid result for every member in both runs and matching
+qualifying. Missing, duplicate or invalid teammate results exclude the entire
+team pair without removing valid individual-driver comparisons. Retirements
+remain usable, including their classified points. Each team reports its own
+paired and excluded counts; its mean need not equal a sum of driver means
+computed from different subsets.
+
+Member IDs identify the modeled team population. A simulation with one modeled
+driver for a constructor reports that one driver's team contribution, without
+inventing an absent teammate. Focusing a comparison on one driver retains the
+full modeled team in the constructor total. Older reports without these
+statistics do not imply zero team impact. Positive changes mean more points;
+the results describe the chosen model and sampled trials, not a causal or
+real-race guarantee.
+
 ### Paired elapsed race time
 
 Comparisons also report elapsed-time changes in seconds, using only seed pairs

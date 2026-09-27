@@ -1182,6 +1182,15 @@ input:focus-visible {
   min-width: 680px;
 }
 
+.strategy-constructor-table {
+  min-width: 940px;
+}
+
+.strategy-constructor-heading {
+  font-size: .78rem;
+  margin: 1rem 0 .45rem;
+}
+
 .strategy-comparison-table td:nth-child(2),
 .strategy-comparison-table td:nth-child(3),
 .strategy-comparison-table td:nth-child(4) {
@@ -3942,6 +3951,55 @@ function renderComparisonMetricRow(driverId, label, difference, error, metric, a
     <td>${escapeHtml(formatComparisonError(error, metric))}</td></tr>`;
 }
 
+function renderConstructorComparison(variant, availablePairs) {
+  const recorded = Object.hasOwn(variant || {}, 'constructor_statistics');
+  const statistics = variant?.constructor_statistics;
+  if (!statistics || typeof statistics !== 'object' || Array.isArray(statistics)) {
+    return `<p class="strategy-comparison-note">Constructor paired points: ${recorded
+      ? 'Not recorded for this comparison.'
+      : 'Not recorded in this legacy comparison response.'}</p>`;
+  }
+  const entries = Object.entries(statistics).sort(([a], [b]) => a.localeCompare(b));
+  if (!entries.length) {
+    return '<p class="strategy-comparison-note">Constructor paired points: no constructor summaries were recorded.</p>';
+  }
+  const number = value => comparisonFinite(value) ? value.toFixed(3) : 'Not recorded';
+  const count = value => comparisonInteger(value) === null ? 'Not recorded' : String(value);
+  const rows = entries.map(([teamId, rawStats]) => {
+    const stats = rawStats && typeof rawStats === 'object' && !Array.isArray(rawStats)
+      ? rawStats : {};
+    const teamName = typeof stats.team_name === 'string' && stats.team_name.trim()
+      ? stats.team_name : teamId;
+    const drivers = Array.isArray(stats.driver_ids)
+      ? [...new Set(stats.driver_ids.filter(id => typeof id === 'string'))]
+        .sort((a, b) => a.localeCompare(b))
+      : [];
+    const pairs = comparisonInteger(stats.paired_races);
+    const excluded = comparisonInteger(stats.excluded_pairs);
+    const coverage = pairs === null || excluded === null
+      ? 'Complete pairs / excluded: Not recorded'
+      : `Complete pairs: ${pairs}; excluded pairs: ${excluded}`;
+    const members = drivers.length ? drivers.map(escapeHtml).join(', ') : 'Not recorded';
+    return `<tr><th scope="row">${escapeHtml(teamName)} <span class="comparison-subtle">(${escapeHtml(teamId)})</span></th>
+      <td>${members}</td><td>${escapeHtml(coverage)}</td>
+      <td>${number(stats.reference_mean_points)} → ${number(stats.variant_mean_points)}</td>
+      <td>${formatSignedComparison(stats.mean_points_difference, 3, ' pts')}</td>
+      <td>${escapeHtml(formatComparisonError(stats.points_difference_standard_error, stats))}</td>
+      <td>${count(stats.more_points_races)} / ${count(stats.equal_points_races)} / ${count(stats.fewer_points_races)}</td></tr>`;
+  });
+  return `<h4 class="strategy-constructor-heading">Constructor points</h4>
+    <p class="strategy-comparison-note">Complete pairs require every modeled runnable team member in both alternatives. Points are summed within each seed before calculating the SE. Positive changes mean more points; the SE describes sampling variation, not causal proof.</p>
+    <div class="results-table" tabindex="0" role="region" aria-label="Constructor paired points">
+      <table class="matrix-table strategy-comparison-table strategy-constructor-table">
+        <caption>Constructor points · reference → variant</caption>
+        <thead><tr><th scope="col">Constructor</th><th scope="col">Modeled members</th>
+          <th scope="col">Coverage</th><th scope="col">Mean points</th><th scope="col">Change</th>
+          <th scope="col">SE</th><th scope="col">More / equal / fewer</th></tr></thead>
+        <tbody>${rows.join('')}</tbody>
+      </table>
+    </div>`;
+}
+
 function renderStrategyComparison(scenarioName) {
   const requested = simResults?.request?.compare_automatic === true;
   const hasComparisonPayload = simResults && Object.hasOwn(simResults, 'strategy_comparisons');
@@ -3978,6 +4036,7 @@ function renderStrategyComparison(scenarioName) {
   }
 
   const availablePairs = comparisonInteger(variant.available_seed_pairs);
+  const constructorComparison = renderConstructorComparison(variant, availablePairs);
   const driverStats = variant.driver_statistics && typeof variant.driver_statistics === 'object'
     && !Array.isArray(variant.driver_statistics) ? variant.driver_statistics : {};
   const driverRows = Object.entries(driverStats).sort(([a], [b]) => a.localeCompare(b));
@@ -4033,6 +4092,7 @@ function renderStrategyComparison(scenarioName) {
     <p class="comparison-lede">${lede}</p>
     ${workSummary}
     <p class="comparison-status"><strong>Paired comparison recorded.</strong> ${escapeHtml(pairedSummary)}${comparisonInteger(variant.qualifying_mismatches) !== null ? `; ${variant.qualifying_mismatches} qualifying mismatches excluded.` : ''}</p>
+    ${constructorComparison}
     ${noDriverData ? '<p class="inline-note">No per-driver comparison metrics were recorded.</p>' : `<div class="results-table" tabindex="0" role="region" aria-label="Paired strategy comparison metrics">
       <table class="matrix-table strategy-comparison-table"><caption>Custom plan minus automatic strategy for ${scenarioLabel}</caption>
         <thead><tr><th scope="col">Driver</th><th scope="col">Metric</th><th scope="col">Signed change</th><th scope="col">Coverage</th><th scope="col">SE</th></tr></thead>

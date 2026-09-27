@@ -140,6 +140,27 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     assert(pairedText.includes(`Variant-only DNF: ${stats.variant_only_dnf_races}`));
     assert(pairedText.includes(`${stats.more_points_races} / ${stats.equal_points_races} / ${stats.fewer_points_races}`));
     assert(pairedText.includes('(0 excluded pairs)'));
+    const constructorRegion = page.getByRole('region', {
+      name: 'Constructor paired points', exact: true,
+    });
+    const constructorText = await constructorRegion.innerText();
+    const constructorStats = fixture.paired_constructor_stats;
+    assert.deepEqual(constructorStats.driver_ids, ['A', 'B']);
+    assert(constructorText.includes('Team'));
+    assert(constructorText.includes('(T)'));
+    assert(constructorText.includes('A, B'), 'Focused driver A must show the full team');
+    assert(constructorText.includes(
+      `${constructorStats.paired_races} paired / ${constructorStats.excluded_pairs} excluded`));
+    assert(constructorText.includes(
+      `${constructorStats.reference_mean_points.toFixed(3)} → ${constructorStats.variant_mean_points.toFixed(3)}`));
+    assert(constructorText.includes(`${constructorStats.mean_points_difference.toFixed(3)}`));
+    assert(constructorText.includes(
+      `${constructorStats.points_difference_standard_error.toFixed(3)} points`));
+    assert(constructorText.includes(
+      `${constructorStats.more_points_races} / ${constructorStats.equal_points_races} / ${constructorStats.fewer_points_races}`));
+    assert.equal(constructorStats.mean_points_difference, -1);
+    assert.equal(constructorStats.points_difference_standard_error, 0,
+      'Per-seed teammate offsets must be summed before calculating the constructor SE');
     const pairedDistance = page.getByRole('region', {name: 'A completed distance changes', exact: true});
     const distanceStats = stats.completed_distance;
     const distanceText = await pairedDistance.innerText();

@@ -273,6 +273,16 @@ the reference retires, or only the variant retires. They sum to the driver's
 usable paired count and include classified retirements as DNFs. Matching
 retirement rates can otherwise hide completely different trial outcomes.
 
+Paired comparisons also aggregate constructor points using the saved team
+membership. A constructor observation requires valid points for every modeled
+runnable member in both races of a qualifying-matched seed pair. Points are
+summed within that trial before computing the paired difference and its SE,
+so teammate covariance is retained. Missing teammate observations exclude a
+constructor pair rather than becoming zero points. The reported members,
+paired count and excluded count make that population explicit. A focused
+driver view still includes the modeled teammate in the team total. See
+[constructor comparisons](custom-pit-plans.md#paired-constructor-points).
+
 For the retirement-rate difference, each paired observation is
 `d_i = variant_dnf_i - reference_dnf_i`, with values -1, 0 or 1. Its SE is
 `100 * stdev(d_i) / sqrt(n)` in percentage points, using the sample standard

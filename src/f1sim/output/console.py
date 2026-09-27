@@ -1,5 +1,7 @@
 """Console output formatting."""
 
+from math import isfinite
+
 from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.analysis.paired_comparison import paired_comparison_statistics
 from f1sim.output.paired_context import (
@@ -19,6 +21,66 @@ from f1sim.output.warmup_context import warmup_context
 from f1sim.simulation.qualifying import QualifyingResult
 from f1sim.simulation.race import RaceResult, result_is_classified
 from f1sim.simulation.race_points import points_for_result
+
+
+def _constructor_summary_lines(constructor_statistics: object, driver_id: str | None) -> list[str]:
+    """Format complete-team points summaries, retaining the selected driver's full team."""
+    if not isinstance(constructor_statistics, dict) or not constructor_statistics:
+        return ["  Constructor paired points: Not recorded in this comparison."]
+
+    selected = []
+    for team_id, summary in constructor_statistics.items():
+        if not isinstance(team_id, str) or not isinstance(summary, dict):
+            continue
+        members = summary.get("driver_ids")
+        if not isinstance(members, (list, tuple)):
+            members = []
+        members = sorted(member for member in members if isinstance(member, str))
+        if driver_id is not None and driver_id not in members:
+            continue
+        selected.append((team_id, summary, members))
+
+    if not selected:
+        return ["  Constructor paired points: Not recorded for the focused driver's team."]
+
+    lines = ["  Constructor paired points (positive change means more points):"]
+    for team_id, summary, members in selected:
+        name = summary.get("team_name")
+        name = name if isinstance(name, str) and name else team_id
+        member_text = ", ".join(members) if members else "Not recorded"
+        pairs = summary.get("paired_races")
+        excluded = summary.get("excluded_pairs")
+        pairs_text = (f"{pairs} paired / {excluded} excluded"
+                      if isinstance(pairs, int) and not isinstance(pairs, bool)
+                      and pairs >= 0 and isinstance(excluded, int)
+                      and not isinstance(excluded, bool) and excluded >= 0
+                      else "Not recorded")
+
+        def value(field: str, *, signed: bool = False) -> str:
+            metric = summary.get(field)
+            if isinstance(metric, bool) or not isinstance(metric, (int, float)):
+                return "Not recorded"
+            try:
+                metric = float(metric)
+            except (OverflowError, TypeError, ValueError):
+                return "Not recorded"
+            if not isfinite(metric):
+                return "Not recorded"
+            return f"{metric:+.3f}" if signed else f"{metric:.3f}"
+
+        counts = []
+        for field in ("more_points_races", "equal_points_races", "fewer_points_races"):
+            count = summary.get(field)
+            counts.append(str(count) if isinstance(count, int) and not isinstance(count, bool)
+                          and count >= 0 else "Not recorded")
+        lines.append(
+            f"    {name} ({team_id}): members {member_text}; {pairs_text}; "
+            f"points {value('reference_mean_points')} -> {value('variant_mean_points')}; "
+            f"change {value('mean_points_difference', signed=True)}; "
+            f"SE {value('points_difference_standard_error')}; "
+            f"more/equal/fewer={'/'.join(counts)}"
+        )
+    return lines
 
 
 def _completed_distance_line(distance: dict) -> str:
@@ -121,6 +183,9 @@ class ConsoleOutput:
               "zero-stop races and retirements; missing details are not zero. Time losses are "
               "modeled seconds and can change with exposure and race events, so they do "
               "not isolate causal strategy savings.")
+        print("Constructor pairs require every modeled runnable teammate in both runs; points "
+              "are summed per seed before SE. A focused driver includes the full team; SE "
+              "describes sampling variation, not causal evidence.")
         print(FINISHED_TIME_NOTE)
         ConsoleOutput._print_suspension_context(results)
         for label, comparison in paired["variants"].items():
@@ -169,6 +234,10 @@ class ConsoleOutput:
                 if stats["excluded_pairs"]:
                     print(f"  Pair exclusions: "
                           f"{paired_exclusion_detail(comparison, stats['excluded_pairs'])}")
+            for line in _constructor_summary_lines(
+                comparison.get("constructor_statistics"), driver_id,
+            ):
+                print(line)
 
     @staticmethod
     def print_qualifying_results(results: list[QualifyingResult]) -> None:

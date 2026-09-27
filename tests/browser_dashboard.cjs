@@ -1156,6 +1156,24 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       ]) {
         assert(comparisonText.includes(label), `Missing strategy comparison detail: ${label}`);
       }
+      const team0Stats = fixture.comparison_payload.strategy_comparisons.dry
+        .variants.custom.constructor_statistics.team0;
+      assert.deepEqual(team0Stats.driver_ids, ['S00', 'S01']);
+      const constructorRegion = page.getByRole('region', {
+        name: 'Constructor paired points', exact: true,
+      });
+      const constructorText = (await constructorRegion.innerText()).toLowerCase();
+      for (const label of [
+        'Synthetic team0', '(team0)', 'S00, S01',
+        `Complete pairs: ${team0Stats.paired_races}; excluded pairs: ${team0Stats.excluded_pairs}`,
+        `${team0Stats.reference_mean_points.toFixed(3)} → ${team0Stats.variant_mean_points.toFixed(3)}`,
+        `${team0Stats.mean_points_difference < 0 ? '' : '+'}${team0Stats.mean_points_difference.toFixed(3)} pts`,
+        `${team0Stats.more_points_races} / ${team0Stats.equal_points_races} / ${team0Stats.fewer_points_races}`,
+      ]) {
+        assert(constructorText.includes(label.toLowerCase()),
+          `Missing constructor comparison detail: ${label}`);
+      }
+      assert(comparisonText.toLowerCase().includes('points are summed within each seed'));
       await page.locator('#strategyComparisonCosts summary').click();
       const costText = await page.locator('#strategyComparisonCosts').innerText();
       assert(costText.includes('zero is a recorded zero'));
@@ -1288,6 +1306,13 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       const nullAndZeroHtml = await page.evaluate(() => {
         simResults.strategy_comparisons.dry = {
           variants: {custom: {status: 'paired', available_seed_pairs: 10,
+            constructor_statistics: {'<svg onload=alert(1)>': {
+              team_name: '<img src=x onerror=alert(1)>', driver_ids: ['<svg onload=alert(1)>', 'S01'],
+              paired_races: 0, excluded_pairs: 10,
+              reference_mean_points: 0, variant_mean_points: null,
+              mean_points_difference: 0, points_difference_standard_error: null,
+              more_points_races: 0, equal_points_races: 0, fewer_points_races: 0,
+            }},
             driver_statistics: {'<svg onload=alert(1)>': {
               paired_races: 0, excluded_pairs: 10,
               mean_points_difference: null, points_difference_standard_error: null,
@@ -1302,6 +1327,11 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       });
       assert(nullAndZeroHtml.includes('Not recorded'));
       assert(nullAndZeroHtml.includes('Elapsed time (same-distance finishes)'));
+      assert(nullAndZeroHtml.includes('&lt;img') && !nullAndZeroHtml.includes('<img'));
+      assert(nullAndZeroHtml.includes('&lt;svg') && !nullAndZeroHtml.includes('<svg'));
+      assert(nullAndZeroHtml.includes('Complete pairs: 0; excluded pairs: 10'));
+      assert(nullAndZeroHtml.includes('+0.000 pts'));
+      assert(nullAndZeroHtml.includes('0 / 0 / 0'));
 
       assert(nullAndZeroHtml.includes('+0.000 pp'));
       assert(nullAndZeroHtml.includes('Valid pairs: 0 / 10'));
