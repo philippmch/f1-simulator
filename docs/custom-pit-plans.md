@@ -221,6 +221,11 @@ exports include all modeled drivers, so effects on rivals remain visible.
 
 ### Paired constructor points
 
+When choosing among multiple plans, the separate
+[selection and validation workflow](strategy-selection.md) freezes the
+training winner before comparing it with a fixed reference on fresh seeds.
+It supports either a driver or a complete constructor as the points objective.
+
 The dashboard, console and comparison export also show the change in total
 points for each modeled constructor. This matters when a stop helps one driver
 but costs a teammate time in the shared pit box. A four-point gain for one

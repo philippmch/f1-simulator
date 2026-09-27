@@ -222,47 +222,9 @@ def compare_saved_pit_plans(
     _validate_comparison_bounds(num_simulations, max_workers)
     if rng_policy is not None:
         rng_policy = validate_rng_policy(rng_policy)
-    if not isinstance(plans, Mapping) or not plans:
-        raise ValueError("plans must be a nonempty mapping of labels to lists or null")
-    if len(plans) > 10:
-        raise ValueError("plans must contain at most 10 variants")
-    labels = list(plans.keys())
-    for label in labels:
-        if not isinstance(label, str) or not label.strip() or len(label) > 80:
-            raise ValueError("plan labels must be nonempty strings of at most 80 characters")
-        value = plans[label]
-        if value is not None and not isinstance(value, list):
-            raise ValueError(f"plan variant {label!r} must be a list or null")
-
-    runner, _ = _load_saved_runner(path, scenario)
-    drivers = list(runner.drivers)
-    driver_ids = [driver.id for driver in drivers]
-    target = next((driver for driver in drivers if driver.id == driver_id), None)
-    if target is None:
-        raise ValueError(f"Unknown driver ID: {driver_id}")
-    if target.team_id not in runner.cars:
-        raise ValueError(f"No saved car available for driver ID: {driver_id}")
-
-    source_plans = deepcopy(getattr(runner, "pit_plans", None) or {})
-    variant_runners: dict[str, MonteCarloRunner] = {}
-    for label, requested in plans.items():
-        candidate = deepcopy(source_plans)
-        if requested is None:
-            candidate.pop(driver_id, None)
-        else:
-            candidate[driver_id] = deepcopy(requested)
-        canonical = _validate_pit_plans(
-            candidate or None,
-            driver_ids,
-            total_laps=runner.track.total_laps,
-            tire_inventory=runner.tire_inventory,
-        )
-        variant_runners[label] = _runner_variant(
-            runner,
-            rng_policy=runner.rng_policy if rng_policy is None else rng_policy,
-            pit_plans=canonical,
-        )
-
+    runner, _, variant_runners = _prepare_saved_pit_plan_variants(
+        path, plans, driver_id=driver_id, scenario=scenario, rng_policy=rng_policy,
+    )
     results: dict[str, SimulationResults] = {}
     for label, variant in variant_runners.items():
         results[label] = variant.run(
@@ -296,61 +258,109 @@ def compare_saved_constructor_pit_plans(
     _validate_comparison_bounds(num_simulations, max_workers)
     if rng_policy is not None:
         rng_policy = validate_rng_policy(rng_policy)
+    runner, _, variant_runners = _prepare_saved_pit_plan_variants(
+        path, plans, constructor_id=constructor_id, scenario=scenario,
+        rng_policy=rng_policy,
+    )
+    results: dict[str, SimulationResults] = {}
+    for label, variant in variant_runners.items():
+        results[label] = variant.run(
+            int(num_simulations),
+            parallel=parallel,
+            max_workers=None if max_workers is None else int(max_workers),
+        )
+    return results
+
+
+def _prepare_saved_pit_plan_variants(
+    path: str | Path,
+    plans: Mapping,
+    *,
+    driver_id: str | None = None,
+    constructor_id: str | None = None,
+    scenario: str | None = None,
+    rng_policy: str | None = None,
+) -> tuple[MonteCarloRunner, int, dict[str, MonteCarloRunner]]:
+    """Load and validate complete saved pit-plan variants before any trials.
+
+    This shared preparation path keeps driver comparisons, constructor comparisons,
+    and selection/validation workflows on the same saved-input and plan contract.
+    """
+    if (driver_id is None) == (constructor_id is None):
+        raise ValueError("exactly one driver_id or constructor_id is required")
+    constructor_mode = constructor_id is not None
+    value_description = "member mappings or null" if constructor_mode else "lists or null"
     if not isinstance(plans, Mapping) or not plans:
-        raise ValueError("plans must be a nonempty mapping of labels to member mappings or null")
+        raise ValueError(f"plans must be a nonempty mapping of labels to {value_description}")
     if len(plans) > 10:
         raise ValueError("plans must contain at most 10 variants")
-    for label, value in plans.items():
+    for label, requested in plans.items():
         if not isinstance(label, str) or not label.strip() or len(label) > 80:
             raise ValueError("plan labels must be nonempty strings of at most 80 characters")
-        if value is not None and not isinstance(value, Mapping):
-            raise ValueError(f"plan variant {label!r} must be a member mapping or null")
-        if isinstance(value, Mapping) and not value:
-            raise ValueError(f"plan variant {label!r} must name every constructor member")
+        if constructor_mode:
+            if requested is not None and not isinstance(requested, Mapping):
+                raise ValueError(f"plan variant {label!r} must be a member mapping or null")
+            if isinstance(requested, Mapping) and not requested:
+                raise ValueError(f"plan variant {label!r} must name every constructor member")
+        elif requested is not None and not isinstance(requested, list):
+            raise ValueError(f"plan variant {label!r} must be a list or null")
 
-    runner, _ = _load_saved_runner(path, scenario)
-    if not isinstance(constructor_id, str) or not constructor_id:
-        raise ValueError("constructor_id must be an exact saved constructor ID")
-    saved_member_ids = [
-        driver.id for driver in runner.drivers if driver.team_id == constructor_id
-    ]
-    if constructor_id not in runner.cars:
-        if saved_member_ids:
-            raise ValueError(f"No saved car available for constructor ID: {constructor_id}")
-        raise ValueError(f"Unknown constructor ID: {constructor_id}")
-    member_ids = saved_member_ids
-    if not member_ids:
-        raise ValueError(f"No runnable saved drivers for constructor ID: {constructor_id}")
-    expected_members = set(member_ids)
+    runner, saved_count = _load_saved_runner(path, scenario)
+    drivers = list(runner.drivers)
+    driver_ids = [driver.id for driver in drivers]
+    if constructor_mode:
+        if not isinstance(constructor_id, str) or not constructor_id:
+            raise ValueError("constructor_id must be an exact saved constructor ID")
+        member_ids = [driver.id for driver in drivers if driver.team_id == constructor_id]
+        if constructor_id not in runner.cars:
+            if member_ids:
+                raise ValueError(f"No saved car available for constructor ID: {constructor_id}")
+            raise ValueError(f"Unknown constructor ID: {constructor_id}")
+        if not member_ids:
+            raise ValueError(f"No runnable saved drivers for constructor ID: {constructor_id}")
+        expected_members = set(member_ids)
+    else:
+        target = next((driver for driver in drivers if driver.id == driver_id), None)
+        if target is None:
+            raise ValueError(f"Unknown driver ID: {driver_id}")
+        if target.team_id not in runner.cars:
+            raise ValueError(f"No saved car available for driver ID: {driver_id}")
+        member_ids = [driver_id]
+
     source_plans = deepcopy(getattr(runner, "pit_plans", None) or {})
     variant_runners: dict[str, MonteCarloRunner] = {}
     for label, requested in plans.items():
         candidate = deepcopy(source_plans)
-        if requested is None:
-            for driver_id in member_ids:
-                candidate.pop(driver_id, None)
-        else:
-            requested_ids = set(requested)
-            if requested_ids != expected_members or any(
-                not isinstance(driver_id, str) for driver_id in requested
-            ):
-                raise ValueError(
-                    f"plan variant {label!r} must name exactly constructor members: "
-                    f"{', '.join(member_ids)}",
-                )
-            for driver_id, instructions in requested.items():
-                if instructions is not None and not isinstance(instructions, list):
+        if constructor_mode:
+            if requested is None:
+                for member_id in member_ids:
+                    candidate.pop(member_id, None)
+            else:
+                requested_ids = set(requested)
+                if requested_ids != expected_members or any(
+                    not isinstance(member, str) for member in requested
+                ):
                     raise ValueError(
-                        f"plan variant {label!r} for driver {driver_id!r} must be a list or null",
+                        f"plan variant {label!r} must name exactly constructor members: "
+                        f"{', '.join(member_ids)}",
                     )
-                if instructions is None:
-                    candidate.pop(driver_id, None)
-                else:
-                    candidate[driver_id] = deepcopy(instructions)
-
+                for member_id, instructions in requested.items():
+                    if instructions is not None and not isinstance(instructions, list):
+                        raise ValueError(
+                            f"plan variant {label!r} for driver {member_id!r} "
+                            "must be a list or null",
+                        )
+                    if instructions is None:
+                        candidate.pop(member_id, None)
+                    else:
+                        candidate[member_id] = deepcopy(instructions)
+        elif requested is None:
+            candidate.pop(driver_id, None)
+        else:
+            candidate[driver_id] = deepcopy(requested)
         canonical = _validate_pit_plans(
             candidate or None,
-            [driver.id for driver in runner.drivers],
+            driver_ids,
             total_laps=runner.track.total_laps,
             tire_inventory=runner.tire_inventory,
         )
@@ -360,11 +370,4 @@ def compare_saved_constructor_pit_plans(
             pit_plans=canonical,
         )
 
-    results: dict[str, SimulationResults] = {}
-    for label, variant in variant_runners.items():
-        results[label] = variant.run(
-            int(num_simulations),
-            parallel=parallel,
-            max_workers=None if max_workers is None else int(max_workers),
-        )
-    return results
+    return runner, saved_count, variant_runners

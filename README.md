@@ -148,6 +148,8 @@ Paired constructor points show whether a driver's gain outweighs a teammate's
 loss, using complete team results and the sampling error of their combined change.
 Offline comparisons can vary both teammates together with
 [`compare_pit_plans.py --constructor`](docs/custom-pit-plans.md#comparing-constructor-plans).
+To select among several plans and test the choice on fresh seeds, use the
+[strategy selection and validation workflow](docs/strategy-selection.md).
 
 The same inputs and seed reproduce an overridden run, including across worker
 counts. Changing a tyre choice can change later random draws and race events;
