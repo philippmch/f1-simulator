@@ -180,6 +180,45 @@ Snapshots with custom plans use schema 5, or schema 6 when
 is enabled; older supported snapshots retain
 their original automatic-policy interpretation.
 
+### Comparing constructor plans
+
+To compare coordinated alternatives for a whole constructor, use
+`--constructor` instead of `--driver`. For a saved constructor `TEAM` with
+modeled drivers `A` and `B`, a plans file can contain:
+
+```json
+{
+  "automatic": null,
+  "double-stack": {
+    "A": [{"lap": 15, "compound": "hard"}],
+    "B": [{"lap": 15, "compound": "hard"}]
+  },
+  "staggered": {
+    "A": [{"lap": 14, "compound": "hard"}],
+    "B": [{"lap": 16, "compound": "hard"}]
+  }
+}
+```
+
+```powershell
+python examples/compare_pit_plans.py output/saved_statistics.json --constructor TEAM --plans team_plans.json --reference automatic --simulations 100 --export
+```
+
+Replace `TEAM`, `A` and `B` with exact IDs from the saved inputs. Each non-null
+alternative must name every modeled member of that constructor and no rival
+drivers. This prevents an omitted teammate from silently retaining a different
+saved plan. A top-level null restores automatic strategy for all selected team
+members; inside a member mapping, null restores that driver's automatic policy
+and an empty list disables only that driver's elective stops. Rival constructors'
+saved plans remain in place. A saved one-driver constructor is supported without
+inventing an absent teammate.
+
+All alternatives are validated before simulation starts, including lap bounds
+and finite-pool requirements. The source file, openings, tyre pools, warm-up
+assumptions and other saved physics remain unchanged. Results retain the common
+seed range and expose both driver and constructor comparisons. Constructor-mode
+exports include all modeled drivers, so effects on rivals remain visible.
+
 ### Paired constructor points
 
 The dashboard, console and comparison export also show the change in total

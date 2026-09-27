@@ -10,7 +10,10 @@ from uuid import uuid4
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from f1sim.analysis.provenance import format_saved_runtime_status, saved_runtime_status
-from f1sim.analysis.strategy_comparison import compare_saved_pit_plans
+from f1sim.analysis.strategy_comparison import (
+    compare_saved_constructor_pit_plans,
+    compare_saved_pit_plans,
+)
 from f1sim.output import ConsoleOutput, Exporter
 from f1sim.simulation.randomness import RNG_POLICIES
 
@@ -57,18 +60,31 @@ def _plan_text(value) -> str:
     )
 
 
+def _constructor_plan_text(value) -> str:
+    if value is None:
+        return "automatic policy for every constructor member"
+    return "; ".join(
+        f"{driver_id}: {_plan_text(instructions)}"
+        for driver_id, instructions in value.items()
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Compare named custom pit plans using saved inputs and matching seed ranges.",
-        epilog="Requested numbers are each driver's own lap. Equal seeds do not freeze later "
-               "race events; intervals describe Monte Carlo sampling uncertainty.",
+        epilog=("Driver plans JSON maps labels to null or instruction lists. Constructor plans "
+                "JSON maps labels to null (automatic for every member) or to an object naming "
+                "every saved member ID, each mapped to null (automatic) or an instruction list; "
+                "[] means no elective stops. Requested lap numbers are each driver's own lap. "
+                "Equal seeds do not freeze later race events; intervals describe Monte Carlo "
+                "sampling uncertainty."),
     )
     parser.add_argument("path", type=Path, help="Saved statistics or dashboard JSON with inputs")
-    parser.add_argument(
-        "--driver", required=True, help="Exact target driver ID from the saved roster",
-    )
+    target_group = parser.add_mutually_exclusive_group(required=True)
+    target_group.add_argument("--driver", help="Exact target driver ID from the saved roster")
+    target_group.add_argument("--constructor", help="Exact saved constructor/team ID")
     parser.add_argument("--plans", required=True, type=Path,
-                        help="JSON object mapping variant labels to null or instruction lists")
+                        help="JSON object containing driver- or constructor-plan variants")
     parser.add_argument("--scenario", help="Exact source scenario when the file contains several")
     parser.add_argument("--reference", help="Variant label used for paired output (default: first)")
     parser.add_argument("--simulations", type=_simulations, default=100,
@@ -97,22 +113,44 @@ def main() -> int:
             "isolated_weather_v1" if args.independent_weather else None
         )
         runtime_status = saved_runtime_status(args.path, args.scenario)
-        results = compare_saved_pit_plans(
-            args.path, args.driver, plans, scenario=args.scenario,
-            num_simulations=args.simulations, parallel=args.parallel,
-            max_workers=args.max_workers, rng_policy=rng_policy,
-        )
+        if args.driver is not None:
+            results = compare_saved_pit_plans(
+                args.path, args.driver, plans, scenario=args.scenario,
+                num_simulations=args.simulations, parallel=args.parallel,
+                max_workers=args.max_workers, rng_policy=rng_policy,
+            )
+        else:
+            results = compare_saved_constructor_pit_plans(
+                args.path, args.constructor, plans, scenario=args.scenario,
+                num_simulations=args.simulations, parallel=args.parallel,
+                max_workers=args.max_workers, rng_policy=rng_policy,
+            )
         first = next(iter(results.values()))
         print(format_saved_runtime_status(runtime_status))
-        print(f"{first.track_name} | driver: {args.driver} | model: {first.race_engine}")
+        if args.driver is not None:
+            print(f"{first.track_name} | driver: {args.driver} | model: {first.race_engine}")
+            members = [args.driver]
+        else:
+            members = [
+                driver["id"] for driver in first.input_snapshot["drivers"]
+                if driver.get("team_id") == args.constructor
+            ]
+            print(f"{first.track_name} | constructor: {args.constructor} | "
+                  f"members: {', '.join(members)} | model: {first.race_engine}")
         print(f"{args.simulations} trials per plan | seeds {first.seed}–"
               f"{first.seed + args.simulations - 1}")
-        print("Requested lap numbers are the target driver's own lap at pit entry.")
+        print("Requested lap numbers are each driver's own lap at pit entry.")
         for label, value in plans.items():
-            print(f"  {label}: {_plan_text(value)}")
+            description = (
+                _plan_text(value) if args.driver is not None
+                else _constructor_plan_text(value)
+            )
+            print(f"  {label}: {description}")
         print("Same saved models, openings, finite pools and seed range are used for every plan.")
-        print("None restores automatic strategy; [] disables elective stops while compulsory "
+        print("Null restores automatic strategy; [] disables elective stops while compulsory "
               "repairs and weather corrections remain active.")
+        if args.constructor is not None:
+            print("Saved plans for rival constructors are preserved in every variant.")
         ConsoleOutput.print_paired_comparison(results, reference, driver_id=args.driver)
         if args.export:
             exporter = Exporter(args.output_dir)

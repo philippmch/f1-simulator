@@ -5,6 +5,7 @@ import csv
 import importlib.util
 import json
 import runpy
+import subprocess
 import sys
 from pathlib import Path
 
@@ -111,3 +112,79 @@ def test_pit_plan_cli_reports_saved_runtime(monkeypatch, tmp_path, capsys):
 
     assert command.main() == 0
     assert "Runtime provenance (installed vs saved): match" in capsys.readouterr().out
+
+
+def test_constructor_plan_cli_reports_members_and_exports_team_statistics(tmp_path):
+    drivers = [
+        Driver(id="A", name="A", team_id="T"),
+        Driver(id="B", name="B", team_id="T"),
+        Driver(id="C", name="C", team_id="U"),
+    ]
+    result = MonteCarloRunner(
+        drivers,
+        {team_id: Car(team_id=team_id, team_name=team_id) for team_id in ("T", "U")},
+        Track(id="t", name="Track", country="Test", total_laps=4, base_lap_time=90),
+        Weather(change_probability=0), seed=41,
+        pit_plans={"C": [{"lap": 2, "compound": "hard"}]},
+    ).run(1, parallel=False)
+    saved = Exporter(tmp_path).export_statistics_json(result)
+    plans = tmp_path / "constructor-plans.json"
+    plans.write_text(json.dumps({
+        "automatic": None,
+        "staggered": {
+            "A": [{"lap": 2, "compound": "hard"}],
+            "B": [{"lap": 3, "compound": "hard"}],
+        },
+    }), encoding="utf-8")
+    script = Path(__file__).resolve().parents[1] / "examples" / "compare_pit_plans.py"
+    output_dir = tmp_path / "constructor-exports"
+    completed = subprocess.run(
+        [sys.executable, str(script), str(saved), "--constructor", "T",
+         "--plans", str(plans), "--simulations", "2", "--export",
+         "--output-dir", str(output_dir)],
+        capture_output=True, text=True, check=False, timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "constructor: T | members: A, B" in completed.stdout
+    assert "Saved plans for rival constructors are preserved" in completed.stdout
+    assert "A: 2 own lap: hard; B: 3 own lap: hard" in completed.stdout
+
+    comparison_files = list(output_dir.glob("pit_plan_comparison_*.json"))
+    assert len(comparison_files) == 1
+    payload = json.loads(comparison_files[0].read_text(encoding="utf-8"))
+    stats = payload["paired_comparisons"]["variants"]["staggered"]
+    assert stats["status"] == "paired"
+    assert stats["constructor_statistics"]["T"]["driver_ids"] == ["A", "B"]
+    reports = list(output_dir.glob("pit_plan_comparison_*.html"))
+    assert len(reports) == 1
+    report = reports[0].read_text(encoding="utf-8")
+    assert "Constructor paired points compared with automatic" in report
+    assert "A, B" in report
+
+
+def test_constructor_plan_cli_requires_one_mode_and_rejects_partial_mapping(tmp_path):
+    result = MonteCarloRunner(
+        [Driver(id="A", name="A", team_id="T"), Driver(id="B", name="B", team_id="T")],
+        {"T": Car(team_id="T", team_name="T")},
+        Track(id="t", name="Track", country="Test", total_laps=4, base_lap_time=90),
+        Weather(change_probability=0), seed=41,
+    ).run(1, parallel=False)
+    saved = Exporter(tmp_path).export_statistics_json(result)
+    plans = tmp_path / "partial-plans.json"
+    plans.write_text(json.dumps({"partial": {"A": []}}), encoding="utf-8")
+    script = Path(__file__).resolve().parents[1] / "examples" / "compare_pit_plans.py"
+    base = [sys.executable, str(script), str(saved), "--plans", str(plans), "--simulations", "1"]
+
+    both_modes = subprocess.run(
+        base + ["--driver", "A", "--constructor", "T"],
+        capture_output=True, text=True, check=False, timeout=10,
+    )
+    assert both_modes.returncode == 2
+    assert "not allowed with argument" in both_modes.stderr
+
+    partial = subprocess.run(
+        base + ["--constructor", "T"],
+        capture_output=True, text=True, check=False, timeout=10,
+    )
+    assert partial.returncode == 2
+    assert "must name exactly constructor members: A, B" in partial.stderr
