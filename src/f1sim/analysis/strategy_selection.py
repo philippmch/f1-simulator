@@ -1,11 +1,13 @@
 """Select saved pit plans on training seeds and assess them on fresh seeds."""
 
 from collections.abc import Mapping
+from copy import deepcopy
 from math import isfinite
 from numbers import Integral
 from statistics import mean
-from typing import Any
+from typing import Any, Callable
 
+from f1sim.analysis.cancellation import SimulationCancelled
 from f1sim.analysis.montecarlo import MonteCarloRunner, SimulationResults
 from f1sim.analysis.paired_comparison import (
     _observation,
@@ -15,8 +17,10 @@ from f1sim.analysis.paired_comparison import (
     paired_comparison_statistics,
 )
 from f1sim.analysis.strategy_comparison import (
+    _build_pit_plan_variant_runners,
     _prepare_saved_pit_plan_variants,
     _runner_variant,
+    _validate_pit_plan_variant_requests,
 )
 from f1sim.simulation.randomness import validate_rng_policy
 
@@ -62,15 +66,74 @@ def _run_variants(
     *,
     parallel: bool,
     max_workers: int | None,
+    cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, SimulationResults]:
-    return {
-        label: runner.run(
-            count,
-            parallel=parallel,
-            max_workers=None if max_workers is None else int(max_workers),
-        )
-        for label, runner in variants.items()
-    }
+    results = {}
+    for label, runner in variants.items():
+        _check_cancelled(cancel_requested)
+        run_kwargs: dict[str, Any] = {
+            "parallel": parallel,
+            "max_workers": None if max_workers is None else int(max_workers),
+        }
+        if cancel_requested is not None:
+            run_kwargs["cancel_requested"] = cancel_requested
+        result = runner.run(count, **run_kwargs)
+        _check_cancelled(cancel_requested)
+        results[label] = result
+    return results
+
+
+def _check_cancelled(cancel_requested: Callable[[], bool] | None) -> None:
+    if cancel_requested is not None and cancel_requested():
+        raise SimulationCancelled("Pit-plan selection was cancelled.")
+
+
+def validate_pit_plan_selection_request(
+    plans: Mapping[str, Any],
+    reference_label: str,
+    *,
+    driver_id: str | None,
+    constructor_id: str | None,
+    training_simulations: int,
+    validation_simulations: int,
+    max_count: int | None = None,
+) -> list[str]:
+    """Validate request fields that do not depend on a loaded runner."""
+    labels = _validate_labels(plans, reference_label)
+    if (driver_id is None) == (constructor_id is None):
+        raise ValueError("exactly one driver_id or constructor_id is required")
+    target_id = driver_id if driver_id is not None else constructor_id
+    if not isinstance(target_id, str) or not target_id.strip():
+        raise ValueError("driver_id or constructor_id must be a nonempty string")
+    training_count = _positive_int(training_simulations, "training_simulations")
+    validation_count = _positive_int(validation_simulations, "validation_simulations")
+    if max_count is not None:
+        if training_count > max_count:
+            raise ValueError(f"training_simulations must be at most {max_count}")
+        if validation_count > max_count:
+            raise ValueError(f"validation_simulations must be at most {max_count}")
+    constructor_mode = constructor_id is not None
+    _validate_pit_plan_variant_requests(plans, constructor_mode=constructor_mode)
+    from f1sim.simulation.pit_plans import validate_pit_plans
+
+    for label, requested in plans.items():
+        if requested is None:
+            continue
+        if constructor_mode:
+            if any(
+                not isinstance(member_id, str) or not member_id.strip()
+                for member_id in requested
+            ):
+                raise ValueError(
+                    f"plan variant {label!r} must use nonempty constructor member IDs",
+                )
+            member_plans = requested.items()
+        else:
+            member_plans = ((driver_id, requested),)
+        for member_id, instructions in member_plans:
+            if instructions is not None:
+                validate_pit_plans({member_id: instructions})
+    return labels
 
 
 def _phase_points(
@@ -214,22 +277,105 @@ def evaluate_saved_pit_plan_selection(
     training seed range; only the fixed reference and selected plan use the next,
     disjoint validation range. Every requested target outcome must be valid.
     """
-    training_count = _positive_int(training_simulations, "training_simulations")
-    validation_count = _positive_int(validation_simulations, "validation_simulations")
     if max_workers is not None:
         max_workers = _positive_int(max_workers, "max_workers")
     if rng_policy is not None:
         rng_policy = validate_rng_policy(rng_policy)
-    labels = _validate_labels(plans, reference_label)
-    if (driver_id is None) == (constructor_id is None):
-        raise ValueError("exactly one driver_id or constructor_id is required")
-
+    validate_pit_plan_selection_request(
+        plans, reference_label, driver_id=driver_id, constructor_id=constructor_id,
+        training_simulations=training_simulations,
+        validation_simulations=validation_simulations,
+    )
     runner, saved_count, source_variants = _prepare_saved_pit_plan_variants(
         path, plans, driver_id=driver_id, constructor_id=constructor_id,
         scenario=scenario, rng_policy=rng_policy,
     )
+    prepared = _prepare_selection_from_variants(
+        runner, saved_count, plans, reference_label, source_variants,
+        driver_id=driver_id, constructor_id=constructor_id,
+        training_simulations=training_simulations,
+        validation_simulations=validation_simulations,
+    )
+    return evaluate_prepared_pit_plan_selection(
+        prepared, parallel=parallel, max_workers=max_workers,
+    )
+
+
+def prepare_pit_plan_selection(
+    runner: MonteCarloRunner,
+    source_simulations: int,
+    plans: Mapping[str, Any],
+    reference_label: str,
+    *,
+    driver_id: str | None = None,
+    constructor_id: str | None = None,
+    training_simulations: int = 100,
+    validation_simulations: int = 100,
+) -> dict[str, Any]:
+    """Validate and build all in-memory candidate and phase runners before trials."""
+    labels = validate_pit_plan_selection_request(
+        plans, reference_label, driver_id=driver_id, constructor_id=constructor_id,
+        training_simulations=training_simulations,
+        validation_simulations=validation_simulations,
+    )
+    source_count = _positive_int(source_simulations, "source_simulations")
+    source_variants = _build_pit_plan_variant_runners(
+        runner, plans, driver_id=driver_id, constructor_id=constructor_id,
+    )
+    return _prepare_selection_from_variants(
+        runner, source_count, plans, reference_label, source_variants,
+        driver_id=driver_id, constructor_id=constructor_id,
+        training_simulations=training_simulations,
+        validation_simulations=validation_simulations,
+        labels=labels,
+    )
+
+
+def evaluate_pit_plan_selection(
+    runner: MonteCarloRunner,
+    source_simulations: int,
+    plans: Mapping[str, Any],
+    reference_label: str,
+    *,
+    driver_id: str | None = None,
+    constructor_id: str | None = None,
+    training_simulations: int = 100,
+    validation_simulations: int = 100,
+    parallel: bool = False,
+    max_workers: int | None = None,
+    cancel_requested: Callable[[], bool] | None = None,
+) -> dict[str, Any]:
+    """Select and validate candidates using a trusted in-memory runner."""
+    prepared = prepare_pit_plan_selection(
+        runner, source_simulations, plans, reference_label,
+        driver_id=driver_id, constructor_id=constructor_id,
+        training_simulations=training_simulations,
+        validation_simulations=validation_simulations,
+    )
+    return evaluate_prepared_pit_plan_selection(
+        prepared, parallel=parallel, max_workers=max_workers,
+        cancel_requested=cancel_requested,
+    )
+
+
+def _prepare_selection_from_variants(
+    runner: MonteCarloRunner,
+    source_count: int,
+    plans: Mapping[str, Any],
+    reference_label: str,
+    source_variants: Mapping[str, MonteCarloRunner],
+    *,
+    driver_id: str | None,
+    constructor_id: str | None,
+    training_simulations: int,
+    validation_simulations: int,
+    labels: list[str] | None = None,
+) -> dict[str, Any]:
+    training_count = _positive_int(training_simulations, "training_simulations")
+    validation_count = _positive_int(validation_simulations, "validation_simulations")
+    labels = labels or _validate_labels(plans, reference_label)
     ranges = _validate_seed_ranges(
-        int(runner.base_seed), saved_count, training_count, validation_count,
+        int(runner.base_seed), source_count, training_count, validation_count,
     )
     train_start = ranges["training"]["first_seed"]
     valid_start = ranges["validation"]["first_seed"]
@@ -247,16 +393,63 @@ def evaluate_saved_pit_plan_selection(
             driver.id for driver in runner.drivers if driver.team_id == constructor_id
         ]
     )
+    frozen_plans = {
+        label: deepcopy(getattr(source_variants[label], "pit_plans", None) or {})
+        for label in labels
+    }
+    return {
+        "labels": labels,
+        "reference_label": reference_label,
+        "driver_id": driver_id,
+        "constructor_id": constructor_id,
+        "training_count": training_count,
+        "validation_count": validation_count,
+        "train_start": train_start,
+        "valid_start": valid_start,
+        "ranges": ranges,
+        "training_runners": training_runners,
+        "validation_candidates": validation_candidates,
+        "target_members": target_members,
+        "plans": frozen_plans,
+    }
+
+
+def evaluate_prepared_pit_plan_selection(
+    prepared: Mapping[str, Any],
+    *,
+    parallel: bool = False,
+    max_workers: int | None = None,
+    cancel_requested: Callable[[], bool] | None = None,
+) -> dict[str, Any]:
+    """Run prepared training/validation cohorts and return the frozen selection."""
+    if max_workers is not None:
+        max_workers = _positive_int(max_workers, "max_workers")
+    _check_cancelled(cancel_requested)
+    labels = prepared["labels"]
+    reference_label = prepared["reference_label"]
+    driver_id = prepared["driver_id"]
+    constructor_id = prepared["constructor_id"]
+    training_count = prepared["training_count"]
+    validation_count = prepared["validation_count"]
+    train_start = prepared["train_start"]
+    valid_start = prepared["valid_start"]
+    ranges = prepared["ranges"]
+    training_runners = prepared["training_runners"]
+    validation_candidates = prepared["validation_candidates"]
+    target_members = prepared["target_members"]
 
     training_results = _run_variants(
         training_runners, training_count, parallel=parallel, max_workers=max_workers,
+        cancel_requested=cancel_requested,
     )
+    _check_cancelled(cancel_requested)
     training_points, training_coverage = _phase_points(
         training_results, labels, reference_label,
         expected_runner=training_runners[reference_label],
         expected_seed=train_start, expected_count=training_count,
         target_members=target_members,
     )
+    _check_cancelled(cancel_requested)
     training_scores = {
         label: _json_number(mean(values)) for label, values in training_points.items()
     }
@@ -282,13 +475,16 @@ def evaluate_saved_pit_plan_selection(
     validation_results = _run_variants(
         validation_runners, validation_count,
         parallel=parallel, max_workers=max_workers,
+        cancel_requested=cancel_requested,
     )
+    _check_cancelled(cancel_requested)
     validation_points, validation_coverage = _phase_points(
         validation_results, validation_labels, reference_label,
         expected_runner=validation_runners[reference_label],
         expected_seed=valid_start, expected_count=validation_count,
         target_members=target_members,
     )
+    _check_cancelled(cancel_requested)
 
     no_change = selected_label == reference_label
     if no_change:

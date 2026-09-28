@@ -249,6 +249,199 @@ input[type="number"] { min-width: 80px; width: 80px; }
   margin-top: 0.12rem;
 }
 
+.pit-selection-panel {
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  margin-top: 0.65rem;
+  padding: 0.7rem;
+  width: 100%;
+}
+
+.pit-selection-intro,
+.pit-selection-status,
+.pit-selection-estimate {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  line-height: 1.45;
+  margin: 0 0 0.6rem;
+}
+
+.pit-selection-config {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  margin-bottom: 0.7rem;
+}
+
+.pit-selection-config select,
+.pit-selection-config input,
+.pit-selection-candidate input,
+.pit-selection-candidate select,
+.pit-selection-candidate textarea {
+  box-sizing: border-box;
+  display: block;
+  min-width: 0;
+  width: 100%;
+}
+
+.pit-selection-candidate-list {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.65rem 0;
+}
+
+.pit-selection-candidate {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  min-width: 0;
+  padding: 0.6rem;
+}
+
+.pit-selection-candidate-heading {
+  align-items: end;
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: minmax(105px, 1.2fr) minmax(112px, 0.8fr) auto auto;
+}
+
+.pit-selection-candidate label,
+.pit-selection-config label {
+  color: var(--text-secondary);
+  display: block;
+  font-size: 0.7rem;
+  line-height: 1.3;
+  min-width: 0;
+}
+
+.pit-selection-candidate label > span,
+.pit-selection-config label > span {
+  display: block;
+  margin-bottom: 0.22rem;
+}
+
+.pit-selection-candidate input[type="text"],
+.pit-selection-candidate textarea {
+  cursor: text;
+}
+
+.pit-selection-reference {
+  align-items: center;
+  display: flex !important;
+  gap: 0.32rem;
+  white-space: nowrap;
+}
+
+.pit-selection-reference input {
+  accent-color: var(--f1-red);
+  min-width: 0;
+  width: auto;
+}
+
+.pit-selection-member-plans {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  margin-top: 0.55rem;
+}
+
+.pit-selection-member-plans textarea {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  min-height: 2.5rem;
+  padding: 0.4rem 0.55rem;
+  resize: vertical;
+}
+
+.pit-selection-candidate .scenario-preset {
+  align-self: end;
+  white-space: nowrap;
+}
+
+.pit-selection-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.pit-selection-actions .scenario-preset {
+  padding: 0.35rem 0.6rem;
+}
+
+.pit-selection-status {
+  margin: 0;
+}
+
+.pit-selection-estimate {
+  background: rgba(255,255,255,0.025);
+  border-left: 2px solid var(--accent-green);
+  margin: 0.65rem 0 0;
+  padding: 0.45rem 0.55rem;
+}
+
+.pit-selection-estimate.over-budget { border-left-color: var(--f1-red); }
+
+.pit-selection-result {
+  border: 1px solid var(--border-medium);
+  border-left: 3px solid var(--accent-green);
+  border-radius: var(--radius-md);
+  margin: 0 0 1.2rem;
+  padding: 1rem;
+}
+
+.pit-selection-result h3,
+.pit-selection-result h4 {
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+  margin: 0 0 0.55rem;
+}
+
+.pit-selection-result h4 { font-size: 0.78rem; margin-top: 0.9rem; }
+
+.pit-selection-result p {
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  margin: 0.45rem 0;
+  max-width: 76ch;
+}
+
+.pit-selection-result .compare-actions { margin: 0.8rem 0; }
+
+.pit-selection-result-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.pit-selection-result-table {
+  font-variant-numeric: tabular-nums;
+  min-width: 620px;
+  width: 100%;
+}
+
+.pit-selection-result-table th,
+.pit-selection-result-table td {
+  overflow-wrap: anywhere;
+  padding: 0.55rem 0.65rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.pit-selection-result-table td:last-child { white-space: nowrap; }
+.pit-selection-quiet { color: var(--text-muted); font-size: 0.7rem; }
+
+@media (max-width: 600px) {
+  .pit-selection-candidate-heading {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .pit-selection-reference { grid-column: 1; }
+  .pit-selection-candidate .scenario-preset { grid-column: 2; justify-self: end; }
+  .pit-selection-result { padding: 0.75rem; }
+}
+
 select option { background: var(--bg-card); color: var(--text-primary); }
 
 .scenario-selector {
@@ -1863,6 +2056,13 @@ input:focus-visible {
             <small id="compareAutomaticHelp">Uses the same inputs and seeds for both variants. Comparison runs allow up to 500 simulations per alternative (1,000 total trials per weather scenario).</small>
           </span>
         </label>
+        <label class="pit-plan-compare" for="pitPlanSelectionEnabled">
+          <input type="checkbox" id="pitPlanSelectionEnabled" aria-expanded="false"
+            aria-controls="pitPlanSelectionPanel">
+          <span>Choose among candidate plans, then validate the frozen choice
+            <small>Selection and automatic comparison cannot run together. Training chooses; later seeds evaluate that fixed choice.</small>
+          </span>
+        </label>
         <div class="control-group rng-policy-control">
           <label class="control-label" for="rngPolicySelect">Match random draws</label>
           <select id="rngPolicySelect" aria-describedby="rngPolicyHelp">
@@ -1908,6 +2108,34 @@ input:focus-visible {
         <div class="empty-icon">&#9201;</div>
         <div class="empty-title">No simulation yet</div>
         <div class="empty-desc">Run the Python backend and start a simulation to see backend-generated race results</div>
+      </div>
+      <div class="pit-selection-panel" id="pitPlanSelectionPanel" hidden>
+        <p class="pit-selection-intro">Enter 2–10 named plans before running. Automatic uses the simulator plan; custom plans use lap:compound shorthand. Use <code>none</code> for explicit no-elective-stops.</p>
+        <div class="pit-selection-config">
+          <label for="pitPlanSelectionTargetMode"><span>Target type</span>
+            <select id="pitPlanSelectionTargetMode" aria-describedby="pitPlanSelectionStatus">
+              <option value="driver">Driver</option>
+              <option value="constructor">Constructor</option>
+            </select>
+          </label>
+          <label for="pitPlanSelectionTargetId"><span>Target ID</span>
+            <select id="pitPlanSelectionTargetId" disabled aria-describedby="pitPlanSelectionStatus">
+              <option value="">Load current race roster</option>
+            </select>
+          </label>
+          <label for="pitPlanTrainingTrials"><span>Training trials</span>
+            <input type="number" id="pitPlanTrainingTrials" min="1" max="1000" step="1" value="50">
+          </label>
+          <label for="pitPlanValidationTrials"><span>Validation trials</span>
+            <input type="number" id="pitPlanValidationTrials" min="1" max="1000" step="1" value="50">
+          </label>
+        </div>
+        <div class="pit-selection-candidate-list" id="pitPlanSelectionCandidates" aria-label="Candidate pit plans"></div>
+        <div class="pit-selection-actions">
+          <button class="scenario-preset" type="button" id="addPitPlanCandidateBtn">Add candidate</button>
+          <p class="pit-selection-status" id="pitPlanSelectionStatus" role="status" aria-live="polite">Current driver and constructor IDs load from the selected race roster.</p>
+        </div>
+        <p class="pit-selection-estimate" id="pitPlanSelectionEstimate" aria-live="polite">Worst-case budget: waiting for valid counts.</p>
       </div>
       <div id="raceContent" style="display:none"></div>
     </div>
@@ -2125,6 +2353,13 @@ let connectionRefreshInProgress = false;
 let activeRun = null;
 let tyreEditorDraft = null;
 let tyreEditorRestoreFocus = null;
+let pitSelectionRoster = null;
+let pitSelectionRosterKey = null;
+let pitSelectionRosterRequestId = 0;
+let pitSelectionRosterController = null;
+let pitSelectionRosterLoading = false;
+let pitSelectionRosterError = '';
+let pitSelectionCandidateSequence = 0;
 const PREFS_KEY = 'f1sim:uiPrefs';
 const scenarioSetInput = document.getElementById('scenarioSetInput');
 const weatherSelectEl = document.getElementById('weatherSelect');
@@ -2184,6 +2419,15 @@ function updateRunAvailability() {
   if (compareAutomaticInput) {
     compareAutomaticInput.disabled = runInProgress || connectionRefreshInProgress;
   }
+  const selectionEnabled = document.getElementById('pitPlanSelectionEnabled');
+  if (selectionEnabled) {
+    selectionEnabled.disabled = runInProgress || connectionRefreshInProgress;
+  }
+  const selectionPanel = document.getElementById('pitPlanSelectionPanel');
+  selectionPanel?.querySelectorAll('input, select, textarea, button').forEach(control => {
+    control.disabled = runInProgress || connectionRefreshInProgress;
+  });
+  updatePitSelectionControlAvailability();
   const rerun = document.getElementById('rerunScenarioBtn');
   if (rerun) rerun.disabled = runInProgress || connectionRefreshInProgress;
 }
@@ -2861,6 +3105,7 @@ async function checkBackend() {
 async function refreshLiveData() {
   if (runInProgress || connectionRefreshInProgress) return;
   connectionRefreshInProgress = true;
+  invalidatePitSelectionRoster('Refreshing live data; the selected race roster will reload.');
   updateRunAvailability();
   try {
     if (!await checkBackend()) return;
@@ -2870,6 +3115,9 @@ async function refreshLiveData() {
       setStatusMessage(`Live calendar unavailable: ${calendar.error.message}. Use Refresh live data to retry.`, 'error');
     } else {
       setStatusMessage(`Live ${year} calendar ready. Choose a race and run a simulation.`, 'success');
+      if (document.getElementById('pitPlanSelectionEnabled')?.checked) {
+        await loadPitSelectionRoster(true);
+      }
     }
   } finally {
     connectionRefreshInProgress = false;
@@ -2907,6 +3155,39 @@ function parseTireWarmupInput() {
   return {ok: true, profile};
 }
 
+function parsePitPlanInstructions(raw, input = null) {
+  const specification = String(raw ?? '').trim();
+  if (specification === 'none') return {ok: true, instructions: []};
+  if (!specification) {
+    return {ok: false, input, message: PIT_PLAN_INPUT_ERROR};
+  }
+  try {
+    const tokens = specification.split(',');
+    if (!tokens.length || tokens.length > 20) throw new Error();
+    let previousLap = null;
+    const instructions = [];
+    for (const token of tokens) {
+      const fields = token.trim().split(':');
+      if (fields.length !== 2 || !fields[0] || !fields[1]) throw new Error();
+      const lapToken = fields[0];
+      const compound = fields[1];
+      if (!/^[0-9]+$/.test(lapToken) || !PIT_PLAN_COMPOUNDS.has(compound)) {
+        throw new Error();
+      }
+      const lap = Number(lapToken);
+      if (!Number.isSafeInteger(lap) || lap < 2
+          || (previousLap !== null && lap <= previousLap)) {
+        throw new Error();
+      }
+      previousLap = lap;
+      instructions.push({lap, compound});
+    }
+    return {ok: true, instructions};
+  } catch {
+    return {ok: false, input, message: PIT_PLAN_INPUT_ERROR};
+  }
+}
+
 function parsePitPlanInput() {
   const input = document.getElementById('pitPlansInput');
   const raw = input?.value.trim() || '';
@@ -2927,33 +3208,524 @@ function parsePitPlanInput() {
         pitPlans[driverId] = [];
         continue;
       }
-      if (!specification) throw new Error();
-      const tokens = specification.split(',');
-      if (!tokens.length || tokens.length > 20) throw new Error();
-      let previousLap = null;
-      const instructions = [];
-      for (const token of tokens) {
-        const fields = token.trim().split(':');
-        if (fields.length !== 2 || !fields[0] || !fields[1]) throw new Error();
-        const lapToken = fields[0];
-        const compound = fields[1];
-        if (!/^[0-9]+$/.test(lapToken) || !PIT_PLAN_COMPOUNDS.has(compound)) {
-          throw new Error();
-        }
-        const lap = Number(lapToken);
-        if (!Number.isSafeInteger(lap) || lap < 2
-            || (previousLap !== null && lap <= previousLap)) {
-          throw new Error();
-        }
-        previousLap = lap;
-        instructions.push({lap, compound});
-      }
-      pitPlans[driverId] = instructions;
+      const parsed = parsePitPlanInstructions(specification, input);
+      if (!parsed.ok) throw new Error();
+      pitPlans[driverId] = parsed.instructions;
     }
   } catch {
     return {ok: false, message: PIT_PLAN_INPUT_ERROR, input};
   }
   return {ok: true, pitPlans, input};
+}
+
+function currentPitSelectionRosterKey() {
+  return `${document.getElementById('yearSelect').value}|${document.getElementById('trackSelect').value}`;
+}
+
+function normalizePitSelectionRoster(data) {
+  const drivers = [];
+  const driverIds = new Set();
+  const constructorMap = new Map();
+  for (const driver of Array.isArray(data?.drivers) ? data.drivers : []) {
+    const id = typeof driver?.id === 'string' ? driver.id.trim() : '';
+    const team = typeof driver?.constructor_id === 'string' ? driver.constructor_id.trim() : '';
+    if (!id || !team || driverIds.has(id)) continue;
+    driverIds.add(id);
+    drivers.push({id, name: typeof driver.name === 'string' ? driver.name : id, team});
+    if (!constructorMap.has(team)) constructorMap.set(team, []);
+    constructorMap.get(team).push(id);
+  }
+  drivers.sort((left, right) => left.id.localeCompare(right.id));
+  const constructors = Array.from(constructorMap, ([id, members]) => ({
+    id, members: [...members].sort((left, right) => left.localeCompare(right)),
+  })).sort((left, right) => left.id.localeCompare(right.id));
+  return drivers.length ? {drivers, constructors} : null;
+}
+
+function updatePitSelectionStatus(message) {
+  const status = document.getElementById('pitPlanSelectionStatus');
+  if (status) status.textContent = message;
+}
+
+function pitSelectionTargetChoices() {
+  if (!pitSelectionRoster) return [];
+  const mode = document.getElementById('pitPlanSelectionTargetMode')?.value;
+  return mode === 'constructor' ? pitSelectionRoster.constructors : pitSelectionRoster.drivers;
+}
+
+function pitSelectionTargetMemberIds() {
+  const target = document.getElementById('pitPlanSelectionTargetId');
+  if (!pitSelectionRoster || !target?.value) return [];
+  const mode = document.getElementById('pitPlanSelectionTargetMode')?.value;
+  if (mode === 'constructor') {
+    return pitSelectionRoster.constructors.find(item => item.id === target.value)?.members || [];
+  }
+  return pitSelectionRoster.drivers.some(item => item.id === target.value) ? [target.value] : [];
+}
+
+function renderPitSelectionMemberPlans(candidate, memberIds) {
+  const container = candidate.querySelector('.pit-selection-member-plans');
+  if (!container) return;
+  const previousValues = Object.create(null);
+  container.querySelectorAll('[data-member-id]').forEach(input => {
+    previousValues[input.dataset.memberId] = input.value;
+  });
+  container.replaceChildren();
+  for (const memberId of memberIds) {
+    const fieldId = `pit-plan-candidate-${candidate.dataset.candidateId}-${memberIds.indexOf(memberId)}`;
+    const label = document.createElement('label');
+    label.htmlFor = fieldId;
+    const labelText = document.createElement('span');
+    labelText.textContent = `Stops for ${memberId}`;
+    const input = document.createElement('textarea');
+    input.id = fieldId;
+    input.rows = 1;
+    input.maxLength = 512;
+    input.spellcheck = false;
+    input.dataset.memberId = memberId;
+    input.setAttribute('aria-label', `Pit stops for ${memberId}`);
+    input.placeholder = '18:medium,36:hard · none';
+    input.value = Object.hasOwn(previousValues, memberId) ? previousValues[memberId] : '';
+    label.append(labelText, input);
+    container.append(label);
+  }
+  const custom = candidate.querySelector('.pit-selection-plan-mode')?.value === 'custom';
+  container.hidden = !custom;
+}
+
+function pitSelectionCandidateRows() {
+  return Array.from(document.querySelectorAll('#pitPlanSelectionCandidates .pit-selection-candidate'));
+}
+
+function syncPitSelectionCandidateRows() {
+  const rows = pitSelectionCandidateRows();
+  rows.forEach((row, index) => {
+    const name = row.querySelector('.pit-selection-label')?.value.trim() || `candidate ${index + 1}`;
+    const radio = row.querySelector('.pit-selection-reference input');
+    const remove = row.querySelector('[data-remove-candidate]');
+    if (radio) radio.setAttribute('aria-label', `Use ${name} as the fixed reference`);
+    if (remove) {
+      remove.disabled = runInProgress || connectionRefreshInProgress || rows.length <= 2;
+      remove.setAttribute('aria-label', `Remove candidate row ${index + 1}`);
+    }
+  });
+  const add = document.getElementById('addPitPlanCandidateBtn');
+  if (add) add.disabled = runInProgress || connectionRefreshInProgress || rows.length >= 10;
+  updatePitSelectionEstimate();
+}
+
+function setPitSelectionCandidateMode(row) {
+  const container = row.querySelector('.pit-selection-member-plans');
+  if (container) container.hidden = row.querySelector('.pit-selection-plan-mode')?.value !== 'custom';
+}
+
+function createPitSelectionCandidate(labelText, planMode, isReference = false) {
+  const row = document.createElement('div');
+  row.className = 'pit-selection-candidate';
+  row.dataset.candidateId = String(++pitSelectionCandidateSequence);
+
+  const heading = document.createElement('div');
+  heading.className = 'pit-selection-candidate-heading';
+
+  const nameLabel = document.createElement('label');
+  const nameId = `pit-plan-candidate-name-${row.dataset.candidateId}`;
+  nameLabel.htmlFor = nameId;
+  const nameCaption = document.createElement('span');
+  nameCaption.textContent = 'Candidate name';
+  const nameInput = document.createElement('input');
+  nameInput.id = nameId;
+  nameInput.type = 'text';
+  nameInput.maxLength = 80;
+  nameInput.autocomplete = 'off';
+  nameInput.required = true;
+  nameInput.className = 'pit-selection-label';
+  nameInput.value = labelText;
+  nameInput.addEventListener('input', syncPitSelectionCandidateRows);
+  nameLabel.append(nameCaption, nameInput);
+
+  const modeLabel = document.createElement('label');
+  const modeId = `pit-plan-candidate-mode-${row.dataset.candidateId}`;
+  modeLabel.htmlFor = modeId;
+  const modeCaption = document.createElement('span');
+  modeCaption.textContent = 'Plan';
+  const mode = document.createElement('select');
+  mode.id = modeId;
+  mode.className = 'pit-selection-plan-mode';
+  const automatic = document.createElement('option');
+  automatic.value = 'automatic';
+  automatic.textContent = 'Automatic';
+  const custom = document.createElement('option');
+  custom.value = 'custom';
+  custom.textContent = 'Custom stops';
+  mode.append(automatic, custom);
+  mode.value = planMode;
+  mode.addEventListener('change', () => setPitSelectionCandidateMode(row));
+  modeLabel.append(modeCaption, mode);
+
+  const referenceLabel = document.createElement('label');
+  referenceLabel.className = 'pit-selection-reference';
+  const reference = document.createElement('input');
+  reference.type = 'radio';
+  reference.name = 'pitPlanSelectionReference';
+  reference.value = row.dataset.candidateId;
+  reference.checked = isReference;
+  const referenceText = document.createElement('span');
+  referenceText.textContent = 'Fixed reference';
+  referenceLabel.append(reference, referenceText);
+
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'scenario-preset';
+  remove.dataset.removeCandidate = 'true';
+  remove.textContent = 'Remove';
+  remove.addEventListener('click', () => {
+    const rows = pitSelectionCandidateRows();
+    if (rows.length <= 2) return;
+    const wasReference = row.querySelector('.pit-selection-reference input')?.checked;
+    const next = rows[rows.indexOf(row) + 1] || rows[rows.indexOf(row) - 1];
+    row.remove();
+    if (wasReference && next) next.querySelector('.pit-selection-reference input').checked = true;
+    syncPitSelectionCandidateRows();
+  });
+
+  heading.append(nameLabel, modeLabel, referenceLabel, remove);
+  const memberPlans = document.createElement('div');
+  memberPlans.className = 'pit-selection-member-plans';
+  row.append(heading, memberPlans);
+  renderPitSelectionMemberPlans(row, pitSelectionTargetMemberIds());
+  setPitSelectionCandidateMode(row);
+  return row;
+}
+
+function ensurePitSelectionCandidateRows() {
+  const container = document.getElementById('pitPlanSelectionCandidates');
+  if (!container || container.dataset.initialized === 'true') return;
+  container.dataset.initialized = 'true';
+  container.append(
+    createPitSelectionCandidate('automatic', 'automatic', true),
+    createPitSelectionCandidate('alternative', 'custom', false),
+  );
+  syncPitSelectionCandidateRows();
+}
+
+function updatePitSelectionCandidateMembers() {
+  const memberIds = pitSelectionTargetMemberIds();
+  pitSelectionCandidateRows().forEach(row => renderPitSelectionMemberPlans(row, memberIds));
+}
+
+function updatePitSelectionTargetOptions(preserve = true) {
+  const target = document.getElementById('pitPlanSelectionTargetId');
+  const mode = document.getElementById('pitPlanSelectionTargetMode');
+  if (!target || !mode) return;
+  const previous = preserve ? target.value : '';
+  const choices = pitSelectionTargetChoices();
+  target.replaceChildren();
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = choices.length ? 'Choose an ID' : 'Roster unavailable';
+  target.append(placeholder);
+  choices.forEach(choice => {
+    const option = document.createElement('option');
+    option.value = choice.id;
+    option.textContent = mode.value === 'driver' && choice.name !== choice.id
+      ? `${choice.id} · ${choice.name}` : choice.id;
+    target.append(option);
+  });
+  if (choices.some(choice => choice.id === previous)) target.value = previous;
+  else if (choices.length) target.value = choices[0].id;
+  updatePitSelectionCandidateMembers();
+  updatePitSelectionControlAvailability();
+}
+
+function updatePitSelectionControlAvailability() {
+  const active = runInProgress || connectionRefreshInProgress;
+  const targetMode = document.getElementById('pitPlanSelectionTargetMode');
+  const targetId = document.getElementById('pitPlanSelectionTargetId');
+  if (targetMode) targetMode.disabled = active;
+  if (targetId) {
+    targetId.disabled = active || pitSelectionRosterLoading || !pitSelectionRoster
+      || !pitSelectionTargetChoices().length;
+  }
+  syncPitSelectionCandidateRows();
+}
+
+function updatePitSelectionEstimate() {
+  const estimate = document.getElementById('pitPlanSelectionEstimate');
+  if (!estimate) return;
+  const sourceRaw = document.getElementById('simCount')?.value.trim() || '';
+  const trainingRaw = document.getElementById('pitPlanTrainingTrials')?.value.trim() || '';
+  const validationRaw = document.getElementById('pitPlanValidationTrials')?.value.trim() || '';
+  const source = Number(sourceRaw);
+  const training = Number(trainingRaw);
+  const validation = Number(validationRaw);
+  const candidates = pitSelectionCandidateRows().length;
+  const valid = /^[0-9]+$/.test(sourceRaw) && /^[0-9]+$/.test(trainingRaw)
+    && /^[0-9]+$/.test(validationRaw) && Number.isSafeInteger(source)
+    && Number.isSafeInteger(training) && Number.isSafeInteger(validation)
+    && source > 0 && training > 0 && validation > 0;
+  estimate.classList.toggle('over-budget', valid
+    && source + candidates * training + 2 * validation > 1000);
+  estimate.textContent = valid
+    ? `Worst-case budget per weather: ${source + candidates * training + 2 * validation} trials (${source} source + ${candidates} candidates × ${training} training + 2 × ${validation} validation). Limit: 1,000.`
+    : 'Worst-case budget per weather: enter whole-number source, training, and validation counts.';
+}
+
+function invalidatePitSelectionRoster(message = 'Current race roster has not been loaded.') {
+  pitSelectionRosterRequestId += 1;
+  pitSelectionRosterController?.abort();
+  pitSelectionRosterController = null;
+  pitSelectionRosterLoading = false;
+  pitSelectionRoster = null;
+  pitSelectionRosterKey = null;
+  pitSelectionRosterError = '';
+  updatePitSelectionStatus(message);
+  updatePitSelectionTargetOptions(false);
+}
+
+function focusPitSelectionEditor() {
+  const targetMode = document.getElementById('pitPlanSelectionTargetMode');
+  if (!targetMode) return;
+  const header = document.querySelector('.header');
+  const headerRect = header?.getBoundingClientRect();
+  const stickyHeader = header && getComputedStyle(header).position === 'sticky'
+    && headerRect.top <= 1 && headerRect.bottom > 0;
+  const safeTop = stickyHeader && headerRect.bottom < window.innerHeight
+    ? headerRect.bottom + 14 : 14;
+  const targetTop = targetMode.getBoundingClientRect().top;
+  if (targetTop < safeTop || targetTop > window.innerHeight * 0.75) {
+    const behavior = matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+    window.scrollBy({top: targetTop - safeTop, behavior});
+  }
+  targetMode.focus({preventScroll: true});
+}
+
+async function loadPitSelectionRoster(force = false) {
+  const year = document.getElementById('yearSelect').value;
+  const race = document.getElementById('trackSelect').value;
+  const requestKey = `${year}|${race}`;
+  if (!backendConnected || !calendarReady || !year || !race) {
+    const message = 'Connect to the backend and choose a race to load its roster.';
+    invalidatePitSelectionRoster(message);
+    pitSelectionRosterError = message;
+    return false;
+  }
+  if (!force && pitSelectionRoster && pitSelectionRosterKey === requestKey) return true;
+  pitSelectionRosterController?.abort();
+  const controller = new AbortController();
+  pitSelectionRosterController = controller;
+  const requestId = ++pitSelectionRosterRequestId;
+  pitSelectionRosterLoading = true;
+  pitSelectionRoster = null;
+  pitSelectionRosterKey = null;
+  pitSelectionRosterError = '';
+  updatePitSelectionStatus(`Loading current ${year} ${race} driver and constructor IDs…`);
+  updatePitSelectionTargetOptions(false);
+  try {
+    const query = new URLSearchParams({year, race});
+    const response = await fetch(apiUrl(`/api/ratings?${query.toString()}`), {signal: controller.signal});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+    if (requestId !== pitSelectionRosterRequestId || controller.signal.aborted
+        || requestKey !== currentPitSelectionRosterKey() || !backendConnected) return false;
+    const roster = normalizePitSelectionRoster(data);
+    if (!roster) throw new Error('The current race returned no driver and constructor IDs.');
+    pitSelectionRoster = roster;
+    pitSelectionRosterKey = requestKey;
+    updatePitSelectionStatus(`Loaded ${roster.drivers.length} drivers and ${roster.constructors.length} constructors for ${race}.`);
+    updatePitSelectionTargetOptions(false);
+    return true;
+  } catch (error) {
+    if (requestId !== pitSelectionRosterRequestId || controller.signal.aborted) return false;
+    pitSelectionRoster = null;
+    pitSelectionRosterKey = null;
+    pitSelectionRosterError = `Current race roster unavailable: ${error.message} Use Refresh live data to retry.`;
+    updatePitSelectionStatus(pitSelectionRosterError);
+    updatePitSelectionTargetOptions(false);
+    return false;
+  } finally {
+    if (requestId === pitSelectionRosterRequestId) {
+      pitSelectionRosterLoading = false;
+      pitSelectionRosterController = null;
+      updatePitSelectionControlAvailability();
+    }
+  }
+}
+
+function initPitPlanSelection() {
+  ensurePitSelectionCandidateRows();
+  const enabled = document.getElementById('pitPlanSelectionEnabled');
+  const panel = document.getElementById('pitPlanSelectionPanel');
+  enabled?.addEventListener('change', async () => {
+    panel.hidden = !enabled.checked;
+    enabled.setAttribute('aria-expanded', String(enabled.checked));
+    if (enabled.checked) {
+      switchTab('race');
+      ensurePitSelectionCandidateRows();
+      if (pitSelectionRosterKey !== currentPitSelectionRosterKey()) await loadPitSelectionRoster();
+      focusPitSelectionEditor();
+    }
+  });
+  document.getElementById('pitPlanSelectionTargetMode')?.addEventListener('change', () => {
+    updatePitSelectionTargetOptions(false);
+  });
+  document.getElementById('pitPlanSelectionTargetId')?.addEventListener('change', updatePitSelectionCandidateMembers);
+  document.getElementById('addPitPlanCandidateBtn')?.addEventListener('click', () => {
+    const rows = pitSelectionCandidateRows();
+    if (rows.length >= 10) return;
+    const container = document.getElementById('pitPlanSelectionCandidates');
+    container.append(createPitSelectionCandidate(`candidate ${rows.length + 1}`, 'custom', false));
+    syncPitSelectionCandidateRows();
+    container.lastElementChild?.querySelector('.pit-selection-label')?.focus();
+  });
+  ['simCount', 'pitPlanTrainingTrials', 'pitPlanValidationTrials'].forEach(id => {
+    document.getElementById(id)?.addEventListener('input', updatePitSelectionEstimate);
+  });
+  const reloadRosterForContext = () => {
+    invalidatePitSelectionRoster('Race selection changed; loading the current participant roster.');
+    if (enabled?.checked && backendConnected && calendarReady) loadPitSelectionRoster(true);
+  };
+  document.getElementById('trackSelect')?.addEventListener('change', reloadRosterForContext);
+  document.getElementById('yearSelect')?.addEventListener('change', reloadRosterForContext);
+  updatePitSelectionEstimate();
+  updatePitSelectionControlAvailability();
+}
+
+function positiveIntegerInput(input) {
+  const raw = input?.value.trim() || '';
+  const value = Number(raw);
+  return /^[0-9]+$/.test(raw) && Number.isSafeInteger(value) && value > 0
+    && input.checkValidity() ? value : null;
+}
+
+function buildPitPlanSelectionPayload(sourceSimulations) {
+  const enabled = document.getElementById('pitPlanSelectionEnabled');
+  if (!enabled?.checked) return {ok: true, selection: null};
+  const automaticCompare = document.getElementById('compareAutomaticInput');
+  if (automaticCompare?.checked) {
+    const message = 'Candidate selection and automatic comparison cannot run together. Turn off automatic comparison or candidate selection.';
+    setStatusMessage(message, 'error');
+    updatePitSelectionStatus(message);
+    enabled.focus();
+    return {ok: false};
+  }
+  const currentKey = currentPitSelectionRosterKey();
+  if (pitSelectionRosterLoading || !pitSelectionRoster || pitSelectionRosterKey !== currentKey) {
+    const message = pitSelectionRosterLoading
+      ? 'Wait for the current race roster to finish loading before starting candidate selection.'
+      : pitSelectionRosterError || 'Load the current race roster before starting candidate selection.';
+    setStatusMessage(message, 'error');
+    updatePitSelectionStatus(message);
+    enabled.focus();
+    return {ok: false};
+  }
+  const rows = pitSelectionCandidateRows();
+  if (rows.length < 2 || rows.length > 10) {
+    const message = 'Candidate selection needs between 2 and 10 named plans.';
+    setStatusMessage(message, 'error');
+    updatePitSelectionStatus(message);
+    document.getElementById('addPitPlanCandidateBtn')?.focus();
+    return {ok: false};
+  }
+  const targetMode = document.getElementById('pitPlanSelectionTargetMode').value;
+  const targetId = document.getElementById('pitPlanSelectionTargetId').value;
+  const targetMemberIds = pitSelectionTargetMemberIds();
+  if (!['driver', 'constructor'].includes(targetMode) || !targetId || !targetMemberIds.length) {
+    const input = document.getElementById('pitPlanSelectionTargetId');
+    const message = 'Choose a current driver or constructor ID for the selection target.';
+    setStatusMessage(message, 'error');
+    updatePitSelectionStatus(message);
+    input.focus();
+    return {ok: false};
+  }
+
+  const plans = Object.create(null);
+  const labels = new Set();
+  let referenceLabel = null;
+  for (const [index, row] of rows.entries()) {
+    const nameInput = row.querySelector('.pit-selection-label');
+    const label = nameInput?.value.trim() || '';
+    if (!label || label.length > 80) {
+      const message = `Enter a candidate name of 1–80 characters for row ${index + 1}.`;
+      setStatusMessage(message, 'error');
+      updatePitSelectionStatus(message);
+      nameInput?.focus();
+      return {ok: false};
+    }
+    if (labels.has(label)) {
+      const message = `Candidate names must be unique. Rename “${label}”.`;
+      setStatusMessage(message, 'error');
+      updatePitSelectionStatus(message);
+      nameInput.focus();
+      return {ok: false};
+    }
+    labels.add(label);
+    if (row.querySelector('.pit-selection-reference input')?.checked) referenceLabel = label;
+
+    const planMode = row.querySelector('.pit-selection-plan-mode')?.value;
+    if (planMode === 'automatic') {
+      plans[label] = null;
+      continue;
+    }
+    const memberFields = Array.from(row.querySelectorAll('[data-member-id]'));
+    if (memberFields.length !== targetMemberIds.length
+        || targetMemberIds.some(id => !memberFields.some(field => field.dataset.memberId === id))) {
+      const message = 'Target membership changed. Wait for the current roster, then review each candidate plan.';
+      setStatusMessage(message, 'error');
+      updatePitSelectionStatus(message);
+      enabled.focus();
+      return {ok: false};
+    }
+    const memberPlans = Object.create(null);
+    for (const memberId of targetMemberIds) {
+      const field = memberFields.find(item => item.dataset.memberId === memberId);
+      const parsed = parsePitPlanInstructions(field.value, field);
+      if (!parsed.ok) {
+        const message = `Enter ordered pit stops for ${memberId}, or use none for no elective stops.`;
+        setStatusMessage(message, 'error');
+        updatePitSelectionStatus(message);
+        field.focus();
+        return {ok: false};
+      }
+      memberPlans[memberId] = parsed.instructions;
+    }
+    plans[label] = targetMode === 'driver' ? memberPlans[targetMemberIds[0]] : memberPlans;
+  }
+  if (referenceLabel === null) {
+    const message = 'Choose one candidate as the fixed reference before running.';
+    setStatusMessage(message, 'error');
+    updatePitSelectionStatus(message);
+    rows[0]?.querySelector('.pit-selection-reference input')?.focus();
+    return {ok: false};
+  }
+  const trainingInput = document.getElementById('pitPlanTrainingTrials');
+  const validationInput = document.getElementById('pitPlanValidationTrials');
+  const trainingSimulations = positiveIntegerInput(trainingInput);
+  const validationSimulations = positiveIntegerInput(validationInput);
+  const invalidTrials = !trainingSimulations ? trainingInput : !validationSimulations ? validationInput : null;
+  if (invalidTrials) {
+    const message = 'Training and validation trials must each be a positive whole number up to 1,000.';
+    setStatusMessage(message, 'error');
+    updatePitSelectionStatus(message);
+    invalidTrials.focus();
+    invalidTrials.reportValidity();
+    return {ok: false};
+  }
+  const totalBudget = sourceSimulations + rows.length * trainingSimulations + 2 * validationSimulations;
+  if (!Number.isSafeInteger(totalBudget) || totalBudget > 1000) {
+    const message = `Worst-case selection budget is ${totalBudget} trials per weather, above the 1,000 limit. Reduce source simulations, candidate count, training, or validation trials.`;
+    setStatusMessage(message, 'error');
+    updatePitSelectionStatus(message);
+    trainingInput.focus();
+    return {ok: false};
+  }
+  const selection = {
+    plans,
+    reference_label: referenceLabel,
+    [targetMode === 'driver' ? 'driver_id' : 'constructor_id']: targetId,
+    training_simulations: trainingSimulations,
+    validation_simulations: validationSimulations,
+  };
+  return {ok: true, selection};
 }
 
 function parseTyreSetupInputs() {
@@ -3496,6 +4268,13 @@ function buildRunPayload() {
   const compareAutomaticInput = document.getElementById('compareAutomaticInput');
   const rngPolicyInput = document.getElementById('rngPolicySelect');
   const compareAutomatic = Boolean(compareAutomaticInput?.checked);
+  if (compareAutomatic && document.getElementById('pitPlanSelectionEnabled')?.checked) {
+    const message = 'Candidate selection and automatic comparison cannot run together. Turn off automatic comparison or candidate selection.';
+    setStatusMessage(message, 'error');
+    updatePitSelectionStatus(message);
+    document.getElementById('pitPlanSelectionEnabled')?.focus();
+    return null;
+  }
   const rngPolicy = rngPolicyInput?.value;
   if (!['isolated_weather_v1', 'isolated_weather_mechanical_v1'].includes(rngPolicy)) {
     setStatusMessage('Choose a valid random draw matching policy.', 'error');
@@ -3559,6 +4338,8 @@ function buildRunPayload() {
     compareAutomaticInput?.focus();
     return null;
   }
+  const pitSelectionSetup = buildPitPlanSelectionPayload(simulations);
+  if (!pitSelectionSetup.ok) return null;
 
   const payload = {
     year: parseInt(document.getElementById('yearSelect').value, 10),
@@ -3579,6 +4360,7 @@ function buildRunPayload() {
   };
   if (Object.keys(warmupSetup.profile).length) payload.tire_warmup = warmupSetup.profile;
   if (pitPlanSetup.pitPlans !== null) payload.pit_plans = pitPlanSetup.pitPlans;
+  if (pitSelectionSetup.selection) payload.pit_plan_selection = pitSelectionSetup.selection;
   return payload;
 }
 
@@ -3600,7 +4382,10 @@ async function runSimulation() {
   const scenarioLabel = scenarioNames
     .map(name => WEATHER_LABELS[name] || titleFromKey(name))
     .join(' / ') || titleFromKey(payload.scenarios);
-  const comparisonWorkload = payload.compare_automatic
+  const selection = payload.pit_plan_selection;
+  const comparisonWorkload = selection
+    ? `Selection workload per weather: ${payload.simulations} source + ${Object.keys(selection.plans).length} × ${selection.training_simulations} training + 2 × ${selection.validation_simulations} validation`
+    : payload.compare_automatic
     ? `Comparison workload: 2 variants × ${payload.simulations} trials × ${scenarioNames.length} weather scenario${scenarioNames.length === 1 ? '' : 's'}`
     : `${payload.simulations} trial${payload.simulations === 1 ? '' : 's'} × ${scenarioNames.length} weather scenario${scenarioNames.length === 1 ? '' : 's'}`;
 
@@ -3611,7 +4396,9 @@ async function runSimulation() {
   overlay.classList.add('active');
   overlay.setAttribute('aria-hidden', 'false');
   button.textContent = 'Running...';
-  simText.textContent = payload.compare_automatic
+  simText.textContent = selection
+    ? 'Choosing a plan on training seeds, then validating the frozen choice'
+    : payload.compare_automatic
     ? 'Running custom and automatic comparison'
     : 'Running backend simulation';
   simProgress.textContent = `${payload.year} ${payload.race} · ${scenarioLabel} · ${comparisonWorkload}`;
@@ -5198,6 +5985,19 @@ function csvCell(value) {
 
 function downloadResultJson(data) {
   const { comparison_report_html, strategy_comparison_reports, ...savedResults } = data;
+  const strategySelections = savedResults.strategy_selections;
+  if (strategySelections && typeof strategySelections === 'object' && !Array.isArray(strategySelections)) {
+    const withoutReports = Object.create(null);
+    for (const [scenarioName, selectionEntry] of Object.entries(strategySelections)) {
+      if (!selectionEntry || typeof selectionEntry !== 'object' || Array.isArray(selectionEntry)) {
+        withoutReports[scenarioName] = selectionEntry;
+        continue;
+      }
+      const {validation_report_html, ...savedEntry} = selectionEntry;
+      withoutReports[scenarioName] = savedEntry;
+    }
+    savedResults.strategy_selections = withoutReports;
+  }
   const blob = new Blob([JSON.stringify(savedResults, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -5253,6 +6053,226 @@ function strategyComparisonReportForFocus(data) {
   return typeof html === 'string' && html.trim() ? {scenarioName, html} : null;
 }
 
+function pitPlanSelectionForFocus(data) {
+  const scenarioName = WEATHER_TO_SCENARIO[weatherSelectEl.value];
+  const selections = data?.strategy_selections;
+  if (!scenarioName || !selections || typeof selections !== 'object' || Array.isArray(selections)
+      || !Object.hasOwn(selections, scenarioName)) return null;
+  const entry = selections[scenarioName];
+  return entry && typeof entry === 'object' && !Array.isArray(entry)
+    ? {scenarioName, entry} : null;
+}
+
+function selectionRecord(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function selectionNumber(value, digits = 3) {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : 'Not recorded';
+}
+
+function selectionPoints(value) {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? `${value.toFixed(3)} pts` : 'Not recorded';
+}
+
+function selectionSignedNumber(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 'Not recorded';
+  return `${value > 0 ? '+' : ''}${value.toFixed(3)} pts`;
+}
+
+function selectionCount(value) {
+  return Number.isInteger(value) && value >= 0 ? String(value) : 'Not recorded';
+}
+
+function frozenPitInstructionsText(instructions) {
+  if (instructions === null) return 'Automatic strategy';
+  if (!Array.isArray(instructions)) return 'Not recorded';
+  if (!instructions.length) return 'No elective stops';
+  return instructions.map(item => {
+    const instruction = selectionRecord(item);
+    return `${instruction.lap ?? '?'}:${instruction.compound ?? '?'}`;
+  }).join(', ');
+}
+
+function frozenPitPlanText(plan, memberIds) {
+  if (plan === null) return 'Automatic strategy';
+  if (Array.isArray(plan)) return frozenPitInstructionsText(plan);
+  if (!plan || typeof plan !== 'object') return 'Not recorded';
+  const members = Array.isArray(memberIds) ? memberIds.filter(id => typeof id === 'string') : [];
+  if (!members.length) return 'Not recorded';
+  return members.map(memberId => {
+    const instructions = Object.hasOwn(plan, memberId) ? plan[memberId] : null;
+    return `${memberId}: ${frozenPitInstructionsText(instructions)}`;
+  }).join('; ');
+}
+
+function selectionSeedRangeText(selection, phase) {
+  const ranges = selectionRecord(selection?.seed_ranges);
+  const range = selectionRecord(ranges[phase]);
+  if (!Number.isInteger(range.first_seed) || !Number.isInteger(range.last_seed)
+      || !Number.isInteger(range.trials)) return 'Not recorded';
+  return `${range.first_seed}–${range.last_seed} inclusive (${range.trials} trials)`;
+}
+
+function selectionPointsOutcomeProfile(metrics, identity) {
+  if (identity) {
+    return '<p class="pit-selection-quiet">No independent points outcome profile exists because the selected plan is the fixed reference.</p>';
+  }
+  const profile = selectionRecord(metrics?.points_outcome_profile);
+  if (!Object.keys(profile).length) {
+    return '<p class="pit-selection-quiet">Held-out points outcome profile not recorded.</p>';
+  }
+  const conditional = (value, countKey, emptyLabel) => {
+    if (typeof value === 'number' && Number.isFinite(value)) return `${value.toFixed(3)} pts`;
+    if (value === null && profile[countKey] === 0) return emptyLabel;
+    return 'Not recorded';
+  };
+  return `<div class="pit-selection-result-table-wrap" tabindex="0" role="region" aria-label="Held-out points outcome profile">
+    <table class="matrix-table pit-selection-result-table">
+      <thead><tr><th scope="col">More points</th><th scope="col">Equal points</th><th scope="col">Fewer points</th><th scope="col">Mean gain when ahead</th><th scope="col">Mean loss when behind</th></tr></thead>
+      <tbody><tr><td>${selectionCount(profile.more_points_races)}</td><td>${selectionCount(profile.equal_points_races)}</td><td>${selectionCount(profile.fewer_points_races)}</td><td>${escapeHtml(conditional(profile.mean_points_gain_when_ahead, 'more_points_races', 'No gain trials'))}</td><td>${escapeHtml(conditional(profile.mean_points_loss_when_behind, 'fewer_points_races', 'No loss trials'))}</td></tr></tbody>
+    </table>
+  </div>`;
+}
+
+function renderPitPlanSelectionResults(data) {
+  const container = document.getElementById('pitPlanSelectionResults');
+  if (!container) return;
+  const allSelections = data?.strategy_selections;
+  if (!allSelections || typeof allSelections !== 'object' || Array.isArray(allSelections)
+      || !Object.keys(allSelections).length) {
+    container.hidden = true;
+    container.replaceChildren();
+    return;
+  }
+  container.hidden = false;
+  const focused = pitPlanSelectionForFocus(data);
+  const scenarioName = WEATHER_TO_SCENARIO[weatherSelectEl.value] || 'dry';
+  const weatherLabel = WEATHER_LABELS[scenarioName] || titleFromKey(scenarioName);
+  if (!focused) {
+    container.innerHTML = `<h3 id="pitPlanSelectionHeading">Held-out strategy selection</h3><p>No selection evidence was saved for ${escapeHtml(weatherLabel)} weather in this response.</p>`;
+    updatePitSelectionResultDownloads(data);
+    return;
+  }
+  const {entry} = focused;
+  const selection = selectionRecord(entry.selection);
+  const plans = selectionRecord(entry.plans);
+  const selectedLabel = typeof selection.selected_label === 'string' ? selection.selected_label : '';
+  const referenceLabel = typeof selection.reference_label === 'string' ? selection.reference_label : '';
+  const identity = selection.validation_status === 'no_change' || selectedLabel === referenceLabel;
+  const targetMode = selection.target_mode === 'constructor' ? 'constructor' : 'driver';
+  const targetId = typeof selection.target_id === 'string' ? selection.target_id : 'Not recorded';
+  const memberIds = Array.isArray(selection.target_member_ids)
+    ? selection.target_member_ids.filter(id => typeof id === 'string') : [];
+  if (!memberIds.length && typeof selection.target_id === 'string') memberIds.push(selection.target_id);
+  const targetDescription = `${targetMode} ${targetId}${memberIds.length
+    ? ` · members ${memberIds.join(', ')}` : ''}`;
+  const source = selectionRecord(entry.source);
+  const sourceSeed = Number.isInteger(source.seed) ? source.seed : 'Not recorded';
+  const sourceTrials = Number.isInteger(source.num_simulations) ? source.num_simulations : 'Not recorded';
+  const scoreRows = Array.isArray(selection.training_score_table)
+    ? selection.training_score_table.filter(row => row && typeof row === 'object').map(row => {
+      const label = typeof row.label === 'string' ? row.label : 'Not recorded';
+      const roles = [
+        label === selectedLabel ? 'Chosen on training data' : '',
+        label === referenceLabel ? 'Fixed reference' : '',
+      ].filter(Boolean).join(' · ');
+      return `<tr><th scope="row">${escapeHtml(label)}${roles ? `<span class="pit-selection-quiet">${escapeHtml(roles)}</span>` : ''}</th><td>${selectionNumber(row.mean_points)}</td><td>${selectionCount(row.trials)}</td></tr>`;
+    }).join('') : '';
+  const planLabels = identity ? [selectedLabel || referenceLabel]
+    : [selectedLabel, referenceLabel];
+  const planRows = planLabels.filter((label, index) => label && planLabels.indexOf(label) === index).map(label => {
+    const role = identity ? 'Selected choice and fixed reference'
+      : label === selectedLabel ? 'Selected and frozen' : 'Fixed reference';
+    const plan = Object.hasOwn(plans, label)
+      ? frozenPitPlanText(plans[label], memberIds) : 'Not recorded';
+    return `<tr><th scope="row">${escapeHtml(role)}</th><td>${escapeHtml(label)}</td><td>${escapeHtml(plan)}</td></tr>`;
+  }).join('');
+  const metrics = selectionRecord(selection.validation_target_metrics);
+  const validationDetails = identity
+    ? '<p class="comparison-status"><strong>Identity comparison.</strong> The frozen choice is the fixed reference. No independent alternative was evaluated, so no difference, standard error, or outcome profile is independently estimated.</p>'
+    : `<div class="pit-selection-result-table-wrap" tabindex="0" role="region" aria-label="Held-out strategy validation metrics">
+        <table class="matrix-table pit-selection-result-table">
+          <thead><tr><th scope="col">Fixed reference mean</th><th scope="col">Selected plan mean</th><th scope="col">Selected − reference</th><th scope="col">Monte Carlo SE</th><th scope="col">Paired trials</th></tr></thead>
+          <tbody><tr><td>${selectionPoints(metrics.reference_mean_points)}</td><td>${selectionPoints(metrics.selected_mean_points)}</td><td>${selectionSignedNumber(metrics.mean_points_difference)}</td><td>${selectionPoints(metrics.points_difference_standard_error)}</td><td>${selectionCount(metrics.paired_races)}</td></tr></tbody>
+        </table>
+      </div>${selectionPointsOutcomeProfile(metrics, identity)}`;
+  const hasReport = typeof entry.validation_report_html === 'string' && entry.validation_report_html.trim();
+  container.innerHTML = `<h3 id="pitPlanSelectionHeading">Held-out strategy selection · ${escapeHtml(weatherLabel)}</h3>
+    <p>The race, qualifying, and statistics views above still show the source simulation. This separate section reports the frozen choice and its fresh validation evidence.</p>
+    <p><strong>Target:</strong> ${escapeHtml(targetDescription)} · <strong>Training winner:</strong> ${escapeHtml(selectedLabel || 'Not recorded')} · <strong>Fixed reference:</strong> ${escapeHtml(referenceLabel || 'Not recorded')}</p>
+    <p>Source seed ${escapeHtml(sourceSeed)} across ${escapeHtml(sourceTrials)} simulations · Training seeds ${escapeHtml(selectionSeedRangeText(selection, 'training'))} · Validation seeds ${escapeHtml(selectionSeedRangeText(selection, 'validation'))}</p>
+    <div class="compare-actions">
+      <button class="btn-simulate" type="button" id="downloadPitSelectionEvidenceBtn">Download selection evidence JSON</button>
+      <button class="btn-simulate" type="button" id="downloadPitSelectionTrainingBtn">Download training replay JSON</button>
+      <button class="btn-simulate" type="button" id="downloadPitSelectionValidationBtn">Download validation replay JSON</button>
+      <button class="btn-simulate" type="button" id="downloadPitSelectionReportBtn" ${hasReport ? '' : 'disabled'}>Download validation report</button>
+    </div>
+    <h4>Training choice</h4>
+    <p>Candidate means below are training scores used to choose the plan. They are separate from held-out validation estimates.</p>
+    <div class="pit-selection-result-table-wrap" tabindex="0" role="region" aria-label="Training scores for ${escapeHtml(weatherLabel)} weather">
+      <table class="matrix-table pit-selection-result-table"><thead><tr><th scope="col">Candidate plan</th><th scope="col">Mean target points</th><th scope="col">Training trials</th></tr></thead><tbody>${scoreRows || '<tr><td colspan="3">Training scores not recorded.</td></tr>'}</tbody></table>
+    </div>
+    <h4>Frozen plans</h4>
+    <div class="pit-selection-result-table-wrap" tabindex="0" role="region" aria-label="Frozen selected and reference plans">
+      <table class="matrix-table pit-selection-result-table"><thead><tr><th scope="col">Role</th><th scope="col">Candidate</th><th scope="col">Plan</th></tr></thead><tbody>${planRows || '<tr><td colspan="3">Frozen plan details not recorded.</td></tr>'}</tbody></table>
+    </div>
+    <h4>Fresh validation</h4>
+    ${validationDetails}`;
+  updatePitSelectionResultDownloads(data);
+}
+
+function downloadPitSelectionPayload(data, kind) {
+  const focused = pitPlanSelectionForFocus(data);
+  if (!focused) return;
+  const {scenarioName, entry} = focused;
+  const value = kind === 'evidence'
+    ? {selection: entry.selection, plans: entry.plans, source: entry.source}
+    : entry[kind];
+  if (value === undefined) return;
+  const weather = scenarioName.toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') || 'weather';
+  const blob = new Blob([JSON.stringify(value, null, 2)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `pit_plan_selection_${kind}_${weather}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function downloadPitSelectionValidationReport(data) {
+  const focused = pitPlanSelectionForFocus(data);
+  const html = focused?.entry?.validation_report_html;
+  if (typeof html !== 'string' || !html.trim()) return;
+  const blob = new Blob([html], {type: 'text/html;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `pit_plan_selection_validation_${focused.scenarioName}.html`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function updatePitSelectionResultDownloads(data) {
+  const focused = pitPlanSelectionForFocus(data);
+  const entry = focused?.entry;
+  const available = Boolean(entry);
+  const evidenceButton = document.getElementById('downloadPitSelectionEvidenceBtn');
+  const trainingButton = document.getElementById('downloadPitSelectionTrainingBtn');
+  const validationButton = document.getElementById('downloadPitSelectionValidationBtn');
+  const reportButton = document.getElementById('downloadPitSelectionReportBtn');
+  if (evidenceButton) evidenceButton.disabled = !available;
+  if (trainingButton) trainingButton.disabled = !available || entry.training === undefined;
+  if (validationButton) validationButton.disabled = !available || entry.validation === undefined;
+  if (reportButton) reportButton.disabled = !available
+    || typeof entry.validation_report_html !== 'string' || !entry.validation_report_html.trim();
+}
+
 function downloadStrategyReport(data) {
   const report = strategyComparisonReportForFocus(data);
   if (!report) return;
@@ -5280,6 +6300,7 @@ function updateStrategyReportButton(data) {
 
 function updateScenarioViews() {
   if (!simResults) return;
+  renderPitPlanSelectionResults(simResults);
   const reportButton = document.getElementById('downloadScenarioReportBtn');
   if (reportButton) {
     reportButton.disabled = typeof simResults.comparison_report_html !== 'string'
@@ -5308,6 +6329,7 @@ function renderScenarioLab() {
   scenarioContentEl.style.display = 'block';
 
   scenarioContentEl.innerHTML = `
+    <section class="pit-selection-result" id="pitPlanSelectionResults" hidden aria-labelledby="pitPlanSelectionHeading"></section>
     <div class="comparison-toolbar">
       <div class="control-group control-group-scenarios wide">
         <span class="control-label" id="compareScenarioSetLabel">Scenario Set</span>
@@ -5416,6 +6438,14 @@ function renderScenarioLab() {
     () => downloadComparisonReport(simResults));
   document.getElementById('downloadStrategyReportBtn').addEventListener('click',
     () => downloadStrategyReport(simResults));
+  scenarioContentEl.addEventListener('click', event => {
+    const button = event.target.closest('button');
+    if (!button) return;
+    if (button.id === 'downloadPitSelectionEvidenceBtn') downloadPitSelectionPayload(simResults, 'evidence');
+    else if (button.id === 'downloadPitSelectionTrainingBtn') downloadPitSelectionPayload(simResults, 'training');
+    else if (button.id === 'downloadPitSelectionValidationBtn') downloadPitSelectionPayload(simResults, 'validation');
+    else if (button.id === 'downloadPitSelectionReportBtn') downloadPitSelectionValidationReport(simResults);
+  });
   exportMatrixBtn.addEventListener('click', () => exportScenarioMatrixCsv(simResults));
   controlIds.forEach(id => {
     const el = document.getElementById(id);
@@ -5433,6 +6463,7 @@ function renderScenarioLab() {
   populateYearSelect();
   loadUiPrefs();
   initTyreEditor();
+  initPitPlanSelection();
   renderScenarioControlMounts();
 
   if (!scenarioSetInput.value.trim()) {
@@ -5454,6 +6485,7 @@ function renderScenarioLab() {
       syncScenarioControls();
     }
     updateStrategyReportButton(simResults);
+    renderPitPlanSelectionResults(simResults);
     if (simResults) {
       if (simResults.scenarios?.[focusedScenario]) {
         renderRace();

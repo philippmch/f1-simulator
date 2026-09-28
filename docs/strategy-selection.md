@@ -9,6 +9,52 @@ It evaluates expected points under the saved simulator inputs. It does not
 establish that a plan is optimal, calibrated to a real race, or better under
 different weather, competitors, tyre pools or model assumptions.
 
+## Use candidate selection in the dashboard
+
+In the dashboard setup controls, turn on **Choose among candidate plans, then
+validate the frozen choice**. The editor opens in Race Results. Choose a driver
+or constructor from the selected race's current roster. Add two to ten named
+candidates (up to 80 characters each), mark one as the fixed reference, and
+choose each plan before running. Names are labels; they do not change scoring.
+
+Each candidate can use the automatic strategy, or custom stops written with
+the same lap and compound shorthand as **Custom pit plans**. For example,
+`18:medium,36:hard` schedules two elective stops for the target member and
+`none` explicitly suppresses elective stops. Automatic maps to `null`; `none`
+maps to an empty instruction list. A custom constructor plan must include every
+current target member.
+
+Training and validation each default to 50 trials. The dashboard shows the
+worst-case trial budget for every selected weather, including the ordinary
+source simulation count:
+
+```text
+source simulations + candidate count × training trials + 2 × validation trials ≤ 1,000
+```
+
+The source count keeps its existing meaning. Source simulations still produce
+the ordinary race charts and statistics; candidate simulations are additional
+work. Candidate selection and **Compare with automatic strategy** cannot be
+used in the same run. The dashboard checks these inputs and the budget before
+sending `/api/run`.
+
+After the run, open **Scenario Lab** to see the separate selection evidence.
+The training table identifies the winner and its reference; a later section
+shows the frozen selected plan and fixed reference, their held-out paired point
+means, mean difference and Monte Carlo standard error. The more/equal/fewer
+counts and conditional gains/losses describe those validation trials. If the
+reference wins training, the dashboard reports an identity choice and states
+that no independent alternative estimate exists. Missing measurements are
+shown as unavailable rather than as zero.
+
+The selected candidate never changes in response to validation results.
+Changing the form after a run does not rewrite the saved result, and the
+source race charts continue to describe the source simulation. The selection
+section follows the focused weather entry in that response. Its downloads
+include selection evidence JSON, separate training and validation replay JSON,
+and an optional validation HTML report. JSON downloads omit generated report
+HTML.
+
 ## Run a selection
 
 Use an exported statistics file, or select a scenario from a comparison export.

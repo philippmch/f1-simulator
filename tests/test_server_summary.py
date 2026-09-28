@@ -34,6 +34,8 @@ def test_car_snapshot_reports_its_mechanical_assumption(source, actual, componen
     snapshot = server_module._serialize_ratings_snapshot([driver], {"team": car}, {"A": stats})
     assert snapshot["cars"][0]["reliability_source"] == expected
     assert snapshot["cars"][0]["reliability"] == actual
+    assert snapshot["drivers"][0]["constructor_id"] == "team"
+    assert snapshot["drivers"][0]["team_key"] == server_module._normalize_team_id("team")
 
 
 def test_track_payload_uses_2026_active_aero_terms() -> None:
@@ -307,6 +309,44 @@ def test_ratings_endpoint_reports_old_season_as_bad_request() -> None:
 
     assert response.status_code == 400
     assert "Only the current UTC season" in response.json()["detail"]
+
+
+def test_ratings_endpoint_preserves_raw_constructor_id_for_unknown_team(monkeypatch) -> None:
+    pytest.importorskip("fastapi")
+    raw_constructor_id = "Mystery Constructors Division"
+
+    class _SyntheticRatingsLoader:
+        def resolve_race_identifier(self, year: int, race: str) -> int:
+            return 1
+
+        def list_available_events(self, year: int) -> list[dict[str, object]]:
+            return [{"round": 1, "race": "Synthetic Grand Prix"}]
+
+        def get_weighted_driver_stats(self, **kwargs):
+            return {"SYN": SimpleNamespace(sample_size=8)}
+
+        def create_drivers_from_stats(self, stats):
+            return [Driver(id="SYN", name="Synthetic Driver", team_id=raw_constructor_id)]
+
+        def create_cars_from_stats(self, stats):
+            return {raw_constructor_id: Car(
+                team_id=raw_constructor_id, team_name=raw_constructor_id,
+            )}
+
+        def get_provenance(self):
+            return {"source": "synthetic test"}
+
+    monkeypatch.setattr(server_module, "_get_loader", lambda: _SyntheticRatingsLoader())
+    response = _asgi_get(
+        server_module.build_fastapi_app(),
+        "/api/ratings",
+        params={"year": datetime.now(timezone.utc).year, "race": "1"},
+    )
+
+    assert response.status_code == 200
+    driver = response.json()["drivers"][0]
+    assert driver["constructor_id"] == raw_constructor_id
+    assert driver["team"] == "mystery_constructors_division"
 
 
 def test_calendar_endpoint_reports_live_source_failure_as_unavailable(monkeypatch) -> None:

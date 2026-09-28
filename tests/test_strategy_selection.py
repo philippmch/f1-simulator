@@ -5,9 +5,12 @@ from copy import deepcopy
 
 import pytest
 
+from f1sim.analysis.cancellation import SimulationCancelled
 from f1sim.analysis.montecarlo import MonteCarloRunner
+from f1sim.analysis.replay import _load_saved_runner
 from f1sim.analysis.strategy_selection import (
     _points_outcome_profile,
+    evaluate_pit_plan_selection,
     evaluate_saved_pit_plan_selection,
 )
 from f1sim.models import Car, Driver, Track, Weather
@@ -53,6 +56,45 @@ def _driver_plans():
         "automatic": None,
         "earlier": [{"lap": 2, "compound": "hard"}],
     }
+
+
+@pytest.mark.parametrize("constructor", [False, True])
+def test_saved_adapter_and_in_memory_selection_share_the_same_cohorts(
+    tmp_path, constructor,
+):
+    path = _saved(tmp_path, constructor=constructor)
+    plans = (
+        {"automatic": None, "staggered": {
+            "A": [{"lap": 2, "compound": "hard"}],
+            "B": [{"lap": 3, "compound": "hard"}],
+        }}
+        if constructor else _driver_plans()
+    )
+    target = {"constructor_id": "T"} if constructor else {"driver_id": "A"}
+    saved = evaluate_saved_pit_plan_selection(
+        path, plans, "automatic", **target,
+        training_simulations=2, validation_simulations=2,
+    )
+    runner, source_count = _load_saved_runner(path)
+    in_memory = evaluate_pit_plan_selection(
+        runner, source_count, plans, "automatic", **target,
+        training_simulations=2, validation_simulations=2,
+    )
+
+    assert in_memory["selection"] == saved["selection"]
+    for phase in ("training_results", "validation_results"):
+        assert list(in_memory[phase]) == list(saved[phase])
+        for label in in_memory[phase]:
+            left = in_memory[phase][label]
+            right = saved[phase][label]
+            assert (left.seed, left.num_simulations, left.input_snapshot) == (
+                right.seed, right.num_simulations, right.input_snapshot,
+            )
+            assert [
+                [row.points_awarded for row in race] for race in left.race_results
+            ] == [
+                [row.points_awarded for row in race] for race in right.race_results
+            ]
 
 
 def _set_points(result, driver_id, values):
@@ -327,6 +369,30 @@ def test_no_change_runs_one_validation_variant_and_records_identity(tmp_path, mo
     assert outcome["selection"]["validation_target_metrics"][
         "points_difference_standard_error"
     ] is None
+
+
+def test_cancellation_after_first_selection_variant_stops_before_next(monkeypatch, tmp_path):
+    path = _saved(tmp_path)
+    runner, source_count = _load_saved_runner(path)
+    original = MonteCarloRunner.run
+    calls = []
+    cancelled = False
+
+    def run(self, count, *, parallel=False, max_workers=None, cancel_requested=None):
+        nonlocal cancelled
+        calls.append(self.base_seed)
+        result = original(self, count, parallel=False, max_workers=None)
+        cancelled = True
+        return result
+
+    monkeypatch.setattr(MonteCarloRunner, "run", run)
+    with pytest.raises(SimulationCancelled, match="selection was cancelled"):
+        evaluate_pit_plan_selection(
+            runner, source_count, _driver_plans(), "automatic", driver_id="A",
+            training_simulations=1, validation_simulations=1,
+            cancel_requested=lambda: cancelled,
+        )
+    assert calls == [72]
 
 
 def test_invalid_late_plan_and_seed_overflow_fail_before_any_trial(tmp_path, monkeypatch):

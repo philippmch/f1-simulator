@@ -14,12 +14,17 @@ from importlib.resources import files
 from threading import Event
 from typing import Any
 
-from pydantic import StrictBool, StrictInt, StrictStr
+from pydantic import BaseModel, ConfigDict, StrictBool, StrictInt, StrictStr, model_validator
 
 from f1sim.analysis import MonteCarloRunner, parse_scenario_labels, scenario_weather_from_label
 from f1sim.analysis.cancellation import SimulationCancelled
 from f1sim.analysis.paired_comparison import paired_comparison_statistics
 from f1sim.analysis.scenarios import validate_weather_mode
+from f1sim.analysis.strategy_selection import (
+    evaluate_prepared_pit_plan_selection,
+    prepare_pit_plan_selection,
+    validate_pit_plan_selection_request,
+)
 from f1sim.data import CurrentSeasonDataError, CurrentSeasonDataLoader
 from f1sim.models import Weather, WeatherCondition
 from f1sim.output.comparison import render_comparison_report
@@ -60,6 +65,32 @@ _CLIENT_DISCONNECTED_STATUS = 499
 _CLIENT_DISCONNECTED_DETAIL = "Client disconnected before the simulation completed."
 
 
+class DashboardPitPlanSelectionRequest(BaseModel):
+    """Strict candidate selection request accepted alongside a dashboard run."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    plans: dict[StrictStr, Any]
+    reference_label: StrictStr
+    driver_id: StrictStr | None = None
+    constructor_id: StrictStr | None = None
+    training_simulations: StrictInt
+    validation_simulations: StrictInt
+
+    @model_validator(mode="after")
+    def validate_selection_request(self) -> DashboardPitPlanSelectionRequest:
+        validate_pit_plan_selection_request(
+            self.plans,
+            self.reference_label,
+            driver_id=self.driver_id,
+            constructor_id=self.constructor_id,
+            training_simulations=self.training_simulations,
+            validation_simulations=self.validation_simulations,
+            max_count=1000,
+        )
+        return self
+
+
 @dataclass
 class DashboardRunRequest:
     """Input payload for dashboard simulation run."""
@@ -81,6 +112,17 @@ class DashboardRunRequest:
     compare_automatic: StrictBool = False
     rng_policy: StrictStr = DEFAULT_RNG_POLICY
     tire_warmup: Any = None
+    pit_plan_selection: DashboardPitPlanSelectionRequest | None = None
+
+
+def _pit_plan_selection_request(
+    value: DashboardPitPlanSelectionRequest | dict[str, Any] | None,
+) -> DashboardPitPlanSelectionRequest | None:
+    if value is None:
+        return None
+    if isinstance(value, DashboardPitPlanSelectionRequest):
+        return value
+    return DashboardPitPlanSelectionRequest.model_validate(value)
 
 
 def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
@@ -128,6 +170,20 @@ def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
             raise ValueError(
                 "compare_automatic simulations must be at most "
                 f"{_MAX_DASHBOARD_COMPARISON_SIMULATIONS}"
+            )
+    selection = _pit_plan_selection_request(request.pit_plan_selection)
+    if selection is not None:
+        if request.compare_automatic:
+            raise ValueError("pit_plan_selection cannot be combined with compare_automatic")
+        work = (
+            request.simulations
+            + len(selection.plans) * selection.training_simulations
+            + 2 * selection.validation_simulations
+        )
+        if work > _MAX_DASHBOARD_SIMULATIONS:
+            raise ValueError(
+                "pit-plan selection worst-case work per weather must be at most "
+                f"{_MAX_DASHBOARD_SIMULATIONS} simulations"
             )
     if isinstance(request.seed, bool) or not isinstance(request.seed, int):
         raise ValueError("seed must be an integer")
@@ -360,6 +416,7 @@ def _serialize_ratings_snapshot(
                 "name": driver.name,
                 "team": car.team_name if car else driver.team_id,
                 "team_key": _normalize_team_id(driver.team_id),
+                "constructor_id": driver.team_id,
                 "skill": round(driver.skill_rating, 4),
                 "consistency": round(driver.consistency, 4),
                 "wet_skill": round(driver.wet_skill_modifier, 4),
@@ -574,8 +631,7 @@ def _dashboard_request_metadata(
     compare_automatic: bool,
 ) -> dict[str, Any]:
     """Serialize the replayable request settings for one dashboard variant."""
-
-    return {
+    metadata = {
         "year": request.year,
         "race": canonical_race,
         "simulations": request.simulations,
@@ -596,6 +652,9 @@ def _dashboard_request_metadata(
         "requested_max_workers": request.max_workers,
         "compare_automatic": compare_automatic,
     }
+    if selection := _pit_plan_selection_request(request.pit_plan_selection):
+        metadata["pit_plan_selection"] = selection.model_dump(mode="json")
+    return metadata
 
 
 def run_dashboard_simulation(
@@ -671,6 +730,7 @@ def run_dashboard_simulation(
     scenario_weather: dict[str, Weather] = {}
     automatic_results: dict[str, Any] = {}
     automatic_meta: dict[str, dict[str, float]] = {}
+    strategy_selections: dict[str, Any] = {}
     effective_max_workers = (
         min(
             request.max_workers or _DEFAULT_DASHBOARD_WORKERS,
@@ -680,26 +740,70 @@ def run_dashboard_simulation(
         else None
     )
 
+    selection_request = _pit_plan_selection_request(request.pit_plan_selection)
+    selection_contexts: dict[str, tuple[Any, MonteCarloRunner, dict[str, Any]]] = {}
+    if selection_request is not None:
+        # Prepare every weather runner and every candidate/phase runner before
+        # the first source, training, or validation trial is spent.
+        for idx, label in enumerate(labels):
+            _check_dashboard_cancellation(cancel_requested)
+            scenario = scenario_weather_from_label(
+                base_weather, label, weather_mode=request.weather_mode,
+            )
+            runner = _dashboard_runner(
+                drivers=drivers,
+                cars=cars,
+                track=track,
+                weather=scenario.weather,
+                seed=request.seed + idx * 1000,
+                request=request,
+                tire_inventory=tire_inventory,
+                starting_tires=starting_tires,
+                starting_tire_ages=starting_tire_ages,
+                pit_plans=pit_plans,
+                copy_inputs=True,
+            )
+            prepared = prepare_pit_plan_selection(
+                runner,
+                request.simulations,
+                selection_request.plans,
+                selection_request.reference_label,
+                driver_id=selection_request.driver_id,
+                constructor_id=selection_request.constructor_id,
+                training_simulations=selection_request.training_simulations,
+                validation_simulations=selection_request.validation_simulations,
+            )
+            _check_dashboard_cancellation(cancel_requested)
+            selection_contexts[scenario.name] = (scenario, runner, prepared)
+            scenario_weather[scenario.name] = scenario.weather
+
     for idx, label in enumerate(labels):
         _check_dashboard_cancellation(cancel_requested)
-        scenario = scenario_weather_from_label(
-            base_weather, label, weather_mode=request.weather_mode
-        )
-        scenario_weather[scenario.name] = scenario.weather
         scenario_seed = request.seed + idx * 1000
-        runner = _dashboard_runner(
-            drivers=drivers,
-            cars=cars,
-            track=track,
-            weather=scenario.weather,
-            seed=scenario_seed,
-            request=request,
-            tire_inventory=tire_inventory,
-            starting_tires=starting_tires,
-            starting_tire_ages=starting_tire_ages,
-            pit_plans=pit_plans,
-            copy_inputs=request.compare_automatic,
-        )
+        if selection_request is not None:
+            scenario, runner, prepared = selection_contexts[
+                scenario_weather_from_label(
+                    base_weather, label, weather_mode=request.weather_mode,
+                ).name
+            ]
+        else:
+            scenario = scenario_weather_from_label(
+                base_weather, label, weather_mode=request.weather_mode,
+            )
+            scenario_weather[scenario.name] = scenario.weather
+            runner = _dashboard_runner(
+                drivers=drivers,
+                cars=cars,
+                track=track,
+                weather=scenario.weather,
+                seed=scenario_seed,
+                request=request,
+                tire_inventory=tire_inventory,
+                starting_tires=starting_tires,
+                starting_tire_ages=starting_tire_ages,
+                pit_plans=pit_plans,
+                copy_inputs=request.compare_automatic,
+            )
         t0 = time.perf_counter()
         run_kwargs: dict[str, Any] = {
             "num_simulations": request.simulations,
@@ -716,6 +820,35 @@ def run_dashboard_simulation(
             "simulations_per_second": float(request.simulations / runtime),
         }
         _check_dashboard_cancellation(cancel_requested)
+
+        if selection_request is not None:
+            evaluated = evaluate_prepared_pit_plan_selection(
+                prepared,
+                parallel=request.parallel,
+                max_workers=effective_max_workers,
+                cancel_requested=cancel_requested,
+            )
+            _check_dashboard_cancellation(cancel_requested)
+            strategy_selections[scenario.name] = {
+                "selection": evaluated["selection"],
+                "plans": deepcopy(prepared["plans"]),
+                "source": {
+                    "seed": result.seed,
+                    "num_simulations": result.num_simulations,
+                    "simulation_inputs": deepcopy(result.input_snapshot),
+                },
+                "training": deepcopy(_summarize_scenario_results(
+                    evaluated["training_results"],
+                )),
+                "validation": deepcopy(_summarize_scenario_results(
+                    evaluated["validation_results"],
+                )),
+                "validation_report_html": render_comparison_report(
+                    evaluated["validation_results"],
+                    reference_scenario=selection_request.reference_label,
+                ),
+            }
+            _check_dashboard_cancellation(cancel_requested)
 
         if request.compare_automatic:
             # Keep the reference fully automatic, including for drivers whose
@@ -775,6 +908,8 @@ def run_dashboard_simulation(
     _check_dashboard_cancellation(cancel_requested)
     payload["comparison_report_html"] = render_comparison_report(scenario_results)
     _check_dashboard_cancellation(cancel_requested)
+    if selection_request is not None:
+        payload["strategy_selections"] = strategy_selections
 
     if request.compare_automatic:
         _check_dashboard_cancellation(cancel_requested)
@@ -1172,6 +1307,7 @@ def build_fastapi_app() -> Any:
                     "id": d.id,
                     "name": d.name,
                     "team": _normalize_team_id(d.team_id),
+                    "constructor_id": d.team_id,
                     "skill": round(d.skill_rating, 4),
                     "consistency": round(d.consistency, 4),
                     "wet_skill": round(d.wet_skill_modifier, 4),

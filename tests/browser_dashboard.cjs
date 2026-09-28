@@ -24,6 +24,98 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     const unexpectedRequests = [];
     let holdNextRun = false;
     let delayedRunRoute = null;
+    let holdNextRosterRequest = false;
+    let delayedRosterRoute = null;
+    let resolveHeldRosterRoute = null;
+    const heldRosterRoutePromise = new Promise(resolve => { resolveHeldRosterRoute = resolve; });
+    const alternateRaceName = 'ALT_TEST_CIRCUIT';
+    const selectionFixtureResponse = requestPayload => {
+      const response = JSON.parse(JSON.stringify(fixture.payload));
+      const request = requestPayload.pit_plan_selection;
+      const candidateLabels = Object.keys(request.plans);
+      const referenceLabel = request.reference_label;
+      const selectedLabel = candidateLabels.find(label => label !== referenceLabel) || referenceLabel;
+      const labels = candidateLabels;
+      const frozenPlans = Object.create(null);
+      for (const label of candidateLabels) {
+        if (!request.driver_id) {
+          frozenPlans[label] = JSON.parse(JSON.stringify(request.plans[label]));
+          continue;
+        }
+        const memberPlans = Object.create(null);
+        const instructions = request.plans[label];
+        if (instructions !== null) memberPlans[request.driver_id] = instructions;
+        else if (label === referenceLabel) {
+          // Model the backend's frozen full mapping: an unrelated custom plan
+          // must not be mistaken for the automatic plan of the selected driver.
+          memberPlans.S01 = [{lap: 2, compound: 'soft'}];
+        }
+        frozenPlans[label] = memberPlans;
+      }
+      response.request.pit_plan_selection = request;
+      response.strategy_selections = Object.create(null);
+      for (const scenarioName of Object.keys(response.scenarios)) {
+        const scenario = response.scenarios[scenarioName];
+        const heldOutDifference = scenarioName === 'light_rain' ? 2.5 : -1;
+        const sourceSeed = requestPayload.seed;
+        const sourceCount = requestPayload.simulations;
+        const trainingFirstSeed = sourceSeed + sourceCount;
+        const trainingLastSeed = trainingFirstSeed + request.training_simulations - 1;
+        const validationFirstSeed = trainingLastSeed + 1;
+        const validationLastSeed = validationFirstSeed + request.validation_simulations - 1;
+        const candidateRows = labels.map((label, index) => ({
+          label,
+          total_points: (index + 1) * 200,
+          mean_points: (index + 1) * 4,
+          trials: request.training_simulations,
+        }));
+        const trainingScenarios = Object.create(null);
+        const validationScenarios = Object.create(null);
+        labels.forEach(label => { trainingScenarios[label] = scenario; });
+        [referenceLabel, selectedLabel].forEach(label => { validationScenarios[label] = scenario; });
+        const metadata = {
+          schema_version: 1,
+          target_mode: request.driver_id ? 'driver' : 'constructor',
+          target_id: request.driver_id || request.constructor_id,
+          target_member_ids: request.driver_id ? [request.driver_id]
+            : Object.keys(request.plans[selectedLabel] || request.plans[referenceLabel] || {}),
+          candidate_order: labels,
+          selected_label: selectedLabel,
+          reference_label: referenceLabel,
+          selection_status: selectedLabel === referenceLabel ? 'no_change' : 'selected',
+          training_score_table: candidateRows,
+          seed_ranges: {
+            training: {first_seed: trainingFirstSeed, last_seed: trainingLastSeed,
+              trials: request.training_simulations},
+            validation: {first_seed: validationFirstSeed, last_seed: validationLastSeed,
+              trials: request.validation_simulations},
+          },
+          validation_status: selectedLabel === referenceLabel ? 'no_change' : 'evaluated',
+          validation_target_metrics: selectedLabel === referenceLabel ? {
+            reference_mean_points: 5, selected_mean_points: 5, mean_points_difference: 0,
+            points_difference_standard_error: null, paired_races: request.validation_simulations,
+            points_outcome_profile: null,
+          } : {
+            reference_mean_points: 5, selected_mean_points: 5 + heldOutDifference,
+            mean_points_difference: heldOutDifference,
+            points_difference_standard_error: 0.5, paired_races: request.validation_simulations,
+            points_outcome_profile: {paired_races: request.validation_simulations,
+              more_points_races: 5, equal_points_races: 10, fewer_points_races: 35,
+              mean_points_gain_when_ahead: 2, mean_points_loss_when_behind: 3},
+          },
+        };
+        response.strategy_selections[scenarioName] = {
+          selection: metadata,
+          plans: frozenPlans,
+          source: {seed: sourceSeed, num_simulations: sourceCount,
+            simulation_inputs: scenario.simulation_inputs},
+          training: {scenarios: trainingScenarios},
+          validation: {scenarios: validationScenarios},
+          validation_report_html: fixture.comparison_payload.strategy_comparison_reports[scenarioName],
+        };
+      }
+      return response;
+    };
     if (offline) {
       await page.route('**/*', route => {
         const url = new URL(route.request().url());
@@ -34,11 +126,29 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
           }
           return route.abort();
         }
+        if (url.pathname === '/api/ratings') {
+          if (holdNextRosterRequest) {
+            holdNextRosterRequest = false;
+            delayedRosterRoute = route;
+            resolveHeldRosterRoute(route);
+            return;
+          }
+          const race = url.searchParams.get('race');
+          const ratings = race === alternateRaceName ? {drivers: [
+            {id: 'ALT', name: 'Alternate Test Driver', team: 'unknown_display_key',
+              constructor_id: 'Mystery Factory / Team'},
+          ]} : {drivers: fixture.payload.ratings.drivers.map(driver => ({
+            id: driver.id, name: driver.name, team: driver.team_key,
+            constructor_id: driver.constructor_id,
+          }))};
+          return route.fulfill({json: ratings});
+        }
         let runBody = fixture.payload;
         if (url.pathname === '/api/run' && fixture.comparison_payload) {
           let requestPayload = null;
           try { requestPayload = route.request().postDataJSON(); } catch { requestPayload = null; }
-          if (requestPayload?.compare_automatic === true) runBody = fixture.comparison_payload;
+          if (requestPayload?.pit_plan_selection) runBody = selectionFixtureResponse(requestPayload);
+          else if (requestPayload?.compare_automatic === true) runBody = fixture.comparison_payload;
         }
         const body = url.pathname === '/api/run' ? runBody
           : url.pathname === '/api/calendar' ? fixture.calendar
@@ -61,6 +171,56 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     await page.waitForFunction(() => !connectionRefreshInProgress);
     assert(await page.locator('#btnRun').isEnabled(), 'Live calendar must be available');
     assert(await page.locator('#btnTyreSetup').isEnabled(), 'Tyre setup editor must be available');
+
+    if (offline) {
+      const trackSelect = page.locator('#trackSelect');
+      const originalRace = await trackSelect.inputValue();
+      const firstRosterRequest = page.waitForRequest(request =>
+        new URL(request.url()).pathname === '/api/ratings');
+      holdNextRosterRequest = true;
+      await page.locator('#pitPlanSelectionEnabled').check();
+      await firstRosterRequest;
+      const heldRosterRoute = await heldRosterRoutePromise;
+      await page.evaluate(race => {
+        const select = document.getElementById('trackSelect');
+        select.add(new Option('R2 · Alternate roster test', race));
+      }, alternateRaceName);
+      const alternateRosterRequest = page.waitForRequest(request => {
+        const url = new URL(request.url());
+        return url.pathname === '/api/ratings' && url.searchParams.get('race') === alternateRaceName;
+      });
+      await trackSelect.selectOption(alternateRaceName);
+      await alternateRosterRequest;
+      await page.waitForFunction(() => document.getElementById('pitPlanSelectionStatus')
+        .textContent.includes('Loaded 1 drivers'));
+      assert.deepEqual(await page.locator('#pitPlanSelectionTargetId option').evaluateAll(options =>
+        options.map(option => option.value)), ['', 'ALT']);
+      await page.locator('#pitPlanSelectionTargetMode').selectOption('constructor');
+      assert.deepEqual(await page.locator('#pitPlanSelectionTargetId option').evaluateAll(options =>
+        options.map(option => option.value)), ['', 'Mystery Factory / Team'],
+      'Constructor choices must use the raw constructor ID, not the normalized display key');
+      assert.equal(await page.locator('#pitPlanSelectionTargetId').inputValue(), 'Mystery Factory / Team');
+      await page.locator('#pitPlanSelectionTargetMode').selectOption('driver');
+      try {
+        await heldRosterRoute.fulfill({json: fixture.payload.ratings});
+      } catch {
+        // The aborted request may already have been discarded by the browser.
+      }
+      await page.waitForTimeout(30);
+      assert.deepEqual(await page.locator('#pitPlanSelectionTargetId option').evaluateAll(options =>
+        options.map(option => option.value)), ['', 'ALT'],
+      'A late response for the previous race must not replace the active roster');
+      const currentRosterRequest = page.waitForRequest(request => {
+        const url = new URL(request.url());
+        return url.pathname === '/api/ratings' && url.searchParams.get('race') === originalRace;
+      });
+      await trackSelect.selectOption(originalRace);
+      await currentRosterRequest;
+      await page.waitForFunction(() => document.getElementById('pitPlanSelectionTargetId')
+        .querySelector('option[value="S00"]'));
+      assert.equal(await page.locator('#pitPlanSelectionTargetId').inputValue(), 'S00');
+      await page.locator('#pitPlanSelectionEnabled').uncheck();
+    }
 
     // The editor is a draft over the existing shorthand fields. Exercise the
     // full finite-pool path, including duplicate physical sets and the 20-set
@@ -261,6 +421,117 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     assert.equal(await compareAutomaticInput.isChecked(), false);
     await pitPlanInput.fill(offline ? 'S00=18:hard,36:soft;S01=none' : '');
     if (offline) {
+      await page.locator('#pitPlanSelectionEnabled').check();
+      const candidateRows = page.locator('#pitPlanSelectionCandidates .pit-selection-candidate');
+      assert.equal(await candidateRows.count(), 2);
+      await candidateRows.nth(0).locator('.pit-selection-label').fill('__proto__');
+      await candidateRows.nth(1).locator('.pit-selection-label').fill('<img src=x onerror=alert(1)>');
+      await candidateRows.nth(1).locator('[data-member-id="S00"]').fill('none');
+      const driverSelection = await page.evaluate(() => {
+        const payload = buildRunPayload();
+        const selection = payload?.pit_plan_selection;
+        return {
+          selection,
+          plansNullPrototype: Object.getPrototypeOf(selection?.plans) === null,
+          ownsProtoLabel: Object.hasOwn(selection?.plans || {}, '__proto__'),
+          plansJson: JSON.stringify(selection?.plans),
+          estimate: document.getElementById('pitPlanSelectionEstimate').textContent,
+        };
+      });
+      assert.equal(driverSelection.plansNullPrototype, true);
+      assert.equal(driverSelection.ownsProtoLabel, true);
+      assert.equal(driverSelection.selection.driver_id, 'S00');
+      assert.equal(Object.hasOwn(driverSelection.selection, 'constructor_id'), false);
+      assert.equal(driverSelection.selection.reference_label, '__proto__');
+      assert.equal(driverSelection.selection.training_simulations, 50);
+      assert.equal(driverSelection.selection.validation_simulations, 50);
+      const parsedDriverPlans = JSON.parse(driverSelection.plansJson);
+      assert.equal(Object.hasOwn(parsedDriverPlans, '__proto__'), true);
+      assert.equal(Object.getOwnPropertyDescriptor(parsedDriverPlans, '__proto__').value, null,
+        'Automatic mode must emit null rather than an empty no-stop list');
+      assert.deepEqual(driverSelection.selection.plans['<img src=x onerror=alert(1)>'], [],
+        'The none shorthand must emit an explicit empty stop list');
+      assert(driverSelection.estimate.includes('210 trials'));
+
+      await candidateRows.nth(1).locator('[data-member-id="S00"]').fill('18:hard');
+      const driverInstructions = await page.evaluate(() => buildRunPayload().pit_plan_selection.plans[
+        '<img src=x onerror=alert(1)>'
+      ]);
+      assert.deepEqual(driverInstructions, [{lap: 18, compound: 'hard'}]);
+      await candidateRows.nth(1).locator('[data-member-id="S00"]').fill('18:Hard');
+      assert.equal(await page.evaluate(() => buildRunPayload()), null);
+      assert.equal(await page.evaluate(() => document.activeElement?.dataset.memberId), 'S00');
+      await candidateRows.nth(1).locator('[data-member-id="S00"]').fill('18:hard');
+
+      await page.locator('#pitPlanSelectionTargetMode').selectOption('constructor');
+      await page.locator('#pitPlanSelectionTargetId').selectOption('team0');
+      await candidateRows.nth(1).locator('[data-member-id="S00"]').fill('18:hard');
+      await candidateRows.nth(1).locator('[data-member-id="S01"]').fill('none');
+      const constructorSelection = await page.evaluate(() => buildRunPayload().pit_plan_selection);
+      assert.equal(constructorSelection.constructor_id, 'team0');
+      assert.equal(Object.hasOwn(constructorSelection, 'driver_id'), false);
+      assert.deepEqual(constructorSelection.plans['<img src=x onerror=alert(1)>'], {
+        S00: [{lap: 18, compound: 'hard'}], S01: [],
+      });
+      assert.deepEqual(await page.evaluate(() => [
+        frozenPitPlanText({S00: [], S01: null, S02: [{lap: 6, compound: 'soft'}]}, ['S00', 'S01']),
+        frozenPitPlanText({}, ['S00']),
+        frozenPitPlanText({S01: [{lap: 6, compound: 'soft'}]}, ['S00']),
+      ]), [
+        'S00: No elective stops; S01: Automatic strategy',
+        'S00: Automatic strategy',
+        'S00: Automatic strategy',
+      ], 'Frozen constructor plans should show only current target members');
+
+      await page.locator('#pitPlanSelectionTargetMode').selectOption('driver');
+      await page.locator('#pitPlanSelectionTargetId').selectOption('S00');
+      await page.locator('#simCount').fill('100');
+      await page.locator('#pitPlanTrainingTrials').fill('400');
+      await page.locator('#pitPlanValidationTrials').fill('50');
+      const exactBudget = await page.evaluate(() => buildRunPayload()?.pit_plan_selection);
+      assert(exactBudget, 'A worst-case budget of exactly 1,000 per weather must be accepted');
+      await page.locator('#pitPlanValidationTrials').fill('51');
+      assert.equal(await page.evaluate(() => buildRunPayload()), null);
+      assert((await page.locator('#appStatus').innerText()).includes('above the 1,000 limit'));
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'pitPlanTrainingTrials');
+      await page.locator('#pitPlanTrainingTrials').fill('0');
+      assert.equal(await page.evaluate(() => buildRunPayload()), null);
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'pitPlanTrainingTrials');
+      await page.locator('#pitPlanTrainingTrials').fill('50');
+      await page.locator('#pitPlanValidationTrials').fill('50');
+      await page.locator('#simCount').fill('10');
+
+      for (let count = 2; count < 10; count += 1) {
+        await page.locator('#addPitPlanCandidateBtn').click();
+      }
+      assert.equal(await candidateRows.count(), 10);
+      assert(await page.locator('#addPitPlanCandidateBtn').isDisabled());
+      for (let count = 10; count > 2; count -= 1) {
+        await candidateRows.last().locator('[data-remove-candidate]').click();
+      }
+      assert.equal(await candidateRows.count(), 2);
+
+      await compareAutomaticInput.check();
+      assert.equal(await page.evaluate(() => buildRunPayload()), null);
+      assert((await page.locator('#appStatus').innerText()).includes('cannot run together'));
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'pitPlanSelectionEnabled');
+      await compareAutomaticInput.uncheck();
+      await page.locator('#pitPlanSelectionEnabled').uncheck();
+      await page.locator('#pitPlanSelectionEnabled').check();
+      await page.locator('#pitPlanSelectionTargetMode').selectOption('driver');
+      await page.locator('#pitPlanSelectionTargetId').selectOption('S00');
+      const selectionCandidateRows = page.locator('#pitPlanSelectionCandidates .pit-selection-candidate');
+      await selectionCandidateRows.nth(0).locator('.pit-selection-label').fill('__proto__');
+      await selectionCandidateRows.nth(1).locator('.pit-selection-label').fill('<img src=x onerror=alert(1)>');
+      await selectionCandidateRows.nth(1).locator('[data-member-id="S00"]').fill('18:hard');
+      const requestShape = await page.evaluate(() => buildRunPayload().pit_plan_selection);
+      assert.equal(requestShape.reference_label, '__proto__');
+      assert.equal(requestShape.driver_id, 'S00');
+      assert.deepEqual(requestShape.plans['<img src=x onerror=alert(1)>'], [
+        {lap: 18, compound: 'hard'},
+      ]);
+      await page.locator('#pitPlanSelectionEnabled').uncheck();
+
       await compareAutomaticInput.check();
       await pitPlanInput.fill('');
       assert.equal(await page.evaluate(() => buildRunPayload()), null);
@@ -1415,6 +1686,228 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       await compareAutomaticInput.uncheck();
       await pitPlanInput.fill('S00=18:hard,36:soft;S01=none');
       await page.locator('#simCount').fill('10');
+      await page.locator('#tab-scenarios').click();
+
+      await page.locator('#pitPlanSelectionEnabled').check();
+      assert.equal(await page.locator('#tab-race').getAttribute('aria-selected'), 'true',
+        'Enabling candidate selection from Scenario Lab should reveal its Race Results editor');
+      await page.locator('#pitPlanSelectionPanel').waitFor({state: 'visible'});
+      await page.waitForFunction(() => document.activeElement?.id === 'pitPlanSelectionTargetMode');
+      await page.locator('#pitPlanSelectionTargetMode').selectOption('driver');
+      await page.locator('#pitPlanSelectionTargetId').selectOption('S00');
+      const selectionCandidateRows = page.locator('#pitPlanSelectionCandidates .pit-selection-candidate');
+      await selectionCandidateRows.nth(0).locator('.pit-selection-label').fill('__proto__');
+      await selectionCandidateRows.nth(1).locator('.pit-selection-label').fill('<img src=x onerror=alert(1)>');
+      await selectionCandidateRows.nth(1).locator('[data-member-id="S00"]').fill('18:hard');
+      await page.locator('#pitPlanTrainingTrials').fill('50');
+      await page.locator('#pitPlanValidationTrials').fill('50');
+      const selectionResponsePromise = page.waitForResponse(response =>
+        response.url().endsWith('/api/run'));
+      await page.locator('#btnRun').click();
+      const selectionResponse = await selectionResponsePromise;
+      assert.equal(selectionResponse.status(), 200);
+      const selectionRequest = selectionResponse.request().postDataJSON();
+      assert.deepEqual(selectionRequest.pit_plan_selection.plans, Object.fromEntries([
+        ['__proto__', null], ['<img src=x onerror=alert(1)>', [{lap: 18, compound: 'hard'}]],
+      ]));
+      assert.deepEqual({
+        reference_label: selectionRequest.pit_plan_selection.reference_label,
+        driver_id: selectionRequest.pit_plan_selection.driver_id,
+        training_simulations: selectionRequest.pit_plan_selection.training_simulations,
+        validation_simulations: selectionRequest.pit_plan_selection.validation_simulations,
+      }, {
+        reference_label: '__proto__', driver_id: 'S00',
+        training_simulations: 50, validation_simulations: 50,
+      });
+      assert.equal(selectionRequest.compare_automatic, false);
+      await page.waitForFunction(() => !runInProgress);
+      await page.locator('#tab-scenarios').click();
+      await page.locator('#pitPlanSelectionResults').waitFor({state: 'visible'});
+      let selectionText = await page.locator('#pitPlanSelectionResults').innerText();
+      let selectionLabels = selectionText.toLowerCase();
+      assert(selectionLabels.includes('training choice') && selectionLabels.includes('fresh validation'));
+      assert(selectionLabels.includes('selected − reference') && selectionLabels.includes('monte carlo se'));
+      assert(selectionLabels.includes('more points') && selectionLabels.includes('fewer points'));
+      assert(selectionLabels.includes('selected and frozen') && selectionLabels.includes('fixed reference'));
+      assert(selectionText.includes('18:hard'));
+      assert(selectionText.includes('S00: Automatic strategy'),
+        'A non-target custom plan must not replace the target driver’s automatic plan');
+      assert(!selectionText.includes('S01: 2:soft'),
+        'Frozen plan display must exclude unrelated members');
+      assert(selectionText.includes('<img src=x onerror=alert(1)>'),
+        'Hostile candidate text should remain visible as text');
+      const selectionMarkup = await page.locator('#pitPlanSelectionResults').innerHTML();
+      assert(selectionMarkup.includes('&lt;img src=x onerror=alert(1)&gt;'));
+      assert(!selectionMarkup.includes('<img src=x onerror=alert(1)>'));
+      assert.equal(await page.locator('#pitPlanSelectionResults img').count(), 0);
+      assert.equal(await page.locator('#pitPlanSelectionResults [role="region"]').count() >= 3, true);
+
+      const selectionFormState = await page.evaluate(() => ({
+        savedSelected: simResults.strategy_selections.dry.selection.selected_label,
+        savedPlans: simResults.strategy_selections.dry.plans,
+      }));
+      await page.locator('#tab-race').click();
+      await selectionCandidateRows.nth(0).locator('.pit-selection-label').fill('edited reference');
+      await selectionCandidateRows.nth(1).locator('.pit-selection-label').fill('edited alternative');
+      await page.evaluate(() => renderPitPlanSelectionResults(simResults));
+      await page.locator('#tab-scenarios').click();
+      selectionText = await page.locator('#pitPlanSelectionResults').innerText();
+      assert(selectionText.includes('<img src=x onerror=alert(1)>'));
+      assert(!selectionText.includes('edited alternative'),
+        'Editing candidate controls must not rewrite the saved selection result');
+      assert.deepEqual(await page.evaluate(() => ({
+        selected: simResults.strategy_selections.dry.selection.selected_label,
+        plans: simResults.strategy_selections.dry.plans,
+      })), {
+        selected: selectionFormState.savedSelected,
+        plans: selectionFormState.savedPlans,
+      });
+
+      const expectedEvidence = JSON.parse(await page.evaluate(() => JSON.stringify({
+        selection: simResults.strategy_selections.dry.selection,
+        plans: simResults.strategy_selections.dry.plans,
+        source: simResults.strategy_selections.dry.source,
+      })));
+      const evidenceDownloadPromise = page.waitForEvent('download');
+      await page.locator('#downloadPitSelectionEvidenceBtn').click();
+      const evidenceDownload = await evidenceDownloadPromise;
+      assert.equal(evidenceDownload.suggestedFilename(), 'pit_plan_selection_evidence_dry.json');
+      const evidenceJson = JSON.parse(readFileSync(await evidenceDownload.path(), 'utf8'));
+      assert.deepEqual(evidenceJson, expectedEvidence);
+      assert.equal(evidenceJson.validation_report_html, undefined);
+      assert.deepEqual(evidenceJson.plans.__proto__, {S01: [{lap: 2, compound: 'soft'}]},
+        'Replay evidence should retain non-target plans even though the display projects them out');
+      // Chromium throttles rapid download bursts; keep each export a separate, spaced user action.
+      await page.waitForTimeout(1100);
+
+      for (const phase of ['training', 'validation']) {
+        const expectedPhase = JSON.parse(await page.evaluate(phaseName =>
+          JSON.stringify(simResults.strategy_selections.dry[phaseName]), phase));
+        const phaseDownloadPromise = page.waitForEvent('download');
+        await page.locator(`#downloadPitSelection${phase === 'training' ? 'Training' : 'Validation'}Btn`).click();
+        const phaseDownload = await phaseDownloadPromise;
+        assert.equal(phaseDownload.suggestedFilename(), `pit_plan_selection_${phase}_dry.json`);
+        assert.deepEqual(JSON.parse(readFileSync(await phaseDownload.path(), 'utf8')), expectedPhase);
+        await page.waitForTimeout(1100);
+      }
+      const validationReport = await page.evaluate(() =>
+        simResults.strategy_selections.dry.validation_report_html);
+      const validationReportState = await page.evaluate(() => {
+        const button = document.getElementById('downloadPitSelectionReportBtn');
+        const focused = pitPlanSelectionForFocus(simResults);
+        return {
+          disabled: button.disabled,
+          reportType: typeof focused?.entry?.validation_report_html,
+          reportLength: focused?.entry?.validation_report_html?.length || 0,
+          scenarioName: focused?.scenarioName,
+        };
+      });
+      assert.deepEqual(validationReportState, {
+        disabled: false, reportType: 'string', reportLength: validationReport.length,
+        scenarioName: 'dry',
+      });
+      const validationReportDownloadPromise = page.waitForEvent('download');
+      await page.locator('#downloadPitSelectionReportBtn').click();
+      const validationReportDownload = await validationReportDownloadPromise;
+      assert.equal(validationReportDownload.suggestedFilename(), 'pit_plan_selection_validation_dry.html');
+      assert.equal(readFileSync(await validationReportDownload.path(), 'utf8'), validationReport);
+      await page.waitForTimeout(1100);
+
+      const selectionJsonDownloadPromise = page.waitForEvent('download');
+      await page.locator('#downloadScenarioJsonBtn').click();
+      const selectionJsonDownload = await selectionJsonDownloadPromise;
+      const selectionJson = JSON.parse(readFileSync(await selectionJsonDownload.path(), 'utf8'));
+      assert(selectionJson.strategy_selections.dry);
+      assert.equal(selectionJson.strategy_selections.dry.validation_report_html, undefined,
+        'Normal result JSON must omit nested validation HTML');
+      assert(Object.hasOwn(selectionJson.strategy_selections.dry.plans, '__proto__'));
+
+      await page.locator('#weatherSelect').selectOption('LIGHT_RAIN');
+      selectionText = await page.locator('#pitPlanSelectionResults').innerText();
+      assert(selectionText.toLowerCase().includes('light rain'));
+      assert(selectionText.includes('+2.500 pts'),
+        'Weather focus must render the frozen result entry for that weather');
+      await page.locator('#weatherSelect').selectOption('DRY');
+      selectionText = await page.locator('#pitPlanSelectionResults').innerText();
+      assert(selectionText.includes('-1.000 pts'));
+
+      const originalDrySelection = await page.evaluate(() =>
+        JSON.stringify(simResults.strategy_selections.dry.selection));
+      const identityText = await page.evaluate(() => {
+        const selection = simResults.strategy_selections.dry.selection;
+        selection.selected_label = selection.reference_label;
+        selection.validation_status = 'no_change';
+        renderPitPlanSelectionResults(simResults);
+        return document.getElementById('pitPlanSelectionResults').innerText;
+      });
+      const identityLabels = identityText.toLowerCase();
+      assert(identityLabels.includes('identity comparison'));
+      assert(identityLabels.includes('no independent alternative was evaluated'));
+      assert(identityLabels.includes('or outcome profile is independently estimated'));
+      assert(!identityLabels.includes('0.000 pts'));
+      await page.evaluate(serialized => {
+        simResults.strategy_selections.dry.selection = JSON.parse(serialized);
+        renderPitPlanSelectionResults(simResults);
+      }, originalDrySelection);
+
+      for (const width of [390, 1440]) {
+        await page.setViewportSize({width, height: 1000});
+        assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+          `Held-out selection overflows the page at ${width}px`);
+        const region = page.locator('#pitPlanSelectionResults [role="region"]').first();
+        await region.focus();
+        assert(await region.evaluate(node => document.activeElement === node));
+        if (process.env.F1SIM_SCREENSHOTS) {
+          await page.screenshot({
+            path: path.join(process.env.F1SIM_SCREENSHOTS, `pit-plan-selection-${width}.png`),
+            fullPage: true,
+          });
+        }
+      }
+
+      await page.locator('#tab-race').click();
+      const allCandidateRows = page.locator('#pitPlanSelectionCandidates .pit-selection-candidate');
+      while (await allCandidateRows.count() < 10) await page.locator('#addPitPlanCandidateBtn').click();
+      for (const width of [390, 1440]) {
+        await page.setViewportSize({width, height: width === 390 ? 700 : 900});
+        await page.locator('#tab-scenarios').click();
+        await page.locator('#pitPlanSelectionEnabled').uncheck();
+        await page.locator('#pitPlanSelectionEnabled').check();
+        await page.locator('#pitPlanSelectionPanel').waitFor({state: 'visible'});
+        await page.waitForFunction(() => {
+          const target = document.getElementById('pitPlanSelectionTargetMode');
+          const header = document.querySelector('.header');
+          const targetRect = target.getBoundingClientRect();
+          const headerRect = header.getBoundingClientRect();
+          const sticky = getComputedStyle(header).position === 'sticky'
+            && headerRect.top <= 1 && headerRect.bottom > 0;
+          return document.activeElement === target && targetRect.top >= (sticky ? headerRect.bottom : 0)
+            && targetRect.top < innerHeight;
+        });
+        assert.equal(await page.locator('#tab-race').getAttribute('aria-selected'), 'true');
+        assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+          `Ten candidate rows must not overflow at ${width}px`);
+        if (process.env.F1SIM_SCREENSHOTS) {
+          await page.screenshot({
+            path: path.join(process.env.F1SIM_SCREENSHOTS, `pit-plan-selection-editor-${width}.png`),
+            fullPage: true,
+          });
+        }
+      }
+      await page.locator('#tab-race').click();
+      assert(!(await page.locator('#panel-race').innerText()).includes('Selected and frozen'),
+        'Source race charts must not be relabeled as the selected strategy');
+      await selectionCandidateRows.nth(0).locator('.pit-selection-label').fill('automatic');
+      await selectionCandidateRows.nth(0).locator('.pit-selection-plan-mode').selectOption('automatic');
+      await selectionCandidateRows.nth(1).locator('.pit-selection-label').fill('alternative');
+      await page.locator('#pitPlanSelectionTargetMode').selectOption('driver');
+      await page.locator('#pitPlanSelectionTargetId').selectOption('');
+      await page.locator('#pitPlanTrainingTrials').fill('50');
+      await page.locator('#pitPlanValidationTrials').fill('50');
+      await page.locator('#pitPlanSelectionEnabled').uncheck();
+      await page.locator('#simCount').fill('10');
+      assert.equal(await compareAutomaticInput.isChecked(), false,
+        'The selection test leaves automatic comparison off for the independent cancellation check');
       await page.locator('#tab-scenarios').click();
     }
     await page.locator('#compareDriverFilter').fill(driverId);
