@@ -1264,6 +1264,54 @@ def _selection_report_standard_error(value: object, paired_races: object) -> str
     return "Not estimated"
 
 
+def _selection_report_points_outcome_cells(
+    profile: object, paired_races: object = None,
+) -> list[str]:
+    """Format the profile defensively, since old manifests lack this additive field."""
+    if not isinstance(profile, dict):
+        return ["Not recorded"] * 6
+    count_fields = (
+        "paired_races", "more_points_races", "equal_points_races", "fewer_points_races",
+    )
+    raw_counts = [profile.get(field) for field in count_fields]
+    valid_counts = [
+        isinstance(value, Integral) and not isinstance(value, bool) and value >= 0
+        for value in raw_counts
+    ]
+    if all(valid_counts) and sum(raw_counts[1:]) != raw_counts[0]:
+        return ["Not recorded"] * 6
+    if (
+        all(valid_counts)
+        and isinstance(paired_races, Integral) and not isinstance(paired_races, bool)
+        and paired_races >= 0 and raw_counts[0] != paired_races
+    ):
+        return ["Not recorded"] * 6
+
+    count_text = [str(int(value)) if valid else "Not recorded"
+                  for value, valid in zip(raw_counts, valid_counts)]
+    conditional_text = []
+    for field, count_index, category in (
+        ("mean_points_gain_when_ahead", 1, "more-points"),
+        ("mean_points_loss_when_behind", 3, "fewer-points"),
+    ):
+        value = profile.get(field)
+        if not valid_counts[count_index]:
+            conditional_text.append("Not recorded")
+        elif raw_counts[count_index] == 0:
+            conditional_text.append(
+                f"None (no {category} seeds)" if value is None else "Not recorded"
+            )
+        elif isinstance(value, Real) and not isinstance(value, bool):
+            formatted = _selection_report_number(value)
+            conditional_text.append(
+                formatted if formatted != "Not recorded" and value > 0
+                else "Not recorded"
+            )
+        else:
+            conditional_text.append("Not recorded")
+    return [*count_text, *conditional_text]
+
+
 def render_rival_strategy_selection_report(manifest: dict) -> str:
     """Render a standalone summary of existing weighted selection evidence."""
     selection = manifest.get("selection", {})
@@ -1408,6 +1456,32 @@ def render_rival_strategy_selection_report(manifest: dict) -> str:
         or '<tr><td colspan="6">No per-rival held-out metrics recorded.</td></tr>'
     )
 
+    outcome_rows = []
+    profile_metrics = [("Weighted across rival scenarios", target_metrics)]
+    profile_metrics.extend(
+        (name, metrics) for name, metrics in scenario_metrics.items()
+        if isinstance(metrics, dict)
+    )
+    for label, metrics in profile_metrics:
+        if identity:
+            outcome_rows.append(
+                f'<tr><th scope="row">{_text(label)}</th>'
+                '<td colspan="6">Not independently estimated: selected plan equals the '
+                'reference, so no separate alternative outcome profile exists.</td></tr>'
+            )
+            continue
+        cells = _selection_report_points_outcome_cells(
+            metrics.get("points_outcome_profile"), metrics.get("paired_races"),
+        )
+        outcome_rows.append(
+            f'<tr><th scope="row">{_text(label)}</th>'
+            + "".join(f"<td>{_text(value)}</td>" for value in cells)
+            + "</tr>"
+        )
+    outcome_rows_html = "".join(outcome_rows) or (
+        '<tr><td colspan="7">No held-out points outcome profiles recorded.</td></tr>'
+    )
+
     methodology_limits = selection.get("methodology_limits", [])
     methodology_html = "".join(
         f"<li>{_text(limit)}</li>" for limit in methodology_limits
@@ -1504,6 +1578,19 @@ must not be read as zero.</p>
 <th scope="col">Selected mean points</th><th scope="col">Selected minus reference</th>
 <th scope="col">Uncertainty</th><th scope="col">Paired races</th></tr></thead>
 <tbody>{scenario_rows_html}</tbody></table></div>
+<h3>Paired points outcome profile</h3>
+<p>These are descriptive seed-paired simulator outcomes, not calibrated win probabilities,
+real-world causal effects, or confidence bounds. The weighted row first combines rival
+scenario points within each seed, so its counts are seed outcomes rather than separate
+scenario or race probabilities. Conditional means apply only to seeds in the named category.
+Older or malformed manifests show “Not recorded.”</p>
+<div class="table-wrap context" tabindex="0" role="region"
+aria-label="Held-out points outcome profile">
+<table><thead><tr><th scope="col">Comparison</th><th scope="col">Paired observations (seeds)</th>
+<th scope="col">More points (seeds)</th><th scope="col">Equal points (seeds)</th>
+<th scope="col">Fewer points (seeds)</th><th scope="col">Mean gain when ahead (points)</th>
+<th scope="col">Mean loss when behind (points)</th></tr></thead>
+<tbody>{outcome_rows_html}</tbody></table></div>
 <p>Weighted differences combine scenario results within each seed before calculating their
 sample SE, retaining within-seed cross-scenario covariance. Per-rival differences are paired
 within each scenario by seed. Results describe this saved simulator experiment; they do not

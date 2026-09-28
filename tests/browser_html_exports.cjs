@@ -323,6 +323,18 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     assert((await page.locator('body').innerText()).includes('Selected and frozen'));
     assert((await page.locator('body').innerText()).includes('101–104 inclusive'));
     assert((await page.locator('body').innerText()).toLowerCase().includes('selected minus reference'));
+    assert.equal(await page.getByRole('heading', {
+      name: 'Paired points outcome profile', exact: true,
+    }).count(), 1);
+    const outcomeProfile = page.getByRole('region', {
+      name: 'Held-out points outcome profile', exact: true,
+    });
+    assert.equal(await outcomeProfile.locator('tbody tr').count(), 2);
+    assert((await outcomeProfile.innerText()).includes('../cautious <rival>'));
+    for (const row of await outcomeProfile.locator('tbody tr').all()) {
+      assert.deepEqual(await row.locator('td').allTextContents(),
+        ['4', '2', '1', '1', '5.000', '2.000']);
+    }
     assert.equal(await page.locator('script, img, svg, link').count(), 0);
     assert.equal(await page.evaluate(() => Boolean(globalThis.reportInjected)), false);
     const selectionLinks = await page.locator('a').evaluateAll(nodes => nodes.map(node => ({

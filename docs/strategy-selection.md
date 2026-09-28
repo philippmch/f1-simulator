@@ -92,6 +92,15 @@ teammate covariance. Validation also requires complete target observations
 and qualifying matches. Equal seeds do not freeze every later incident or
 race event across different plans.
 
+The held-out metrics also include a descriptive points-outcome profile: the
+number of seeds with more, equal, or fewer target points, the mean gain among
+seeds with a gain, and the mean loss magnitude among seeds with a loss. For a
+constructor, teammate points are summed inside each seed before this profile
+is calculated. An empty gain or loss category has a null conditional mean. If
+the reference is selected, the profile is null because no independent
+alternative was evaluated. These are paired simulator outcomes, not
+calibrated win probabilities, real-world causal effects, or confidence bounds.
+
 ## Reading and replaying the result
 
 The console separates training scores from validation evidence. A training

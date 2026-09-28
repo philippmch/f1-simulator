@@ -162,6 +162,38 @@ def _json_number(value: int | float) -> int | float:
     return value
 
 
+def _points_outcome_profile(
+    reference_values: list[int | float], selected_values: list[int | float],
+) -> dict[str, int | float | None]:
+    """Describe the distribution of paired target-point changes by seed."""
+    if len(reference_values) != len(selected_values):
+        raise ValueError("paired point outcomes must have matching seed cohorts")
+    differences = [selected - reference for reference, selected in zip(
+        reference_values, selected_values,
+    )]
+    return _points_outcome_profile_from_differences(differences)
+
+
+def _points_outcome_profile_from_differences(
+    differences: list,
+) -> dict[str, int | float | None]:
+    """Summarize an already paired difference vector without changing its signs."""
+    gains = [difference for difference in differences if difference > 0]
+    losses = [-difference for difference in differences if difference < 0]
+    return {
+        "paired_races": len(differences),
+        "more_points_races": len(gains),
+        "equal_points_races": sum(difference == 0 for difference in differences),
+        "fewer_points_races": len(losses),
+        "mean_points_gain_when_ahead": (
+            _json_number(float(mean(gains))) if gains else None
+        ),
+        "mean_points_loss_when_behind": (
+            _json_number(float(mean(losses))) if losses else None
+        ),
+    }
+
+
 def evaluate_saved_pit_plan_selection(
     path,
     plans: Mapping[str, Any],
@@ -266,6 +298,7 @@ def evaluate_saved_pit_plan_selection(
             "mean_points_difference": 0,
             "points_difference_standard_error": None,
             "paired_races": validation_count,
+            "points_outcome_profile": None,
             "comparison": "identity; no separate alternative was estimated",
         }
         validation_status = "no_change"
@@ -291,6 +324,9 @@ def evaluate_saved_pit_plan_selection(
                 else _json_number(statistic["points_difference_standard_error"])
             ),
             "paired_races": statistic["paired_races"],
+            "points_outcome_profile": _points_outcome_profile(
+                validation_points[reference_label], validation_points[selected_label],
+            ),
             "comparison": "selected plan minus fixed reference, paired by seed",
         }
         validation_status = "evaluated"

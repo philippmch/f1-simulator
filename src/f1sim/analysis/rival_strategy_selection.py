@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 from copy import deepcopy
+from fractions import Fraction
 from math import isfinite, sqrt
 from numbers import Integral, Real
 from statistics import mean, stdev
@@ -18,6 +19,8 @@ from f1sim.analysis.strategy_comparison import (
 from f1sim.analysis.strategy_selection import (
     _json_number,
     _phase_points,
+    _points_outcome_profile,
+    _points_outcome_profile_from_differences,
     _positive_int,
     _run_variants,
     _validate_labels,
@@ -165,17 +168,32 @@ def _score_table(
     ]
 
 
-def _paired_summary(reference_values: list[int | float], selected_values: list[int | float]):
-    differences = [selected - reference for reference, selected in zip(
-        reference_values, selected_values,
-    )]
+def _paired_summary(
+    reference_values: list[int | float],
+    selected_values: list[int | float],
+    *,
+    differences: list | None = None,
+):
+    if differences is None:
+        differences = [selected - reference for reference, selected in zip(
+            reference_values, selected_values,
+        )]
+    elif len(differences) != len(reference_values) or len(reference_values) != len(
+        selected_values,
+    ):
+        raise ValueError("paired summary values must have matching seed cohorts")
+    mean_difference = mean(differences)
+    if differences and isinstance(differences[0], Fraction):
+        mean_difference = float(mean_difference)
+    standard_error = None
+    if len(differences) > 1:
+        standard_error = stdev(differences) / sqrt(len(differences))
     return {
         "reference_mean_points": _json_number(mean(reference_values)),
         "selected_mean_points": _json_number(mean(selected_values)),
-        "mean_points_difference": _json_number(mean(differences)),
+        "mean_points_difference": _json_number(mean_difference),
         "points_difference_standard_error": (
-            _json_number(stdev(differences) / sqrt(len(differences)))
-            if len(differences) > 1 else None
+            None if standard_error is None else _json_number(standard_error)
         ),
         "paired_races": len(differences),
     }
@@ -375,6 +393,7 @@ def evaluate_saved_rival_pit_plan_selection(
             "mean_points_difference": 0,
             "points_difference_standard_error": None,
             "paired_races": validation_count,
+            "points_outcome_profile": None,
             "comparison": "identity; no separate alternative was estimated",
         }
         validation_status = "no_change"
@@ -384,7 +403,22 @@ def evaluate_saved_rival_pit_plan_selection(
                 for name in scenario_names)
             for trial in range(validation_count)
         ]
-        target_metrics = _paired_summary(weighted_reference, weighted_selected)
+        weighted_differences = [
+            sum(
+                Fraction(normalized_weights[name]) * (
+                    Fraction(validation_points[name][selected_label][trial])
+                    - Fraction(validation_points[name][reference_label][trial])
+                )
+                for name in scenario_names
+            )
+            for trial in range(validation_count)
+        ]
+        target_metrics = _paired_summary(
+            weighted_reference, weighted_selected, differences=weighted_differences,
+        )
+        target_metrics["points_outcome_profile"] = (
+            _points_outcome_profile_from_differences(weighted_differences)
+        )
         target_metrics["comparison"] = (
             "selected plan minus fixed reference, weighted within seed across rival scenarios"
         )
@@ -400,11 +434,17 @@ def evaluate_saved_rival_pit_plan_selection(
                 "mean_points_difference": 0,
                 "points_difference_standard_error": None,
                 "paired_races": validation_count,
+                "points_outcome_profile": None,
                 "comparison": "identity; no separate alternative was estimated",
             }
         else:
             scenario_validation_metrics[name] = _paired_summary(
                 reference_values, validation_points[name][selected_label],
+            )
+            scenario_validation_metrics[name]["points_outcome_profile"] = (
+                _points_outcome_profile(
+                    reference_values, validation_points[name][selected_label],
+                )
             )
             scenario_validation_metrics[name]["comparison"] = (
                 "selected plan minus fixed reference, paired by seed within this scenario"

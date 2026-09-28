@@ -6,7 +6,10 @@ from copy import deepcopy
 import pytest
 
 from f1sim.analysis.montecarlo import MonteCarloRunner
-from f1sim.analysis.strategy_selection import evaluate_saved_pit_plan_selection
+from f1sim.analysis.strategy_selection import (
+    _points_outcome_profile,
+    evaluate_saved_pit_plan_selection,
+)
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.output import Exporter
 
@@ -72,6 +75,33 @@ def _controlled_run(monkeypatch, award_function, calls=None):
     monkeypatch.setattr(MonteCarloRunner, "run", run)
 
 
+def test_points_outcome_profile_uses_conditional_gains_and_loss_magnitudes():
+    assert _points_outcome_profile([10, 10, 10, 10], [15, 15, 10, 8]) == {
+        "paired_races": 4,
+        "more_points_races": 2,
+        "equal_points_races": 1,
+        "fewer_points_races": 1,
+        "mean_points_gain_when_ahead": 5,
+        "mean_points_loss_when_behind": 2,
+    }
+    assert _points_outcome_profile([0, 0], [3, 1]) == {
+        "paired_races": 2,
+        "more_points_races": 2,
+        "equal_points_races": 0,
+        "fewer_points_races": 0,
+        "mean_points_gain_when_ahead": 2,
+        "mean_points_loss_when_behind": None,
+    }
+    assert _points_outcome_profile([7], [4]) == {
+        "paired_races": 1,
+        "more_points_races": 0,
+        "equal_points_races": 0,
+        "fewer_points_races": 1,
+        "mean_points_gain_when_ahead": None,
+        "mean_points_loss_when_behind": 3,
+    }
+
+
 def test_frozen_training_winner_can_lose_on_heldout_and_keeps_fractional_mean(
     tmp_path, monkeypatch,
 ):
@@ -105,6 +135,14 @@ def test_frozen_training_winner_can_lose_on_heldout_and_keeps_fractional_mean(
     assert list(outcome["validation_results"]) == ["automatic", "earlier"]
     assert selection["validation_target_metrics"]["mean_points_difference"] == -14
     assert selection["validation_target_metrics"]["points_difference_standard_error"] == 0
+    assert selection["validation_target_metrics"]["points_outcome_profile"] == {
+        "paired_races": 2,
+        "more_points_races": 0,
+        "equal_points_races": 0,
+        "fewer_points_races": 2,
+        "mean_points_gain_when_ahead": None,
+        "mean_points_loss_when_behind": 14,
+    }
 
 
 def test_exact_ties_prefer_reference_then_remaining_ties_use_mapping_order(
@@ -225,6 +263,14 @@ def test_constructor_validation_sums_teammates_per_seed_before_standard_error(
     assert metrics["points_difference_standard_error"] == 5
     assert metrics["reference_mean_points"] == 20
     assert metrics["selected_mean_points"] == 25
+    assert metrics["points_outcome_profile"] == {
+        "paired_races": 2,
+        "more_points_races": 1,
+        "equal_points_races": 1,
+        "fewer_points_races": 0,
+        "mean_points_gain_when_ahead": 10,
+        "mean_points_loss_when_behind": None,
+    }
 
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])
@@ -275,6 +321,9 @@ def test_no_change_runs_one_validation_variant_and_records_identity(tmp_path, mo
     assert list(outcome["validation_results"]) == ["reference"]
     assert outcome["selection"]["validation_status"] == "no_change"
     assert outcome["selection"]["validation_target_metrics"]["mean_points_difference"] == 0
+    assert outcome["selection"]["validation_target_metrics"][
+        "points_outcome_profile"
+    ] is None
     assert outcome["selection"]["validation_target_metrics"][
         "points_difference_standard_error"
     ] is None

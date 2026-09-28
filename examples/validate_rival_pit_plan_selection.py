@@ -32,6 +32,23 @@ def _phase_simulations(value: str) -> int:
     return count
 
 
+def _points_outcome_profile_text(profile: dict | None, *, identity: bool = False) -> str:
+    if identity:
+        return "not independently estimated; the selected plan is the reference"
+    if not isinstance(profile, dict):
+        return "not recorded"
+    gain = profile["mean_points_gain_when_ahead"]
+    loss = profile["mean_points_loss_when_behind"]
+    gain_text = "none (no more-points seeds)" if gain is None else f"{gain:.3f} points"
+    loss_text = "none (no fewer-points seeds)" if loss is None else f"{loss:.3f} points"
+    return (
+        f"more/equal/fewer {profile['more_points_races']}/"
+        f"{profile['equal_points_races']}/{profile['fewer_points_races']} of "
+        f"{profile['paired_races']} seeds; mean gain when ahead {gain_text}; "
+        f"mean loss when behind {loss_text}"
+    )
+
+
 def _reject_duplicate_keys(pairs):
     result = {}
     for key, value in pairs:
@@ -101,7 +118,10 @@ def _print_validation_scenarios(
         normalized = normalized_weights[label]
         print(f"  {label} (normalized weight {normalized:.3f})")
         if selected == reference:
-            print("    identity vs reference: 0 points; no separate standard error estimated")
+            print(
+                "    identity vs reference: 0 points; no separate standard error estimated; "
+                "outcome profile not independently estimated",
+            )
             continue
         paired = paired_comparison_statistics(variants, reference)
         summary = paired["variants"][selected]
@@ -119,6 +139,10 @@ def _print_validation_scenarios(
             f"    selected-minus-reference mean {statistic['mean_points_difference']:.3f} points; "
             f"{error_text}; {statistic['paired_races']} paired races",
         )
+        profile = selection["validation_scenario_metrics"][label].get(
+            "points_outcome_profile",
+        )
+        print(f"    paired points outcomes: {_points_outcome_profile_text(profile)}")
 
 
 def main() -> int:
@@ -229,6 +253,12 @@ def main() -> int:
                 "Weighted held-out validation: no change; the selected plan is the reference. "
                 "Identity difference is 0 points; no separate standard error is estimated.",
             )
+            profile_text = _points_outcome_profile_text(
+                metrics.get("points_outcome_profile"), identity=True,
+            )
+            print(
+                f"Weighted held-out paired points outcome profile: {profile_text}.",
+            )
         else:
             standard_error = metrics["points_difference_standard_error"]
             uncertainty = (
@@ -240,6 +270,10 @@ def main() -> int:
                 f"Weighted held-out selected-minus-reference mean: "
                 f"{metrics['mean_points_difference']:.3f} points; {uncertainty}. "
                 "The selected plan stays frozen regardless of this result.",
+            )
+            print(
+                "Weighted held-out paired points outcome profile: "
+                f"{_points_outcome_profile_text(metrics.get('points_outcome_profile'))}.",
             )
         _print_validation_scenarios(validation_results, selection, normalized_weights)
         print(

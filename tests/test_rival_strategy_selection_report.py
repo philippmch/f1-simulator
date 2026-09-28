@@ -11,6 +11,14 @@ from f1sim.output.comparison import (
 def _manifest(*, identity=False):
     selected = "reference" if identity else "selected <script>alert(1)</script>"
     scenario_name = "../cautious <rival>"
+    outcome_profile = None if identity else {
+        "paired_races": 1,
+        "more_points_races": 1,
+        "equal_points_races": 0,
+        "fewer_points_races": 0,
+        "mean_points_gain_when_ahead": 2,
+        "mean_points_loss_when_behind": None,
+    }
     target_plans = {"reference": None}
     if not identity:
         target_plans[selected] = [{"lap": 4, "compound": "hard"}]
@@ -57,6 +65,7 @@ def _manifest(*, identity=False):
                 "mean_points_difference": 2,
                 "points_difference_standard_error": None,
                 "paired_races": 1,
+                "points_outcome_profile": outcome_profile,
             },
             "validation_scenario_metrics": {
                 scenario_name: {
@@ -65,6 +74,7 @@ def _manifest(*, identity=False):
                     "mean_points_difference": 2,
                     "points_difference_standard_error": None,
                     "paired_races": 1,
+                    "points_outcome_profile": outcome_profile,
                 },
             },
             "seed_ranges": {
@@ -90,6 +100,12 @@ def test_report_shows_frozen_constructor_training_and_heldout_evidence_safely():
     assert "selected minus reference" in report.lower()
     assert "within-seed cross-scenario covariance" in report
     assert "Not estimated (1 paired race); this is not zero uncertainty" in report
+    assert "Paired points outcome profile" in report
+    assert 'aria-label="Held-out points outcome profile"' in report
+    assert "Mean gain when ahead (points)" in report
+    assert "Mean loss when behind (points)" in report
+    assert "2.000" in report
+    assert "not calibrated win probabilities" in report
     assert "101–102 inclusive" in report
     assert "103–103 inclusive" in report
     assert "Methodology &lt;limit&gt;" in report
@@ -108,9 +124,10 @@ def test_identity_report_explains_zero_by_definition_without_an_alternative_se()
     assert "No independent alternative estimate" in report
     assert "0.000 (identity by definition)" in report
     assert "Not estimated (1 paired race)" not in report
+    assert "no separate alternative outcome profile exists" in report
 
 
-def test_non_numeric_boolean_and_nonfinite_metrics_are_not_formatted_as_points():
+def test_non_numeric_nonfinite_and_oversized_profile_values_are_not_formatted():
     manifest = _manifest()
     selection = manifest["selection"]
     selection["training_score_table"][0]["mean_points"] = True
@@ -118,12 +135,42 @@ def test_non_numeric_boolean_and_nonfinite_metrics_are_not_formatted_as_points()
         "mean_points"
     ] = float("nan")
     selection["validation_target_metrics"]["reference_mean_points"] = float("inf")
+    selection["validation_target_metrics"]["points_outcome_profile"][
+        "mean_points_gain_when_ahead"
+    ] = 10**1000
 
     report = render_rival_strategy_selection_report(manifest)
 
     assert "<td>Not recorded</td>" in report
     assert ">nan<" not in report.lower()
     assert ">inf<" not in report.lower()
+    assert re.search(
+        r'<th scope="row">Weighted across rival scenarios</th><td>1</td><td>1</td>'
+        r'<td>0</td><td>0</td><td>Not recorded</td>'
+        r'<td>None \(no fewer-points seeds\)</td>',
+        report,
+    )
+
+
+def test_missing_or_malformed_outcome_profiles_are_not_recorded_and_labels_are_escaped():
+    manifest = _manifest()
+    scenario = "../cautious <rival>"
+    del manifest["selection"]["validation_target_metrics"]["points_outcome_profile"]
+    manifest["selection"]["validation_scenario_metrics"][scenario][
+        "points_outcome_profile"
+    ] = {
+        "paired_races": 2,
+        "more_points_races": 1,
+        "equal_points_races": 0,
+        "fewer_points_races": 0,
+        "mean_points_gain_when_ahead": 3,
+        "mean_points_loss_when_behind": None,
+    }
+
+    report = render_rival_strategy_selection_report(manifest)
+
+    assert "<th scope=\"row\">Weighted across rival scenarios</th><td>Not recorded" in report
+    assert "<th scope=\"row\">../cautious &lt;rival&gt;</th>" in report
 
 
 def test_missing_standard_error_requires_an_integer_single_race_count():

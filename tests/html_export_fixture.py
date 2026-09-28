@@ -36,6 +36,15 @@ def _scalable_plan_result(driver_id, marker, *, hostile_last=False):
 
 def _selection_report_fixture(exporter):
     name = "../cautious <rival>"
+    # Paired changes [5, 5, 0, -2]: two gains, one tie, and one loss.
+    outcome_profile = {
+        "paired_races": 4,
+        "more_points_races": 2,
+        "equal_points_races": 1,
+        "fewer_points_races": 1,
+        "mean_points_gain_when_ahead": 5,
+        "mean_points_loss_when_behind": 2,
+    }
     run_id = "abc123"
     manifest_name = f"rival_selection_manifest_{run_id}.json"
     manifest = {
@@ -59,12 +68,14 @@ def _selection_report_fixture(exporter):
             "validation_target_metrics": {
                 "reference_mean_points": 8, "selected_mean_points": 10,
                 "mean_points_difference": 2,
-                "points_difference_standard_error": 0.5, "paired_races": 4,
+                "points_difference_standard_error": (38 / 12) ** 0.5, "paired_races": 4,
+                "points_outcome_profile": dict(outcome_profile),
             },
             "validation_scenario_metrics": {name: {
                 "reference_mean_points": 8, "selected_mean_points": 10,
                 "mean_points_difference": 2,
-                "points_difference_standard_error": 0.5, "paired_races": 4,
+                "points_difference_standard_error": (38 / 12) ** 0.5, "paired_races": 4,
+                "points_outcome_profile": dict(outcome_profile),
             }},
             "seed_ranges": {
                 "training": {"first_seed": 101, "last_seed": 104, "trials": 4},

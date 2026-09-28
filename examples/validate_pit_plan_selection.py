@@ -29,6 +29,28 @@ def _phase_simulations(value: str) -> int:
     return count
 
 
+def _print_points_outcome_profile(profile: dict | None, *, identity: bool = False) -> None:
+    if identity:
+        print(
+            "Held-out paired points outcome profile: not independently estimated; "
+            "the selected plan is the reference.",
+        )
+        return
+    if not isinstance(profile, dict):
+        print("Held-out paired points outcome profile: not recorded.")
+        return
+    gain = profile["mean_points_gain_when_ahead"]
+    loss = profile["mean_points_loss_when_behind"]
+    gain_text = "none (no more-points seeds)" if gain is None else f"{gain:.3f} points"
+    loss_text = "none (no fewer-points seeds)" if loss is None else f"{loss:.3f} points"
+    print(
+        "Held-out paired points outcomes (more/equal/fewer): "
+        f"{profile['more_points_races']}/{profile['equal_points_races']}/"
+        f"{profile['fewer_points_races']} across {profile['paired_races']} seeds; "
+        f"mean gain when ahead {gain_text}; mean loss when behind {loss_text}.",
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -114,6 +136,7 @@ def main() -> int:
                 "Held-out validation: no change; the selected plan is the reference. "
                 "Identity difference is 0 points; no separate standard error is estimated.",
             )
+            _print_points_outcome_profile(metrics.get("points_outcome_profile"), identity=True)
         else:
             standard_error = metrics["points_difference_standard_error"]
             uncertainty = (
@@ -126,6 +149,7 @@ def main() -> int:
                 f"{metrics['mean_points_difference']:.3f} points; {uncertainty}. "
                 f"The selected plan stays {selection['selected_label']} regardless of this result."
             )
+            _print_points_outcome_profile(metrics.get("points_outcome_profile"))
         print(
             "These results are conditional on the saved simulator inputs, not real-race "
             "calibration. Validation seeds are disjoint within this run; repeating the same "

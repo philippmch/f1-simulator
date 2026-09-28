@@ -2,11 +2,13 @@
 
 import json
 from copy import deepcopy
+from fractions import Fraction
 
 import pytest
 
 from f1sim.analysis.montecarlo import MonteCarloRunner
 from f1sim.analysis.rival_strategy_selection import (
+    _paired_summary,
     evaluate_saved_rival_pit_plan_selection,
 )
 from f1sim.models import Car, Driver, Track, Weather
@@ -103,6 +105,18 @@ def _is_rival_no_stop(runner, rival="B"):
     return (runner.pit_plans or {}).get(rival) == []
 
 
+def test_fractional_paired_summary_preserves_near_equal_seed_differences():
+    summary = _paired_summary(
+        [0, 0], [1, 1],
+        differences=[Fraction(1), Fraction(1) + Fraction(1, 10**20)],
+    )
+
+    assert summary["mean_points_difference"] == 1.0
+    assert summary["points_difference_standard_error"] == pytest.approx(
+        5e-21, rel=1e-12, abs=0,
+    )
+
+
 def test_scenario_weights_change_training_winner_and_freeze_validation_set(
     tmp_path, monkeypatch,
 ):
@@ -142,6 +156,13 @@ def test_scenario_weights_change_training_winner_and_freeze_validation_set(
     assert second["selection"]["selected_label"] == "reference"
     assert all(list(results) == ["reference"] for results in second["validation_results"].values())
     assert all(seed == 73 for seed, _ in calls[4:])
+    assert second["selection"]["validation_target_metrics"][
+        "points_outcome_profile"
+    ] is None
+    assert all(
+        metrics["points_outcome_profile"] is None
+        for metrics in second["selection"]["validation_scenario_metrics"].values()
+    )
 
 
 def test_validation_standard_error_uses_weighted_per_seed_differences(
@@ -161,7 +182,8 @@ def test_validation_standard_error_uses_weighted_per_seed_differences(
             values.append(difference)
         _set_points(result, "A", values)
 
-    _controlled_run(monkeypatch, controlled_points)
+    calls = []
+    _controlled_run(monkeypatch, controlled_points, calls)
     outcome = evaluate_saved_rival_pit_plan_selection(
         path, _driver_plans(), "reference", _scenarios(), driver_id="A",
         training_simulations=1, validation_simulations=2,
@@ -173,6 +195,165 @@ def test_validation_standard_error_uses_weighted_per_seed_differences(
     for scenario_metrics in outcome["selection"]["validation_scenario_metrics"].values():
         assert scenario_metrics["mean_points_difference"] == 5
         assert scenario_metrics["points_difference_standard_error"] == 5
+
+
+def test_opposing_rival_scenarios_cancel_within_each_validation_seed(
+    tmp_path, monkeypatch,
+):
+    path = _saved(tmp_path)
+
+    def controlled_points(runner, result):
+        planned = _is_planned(runner)
+        no_stop = _is_rival_no_stop(runner)
+        values = []
+        for index in range(len(result.race_results)):
+            seed = result.seed + index
+            if runner.base_seed == 72:
+                points = 20 if planned else 10
+            else:
+                magnitude = 10 if seed == 73 else 2
+                difference = -magnitude if no_stop else magnitude
+                points = 10 + difference if planned else 10
+            values.append(points)
+        _set_points(result, "A", values)
+
+    _controlled_run(monkeypatch, controlled_points)
+    outcome = evaluate_saved_rival_pit_plan_selection(
+        path, _driver_plans(), "reference", _scenarios(), driver_id="A",
+        training_simulations=1, validation_simulations=2,
+    )
+    selection = outcome["selection"]
+    profile = selection["validation_target_metrics"]["points_outcome_profile"]
+    assert selection["selected_label"] == "planned"
+    assert selection["seed_ranges"]["validation"] == {
+        "first_seed": 73, "last_seed": 74, "trials": 2,
+    }
+    assert selection["validation_target_metrics"]["mean_points_difference"] == 0
+    assert profile == {
+        "paired_races": 2,
+        "more_points_races": 0,
+        "equal_points_races": 2,
+        "fewer_points_races": 0,
+        "mean_points_gain_when_ahead": None,
+        "mean_points_loss_when_behind": None,
+    }
+    scenario_profiles = selection["validation_scenario_metrics"]
+    assert scenario_profiles["rival_auto"]["points_outcome_profile"] == {
+        "paired_races": 2,
+        "more_points_races": 2,
+        "equal_points_races": 0,
+        "fewer_points_races": 0,
+        "mean_points_gain_when_ahead": 6,
+        "mean_points_loss_when_behind": None,
+    }
+    assert scenario_profiles["rival_no_stop"]["points_outcome_profile"] == {
+        "paired_races": 2,
+        "more_points_races": 0,
+        "equal_points_races": 0,
+        "fewer_points_races": 2,
+        "mean_points_gain_when_ahead": None,
+        "mean_points_loss_when_behind": 6,
+    }
+
+
+@pytest.mark.parametrize(
+    "reference_points, planned_points",
+    [
+        ((0, 0, 9), (1, 1, 7)),  # weighted scores 3 and 2.9999999999999996 in float math
+        ((0, 1, 2), (3, 0, 0)),  # delta terms 3, -1, -2 also cancel exactly
+    ],
+)
+def test_equal_thirds_use_exact_weighted_differences_for_ties(
+    tmp_path, monkeypatch, reference_points, planned_points,
+):
+    path = _saved(tmp_path)
+    scenarios = {
+        "first": {"weight": 1, "pit_plans": {"B": None}},
+        "second": {"weight": 1, "pit_plans": {"B": []}},
+        "third": {"weight": 1, "pit_plans": {"B": deepcopy(_HARD_STOP)}},
+    }
+
+    def controlled_points(runner, result):
+        planned = _is_planned(runner)
+        rival_plan = (runner.pit_plans or {}).get("B")
+        scenario_index = 0 if rival_plan is None else 1 if rival_plan == [] else 2
+        if runner.base_seed == 72:
+            points = 10 if planned else 0
+        else:
+            points = (
+                planned_points[scenario_index]
+                if planned else reference_points[scenario_index]
+            )
+        _set_points(result, "A", [points] * len(result.race_results))
+
+    calls = []
+    _controlled_run(monkeypatch, controlled_points, calls)
+    outcome = evaluate_saved_rival_pit_plan_selection(
+        path, _driver_plans(), "reference", scenarios, driver_id="A",
+        training_simulations=1, validation_simulations=1,
+    )
+    selection = outcome["selection"]
+    metrics = selection["validation_target_metrics"]
+    assert selection["selected_label"] == "planned"
+    assert [seed for seed, _ in calls] == [72] * 6 + [73] * 6
+    assert [seed for seed, _ in calls] == [72] * 6 + [73] * 6
+    assert metrics["mean_points_difference"] == 0
+    assert metrics["points_difference_standard_error"] is None
+    assert metrics["points_outcome_profile"] == {
+        "paired_races": 1,
+        "more_points_races": 0,
+        "equal_points_races": 1,
+        "fewer_points_races": 0,
+        "mean_points_gain_when_ahead": None,
+        "mean_points_loss_when_behind": None,
+    }
+
+
+def test_tiny_nonzero_weighted_difference_is_not_rounded_to_a_tie(tmp_path, monkeypatch):
+    path = _saved(tmp_path)
+    scenarios = {
+        "first": {"weight": 1, "pit_plans": {"B": None}},
+        "second": {"weight": 1, "pit_plans": {"B": []}},
+        "third": {
+            "weight": 1 + 1e-15,
+            "pit_plans": {"B": deepcopy(_HARD_STOP)},
+        },
+    }
+
+    def controlled_points(runner, result):
+        planned = _is_planned(runner)
+        rival_plan = (runner.pit_plans or {}).get("B")
+        scenario_index = 0 if rival_plan is None else 1 if rival_plan == [] else 2
+        if runner.base_seed == 72:
+            points = 10 if planned else 0
+        else:
+            reference_points = (0, 0, 1)
+            planned_points = (1, 0, 0)
+            points = planned_points[scenario_index] if planned else reference_points[
+                scenario_index
+            ]
+        _set_points(result, "A", [points] * len(result.race_results))
+
+    calls = []
+    _controlled_run(monkeypatch, controlled_points, calls)
+    outcome = evaluate_saved_rival_pit_plan_selection(
+        path, _driver_plans(), "reference", scenarios, driver_id="A",
+        training_simulations=1, validation_simulations=1,
+    )
+    selection = outcome["selection"]
+    metrics = selection["validation_target_metrics"]
+    assert [seed for seed, _ in calls] == [72] * 6 + [73] * 6
+    weights = {
+        row["name"]: Fraction(row["normalized_weight"])
+        for row in selection["rival_scenarios"]
+    }
+    expected_difference = weights["first"] - weights["third"]
+    assert expected_difference != 0
+    assert metrics["mean_points_difference"] == float(expected_difference)
+    assert metrics["points_outcome_profile"]["fewer_points_races"] == 1
+    assert metrics["points_outcome_profile"]["mean_points_loss_when_behind"] == float(
+        -expected_difference,
+    )
 
 
 def test_constructor_target_sums_members_inside_each_seed_and_returns_scenario_results(

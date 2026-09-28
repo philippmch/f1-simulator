@@ -49,6 +49,22 @@ def _invoke(monkeypatch, source, plans, output, *extra, driver=True):
     return selection_cli.main()
 
 
+def test_cli_formats_gain_tie_and_loss_profile(capsys):
+    selection_cli._print_points_outcome_profile({
+        "paired_races": 4,
+        "more_points_races": 2,
+        "equal_points_races": 1,
+        "fewer_points_races": 1,
+        "mean_points_gain_when_ahead": 5,
+        "mean_points_loss_when_behind": 2,
+    })
+
+    assert capsys.readouterr().out.strip() == (
+        "Held-out paired points outcomes (more/equal/fewer): 2/1/1 across 4 seeds; "
+        "mean gain when ahead 5.000 points; mean loss when behind 2.000 points."
+    )
+
+
 def test_cli_exports_separate_replayable_phase_evidence_and_manifest(
     tmp_path, monkeypatch, capsys,
 ):
@@ -65,11 +81,15 @@ def test_cli_exports_separate_replayable_phase_evidence_and_manifest(
     assert "validation seeds 12–12" in printed
     assert "Selected: automatic because an exact training tie preferred the reference." in printed
     assert "no separate standard error is estimated" in printed
+    assert "outcome profile: not independently estimated" in printed
     assert "repeating the same request reuses them" in printed
     manifests = list(output.glob("selection_manifest_*.json"))
     assert len(manifests) == 1
     manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
     assert manifest["selection"]["validation_status"] == "no_change"
+    assert manifest["selection"]["validation_target_metrics"][
+        "points_outcome_profile"
+    ] is None
     for key in (
         "training_comparison_json", "training_comparison_html",
         "validation_comparison_json", "validation_comparison_html",

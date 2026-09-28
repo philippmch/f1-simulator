@@ -84,6 +84,16 @@ scenarios; scenario-level standard errors are not treated as independent. The
 report also gives the per-scenario comparisons. Exact training ties prefer the
 reference, then use candidate order from the plans file.
 
+Validation metrics also include paired points outcome profiles. Each
+per-scenario profile summarizes the more/equal/fewer outcomes and conditional
+gain and loss magnitudes within that scenario. The weighted profile is computed
+after rival points are combined within each seed: its counts are seed outcomes,
+not separate scenario outcomes or probabilities. Empty gain or loss categories
+have null conditional means. If the reference is selected, profiles are null
+because no independent alternative was evaluated. These descriptive simulator
+outcomes are not calibrated win probabilities, real-world causal effects, or
+confidence bounds.
+
 Equal seeds align the random-stream inputs under the selected RNG policy; they
 do not freeze later weather reactions, incidents, or other race events across
 different plans. The paired differences describe this simulator experiment and
@@ -98,7 +108,7 @@ With `--export`, the command writes a standalone weighted selection HTML report,
 a selection manifest, and separate scenario-specific training and validation
 comparison JSON/HTML files. The summary report shows the frozen selected and
 reference target plans, supplied and normalized rival weights, training scores,
-held-out paired changes, and the actual disjoint seed cohorts. It links to each
+held-out paired changes and outcome profiles, and the actual disjoint seed cohorts. It links to each
 local comparison export and the JSON manifest. Each detailed comparison
 contains its own saved inputs and seeds for offline replay. The weighted
 aggregate is metadata computed from seed-level target points; it is not

@@ -29,6 +29,23 @@ def _load_cli():
 rival_selection_cli = _load_cli()
 
 
+def test_cli_formats_seed_outcomes_and_identity_profile():
+    assert rival_selection_cli._points_outcome_profile_text({
+        "paired_races": 4,
+        "more_points_races": 2,
+        "equal_points_races": 1,
+        "fewer_points_races": 1,
+        "mean_points_gain_when_ahead": 5,
+        "mean_points_loss_when_behind": 2,
+    }) == (
+        "more/equal/fewer 2/1/1 of 4 seeds; mean gain when ahead 5.000 points; "
+        "mean loss when behind 2.000 points"
+    )
+    assert rival_selection_cli._points_outcome_profile_text(
+        None, identity=True,
+    ) == "not independently estimated; the selected plan is the reference"
+
+
 def _saved(tmp_path):
     drivers = [
         Driver(id="A", name="Target", team_id="T"),
@@ -99,6 +116,7 @@ def test_cli_exports_weighted_selection_and_each_scenario_for_replay(
         "Weighted held-out validation: no change" in printed
         or "Weighted held-out selected-minus-reference mean:" in printed
     )
+    assert "Weighted held-out paired points outcome profile:" in printed
     assert "cross-scenario covariance is retained" in printed
     assert "not causal proof" in printed
 
@@ -106,6 +124,18 @@ def test_cli_exports_weighted_selection_and_each_scenario_for_replay(
     assert len(manifests) == 1
     manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
     selection = manifest["selection"]
+    aggregate_profile = selection["validation_target_metrics"]["points_outcome_profile"]
+    if selection["validation_status"] == "no_change":
+        assert aggregate_profile is None
+        assert all(
+            metrics["points_outcome_profile"] is None
+            for metrics in selection["validation_scenario_metrics"].values()
+        )
+    else:
+        assert aggregate_profile["paired_races"] == 1
+        assert sum(aggregate_profile[key] for key in (
+            "more_points_races", "equal_points_races", "fewer_points_races",
+        )) == 1
     assert manifest["selection_report_html"].endswith("_summary.html")
     report_path = output / manifest["selection_report_html"]
     assert report_path.is_file()
