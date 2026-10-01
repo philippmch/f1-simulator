@@ -357,6 +357,7 @@ class ChronologicalRace:
                     expected_exit = self._pending_service_exit(leader.driver.id, pending, now)
                     flag_time = max(now, expected_exit or now)
                     flag_time += leader_pace * modifier
+                    flag_time += self._pending_fit_cost(leader.driver.id)
                 anchor_lap = pending.lap
                 next_modifier = 1.0
             else:
@@ -385,6 +386,13 @@ class ChronologicalRace:
                     flag_time += leader_pace * (next_modifier - 1)
                 return flag_time
         return None
+
+    def _pending_fit_cost(self, driver_id):
+        """Read a committed fit's one-time cost without consuming live state."""
+        state = self.states[driver_id]
+        if not state.fit_lap_pending:
+            return 0.0
+        return self.simulator.tire_warmup.get(state.current_tire.compound.value, 0.0)
 
     @staticmethod
     def _remaining_service(car, elapsed):
@@ -513,6 +521,7 @@ class ChronologicalRace:
             expected_exit = self._pending_service_exit(leader.driver.id, pending, now)
             first_update = max(now, expected_exit or now)
             first_update += leader_pace * modifier
+            first_update += self._pending_fit_cost(leader.driver.id)
         flag_time = self._projected_flag_time(now, restart=restart)
         if (flag_time is None or not isfinite(flag_time)
                 or not isfinite(first_update)):
@@ -897,7 +906,7 @@ class ChronologicalRace:
             start = expected_exit if expected_exit is not None else pending.ready
             if now is not None:
                 start = max(now, start)
-            ready = start + first_pace
+            ready = start + first_pace + self._pending_fit_cost(driver_id)
             if when == start and pending.lap < exit_lap:
                 return None  # Our higher-distance exit has priority at this tie.
         if start is None or when < start or ready <= start:

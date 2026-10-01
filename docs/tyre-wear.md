@@ -200,7 +200,11 @@ SC/VSC running; it is not stationary service and does not delay pit exit.
 The option supplies no cooling, storage recovery, pressure, heat-cycle or
 neutralization-temperature model. It is deliberately limited to a fitting cost.
 Its strategy forecasts must price the same assumptions as executed laps,
-including later weather entries affected by elapsed running time. Existing
+including later weather entries affected by elapsed running time. When a
+leading car is still in service, its committed fit delays the next projected
+leading crossing and weather update, rather than its expected pit exit. Opening
+policy comparisons retain the cost in elapsed time and use physical running
+pace, without the one-time cost, to estimate later laps. Existing
 forecast limits concerning future random weather, traffic and incidents remain.
 Timed finite-inventory forecasts also track elapsed fitting costs, which can
 increase planning time. Start with a small trial count when enabling this option.

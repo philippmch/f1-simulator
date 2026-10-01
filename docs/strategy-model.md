@@ -28,19 +28,23 @@ to weather scaling for this lap only, with later laps assumed green.
 
 Before a timed finish is announced, in-race strategy estimates its distance
 from the leader's elapsed time and most recent running pace. Pit service,
-incident loss and time spent waiting behind another car are excluded from the
-recurring pace estimate. Current control affects the upcoming lap, with later
-laps assumed green. The estimate includes the lap following clock expiry and
-never exceeds the scheduled distance. Without a pace observation it retains
-that schedule. Both engines use this estimate for pit decisions and free tyre
-choices; chronological races also map the leader's estimated finish time to
-each car's own remaining laps and include completed suspension extensions.
+post-fit costs, incident loss and time spent waiting behind another car are
+excluded from the recurring pace estimate. Current control affects the upcoming
+lap, with later laps assumed green. The estimate includes the lap following
+clock expiry and never exceeds the scheduled distance. Without a pace
+observation it retains that schedule. Both engines use this estimate for pit
+decisions and free tyre choices; chronological races also map the leader's
+estimated finish time to each car's own remaining laps and include completed
+suspension extensions.
 
 Chronological forecasts resolve equal completed distances using physical
 on-track order, ahead of cars still in the pits, rather than stale crossing
 times. A pitting car a full lap ahead retains distance priority. A pending stop
-uses its expected exit when planning the remaining race; the actual finish
-controller continues to use executed crossings.
+uses its expected exit when planning the remaining race. A committed tyre
+fit's optional first-lap cost delays the projected outlap crossing once, after
+the current running multiplier. It does not delay pit exit or become recurring
+pace. An on-track pending crossing already includes that cost. The actual
+finish controller continues to use executed crossings.
 
 Rain and weather-stop projections use this shared leading clock to estimate
 surface conditions at each car's future lap starts. A slow car can see multiple
@@ -98,6 +102,9 @@ the complete timed strategy problem.
 Pit-rejoin traffic uses the same projected finish time, even before the timed
 finish is announced. Each rival remains traffic until its own projected final
 crossing; lapped cars can therefore remain after the leader takes the flag.
+For a rival still in service, a pending fitting cost is included once in its
+projected outlap crossing and fractional rejoin position, with pit exit
+unchanged.
 Exact crossing/exit ties retain the scheduler's distance and ordering rules.
 This forecast retains current pace/control assumptions and does not predict
 later weather, incidents or elective stops.

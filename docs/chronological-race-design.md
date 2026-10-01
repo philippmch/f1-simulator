@@ -42,10 +42,14 @@ Pit planning estimates the flag time from the leading pending crossing, stored
 free-running pace and the time-limit deadline, then maps that time to the car's
 own remaining laps. Completed suspension time extends the deadline up to the
 existing one-hour cap. The estimate includes the lap following clock expiry.
-Committed pit delay affects the pending crossing; past service and blocked time
-do not become the forecast's recurring lap pace. The forecast uses no random
-draws and does not alter the actual finish boundary. It assumes continued pace
-with current control on the upcoming lap and green running thereafter, without
+Committed pit delay affects the pending crossing. While service is unfinished,
+the expected exit and any pending first-lap fitting cost set the projected
+outlap crossing. The fitting cost is added once, after current control scaling;
+it does not delay pit exit. An on-track pending crossing already contains it.
+Past service, fitting costs and blocked time do not become the forecast's
+recurring lap pace. The forecast uses no random draws and does not alter the
+actual finish boundary. It assumes continued pace with current control on the
+upcoming lap and green running thereafter, without
 predicting future incidents, weather changes or stops. Initial laps without an observed pace retain the
 scheduled horizon.
 
@@ -56,8 +60,9 @@ inputs do not use race rank or old completed-crossing clocks. Production callers
 without a snapshot retain their existing strategy behavior.
 
 The rejoin forecast uses expected service, known team queue delay and the current
-pit-lane factor. It preserves rivals' committed running and pit delays, then
-projects their observed free pace under current control conditions. It prices
+pit-lane factor. It preserves rivals' committed running and pit delays, including
+a pending fitting cost in the first projected crossing, then projects their
+observed free pace under current control conditions. It prices
 the difference in one lap's dirty air between rejoining and staying out; the
 planner applies the existing weather multiplier. SC/VSC contribute no green
 traffic penalty. Known pit exits can create rejoin traffic, while terminal cars

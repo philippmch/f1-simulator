@@ -244,9 +244,11 @@ def _policy_path_outcome(driver, car, track, weather, strategy, tuning, profiles
             state.driver, state.car, track, state.current_tire, projected, lap, track.total_laps,
             sample_variation=False,
         )
+        # Forecast recurring pace from physics; a fitting cost delays this
+        # crossing once, without repeating on every remaining lap.
+        observed_running_pace = running
         if simulator.tire_warmup and state.fit_lap_pending:
             running += simulator._consume_tire_warmup(state)
-        observed_running_pace = running
         state.total_time += running
         state.last_lap_time = running + loss
         state.tire_laps += 1
