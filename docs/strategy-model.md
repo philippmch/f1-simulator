@@ -846,9 +846,10 @@ the wider passing opportunity does not override Overtake Mode eligibility.
 ### Overtaking-counter reporting
 
 The attempt counters record calls that reach the passing model. In the standard
-engine, the adjacent-car end-of-lap proximity gate runs first, so rejected
-larger gaps are not attempts. In the chronological engine, an attempt is
-recorded when a car catches its physical predecessor and the passing model is
+engine, the adjacent-car end-of-lap proximity gate runs first, including the
+wider restart window, so rejected larger gaps are not attempts. In the
+chronological engine, an attempt is recorded when a car catches its physical
+predecessor and the passing model is
 used; a compliant blue-flag yield is not an attempt. Success and contact counts
 describe those calls only, not every collision in the race.
 
@@ -864,6 +865,15 @@ After a successful pass, the next attacker faces its new immediate neighbour;
 it cannot skip a car by using the pre-pass order. Passing changes positions,
 while the existing clock reconciliation charges blocked running without
 removing elapsed race time.
+
+A failed attack leaves the attacker behind its defender through that crossing,
+including when contact gives the defender a larger sampled time loss. Contact
+losses enter each driver's elapsed and lap clocks once and are recorded
+separately in the event ledger. A faster provisional attacker then spends any
+remaining advantage waiting behind the defender; that blocked running also
+belongs to its completed lap. Following cars resolve their own battles against
+the resulting physical queue. This keeps contact delays consistent with the
+recorded passing outcome in both race engines.
 
 Critical weather and damage stops retain priority. A noncritical weather
 mismatch does not by itself justify a stop. Rain sets with completed wet-tyre

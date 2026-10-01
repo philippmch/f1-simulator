@@ -2470,7 +2470,6 @@ class RaceSimulator(InventoryStrategyMixin):
             overtake_mode_allowed: Immutable mode snapshot for this lap
         """
         incidents = 0
-        material_penalty_ids: set[str] = set()
         racing_states = [s for s in states if s.status == DriverStatus.RACING]
 
         # Sort by position to check if faster cars are stuck behind slower ones
@@ -2478,6 +2477,7 @@ class RaceSimulator(InventoryStrategyMixin):
 
         # On restart laps, process more potential battles (cars are bunched)
         max_battles = len(racing_states) if restart_lap else len(racing_states)
+        max_attempt_gap = OvertakingModel._maximum_attempt_gap(restart_lap)
 
         for i in range(1, min(max_battles, len(racing_states))):
             # Car behind (higher position number)
@@ -2489,9 +2489,9 @@ class RaceSimulator(InventoryStrategyMixin):
             # Negative means attacker has caught up and is faster
             gap = attacker.total_time - defender.total_time
 
-            # On restart, everyone is within ~1s, so always check
-            # Normal racing: skip if gap is too large
-            if not restart_lap and gap > 1.5:
+            # Only encounters inside the model's opportunity window count as
+            # attempts, including the wider window available after a restart.
+            if gap > max_attempt_gap:
                 continue
 
             # Gap for overtake purposes (how close they are)
@@ -2499,7 +2499,7 @@ class RaceSimulator(InventoryStrategyMixin):
 
             # On restart laps, drivers are more aggressive
             if restart_lap:
-                # Always attempt on restart (everyone is close)
+                # Always attempt within the eligible restart window.
                 pass
             elif not self.overtaking_model.should_attempt_overtake(
                 attacker.driver,
@@ -2571,10 +2571,9 @@ class RaceSimulator(InventoryStrategyMixin):
                         defender.driver.id: defender_loss,
                     },
                 ))
-                material_penalty_ids.update((attacker.driver.id, defender.driver.id))
-
-        if material_penalty_ids:
-            self._reorder_positions_after_material_penalties(states, material_penalty_ids)
+                # Contact losses do not override the sampled battle outcome.
+                # The lap's timing reconciliation charges any blocked running
+                # after later battles and personal incidents establish order.
 
         return incidents
 
