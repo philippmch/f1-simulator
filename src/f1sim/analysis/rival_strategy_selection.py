@@ -175,14 +175,32 @@ def _check_scenario_cohort(
         raise ValueError("the selected target has no runnable saved member")
 
 
+def _reported_number(value: int | float | Fraction) -> int | float:
+    """Convert exact weighted arithmetic only at the JSON reporting boundary."""
+    return _json_number(float(value) if isinstance(value, Fraction) else value)
+
+
+def _weighted_seed_points(
+    point_rows: Mapping[str, Mapping[str, list[int | float]]],
+    label: str,
+    weights: Mapping[str, Fraction],
+    count: int,
+) -> list[Fraction]:
+    return [
+        sum(weight * Fraction(point_rows[name][label][trial])
+            for name, weight in weights.items())
+        for trial in range(count)
+    ]
+
+
 def _score_table(
-    labels: list[str], point_rows: Mapping[str, list[float]], count: int,
+    labels: list[str], point_rows: Mapping[str, list[int | float | Fraction]], count: int,
 ) -> list[dict]:
     return [
         {
             "label": label,
-            "total_points": _json_number(sum(point_rows[label])),
-            "mean_points": _json_number(mean(point_rows[label])),
+            "total_points": _reported_number(sum(point_rows[label])),
+            "mean_points": _reported_number(mean(point_rows[label])),
             "trials": count,
         }
         for label in labels
@@ -190,8 +208,8 @@ def _score_table(
 
 
 def _paired_summary(
-    reference_values: list[int | float],
-    selected_values: list[int | float],
+    reference_values: list[int | float | Fraction],
+    selected_values: list[int | float | Fraction],
     *,
     differences: list | None = None,
 ):
@@ -210,8 +228,8 @@ def _paired_summary(
     if len(differences) > 1:
         standard_error = stdev(differences) / sqrt(len(differences))
     return {
-        "reference_mean_points": _json_number(mean(reference_values)),
-        "selected_mean_points": _json_number(mean(selected_values)),
+        "reference_mean_points": _reported_number(mean(reference_values)),
+        "selected_mean_points": _reported_number(mean(selected_values)),
         "mean_points_difference": _json_number(mean_difference),
         "points_difference_standard_error": (
             None if standard_error is None else _json_number(standard_error)
@@ -365,6 +383,7 @@ def evaluate_prepared_rival_pit_plan_selection(
     scenario_names = prepared["scenario_names"]
     supplied_weights = prepared["supplied_weights"]
     normalized_weights = prepared["normalized_weights"]
+    exact_weights = {name: Fraction(normalized_weights[name]) for name in scenario_names}
     scenario_plans = prepared["scenario_plans"]
     training_runners = prepared["training_runners"]
     validation_candidates = prepared["validation_candidates"]
@@ -394,14 +413,11 @@ def evaluate_prepared_rival_pit_plan_selection(
         training_results, labels, target_members, phase="training",
     )
 
-    weighted_training_points = {label: [] for label in labels}
+    weighted_training_points = {
+        label: _weighted_seed_points(training_points, label, exact_weights, training_count)
+        for label in labels
+    }
     scenario_score_tables = {}
-    for label in labels:
-        for trial in range(training_count):
-            weighted_training_points[label].append(sum(
-                normalized_weights[name] * training_points[name][label][trial]
-                for name in scenario_names
-            ))
     for name in scenario_names:
         scenario_score_tables[name] = {
             "weight": supplied_weights[name],
@@ -410,7 +426,7 @@ def evaluate_prepared_rival_pit_plan_selection(
         }
 
     training_scores = {
-        label: _json_number(mean(values))
+        label: mean(values)
         for label, values in weighted_training_points.items()
     }
     best_score = max(training_scores.values())
@@ -462,15 +478,13 @@ def evaluate_prepared_rival_pit_plan_selection(
     )
 
     no_change = selected_label == reference_label
-    weighted_reference = [
-        sum(normalized_weights[name] * validation_points[name][reference_label][trial]
-            for name in scenario_names)
-        for trial in range(validation_count)
-    ]
+    weighted_reference = _weighted_seed_points(
+        validation_points, reference_label, exact_weights, validation_count,
+    )
     if no_change:
         target_metrics = {
-            "reference_mean_points": _json_number(mean(weighted_reference)),
-            "selected_mean_points": _json_number(mean(weighted_reference)),
+            "reference_mean_points": _reported_number(mean(weighted_reference)),
+            "selected_mean_points": _reported_number(mean(weighted_reference)),
             "mean_points_difference": 0,
             "points_difference_standard_error": None,
             "paired_races": validation_count,
@@ -479,20 +493,12 @@ def evaluate_prepared_rival_pit_plan_selection(
         }
         validation_status = "no_change"
     else:
-        weighted_selected = [
-            sum(normalized_weights[name] * validation_points[name][selected_label][trial]
-                for name in scenario_names)
-            for trial in range(validation_count)
-        ]
+        weighted_selected = _weighted_seed_points(
+            validation_points, selected_label, exact_weights, validation_count,
+        )
         weighted_differences = [
-            sum(
-                Fraction(normalized_weights[name]) * (
-                    Fraction(validation_points[name][selected_label][trial])
-                    - Fraction(validation_points[name][reference_label][trial])
-                )
-                for name in scenario_names
-            )
-            for trial in range(validation_count)
+            selected - reference
+            for reference, selected in zip(weighted_reference, weighted_selected)
         ]
         target_metrics = _paired_summary(
             weighted_reference, weighted_selected, differences=weighted_differences,

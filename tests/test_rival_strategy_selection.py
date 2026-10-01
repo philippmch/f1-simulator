@@ -18,6 +18,8 @@ from f1sim.analysis.rival_strategy_selection import (
 )
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.output import Exporter
+from f1sim.simulation.race import DriverStatus
+from f1sim.simulation.race_points import POINTS_SYSTEM, points_for_classification
 
 _HARD_STOP = [{"lap": 2, "compound": "hard"}]
 
@@ -108,6 +110,183 @@ def _is_planned(runner):
 
 def _is_rival_no_stop(runner, rival="B"):
     return (runner.pit_plans or {}).get(rival) == []
+
+
+def _classification_runner(*, constructor=False):
+    """A full field lets controlled awards agree with finishing classifications."""
+    drivers = [
+        Driver(id=driver_id, name=driver_id,
+               team_id="T" if driver_id == "A" or constructor and driver_id == "B"
+               else f"team-{driver_id}")
+        for driver_id in "ABCDEFGHIJKL"
+    ]
+    return MonteCarloRunner(
+        drivers,
+        {driver.team_id: Car(team_id=driver.team_id, team_name=driver.team_id)
+         for driver in drivers},
+        Track(id="t", name="Controlled", country="T", total_laps=5, base_lap_time=90),
+        Weather(change_probability=0), seed=71,
+        starting_tires={driver.id: "medium" for driver in drivers},
+    )
+
+
+def _set_classification(race, target_awards):
+    positions = {points: position for position, points in POINTS_SYSTEM.items()}
+    available = set(range(1, len(race) + 1))
+    assigned = {}
+    for driver_id, points in target_awards.items():
+        position = positions[points] if points else max(available)
+        assert position in available
+        assigned[driver_id] = position
+        available.remove(position)
+    for row in race:
+        position = assigned.get(row.driver_id)
+        if position is None:
+            position = min(available)
+            available.remove(position)
+        row.position = position
+        row.status = DriverStatus.FINISHED
+        row.classified = True
+        row.laps_completed = 5
+        row.dnf_reason = None
+        row.total_time = 450 + position
+        row.gap_to_leader = position - 1
+        row.points_awarded = points_for_classification(position, True, 5, 5, True)
+    race.sort(key=lambda row: row.position)
+
+
+def _assert_validation_cohort(outcome, selected):
+    expected = ["reference"] if selected == "reference" else ["reference", selected]
+    assert all(list(rows) == expected for rows in outcome["validation_results"].values())
+    json.dumps(outcome["selection"], allow_nan=False)
+
+
+@pytest.mark.parametrize("reverse_scenarios", [False, True])
+@pytest.mark.parametrize("reference_tied", [False, True])
+def test_prepared_weighted_exact_ties_follow_candidate_policy(
+    monkeypatch, reverse_scenarios, reference_tied,
+):
+    plans = {"reference": None, "first_tied": [], "second_tied": deepcopy(_HARD_STOP)}
+    scenarios = {
+        "automatic": {"weight": 1, "pit_plans": {"B": None}},
+        "no_stop": {"weight": 1, "pit_plans": {"B": []}},
+        "planned": {"weight": 1, "pit_plans": {"B": deepcopy(_HARD_STOP)}},
+    }
+    if reverse_scenarios:
+        scenarios = dict(reversed(list(scenarios.items())))
+
+    def award(runner, result):
+        target_plan = (runner.pit_plans or {}).get("A")
+        label = "reference" if target_plan is None else (
+            "first_tied" if target_plan == [] else "second_tied"
+        )
+        rival_plan = (runner.pit_plans or {}).get("B")
+        index = 0 if rival_plan is None else 1 if rival_plan == [] else 2
+        awards = {
+            "reference": (0, 2, 10) if reference_tied else (0, 0, 0),
+            "first_tied": (0, 2, 10),
+            "second_tied": (0, 4, 8),
+        }
+        for race in result.race_results:
+            _set_classification(race, {"A": awards[label][index]})
+
+    _controlled_run(monkeypatch, award)
+    prepared = prepare_rival_pit_plan_selection(
+        _classification_runner(), 1, plans, "reference", scenarios, driver_id="A",
+        training_simulations=1, validation_simulations=1,
+    )
+    outcome = evaluate_prepared_rival_pit_plan_selection(prepared)
+    selection = outcome["selection"]
+    selected = "reference" if reference_tied else "first_tied"
+    assert selection["selected_label"] == selected
+    assert selection["tiebreak_applied"] == (
+        "reference_preferred_on_exact_tie" if reference_tied
+        else "first_plan_order_on_exact_tie"
+    )
+    assert [row["mean_points"] for row in selection["training_score_table"]][1:] == [4, 4]
+    _assert_validation_cohort(outcome, selected)
+
+
+@pytest.mark.parametrize("reverse_scenarios", [False, True])
+@pytest.mark.parametrize("tiny_direction, validation_direction", [(-1, -1), (1, 1), (1, -1)])
+def test_prepared_selection_preserves_tiny_real_weighted_advantage(
+    monkeypatch, reverse_scenarios, tiny_direction, validation_direction,
+):
+    scenarios = _scenarios(1, 1e-20)
+    if reverse_scenarios:
+        scenarios = dict(reversed(list(scenarios.items())))
+
+    def award(runner, result):
+        points = 25
+        direction = tiny_direction if runner.base_seed == 72 else validation_direction
+        if _is_rival_no_stop(runner):
+            points = (25 if _is_planned(runner) else 18) if direction > 0 else (
+                18 if _is_planned(runner) else 25
+            )
+        for race in result.race_results:
+            _set_classification(race, {"A": points})
+
+    _controlled_run(monkeypatch, award)
+    prepared = prepare_rival_pit_plan_selection(
+        _classification_runner(), 1, _driver_plans(), "reference", scenarios,
+        driver_id="A", training_simulations=1, validation_simulations=1,
+    )
+    outcome = evaluate_prepared_rival_pit_plan_selection(prepared)
+    selection = outcome["selection"]
+    selected = "planned" if tiny_direction > 0 else "reference"
+    assert selection["selected_label"] == selected
+    assert selection["tiebreak_applied"] == "unique_highest_weighted_training_mean"
+    assert [row["mean_points"] for row in selection["training_score_table"]] == [25, 25]
+    _assert_validation_cohort(outcome, selected)
+    metrics = selection["validation_target_metrics"]
+    if tiny_direction > 0:
+        expected_gain = float(7 * Fraction(prepared["normalized_weights"]["rival_no_stop"]))
+        assert metrics["reference_mean_points"] == metrics["selected_mean_points"] == 25
+        assert metrics["mean_points_difference"] == validation_direction * expected_gain
+        profile = metrics["points_outcome_profile"]
+        if validation_direction > 0:
+            assert profile["more_points_races"] == 1
+            assert profile["mean_points_gain_when_ahead"] == expected_gain
+        else:
+            assert profile["fewer_points_races"] == 1
+            assert profile["mean_points_loss_when_behind"] == expected_gain
+    else:
+        assert metrics["mean_points_difference"] == 0
+        assert metrics["points_outcome_profile"] is None
+
+
+def test_prepared_constructor_weights_sum_members_and_multiple_seeds(monkeypatch):
+    def award(runner, result):
+        for trial, race in enumerate(result.race_results):
+            if _is_planned(runner):
+                awards = (25, 18) if trial == 0 else (10, 8)
+                if _is_rival_no_stop(runner, "C"):
+                    awards = (15, 12) if trial == 0 else (6, 4)
+            else:
+                awards = (2, 1)
+            _set_classification(race, dict(zip(("A", "B"), awards)))
+
+    _controlled_run(monkeypatch, award)
+    prepared = prepare_rival_pit_plan_selection(
+        _classification_runner(constructor=True), 1, _constructor_plans(), "reference",
+        _scenarios(3, 1, constructor=True), constructor_id="T",
+        training_simulations=2, validation_simulations=2,
+    )
+    outcome = evaluate_prepared_rival_pit_plan_selection(prepared)
+    selection = outcome["selection"]
+    assert selection["selected_label"] == "planned"
+    assert selection["tiebreak_applied"] == "unique_highest_weighted_training_mean"
+    assert selection["training_score_table"] == [
+        {"label": "reference", "total_points": 6, "mean_points": 3, "trials": 2},
+        {"label": "planned", "total_points": 55, "mean_points": 27.5, "trials": 2},
+    ]
+    metrics = selection["validation_target_metrics"]
+    assert metrics["reference_mean_points"] == 3
+    assert metrics["selected_mean_points"] == 27.5
+    assert metrics["mean_points_difference"] == 24.5
+    assert metrics["points_difference_standard_error"] == 11.5
+    assert metrics["points_outcome_profile"]["more_points_races"] == 2
+    _assert_validation_cohort(outcome, "planned")
 
 
 def test_fractional_paired_summary_preserves_near_equal_seed_differences():

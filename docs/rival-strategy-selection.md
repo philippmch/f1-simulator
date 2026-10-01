@@ -110,6 +110,14 @@ scenarios; scenario-level standard errors are not treated as independent. The
 report also gives the per-scenario comparisons. Exact training ties prefer the
 reference, then use candidate order from the plans file.
 
+Weighted training decisions and validation aggregates retain exact arithmetic
+on the normalized floating-point weights: each stored normalized weight is
+treated as its exact binary value, multiplied by target points, and summed
+before comparing candidates. Scores are converted to ordinary JSON numbers
+only for reporting. Two displayed means can therefore look equal while one
+candidate has a real, very small advantage; the exact-tie policy applies only
+when the retained weighted scores are equal.
+
 Validation metrics also include paired points outcome profiles. Each
 per-scenario profile summarizes the more/equal/fewer outcomes and conditional
 gain and loss magnitudes within that scenario. The weighted profile is computed
