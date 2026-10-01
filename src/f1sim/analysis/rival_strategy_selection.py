@@ -6,7 +6,7 @@ from fractions import Fraction
 from math import isfinite, sqrt
 from numbers import Integral, Real
 from statistics import mean, stdev
-from typing import Any
+from typing import Any, Callable
 
 from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.analysis.paired_comparison import _snapshot
@@ -17,14 +17,15 @@ from f1sim.analysis.strategy_comparison import (
     _validate_pit_plans,
 )
 from f1sim.analysis.strategy_selection import (
+    _check_cancelled,
     _json_number,
     _phase_points,
     _points_outcome_profile,
     _points_outcome_profile_from_differences,
     _positive_int,
     _run_variants,
-    _validate_labels,
     _validate_seed_ranges,
+    validate_pit_plan_selection_request,
 )
 from f1sim.simulation.randomness import validate_rng_policy
 
@@ -65,6 +66,21 @@ def _validate_rival_scenarios(rival_scenarios: Mapping) -> tuple[list[str], dict
         plans = scenario["pit_plans"]
         if not isinstance(plans, Mapping):
             raise ValueError(f"pit_plans for rival scenario {name!r} must be a mapping")
+        for driver_id, instructions in plans.items():
+            if not isinstance(driver_id, str) or not driver_id.strip():
+                raise ValueError(
+                    f"rival pit plan IDs for scenario {name!r} must be nonempty strings",
+                )
+            if instructions is not None and not isinstance(instructions, list):
+                raise ValueError(
+                    f"rival plan for driver {driver_id!r} must be a list or null",
+                )
+            if instructions is not None:
+                # Check all input-independent instruction rules before dashboard
+                # capacity admission. Loaded roster, distance, and inventory are
+                # checked later against every weather runner.
+                _validate_pit_plans({driver_id: instructions}, None,
+                                    total_laps=None, tire_inventory=None)
         rival_plans[name] = deepcopy(dict(plans))
 
     scale = max(supplied_weights.values())
@@ -78,6 +94,11 @@ def _validate_rival_scenarios(rival_scenarios: Mapping) -> tuple[list[str], dict
     if any(value == 0 for value in normalized.values()):
         raise ValueError("rival scenario weights are too far apart to normalize safely")
     return names, supplied_weights, {"plans": rival_plans, "weights": normalized}
+
+
+def validate_rival_pit_plan_selection_request(rival_scenarios: Mapping) -> None:
+    """Validate rival labels, weights, and override shapes without loaded inputs."""
+    _validate_rival_scenarios(rival_scenarios)
 
 
 def _apply_rival_overrides(
@@ -199,44 +220,37 @@ def _paired_summary(
     }
 
 
-def evaluate_saved_rival_pit_plan_selection(
-    path,
+def prepare_rival_pit_plan_selection(
+    runner,
+    source_simulations: int,
     plans: Mapping[str, Any],
     reference_label: str,
     rival_scenarios: Mapping,
     *,
     driver_id: str | None = None,
     constructor_id: str | None = None,
-    scenario: str | None = None,
     training_simulations: int = 100,
     validation_simulations: int = 100,
-    parallel: bool = False,
-    max_workers: int | None = None,
     rng_policy: str | None = None,
+    cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
-    """Select a saved target plan across rival assumptions, then validate it.
-
-    Every candidate is run on every rival scenario within one shared training
-    seed cohort. The selected candidate and reference are then run on a later,
-    disjoint cohort. Weighted points and paired differences are combined within
-    each seed before averaging or calculating standard errors.
-    """
+    """Freeze all rival assumptions and phase runners before spending trials."""
+    source_count = _positive_int(source_simulations, "source_simulations")
     training_count = _positive_int(training_simulations, "training_simulations")
     validation_count = _positive_int(validation_simulations, "validation_simulations")
-    if max_workers is not None:
-        max_workers = _positive_int(max_workers, "max_workers")
     if rng_policy is not None:
         rng_policy = validate_rng_policy(rng_policy)
-    labels = _validate_labels(plans, reference_label)
-    if (driver_id is None) == (constructor_id is None):
-        raise ValueError("exactly one driver_id or constructor_id is required")
+    labels = validate_pit_plan_selection_request(
+        plans, reference_label, driver_id=driver_id, constructor_id=constructor_id,
+        training_simulations=training_count, validation_simulations=validation_count,
+    )
     scenario_names, supplied_weights, scenario_data = _validate_rival_scenarios(
         rival_scenarios,
     )
     normalized_weights = scenario_data["weights"]
     scenario_plans = scenario_data["plans"]
+    candidate_definitions = deepcopy(dict(plans))
 
-    runner, saved_count = _load_saved_runner(path, scenario)
     if driver_id is not None:
         target = next((driver for driver in runner.drivers if driver.id == driver_id), None)
         if target is None:
@@ -262,26 +276,33 @@ def evaluate_saved_rival_pit_plan_selection(
         driver.id for driver in runner.drivers if driver.team_id in runner.cars
     }
     ranges = _validate_seed_ranges(
-        int(runner.base_seed), saved_count, training_count, validation_count,
+        int(runner.base_seed), source_count, training_count, validation_count,
     )
     train_start = ranges["training"]["first_seed"]
     valid_start = ranges["validation"]["first_seed"]
 
-    # Validate every rival override and target-plan combination, and construct
-    # every phase runner, before the first Monte Carlo trial is spent.
+    # Validate each override against this loaded roster, target, track, and
+    # inventory, then freeze every candidate and phase runner before any run.
     base_variants = {}
+    plans_by_rival_scenario = {}
     for scenario_name in scenario_names:
+        _check_cancelled(cancel_requested)
         base_plans = _apply_rival_overrides(
             runner, scenario_plans[scenario_name],
             target_members=target_member_set, runnable_ids=runnable_ids,
         )
-        base_variants[scenario_name] = _build_pit_plan_variant_runners(
-            runner, plans,
+        variants = _build_pit_plan_variant_runners(
+            runner, candidate_definitions,
             driver_id=driver_id,
             constructor_id=constructor_id,
             rng_policy=rng_policy,
             base_pit_plans=base_plans,
         )
+        base_variants[scenario_name] = variants
+        plans_by_rival_scenario[scenario_name] = {
+            label: deepcopy(getattr(variant, "pit_plans", None) or {})
+            for label, variant in variants.items()
+        }
 
     training_runners = {
         scenario_name: {
@@ -297,23 +318,78 @@ def evaluate_saved_rival_pit_plan_selection(
         }
         for scenario_name in scenario_names
     }
+    _check_cancelled(cancel_requested)
+    return {
+        "labels": labels,
+        "reference_label": reference_label,
+        "driver_id": driver_id,
+        "constructor_id": constructor_id,
+        "target_members": target_members,
+        "training_count": training_count,
+        "validation_count": validation_count,
+        "train_start": train_start,
+        "valid_start": valid_start,
+        "ranges": ranges,
+        "scenario_names": scenario_names,
+        "supplied_weights": supplied_weights,
+        "normalized_weights": normalized_weights,
+        "scenario_plans": scenario_plans,
+        "plans": candidate_definitions,
+        "plans_by_rival_scenario": plans_by_rival_scenario,
+        "training_runners": training_runners,
+        "validation_candidates": validation_candidates,
+    }
 
-    training_results = {
-        scenario_name: _run_variants(
+
+def evaluate_prepared_rival_pit_plan_selection(
+    prepared: Mapping[str, Any],
+    *,
+    parallel: bool = False,
+    max_workers: int | None = None,
+    cancel_requested: Callable[[], bool] | None = None,
+) -> dict[str, Any]:
+    """Evaluate frozen rivals with shared seed cohorts and disjoint validation."""
+    if max_workers is not None:
+        max_workers = _positive_int(max_workers, "max_workers")
+    _check_cancelled(cancel_requested)
+    labels = prepared["labels"]
+    reference_label = prepared["reference_label"]
+    driver_id = prepared["driver_id"]
+    constructor_id = prepared["constructor_id"]
+    target_members = prepared["target_members"]
+    training_count = prepared["training_count"]
+    validation_count = prepared["validation_count"]
+    train_start = prepared["train_start"]
+    valid_start = prepared["valid_start"]
+    ranges = prepared["ranges"]
+    scenario_names = prepared["scenario_names"]
+    supplied_weights = prepared["supplied_weights"]
+    normalized_weights = prepared["normalized_weights"]
+    scenario_plans = prepared["scenario_plans"]
+    training_runners = prepared["training_runners"]
+    validation_candidates = prepared["validation_candidates"]
+
+    training_results = {}
+    for scenario_name in scenario_names:
+        _check_cancelled(cancel_requested)
+        training_results[scenario_name] = _run_variants(
             training_runners[scenario_name], training_count,
             parallel=parallel, max_workers=max_workers,
+            cancel_requested=cancel_requested,
         )
-        for scenario_name in scenario_names
-    }
+    _check_cancelled(cancel_requested)
+
     training_points = {}
     training_coverage = {}
     for scenario_name in scenario_names:
+        _check_cancelled(cancel_requested)
         training_points[scenario_name], training_coverage[scenario_name] = _phase_points(
             training_results[scenario_name], labels, reference_label,
             expected_runner=training_runners[scenario_name][reference_label],
             expected_seed=train_start, expected_count=training_count,
             target_members=target_members,
         )
+    _check_cancelled(cancel_requested)
     _check_scenario_cohort(
         training_results, labels, target_members, phase="training",
     )
@@ -360,22 +436,27 @@ def evaluate_saved_rival_pit_plan_selection(
         }
         for name in scenario_names
     }
-    validation_results = {
-        name: _run_variants(
-            validation_runners[name], validation_count,
+    validation_results = {}
+    for scenario_name in scenario_names:
+        _check_cancelled(cancel_requested)
+        validation_results[scenario_name] = _run_variants(
+            validation_runners[scenario_name], validation_count,
             parallel=parallel, max_workers=max_workers,
+            cancel_requested=cancel_requested,
         )
-        for name in scenario_names
-    }
+    _check_cancelled(cancel_requested)
+
     validation_points = {}
     validation_coverage = {}
     for name in scenario_names:
+        _check_cancelled(cancel_requested)
         validation_points[name], validation_coverage[name] = _phase_points(
             validation_results[name], validation_labels, reference_label,
             expected_runner=validation_runners[name][reference_label],
             expected_seed=valid_start, expected_count=validation_count,
             target_members=target_members,
         )
+    _check_cancelled(cancel_requested)
     _check_scenario_cohort(
         validation_results, validation_labels, target_members, phase="validation",
     )
@@ -486,8 +567,7 @@ def evaluate_saved_rival_pit_plan_selection(
         "methodology_limits": [
             "Scenario weights are supplied assumptions, not probabilities learned from data.",
             "This evaluates outcomes under saved simulator inputs and does not establish "
-            "real-world "
-            "calibration, causality, or a globally optimal strategy.",
+            "real-world calibration, causality, or a globally optimal strategy.",
             "Matching qualifying and seed records do not freeze later race events across plans.",
             "Repeating the same request reuses the same validation seed range.",
         ],
@@ -497,3 +577,42 @@ def evaluate_saved_rival_pit_plan_selection(
         "training_results": training_results,
         "validation_results": validation_results,
     }
+
+
+def evaluate_saved_rival_pit_plan_selection(
+    path,
+    plans: Mapping[str, Any],
+    reference_label: str,
+    rival_scenarios: Mapping,
+    *,
+    driver_id: str | None = None,
+    constructor_id: str | None = None,
+    scenario: str | None = None,
+    training_simulations: int = 100,
+    validation_simulations: int = 100,
+    parallel: bool = False,
+    max_workers: int | None = None,
+    rng_policy: str | None = None,
+) -> dict[str, Any]:
+    """Load saved inputs, prepare every assumption, and evaluate the frozen set."""
+    validate_pit_plan_selection_request(
+        plans, reference_label, driver_id=driver_id, constructor_id=constructor_id,
+        training_simulations=training_simulations,
+        validation_simulations=validation_simulations,
+    )
+    validate_rival_pit_plan_selection_request(rival_scenarios)
+    if max_workers is not None:
+        max_workers = _positive_int(max_workers, "max_workers")
+    if rng_policy is not None:
+        rng_policy = validate_rng_policy(rng_policy)
+    runner, saved_count = _load_saved_runner(path, scenario)
+    prepared = prepare_rival_pit_plan_selection(
+        runner, saved_count, plans, reference_label, rival_scenarios,
+        driver_id=driver_id, constructor_id=constructor_id,
+        training_simulations=training_simulations,
+        validation_simulations=validation_simulations,
+        rng_policy=rng_policy,
+    )
+    return evaluate_prepared_rival_pit_plan_selection(
+        prepared, parallel=parallel, max_workers=max_workers,
+    )

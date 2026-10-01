@@ -11,6 +11,32 @@ This measures outcomes under the saved simulator inputs. It does not establish
 that a plan is optimal, calibrated to real races, or better under unmodeled
 competitor strategies, weather, or model assumptions.
 
+## Use the dashboard
+
+Enable pit-plan candidate selection, choose a driver or constructor, and enter
+the candidate plans and training/validation trial counts. Open **Rival strategy
+assumptions** and enable weighted rival scenarios. Add named scenarios with
+positive relative weights, then add any rival-driver overrides. Drivers omitted
+from a scenario inherit their saved plan; the controls also offer automatic,
+no elective stops, and custom own-lap stops. Target members cannot be rivals.
+
+Each weather has a maximum workload of 1,000 races, including source trials,
+every candidate in every rival scenario for training, and both reference and
+winner in every rival scenario for validation. The editor shows this worst-case
+budget even when training later chooses the reference itself.
+
+Completed results show the frozen rival assumptions and weights, the weighted
+training choice, and fresh validation both in aggregate and by rival scenario.
+Editing the form does not change completed evidence. Training and validation
+JSON downloads use the existing replay format: each saved scenario is named by
+a JSON pair of rival-scenario name and candidate label. The file's
+`rival_scenario_index` lists these keys for the replay command's `--scenario`
+option. Each entry retains its simulation inputs, engine and cohort metadata.
+The full dashboard JSON also preserves the results grouped by rival scenario.
+The HTML report includes the weighted and per-scenario
+evidence. Existing race and statistics charts continue to describe the source
+run, rather than a synthetic weighted race.
+
 ## Run a selection
 
 Start with saved statistics or a saved comparison JSON containing simulation

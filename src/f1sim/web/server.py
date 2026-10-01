@@ -14,11 +14,24 @@ from importlib.resources import files
 from threading import Event
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictInt, StrictStr, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    StrictBool,
+    StrictFloat,
+    StrictInt,
+    StrictStr,
+    model_validator,
+)
 
 from f1sim.analysis import MonteCarloRunner, parse_scenario_labels, scenario_weather_from_label
 from f1sim.analysis.cancellation import SimulationCancelled
 from f1sim.analysis.paired_comparison import paired_comparison_statistics
+from f1sim.analysis.rival_strategy_selection import (
+    evaluate_prepared_rival_pit_plan_selection,
+    prepare_rival_pit_plan_selection,
+    validate_rival_pit_plan_selection_request,
+)
 from f1sim.analysis.scenarios import validate_weather_mode
 from f1sim.analysis.strategy_selection import (
     evaluate_prepared_pit_plan_selection,
@@ -27,7 +40,10 @@ from f1sim.analysis.strategy_selection import (
 )
 from f1sim.data import CurrentSeasonDataError, CurrentSeasonDataLoader
 from f1sim.models import Weather, WeatherCondition
-from f1sim.output.comparison import render_comparison_report
+from f1sim.output.comparison import (
+    render_comparison_report,
+    render_rival_strategy_selection_report,
+)
 from f1sim.output.timing import finite_time, suspension_statistics
 from f1sim.simulation.execution import (
     validate_race_engine,
@@ -65,6 +81,15 @@ _CLIENT_DISCONNECTED_STATUS = 499
 _CLIENT_DISCONNECTED_DETAIL = "Client disconnected before the simulation completed."
 
 
+class DashboardRivalScenario(BaseModel):
+    """One strict weighted assumption for the target-plan selector."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    weight: StrictInt | StrictFloat
+    pit_plans: dict[StrictStr, Any]
+
+
 class DashboardPitPlanSelectionRequest(BaseModel):
     """Strict candidate selection request accepted alongside a dashboard run."""
 
@@ -76,6 +101,7 @@ class DashboardPitPlanSelectionRequest(BaseModel):
     constructor_id: StrictStr | None = None
     training_simulations: StrictInt
     validation_simulations: StrictInt
+    rival_scenarios: dict[StrictStr, DashboardRivalScenario] | None = None
 
     @model_validator(mode="after")
     def validate_selection_request(self) -> DashboardPitPlanSelectionRequest:
@@ -88,6 +114,11 @@ class DashboardPitPlanSelectionRequest(BaseModel):
             validation_simulations=self.validation_simulations,
             max_count=1000,
         )
+        if self.rival_scenarios is not None:
+            validate_rival_pit_plan_selection_request({
+                name: scenario.model_dump(mode="python")
+                for name, scenario in self.rival_scenarios.items()
+            })
         return self
 
 
@@ -175,10 +206,11 @@ def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
     if selection is not None:
         if request.compare_automatic:
             raise ValueError("pit_plan_selection cannot be combined with compare_automatic")
+        rival_count = len(selection.rival_scenarios or {}) or 1
         work = (
             request.simulations
-            + len(selection.plans) * selection.training_simulations
-            + 2 * selection.validation_simulations
+            + rival_count * len(selection.plans) * selection.training_simulations
+            + 2 * rival_count * selection.validation_simulations
         )
         if work > _MAX_DASHBOARD_SIMULATIONS:
             raise ValueError(
@@ -653,7 +685,10 @@ def _dashboard_request_metadata(
         "compare_automatic": compare_automatic,
     }
     if selection := _pit_plan_selection_request(request.pit_plan_selection):
-        metadata["pit_plan_selection"] = selection.model_dump(mode="json")
+        selection_metadata = selection.model_dump(mode="json")
+        if selection.rival_scenarios is None:
+            selection_metadata.pop("rival_scenarios", None)
+        metadata["pit_plan_selection"] = selection_metadata
     return metadata
 
 
@@ -763,16 +798,33 @@ def run_dashboard_simulation(
                 pit_plans=pit_plans,
                 copy_inputs=True,
             )
-            prepared = prepare_pit_plan_selection(
-                runner,
-                request.simulations,
-                selection_request.plans,
-                selection_request.reference_label,
-                driver_id=selection_request.driver_id,
-                constructor_id=selection_request.constructor_id,
-                training_simulations=selection_request.training_simulations,
-                validation_simulations=selection_request.validation_simulations,
-            )
+            if selection_request.rival_scenarios is None:
+                prepared = prepare_pit_plan_selection(
+                    runner,
+                    request.simulations,
+                    selection_request.plans,
+                    selection_request.reference_label,
+                    driver_id=selection_request.driver_id,
+                    constructor_id=selection_request.constructor_id,
+                    training_simulations=selection_request.training_simulations,
+                    validation_simulations=selection_request.validation_simulations,
+                )
+            else:
+                prepared = prepare_rival_pit_plan_selection(
+                    runner,
+                    request.simulations,
+                    selection_request.plans,
+                    selection_request.reference_label,
+                    {
+                        name: rival.model_dump(mode="python")
+                        for name, rival in selection_request.rival_scenarios.items()
+                    },
+                    driver_id=selection_request.driver_id,
+                    constructor_id=selection_request.constructor_id,
+                    training_simulations=selection_request.training_simulations,
+                    validation_simulations=selection_request.validation_simulations,
+                    cancel_requested=cancel_requested,
+                )
             _check_dashboard_cancellation(cancel_requested)
             selection_contexts[scenario.name] = (scenario, runner, prepared)
             scenario_weather[scenario.name] = scenario.weather
@@ -822,32 +874,70 @@ def run_dashboard_simulation(
         _check_dashboard_cancellation(cancel_requested)
 
         if selection_request is not None:
-            evaluated = evaluate_prepared_pit_plan_selection(
-                prepared,
-                parallel=request.parallel,
-                max_workers=effective_max_workers,
-                cancel_requested=cancel_requested,
-            )
-            _check_dashboard_cancellation(cancel_requested)
-            strategy_selections[scenario.name] = {
-                "selection": evaluated["selection"],
-                "plans": deepcopy(prepared["plans"]),
-                "source": {
-                    "seed": result.seed,
-                    "num_simulations": result.num_simulations,
-                    "simulation_inputs": deepcopy(result.input_snapshot),
-                },
-                "training": deepcopy(_summarize_scenario_results(
-                    evaluated["training_results"],
-                )),
-                "validation": deepcopy(_summarize_scenario_results(
-                    evaluated["validation_results"],
-                )),
-                "validation_report_html": render_comparison_report(
-                    evaluated["validation_results"],
-                    reference_scenario=selection_request.reference_label,
-                ),
-            }
+            if selection_request.rival_scenarios is None:
+                evaluated = evaluate_prepared_pit_plan_selection(
+                    prepared,
+                    parallel=request.parallel,
+                    max_workers=effective_max_workers,
+                    cancel_requested=cancel_requested,
+                )
+                _check_dashboard_cancellation(cancel_requested)
+                strategy_selections[scenario.name] = {
+                    "selection": evaluated["selection"],
+                    "plans": deepcopy(prepared["plans"]),
+                    "source": {
+                        "seed": result.seed,
+                        "num_simulations": result.num_simulations,
+                        "simulation_inputs": deepcopy(result.input_snapshot),
+                    },
+                    "training": deepcopy(_summarize_scenario_results(
+                        evaluated["training_results"],
+                    )),
+                    "validation": deepcopy(_summarize_scenario_results(
+                        evaluated["validation_results"],
+                    )),
+                    "validation_report_html": render_comparison_report(
+                        evaluated["validation_results"],
+                        reference_scenario=selection_request.reference_label,
+                    ),
+                }
+            else:
+                evaluated = evaluate_prepared_rival_pit_plan_selection(
+                    prepared,
+                    parallel=request.parallel,
+                    max_workers=effective_max_workers,
+                    cancel_requested=cancel_requested,
+                )
+                _check_dashboard_cancellation(cancel_requested)
+                target_plans = deepcopy(prepared["plans"])
+                strategy_selections[scenario.name] = {
+                    "selection": evaluated["selection"],
+                    "plans": target_plans,
+                    "plans_by_rival_scenario": deepcopy(
+                        prepared["plans_by_rival_scenario"],
+                    ),
+                    "source": {
+                        "seed": result.seed,
+                        "num_simulations": result.num_simulations,
+                        "simulation_inputs": deepcopy(result.input_snapshot),
+                    },
+                    "training_by_rival_scenario": {
+                        rival_name: deepcopy(_summarize_scenario_results(variants))
+                        for rival_name, variants in evaluated["training_results"].items()
+                    },
+                    "validation_by_rival_scenario": {
+                        rival_name: deepcopy(_summarize_scenario_results(variants))
+                        for rival_name, variants in evaluated["validation_results"].items()
+                    },
+                    "validation_report_html": render_rival_strategy_selection_report({
+                        "selection": evaluated["selection"],
+                        "target_plans": target_plans,
+                        "report_context": {
+                            "track_name": track.name,
+                            "race_engine": runner.race_engine,
+                        },
+                    }),
+                }
             _check_dashboard_cancellation(cancel_requested)
 
         if request.compare_automatic:

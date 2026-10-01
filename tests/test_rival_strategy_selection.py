@@ -3,13 +3,18 @@
 import json
 from copy import deepcopy
 from fractions import Fraction
+from threading import Event
 
 import pytest
 
+from f1sim.analysis.cancellation import SimulationCancelled
 from f1sim.analysis.montecarlo import MonteCarloRunner
+from f1sim.analysis.replay import _load_saved_runner
 from f1sim.analysis.rival_strategy_selection import (
     _paired_summary,
+    evaluate_prepared_rival_pit_plan_selection,
     evaluate_saved_rival_pit_plan_selection,
+    prepare_rival_pit_plan_selection,
 )
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.output import Exporter
@@ -474,3 +479,90 @@ def test_seed_overflow_and_plan_preflight_happen_before_runs(tmp_path, monkeypat
             training_simulations=1, validation_simulations=1,
         )
     assert calls == []
+
+
+def test_saved_adapter_and_prepared_in_memory_selector_have_matching_evidence(tmp_path):
+    path = _saved(tmp_path)
+    scenarios = _scenarios(3, 1)
+    runner, saved_count = _load_saved_runner(path)
+
+    saved = evaluate_saved_rival_pit_plan_selection(
+        path, _driver_plans(), "reference", scenarios, driver_id="A",
+        training_simulations=1, validation_simulations=1,
+    )
+    prepared = prepare_rival_pit_plan_selection(
+        runner, saved_count, _driver_plans(), "reference", scenarios,
+        driver_id="A", training_simulations=1, validation_simulations=1,
+    )
+    in_memory = evaluate_prepared_rival_pit_plan_selection(prepared)
+
+    assert in_memory["selection"] == saved["selection"]
+    for phase in ("training_results", "validation_results"):
+        assert list(in_memory[phase]) == list(saved[phase])
+        for scenario_name in saved[phase]:
+            assert list(in_memory[phase][scenario_name]) == list(saved[phase][scenario_name])
+            for label in saved[phase][scenario_name]:
+                left = in_memory[phase][scenario_name][label]
+                right = saved[phase][scenario_name][label]
+                assert left.seed == right.seed
+                assert left.num_simulations == right.num_simulations
+                assert left.input_snapshot == right.input_snapshot
+
+
+def test_prepared_rival_plans_keep_inherit_automatic_and_empty_distinct(tmp_path):
+    path = _saved(tmp_path)
+    runner, saved_count = _load_saved_runner(path)
+    plans = _driver_plans()
+    scenarios = {
+        "inherit": {"weight": 1, "pit_plans": {}},
+        "automatic": {"weight": 1, "pit_plans": {"B": None}},
+        "no_stop": {"weight": 1, "pit_plans": {"B": []}},
+    }
+
+    prepared = prepare_rival_pit_plan_selection(
+        runner, saved_count, plans, "reference", scenarios,
+        driver_id="A", training_simulations=1, validation_simulations=1,
+    )
+
+    assert prepared["plans"] == plans
+    assert prepared["plans_by_rival_scenario"]["inherit"]["reference"] == {
+        "B": _HARD_STOP,
+    }
+    assert prepared["plans_by_rival_scenario"]["automatic"]["reference"] == {}
+    assert prepared["plans_by_rival_scenario"]["no_stop"]["reference"] == {"B": []}
+    assert prepared["plans_by_rival_scenario"]["inherit"]["planned"] == {
+        "A": _HARD_STOP,
+        "B": _HARD_STOP,
+    }
+
+
+def test_prepared_rival_evaluation_stops_between_runs_when_cancelled(tmp_path, monkeypatch):
+    path = _saved(tmp_path)
+    runner, saved_count = _load_saved_runner(path)
+    prepared = prepare_rival_pit_plan_selection(
+        runner, saved_count, _driver_plans(), "reference", _scenarios(),
+        driver_id="A", training_simulations=1, validation_simulations=1,
+    )
+    cancelled = Event()
+    original_run = MonteCarloRunner.run
+    calls = []
+
+    def cancel_after_first_run(self, count, parallel=False, max_workers=None, *,
+                               cancel_requested=None):
+        assert cancel_requested is not None
+        calls.append((self.base_seed, self.pit_plans))
+        result = original_run(
+            self, count, parallel=parallel, max_workers=max_workers,
+            cancel_requested=cancel_requested,
+        )
+        cancelled.set()
+        return result
+
+    monkeypatch.setattr(MonteCarloRunner, "run", cancel_after_first_run)
+    with pytest.raises(SimulationCancelled):
+        evaluate_prepared_rival_pit_plan_selection(
+            prepared, cancel_requested=cancelled.is_set,
+        )
+
+    assert len(calls) == 1
+    assert calls[0][0] == prepared["train_start"]
