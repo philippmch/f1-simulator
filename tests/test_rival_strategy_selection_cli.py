@@ -67,6 +67,47 @@ def _saved(tmp_path):
     return path
 
 
+@pytest.mark.parametrize("gap,tied,expected", [
+    (0, True, "0.000 (exact tie)"),
+    (0, False, "below numeric reporting precision"),
+    (7e-20, False, "7.000e-20"),
+    (None, None, "not recorded"),
+    (0, 1, "not recorded"),
+    (True, False, "not recorded"),
+    (float("nan"), False, "not recorded"),
+    (1, True, "not recorded"),
+])
+def test_cli_shortfall_preserves_exact_tie_evidence(gap, tied, expected):
+    assert rival_selection_cli._training_shortfall({
+        "label": "reference", "mean_points_behind_selected": gap, "tied_for_best": tied,
+    }, "planned") == expected
+    assert rival_selection_cli._training_shortfall({
+        "label": "planned", "mean_points_behind_selected": 0, "tied_for_best": True,
+    }, "planned") == "0.000 (selected)"
+
+
+def test_cli_keeps_tiny_profile_quantities_visible_and_unknown_reason_unavailable():
+    text = rival_selection_cli._points_outcome_profile_text({
+        "paired_races": 2, "more_points_races": 1, "equal_points_races": 0,
+        "fewer_points_races": 1, "mean_points_gain_when_ahead": 7e-20,
+        "mean_points_loss_when_behind": 3e-20,
+    })
+    assert "7.000e-20 points" in text
+    assert "3.000e-20 points" in text
+    assert rival_selection_cli._selection_number(0) == "0.000"
+    assert rival_selection_cli._selection_number(-1e-20) == "-1.000e-20"
+    assert rival_selection_cli._selection_number(float("inf")) == "not recorded"
+    assert rival_selection_cli._selection_number(True) == "not recorded"
+    assert rival_selection_cli._selection_reason(None) == "selection reason not recorded"
+    assert rival_selection_cli._selection_reason("unknown") == "selection reason not recorded"
+    assert "exact training tie preferred the reference" in rival_selection_cli._selection_reason(
+        "reference_preferred_on_exact_tie",
+    )
+    assert "exact training tie used the first candidate" in rival_selection_cli._selection_reason(
+        "first_plan_order_on_exact_tie",
+    )
+
+
 def _write_inputs(tmp_path, scenarios):
     plans_path = tmp_path / "target-plans.json"
     plans_path.write_text(json.dumps({
@@ -110,6 +151,7 @@ def test_cli_exports_weighted_selection_and_each_scenario_for_replay(
 
     printed = capsys.readouterr().out
     assert "Weighted training mean points:" in printed
+    assert "mean points behind selected:" in printed
     assert "supplied 1, normalized 0.250" in printed
     assert "supplied 3, normalized 0.750" in printed
     assert (

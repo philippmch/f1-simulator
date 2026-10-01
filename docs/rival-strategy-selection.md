@@ -118,6 +118,31 @@ only for reporting. Two displayed means can therefore look equal while one
 candidate has a real, very small advantage; the exact-tie policy applies only
 when the retained weighted scores are equal.
 
+Normalization scales supplied weights by their maximum and sums the scaled
+values with `math.fsum`. Reordering the same rival scenarios therefore preserves
+the normalized weights and exact selection decision; their supplied order is
+still used for display. The accepted weights remain floating-point values,
+including their binary representation, rather than reinterpreted decimal ratios.
+Weights that become zero during normalization are rejected.
+
+Weighted aggregate `training_score_table` rows add `mean_points_behind_selected`
+and `tied_for_best`. The shortfall is the exact best mean minus that candidate's
+exact mean, converted to a JSON number only after subtraction. The boolean
+records exact equality with the best mean. Per-rival raw score tables keep their
+existing fields. The report and CLI show the actual selection reason: a unique
+highest weighted mean, reference preference on an exact tie, or candidate order
+on an exact tie. They never infer a tie from equal displayed means.
+
+A positive shortfall smaller than the minimum reportable float can appear as
+JSON zero with `tied_for_best: false`; this means below numeric reporting
+precision, not an exact tie. Missing legacy evidence is shown as not recorded.
+Nonzero report and CLI quantities use scientific notation when three decimal
+places would otherwise hide them, including weights, validation differences,
+standard errors, and conditional gains or losses. Training shortfalls describe
+the cohort used to choose the plan; they are not fresh validation estimates or
+calibrated advantages. Only the separate held-out cohort provides the reported
+validation comparison.
+
 Validation metrics also include paired points outcome profiles. Each
 per-scenario profile summarizes the more/equal/fewer outcomes and conditional
 gain and loss magnitudes within that scenario. The weighted profile is computed

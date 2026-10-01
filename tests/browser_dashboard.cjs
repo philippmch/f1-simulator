@@ -65,8 +65,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         const validationLastSeed = validationFirstSeed + request.validation_simulations - 1;
         const candidateRows = labels.map((label, index) => ({
           label,
-          total_points: (index + 1) * 200,
-          mean_points: (index + 1) * 4,
+          total_points: (label === selectedLabel ? 8 : 4) * request.training_simulations,
+          mean_points: label === selectedLabel ? 8 : 4,
           trials: request.training_simulations,
         }));
         const trainingScenarios = Object.create(null);
@@ -83,6 +83,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
           selected_label: selectedLabel,
           reference_label: referenceLabel,
           selection_status: selectedLabel === referenceLabel ? 'no_change' : 'selected',
+          tiebreak_applied: 'unique_highest_training_mean',
           training_score_table: candidateRows,
           seed_ranges: {
             training: {first_seed: trainingFirstSeed, last_seed: trainingLastSeed,
@@ -118,6 +119,11 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
           const rivals = Object.entries(request.rival_scenarios);
           const totalWeight = rivals.reduce((sum, [, item]) => sum + item.weight, 0);
           metadata.method = 'weighted_rival_scenario_training_then_disjoint_seed_validation';
+          metadata.tiebreak_applied = 'unique_highest_weighted_training_mean';
+          metadata.training_score_table = candidateRows.map(row => ({...row,
+            mean_points_behind_selected: 8 - row.mean_points,
+            tied_for_best: row.label === selectedLabel,
+          }));
           metadata.rival_scenarios = rivals.map(([name, item]) => ({
             name, weight: item.weight, normalized_weight: item.weight / totalWeight,
             rival_pit_plans: item.pit_plans,
@@ -1819,6 +1825,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       assert(selectionMarkup.includes('&lt;img src=x onerror=alert(1)&gt;'));
       assert(!selectionMarkup.includes('<img src=x onerror=alert(1)>'));
       assert.equal(await page.locator('#pitPlanSelectionResults img').count(), 0);
+      assert.equal(await page.locator('#pitPlanSelectionResults [aria-label="Training scores for Dry weather"] thead th').count(), 3,
+        'Ordinary training evidence must retain its three-column table');
       assert.equal(await page.locator('#pitPlanSelectionResults [role="region"]').count() >= 3, true);
 
       const selectionFormState = await page.evaluate(() => ({
@@ -1960,6 +1968,10 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       assert((await weightedResult.innerText()).includes('Weighted fresh validation'));
       assert((await weightedResult.innerText()).includes('not calibrated probabilities'));
       assert((await weightedResult.innerText()).includes('0.333333'));
+      assert((await weightedResult.innerText()).includes('Unique highest weighted training score.'));
+      const weightedTraining = weightedResult.locator('[aria-label="Training scores for Dry weather"]');
+      assert.equal(await weightedTraining.locator('thead th').count(), 4);
+      assert((await weightedResult.innerText()).includes('Displayed means are rounded'));
       assert.equal(await weightedResult.locator('img').count(), 0);
       await weightedResult.locator('details').first().locator('summary').click();
       assert((await weightedResult.innerText()).includes('per-scenario evidence'));
@@ -1977,6 +1989,90 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       }
       assert(!(await weightedResult.innerText()).includes('Training scores not recorded.'));
       const frozenWeighted = await page.evaluate(() => JSON.stringify(simResults.strategy_selections.dry));
+      // Use supplied exact evidence even when displayed means are identical. Never reconstruct a winner.
+      const renderEvidenceCase = async patch => page.evaluate(serialized => {
+        const patch = JSON.parse(serialized);
+        const selection = simResults.strategy_selections.dry.selection;
+        Object.assign(selection, patch);
+        renderPitPlanSelectionResults(simResults);
+        return document.getElementById('pitPlanSelectionResults').innerText;
+      }, JSON.stringify(patch));
+      const weightedSelection = JSON.parse(frozenWeighted).selection;
+      const selected = weightedSelection.selected_label;
+      const reference = weightedSelection.reference_label;
+      const evidenceRow = (label, gap, tied) => ({label,
+        mean_points: typeof gap === 'number' && gap >= 0 ? 8 - gap : 8,
+        trials: weightedSelection.seed_ranges.training.trials,
+        mean_points_behind_selected: gap, tied_for_best: tied});
+      let evidenceText = await renderEvidenceCase({training_score_table: [
+        evidenceRow(reference, 1e-12, false), evidenceRow(selected, 0, true),
+      ]});
+      assert(evidenceText.includes('1.000e-12'));
+      assert.deepEqual(await weightedTraining.locator('tbody tr td:first-of-type').allTextContents(), ['8.000', '8.000']);
+      for (const [reason, phrase, winner] of [
+        ['reference_preferred_on_exact_tie', 'Fixed reference preferred on an exact training tie.', reference],
+        ['first_plan_order_on_exact_tie', 'Candidate order decided an exact training tie.', selected],
+      ]) {
+        // A candidate-order tie excludes the reference from the best score.
+        const rows = reason === 'first_plan_order_on_exact_tie'
+          ? [evidenceRow(reference, 1, false), evidenceRow(selected, 0, true), evidenceRow('other tied candidate', 0, true)]
+          : [evidenceRow(reference, 0, true), evidenceRow(selected, 0, true)];
+        evidenceText = await renderEvidenceCase({selected_label: winner, tiebreak_applied: reason,
+          training_score_table: rows});
+        assert(evidenceText.includes(phrase));
+        assert(evidenceText.includes('0.000 (exact tie)'));
+      }
+      evidenceText = await renderEvidenceCase({selected_label: selected,
+        training_score_table: [evidenceRow(reference, 0, false), evidenceRow(selected, 0, true)]});
+      assert(evidenceText.includes('Below numeric reporting precision'));
+      assert(!evidenceText.includes('0.000 (exact tie)'));
+      for (const badRow of [
+        {label: reference, mean_points: 8, trials: 50}, evidenceRow(reference, -1, false),
+        evidenceRow(reference, '0', true), evidenceRow(reference, 0, 'true'),
+        evidenceRow(reference, 1, true), evidenceRow(reference, null, false),
+      ]) {
+        await renderEvidenceCase({training_score_table: [badRow, evidenceRow(selected, 0, true)]});
+        assert.equal(await weightedTraining.locator('tbody tr').first().locator('td').nth(1).innerText(), 'Not recorded');
+      }
+      evidenceText = await renderEvidenceCase({tiebreak_applied: '<img src=x onerror=alert(1)>'});
+      assert(evidenceText.includes('Selection reason: Not recorded.'));
+      const tinyMetrics = {...weightedSelection.validation_target_metrics,
+        selected_mean_points: 5 - 1e-12,
+        mean_points_difference: -1e-12, points_difference_standard_error: 2e-13,
+        points_outcome_profile: {...weightedSelection.validation_target_metrics.points_outcome_profile,
+          mean_points_gain_when_ahead: 3e-14, mean_points_loss_when_behind: 4e-15}};
+      evidenceText = await renderEvidenceCase({validation_status: 'evaluated',
+        tiebreak_applied: 'unique_highest_weighted_training_mean',
+        training_score_table: [evidenceRow(reference, 1e-12, false), evidenceRow(selected, 0, true)],
+        validation_target_metrics: tinyMetrics,
+        validation_scenario_metrics: Object.fromEntries(weightedSelection.rival_scenarios.map(item => [item.name, tinyMetrics]))});
+      await weightedResult.locator('details').evaluateAll(nodes => nodes.forEach(node => { node.open = true; }));
+      evidenceText = await weightedResult.innerText();
+      for (const value of ['-1.000e-12 pts', '2.000e-13 pts', '3.000e-14 pts', '4.000e-15 pts']) {
+        assert(evidenceText.includes(value), `Tiny evidence must stay visible: ${value}`);
+        for (const detail of await weightedResult.locator('details').all()) {
+          assert((await detail.innerText()).includes(value), `Every rival must retain tiny evidence: ${value}`);
+        }
+      }
+      evidenceText = await renderEvidenceCase({validation_target_metrics: {...tinyMetrics,
+        selected_mean_points: 5 + 1e-12, mean_points_difference: 1e-12}});
+      assert(evidenceText.includes('+1.000e-12 pts'));
+      assert.deepEqual(await page.evaluate(() => [selectionNumber(0), selectionNumber(NaN),
+        selectionPoints(Infinity), selectionSignedNumber('0')]),
+      ['0.000', 'Not recorded', 'Not recorded', 'Not recorded']);
+      for (const width of [390, 1440]) {
+        await page.setViewportSize({width, height: 900});
+        await weightedResult.locator('details').evaluateAll(nodes => nodes.forEach(node => { node.open = true; }));
+        assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+          `Small nonzero evidence overflows at ${width}px`);
+        if (process.env.F1SIM_SCREENSHOTS) await page.screenshot({
+          path: path.join(process.env.F1SIM_SCREENSHOTS, `selection-small-evidence-${width}.png`), fullPage: true,
+        });
+      }
+      await page.evaluate(serialized => {
+        simResults.strategy_selections.dry = JSON.parse(serialized);
+        renderPitPlanSelectionResults(simResults);
+      }, frozenWeighted);
       await page.locator('#tab-race').click();
       await weightedRows.first().locator('.pit-rival-weight').fill('99');
       await weightedRows.first().locator('.pit-rival-name').fill('Edited after run');
@@ -1993,6 +2089,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         const entry = JSON.parse(frozenWeighted);
         if (kind === 'evidence') {
           assert.deepEqual(saved.selection, entry.selection);
+          assert.equal(saved.selection.tiebreak_applied, 'unique_highest_weighted_training_mean');
+          assert(saved.selection.training_score_table.every(row =>
+            typeof row.mean_points_behind_selected === 'number' && typeof row.tied_for_best === 'boolean'));
           assert.deepEqual(saved.plans_by_rival_scenario, entry.plans_by_rival_scenario);
           assert.equal(saved.selection.rival_scenarios[0].weight, 1);
         } else {

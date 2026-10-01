@@ -1250,9 +1250,38 @@ def _selection_report_number(value: object) -> str:
     try:
         if (not isinstance(value, Real) or isinstance(value, bool) or not isfinite(value)):
             return "Not recorded"
-        return f"{float(value):.3f}"
+        number = float(value)
+        fixed = f"{number:.3f}"
+        return f"{number:.3e}" if number != 0 and float(fixed) == 0 else fixed
     except (TypeError, ValueError, OverflowError):
         return "Not recorded"
+
+
+def _selection_report_shortfall(row: dict, selected: object) -> str:
+    gap = row.get("mean_points_behind_selected")
+    tied = row.get("tied_for_best")
+    formatted = _selection_report_number(gap)
+    if formatted == "Not recorded" or type(tied) is not bool or gap < 0:
+        return "Not recorded"
+    if tied:
+        if gap != 0:
+            return "Not recorded"
+        return "0.000 (selected)" if row.get("label") == selected else "0.000 (exact tie)"
+    return "Below numeric reporting precision" if gap == 0 else formatted
+
+
+def _selection_report_reason(value: object) -> str:
+    return {
+        "unique_highest_weighted_training_mean": (
+            "It had the unique highest weighted training mean."
+        ),
+        "reference_preferred_on_exact_tie": "An exact training tie preferred the reference.",
+        "first_plan_order_on_exact_tie": (
+            "An exact training tie used the first candidate in plan order."
+        ),
+    }.get(value, "Selection reason not recorded.") if isinstance(value, str) else (
+        "Selection reason not recorded."
+    )
 
 
 def _selection_report_standard_error(value: object, paired_races: object) -> str:
@@ -1343,9 +1372,10 @@ def render_rival_strategy_selection_report(manifest: dict) -> str:
     training_rows = "".join(
         f'<tr><th scope="row">{_text(row.get("label", "Not recorded"))}</th>'
         f'<td>{_selection_report_number(row.get("mean_points"))}</td>'
+        f'<td>{_selection_report_shortfall(row, selected)}</td>'
         f'<td>{_text(row.get("trials", "Not recorded"))}</td></tr>'
         for row in training if isinstance(row, dict)
-    ) or '<tr><td colspan="3">No training scores recorded.</td></tr>'
+    ) or '<tr><td colspan="4">No training scores recorded.</td></tr>'
     scenario_training = selection.get("training_scenario_score_tables", {})
     scenario_training = scenario_training if isinstance(scenario_training, dict) else {}
     rival_training_sections = []
@@ -1547,10 +1577,15 @@ Reference: {_text(reference)}. Selected and frozen: {_text(selected)}.</p>
 <th scope="col">Target pit plan</th></tr></thead><tbody>{''.join(plan_rows)}</tbody></table></div>
 <h2>Training scores</h2>
 <p>All values in this section use the training cohort only. Weighted mean points are the
-per-seed target points averaged after weighting rival scenarios within each seed.</p>
+per-seed target points averaged after weighting rival scenarios within each seed.
+Shortfalls are computed from exact scores before numeric reporting; equal displayed means
+do not establish an exact tie. A positive shortfall below float precision is labeled
+below numeric reporting precision. These training shortfalls are not fresh validation estimates.</p>
+<p>{_text(_selection_report_reason(selection.get("tiebreak_applied")))}</p>
 <div class="table-wrap context" tabindex="0" role="region" aria-label="Weighted training scores">
 <table><thead><tr><th scope="col">Candidate plan</th>
 <th scope="col">Weighted mean target points</th>
+<th scope="col">Mean points behind selected</th>
 <th scope="col">Training trials</th></tr></thead><tbody>{training_rows}</tbody></table></div>
 {rival_training_html}
 <h2>Rival assumptions</h2>

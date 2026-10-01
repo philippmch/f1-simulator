@@ -3,7 +3,7 @@
 from collections.abc import Mapping
 from copy import deepcopy
 from fractions import Fraction
-from math import isfinite, sqrt
+from math import fsum, isfinite, sqrt
 from numbers import Integral, Real
 from statistics import mean, stdev
 from typing import Any, Callable
@@ -87,7 +87,7 @@ def _validate_rival_scenarios(rival_scenarios: Mapping) -> tuple[list[str], dict
     scaled = [float(supplied_weights[name] / scale) for name in names]
     if any(value == 0 for value in scaled):
         raise ValueError("rival scenario weights are too far apart to normalize safely")
-    total = sum(scaled)
+    total = fsum(scaled)
     if not isfinite(total) or total <= 0:
         raise ValueError("rival scenario weights could not be normalized")
     normalized = {name: scaled[index] / total for index, name in enumerate(names)}
@@ -538,6 +538,10 @@ def evaluate_prepared_rival_pit_plan_selection(
             )
 
     training_table = _score_table(labels, weighted_training_points, training_count)
+    for row in training_table:
+        score = training_scores[row["label"]]
+        row["mean_points_behind_selected"] = _reported_number(best_score - score)
+        row["tied_for_best"] = score == best_score
     selection = {
         "schema_version": 1,
         "method": "weighted_rival_scenario_training_then_disjoint_seed_validation",

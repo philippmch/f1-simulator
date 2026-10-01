@@ -2,6 +2,8 @@
 
 import re
 
+import pytest
+
 from f1sim.output.comparison import (
     _selection_report_standard_error,
     render_rival_strategy_selection_report,
@@ -115,6 +117,69 @@ def test_report_shows_frozen_constructor_training_and_heldout_evidence_safely():
     assert hrefs == ["rival_selection_abc_scenario_00_validation.html",
                      "rival_selection_abc_scenario_00_training.json"]
     assert all("/" not in href and "\\" not in href and ":" not in href for href in hrefs)
+
+
+@pytest.mark.parametrize("gap,tied,expected", [
+    (0, True, "0.000 (exact tie)"),
+    (0, False, "Below numeric reporting precision"),
+    (7e-20, False, "7.000e-20"),
+    (None, None, "Not recorded"),
+    (0, 1, "Not recorded"),
+    (True, False, "Not recorded"),
+    (float("nan"), False, "Not recorded"),
+    (-1, False, "Not recorded"),
+    (1, True, "Not recorded"),
+])
+def test_report_training_shortfall_uses_exact_flag_and_rejects_invalid_evidence(
+    gap, tied, expected,
+):
+    manifest = _manifest()
+    selection = manifest["selection"]
+    selection["training_score_table"] = [{
+        "label": "reference <unsafe>", "mean_points": 25, "trials": 1,
+        "mean_points_behind_selected": gap, "tied_for_best": tied,
+    }, {
+        "label": selection["selected_label"], "mean_points": 25, "trials": 1,
+        "mean_points_behind_selected": 0, "tied_for_best": True,
+    }]
+    selection["tiebreak_applied"] = "unique_highest_weighted_training_mean"
+    report = render_rival_strategy_selection_report(manifest)
+    assert "Mean points behind selected" in report
+    assert f"<td>{expected}</td>" in report
+    assert "0.000 (selected)" in report
+    assert "unique highest weighted training mean" in report
+    assert "reference &lt;unsafe&gt;" in report
+
+
+@pytest.mark.parametrize("reason,expected", [
+    ("reference_preferred_on_exact_tie", "An exact training tie preferred the reference."),
+    ("first_plan_order_on_exact_tie",
+     "An exact training tie used the first candidate in plan order."),
+    ("unknown <script>", "Selection reason not recorded."),
+    (None, "Selection reason not recorded."),
+])
+def test_report_selection_reason_and_legacy_rows(reason, expected):
+    manifest = _manifest()
+    manifest["selection"]["tiebreak_applied"] = reason
+    report = render_rival_strategy_selection_report(manifest)
+    assert expected in report
+    assert "<td>Not recorded</td>" in report
+    assert "unknown <script>" not in report
+
+
+def test_report_keeps_small_weights_validation_differences_and_gains_visible():
+    manifest = _manifest()
+    selection = manifest["selection"]
+    selection["rival_scenarios"][0]["normalized_weight"] = 1e-20
+    metrics = selection["validation_target_metrics"]
+    metrics["mean_points_difference"] = -7e-20
+    metrics["points_difference_standard_error"] = 2e-20
+    metrics["points_outcome_profile"]["mean_points_gain_when_ahead"] = 7e-20
+    report = render_rival_strategy_selection_report(manifest)
+    assert "<td>1.000e-20</td>" in report
+    assert "<td>-7.000e-20</td>" in report
+    assert "2.000e-20 sample SE" in report
+    assert "<td>7.000e-20</td>" in report
 
 
 def test_identity_report_explains_zero_by_definition_without_an_alternative_se():

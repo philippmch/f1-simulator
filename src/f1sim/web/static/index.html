@@ -437,6 +437,7 @@ input[type="number"] { min-width: 80px; width: 80px; }
 
 .pit-selection-result-table td:last-child { white-space: nowrap; }
 .pit-selection-quiet { color: var(--text-muted); font-size: 0.7rem; }
+.pit-selection-result-table .pit-selection-quiet { display: block; margin-top: 2px; }
 
 @media (max-width: 600px) {
   .pit-selection-candidate-heading {
@@ -6213,17 +6214,38 @@ function selectionRecord(value) {
 }
 
 function selectionNumber(value, digits = 3) {
-  return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : 'Not recorded';
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 'Not recorded';
+  const fixed = value.toFixed(digits);
+  return value !== 0 && Number(fixed) === 0 ? value.toExponential(digits) : fixed;
 }
 
 function selectionPoints(value) {
   return typeof value === 'number' && Number.isFinite(value)
-    ? `${value.toFixed(3)} pts` : 'Not recorded';
+    ? `${selectionNumber(value)} pts` : 'Not recorded';
 }
 
 function selectionSignedNumber(value) {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 'Not recorded';
-  return `${value > 0 ? '+' : ''}${value.toFixed(3)} pts`;
+  return `${value > 0 ? '+' : ''}${selectionNumber(value)} pts`;
+}
+
+function selectionTrainingShortfall(row, selectedLabel) {
+  const gap = row.mean_points_behind_selected;
+  const tied = row.tied_for_best;
+  if (typeof gap !== 'number' || !Number.isFinite(gap) || gap < 0
+      || typeof tied !== 'boolean' || (tied && gap !== 0)) return 'Not recorded';
+  if (gap === 0 && !tied) return 'Below numeric reporting precision';
+  if (tied && row.label !== selectedLabel) return '0.000 (exact tie)';
+  return selectionNumber(gap);
+}
+
+function selectionReason(reason) {
+  switch (reason) {
+    case 'unique_highest_weighted_training_mean': return 'Unique highest weighted training score.';
+    case 'reference_preferred_on_exact_tie': return 'Fixed reference preferred on an exact training tie.';
+    case 'first_plan_order_on_exact_tie': return 'Candidate order decided an exact training tie.';
+    default: return 'Selection reason: Not recorded.';
+  }
 }
 
 function selectionCount(value) {
@@ -6269,7 +6291,7 @@ function selectionPointsOutcomeProfile(metrics, identity) {
     return '<p class="pit-selection-quiet">Held-out points outcome profile not recorded.</p>';
   }
   const conditional = (value, countKey, emptyLabel) => {
-    if (typeof value === 'number' && Number.isFinite(value)) return `${value.toFixed(3)} pts`;
+    if (typeof value === 'number' && Number.isFinite(value)) return selectionPoints(value);
     if (value === null && profile[countKey] === 0) return emptyLabel;
     return 'Not recorded';
   };
@@ -6345,6 +6367,7 @@ function renderPitPlanSelectionResults(data) {
   const source = selectionRecord(entry.source);
   const sourceSeed = Number.isInteger(source.seed) ? source.seed : 'Not recorded';
   const sourceTrials = Number.isInteger(source.num_simulations) ? source.num_simulations : 'Not recorded';
+  const weighted = Array.isArray(selection.rival_scenarios);
   const scoreRows = Array.isArray(selection.training_score_table)
     ? selection.training_score_table.filter(row => row && typeof row === 'object').map(row => {
       const label = typeof row.label === 'string' ? row.label : 'Not recorded';
@@ -6352,7 +6375,7 @@ function renderPitPlanSelectionResults(data) {
         label === selectedLabel ? 'Chosen on training data' : '',
         label === referenceLabel ? 'Fixed reference' : '',
       ].filter(Boolean).join(' · ');
-      return `<tr><th scope="row">${escapeHtml(label)}${roles ? `<span class="pit-selection-quiet">${escapeHtml(roles)}</span>` : ''}</th><td>${selectionNumber(row.mean_points)}</td><td>${selectionCount(row.trials)}</td></tr>`;
+      return `<tr><th scope="row">${escapeHtml(label)}${roles ? `<span class="pit-selection-quiet">${escapeHtml(roles)}</span>` : ''}</th><td>${selectionNumber(row.mean_points)}</td>${weighted ? `<td>${selectionTrainingShortfall(row, selectedLabel)}</td>` : ''}<td>${selectionCount(row.trials)}</td></tr>`;
     }).join('') : '';
   const planLabels = identity ? [selectedLabel || referenceLabel]
     : [selectedLabel, referenceLabel];
@@ -6386,8 +6409,9 @@ function renderPitPlanSelectionResults(data) {
     ${renderPitRivalEvidence(selection, identity)}
     <h4>${Array.isArray(selection.rival_scenarios) ? 'Weighted training choice' : 'Training choice'}</h4>
     <p>Candidate means below are training scores used to choose the plan. They are separate from held-out validation estimates.</p>
+    ${weighted ? `<p>${selectionReason(selection.tiebreak_applied)} Displayed means are rounded; shortfalls and exact tie flags describe only the training cohort, not independent or calibrated advantages.</p>` : ''}
     <div class="pit-selection-result-table-wrap" tabindex="0" role="region" aria-label="Training scores for ${escapeHtml(weatherLabel)} weather">
-      <table class="matrix-table pit-selection-result-table"><thead><tr><th scope="col">Candidate plan</th><th scope="col">Mean target points</th><th scope="col">Training trials</th></tr></thead><tbody>${scoreRows || '<tr><td colspan="3">Training scores not recorded.</td></tr>'}</tbody></table>
+      <table class="matrix-table pit-selection-result-table"><thead><tr><th scope="col">Candidate plan</th><th scope="col">Mean target points</th>${weighted ? '<th scope="col">Mean points behind selected</th>' : ''}<th scope="col">Training trials</th></tr></thead><tbody>${scoreRows || `<tr><td colspan="${weighted ? 4 : 3}">Training scores not recorded.</td></tr>`}</tbody></table>
     </div>
     <h4>Frozen plans</h4>
     <div class="pit-selection-result-table-wrap" tabindex="0" role="region" aria-label="Frozen selected and reference plans">

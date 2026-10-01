@@ -3,6 +3,7 @@
 import json
 from copy import deepcopy
 from fractions import Fraction
+from itertools import permutations
 from threading import Event
 
 import pytest
@@ -204,6 +205,11 @@ def test_prepared_weighted_exact_ties_follow_candidate_policy(
         else "first_plan_order_on_exact_tie"
     )
     assert [row["mean_points"] for row in selection["training_score_table"]][1:] == [4, 4]
+    assert [row["tied_for_best"] for row in selection["training_score_table"]] == [
+        reference_tied, True, True,
+    ]
+    assert all(row["mean_points_behind_selected"] == 0
+               for row in selection["training_score_table"][1:])
     _assert_validation_cohort(outcome, selected)
 
 
@@ -237,6 +243,12 @@ def test_prepared_selection_preserves_tiny_real_weighted_advantage(
     assert selection["selected_label"] == selected
     assert selection["tiebreak_applied"] == "unique_highest_weighted_training_mean"
     assert [row["mean_points"] for row in selection["training_score_table"]] == [25, 25]
+    expected_gap = float(7 * Fraction(prepared["normalized_weights"]["rival_no_stop"]))
+    for row in selection["training_score_table"]:
+        assert row["tied_for_best"] is (row["label"] == selected)
+        assert row["mean_points_behind_selected"] == (
+            0 if row["label"] == selected else expected_gap
+        )
     _assert_validation_cohort(outcome, selected)
     metrics = selection["validation_target_metrics"]
     if tiny_direction > 0:
@@ -253,6 +265,64 @@ def test_prepared_selection_preserves_tiny_real_weighted_advantage(
     else:
         assert metrics["mean_points_difference"] == 0
         assert metrics["points_outcome_profile"] is None
+
+
+@pytest.mark.parametrize("scenario_order", list(permutations(("a", "b", "c"))))
+def test_normalization_order_preserves_exact_tie_and_validation_cohort(monkeypatch, scenario_order):
+    definitions = {
+        "a": {"weight": 1, "pit_plans": {"B": None}},
+        "b": {"weight": 2, "pit_plans": {"B": []}},
+        "c": {"weight": 5, "pit_plans": {"B": deepcopy(_HARD_STOP)}},
+    }
+
+    def award(runner, result):
+        rival = (runner.pit_plans or {}).get("B")
+        index = 0 if rival is None else 1 if rival == [] else 2
+        points = ((1, 2, 0) if _is_planned(runner) else (0, 0, 1))[index]
+        for race in result.race_results:
+            _set_classification(race, {"A": points})
+
+    _controlled_run(monkeypatch, award)
+    prepared = prepare_rival_pit_plan_selection(
+        _classification_runner(), 1, _driver_plans(), "reference",
+        {name: definitions[name] for name in scenario_order}, driver_id="A",
+        training_simulations=1, validation_simulations=1,
+    )
+    assert prepared["normalized_weights"] == {"a": 1 / 8, "b": 2 / 8, "c": 5 / 8}
+    outcome = evaluate_prepared_rival_pit_plan_selection(prepared)
+    selection = outcome["selection"]
+    assert selection["selected_label"] == "reference"
+    assert selection["tiebreak_applied"] == "reference_preferred_on_exact_tie"
+    assert [row["name"] for row in selection["rival_scenarios"]] == list(scenario_order)
+    assert all(row["mean_points"] == 5 / 8 and row["tied_for_best"]
+               and row["mean_points_behind_selected"] == 0
+               for row in selection["training_score_table"])
+    assert all("tied_for_best" not in row
+               for table in selection["training_scenario_score_tables"].values()
+               for row in table["scores"])
+    _assert_validation_cohort(outcome, "reference")
+
+
+def test_positive_exact_shortfall_below_float_precision_is_not_a_tie(monkeypatch):
+    def award(runner, result):
+        for index, race in enumerate(result.race_results):
+            points = int(_is_planned(runner) and _is_rival_no_stop(runner) and index == 0)
+            _set_classification(race, {"A": points})
+
+    _controlled_run(monkeypatch, award)
+    prepared = prepare_rival_pit_plan_selection(
+        _classification_runner(), 1, _driver_plans(), "reference", _scenarios(1, 5e-324),
+        driver_id="A", training_simulations=2, validation_simulations=1,
+    )
+    outcome = evaluate_prepared_rival_pit_plan_selection(prepared)
+    selection = outcome["selection"]
+    assert selection["selected_label"] == "planned"
+    assert selection["tiebreak_applied"] == "unique_highest_weighted_training_mean"
+    assert [row["mean_points"] for row in selection["training_score_table"]] == [0, 0]
+    assert [row["mean_points_behind_selected"]
+            for row in selection["training_score_table"]] == [0, 0]
+    assert [row["tied_for_best"] for row in selection["training_score_table"]] == [False, True]
+    _assert_validation_cohort(outcome, "planned")
 
 
 def test_prepared_constructor_weights_sum_members_and_multiple_seeds(monkeypatch):
@@ -277,8 +347,10 @@ def test_prepared_constructor_weights_sum_members_and_multiple_seeds(monkeypatch
     assert selection["selected_label"] == "planned"
     assert selection["tiebreak_applied"] == "unique_highest_weighted_training_mean"
     assert selection["training_score_table"] == [
-        {"label": "reference", "total_points": 6, "mean_points": 3, "trials": 2},
-        {"label": "planned", "total_points": 55, "mean_points": 27.5, "trials": 2},
+        {"label": "reference", "total_points": 6, "mean_points": 3, "trials": 2,
+         "mean_points_behind_selected": 24.5, "tied_for_best": False},
+        {"label": "planned", "total_points": 55, "mean_points": 27.5, "trials": 2,
+         "mean_points_behind_selected": 0, "tied_for_best": True},
     ]
     metrics = selection["validation_target_metrics"]
     assert metrics["reference_mean_points"] == 3

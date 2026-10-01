@@ -32,15 +32,56 @@ def _phase_simulations(value: str) -> int:
     return count
 
 
+def _selection_number(value: object) -> str:
+    try:
+        if not isinstance(value, Real) or isinstance(value, bool) or not math.isfinite(value):
+            return "not recorded"
+        number = float(value)
+        fixed = f"{number:.3f}"
+        return f"{number:.3e}" if number != 0 and float(fixed) == 0 else fixed
+    except (TypeError, ValueError, OverflowError):
+        return "not recorded"
+
+
+def _training_shortfall(row: dict, selected: object) -> str:
+    gap = row.get("mean_points_behind_selected")
+    tied = row.get("tied_for_best")
+    formatted = _selection_number(gap)
+    if formatted == "not recorded" or type(tied) is not bool or gap < 0:
+        return "not recorded"
+    if tied:
+        if gap != 0:
+            return "not recorded"
+        return "0.000 (selected)" if row.get("label") == selected else "0.000 (exact tie)"
+    return "below numeric reporting precision" if gap == 0 else formatted
+
+
+def _selection_reason(value: object) -> str:
+    reasons = {
+        "unique_highest_weighted_training_mean": "it had the unique highest weighted training mean",
+        "reference_preferred_on_exact_tie": "an exact training tie preferred the reference",
+        "first_plan_order_on_exact_tie": (
+            "an exact training tie used the first candidate in the plans file"
+        ),
+    }
+    return reasons.get(value, "selection reason not recorded") if isinstance(value, str) else (
+        "selection reason not recorded"
+    )
+
+
 def _points_outcome_profile_text(profile: dict | None, *, identity: bool = False) -> str:
     if identity:
         return "not independently estimated; the selected plan is the reference"
     if not isinstance(profile, dict):
         return "not recorded"
-    gain = profile["mean_points_gain_when_ahead"]
-    loss = profile["mean_points_loss_when_behind"]
-    gain_text = "none (no more-points seeds)" if gain is None else f"{gain:.3f} points"
-    loss_text = "none (no fewer-points seeds)" if loss is None else f"{loss:.3f} points"
+    gain = profile.get("mean_points_gain_when_ahead")
+    loss = profile.get("mean_points_loss_when_behind")
+    gain_text = (
+        "none (no more-points seeds)" if gain is None else f"{_selection_number(gain)} points"
+    )
+    loss_text = (
+        "none (no fewer-points seeds)" if loss is None else f"{_selection_number(loss)} points"
+    )
     return (
         f"more/equal/fewer {profile['more_points_races']}/"
         f"{profile['equal_points_races']}/{profile['fewer_points_races']} of "
@@ -116,7 +157,7 @@ def _print_validation_scenarios(
     print("Per-scenario held-out comparisons:")
     for label, variants in validation_results.items():
         normalized = normalized_weights[label]
-        print(f"  {label} (normalized weight {normalized:.3f})")
+        print(f"  {label} (normalized weight {_selection_number(normalized)})")
         if selected == reference:
             print(
                 "    identity vs reference: 0 points; no separate standard error estimated; "
@@ -133,10 +174,12 @@ def _print_validation_scenarios(
             )
         error = statistic.get("points_difference_standard_error")
         error_text = (
-            "SE not estimated with one paired trial" if error is None else f"SE {error:.3f}"
+            "SE not estimated with one paired trial" if error is None
+            else f"SE {_selection_number(error)}"
         )
         print(
-            f"    selected-minus-reference mean {statistic['mean_points_difference']:.3f} points; "
+            "    selected-minus-reference mean "
+            f"{_selection_number(statistic['mean_points_difference'])} points; "
             f"{error_text}; {statistic['paired_races']} paired races",
         )
         profile = selection["validation_scenario_metrics"][label].get(
@@ -235,17 +278,16 @@ def main() -> int:
             weight_text = str(definition["weight"])
             print(
                 f"  {label}: supplied {weight_text}, "
-                f"normalized {normalized_weights[label]:.3f}",
+                f"normalized {_selection_number(normalized_weights[label])}",
             )
         print("Weighted training mean points:")
         for row in selection["training_score_table"]:
-            print(f"  {row['label']}: {row['mean_points']:.3f}")
-        if selection["tiebreak_applied"] == "reference_preferred_on_exact_tie":
-            tie_text = "an exact training tie preferred the reference"
-        elif selection["tiebreak_applied"] == "first_plan_order_on_exact_tie":
-            tie_text = "an exact training tie used the first candidate in the plans file"
-        else:
-            tie_text = "it had the highest weighted training mean"
+            print(
+                f"  {row['label']}: {_selection_number(row.get('mean_points'))}; "
+                "mean points behind selected: "
+                f"{_training_shortfall(row, selection['selected_label'])}",
+            )
+        tie_text = _selection_reason(selection.get("tiebreak_applied"))
         print(f"Selected and frozen: {selection['selected_label']} because {tie_text}.")
         metrics = selection["validation_target_metrics"]
         if selection["validation_status"] == "no_change":
@@ -264,11 +306,11 @@ def main() -> int:
             uncertainty = (
                 "standard error not estimated with one validation trial"
                 if standard_error is None
-                else f"sample standard error {standard_error:.3f}"
+                else f"sample standard error {_selection_number(standard_error)}"
             )
             print(
                 f"Weighted held-out selected-minus-reference mean: "
-                f"{metrics['mean_points_difference']:.3f} points; {uncertainty}. "
+                f"{_selection_number(metrics['mean_points_difference'])} points; {uncertainty}. "
                 "The selected plan stays frozen regardless of this result.",
             )
             print(
