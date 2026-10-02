@@ -47,9 +47,45 @@ _green_lap_lock = RLock()
 # Exact future weather graphs and strategy costs contain immutable values only.
 _CLOCK_NODE_LIMIT = 65_536
 _REFIT_COST_LIMIT = 65_536
+
+
+class _ForecastCostCache:
+    """Keep reusable refit branches from being displaced by retained tails.
+
+    Both pools share the existing total bound. A pool can use spare capacity;
+    when full, preserve one eighth for refits and evict within each pool in
+    least-recently-used order. Only immutable keys and scalar costs are stored.
+    Callers hold the shared forecast lock.
+    """
+
+    def __init__(self):
+        self.refits = OrderedDict()
+        self.tails = OrderedDict()
+
+    def _pool(self, key):
+        return self.refits if key[0] == "refit" else self.tails
+
+    def get(self, key, default=None):
+        return self._pool(key).get(key, default)
+
+    def __setitem__(self, key, value):
+        self._pool(key)[key] = value
+
+    def move_to_end(self, key):
+        self._pool(key).move_to_end(key)
+
+    def __len__(self):
+        return len(self.refits) + len(self.tails)
+
+    def popitem(self, last=False):
+        pool = (self.refits if len(self.refits) > _REFIT_COST_LIMIT // 8 or not self.tails
+                else self.tails)
+        return pool.popitem(last=last)
+
+
 _clock_nodes = OrderedDict()
 _clock_node_sequence = 0
-_refit_costs = OrderedDict()
+_refit_costs = _ForecastCostCache()
 _refit_lock = RLock()
 def _native_green_cache_available(simulator):
     return (shared_forecast_available()
@@ -70,7 +106,7 @@ def _reset_green_cache_after_fork():
     _clock_nodes = OrderedDict()
     # Inherited decision-local IDs can remain alive after a fork. Never reuse
     # their numbers when rebuilding the caches in the child.
-    _refit_costs = OrderedDict()
+    _refit_costs = _ForecastCostCache()
     _refit_lock = RLock()
 
 
@@ -356,7 +392,8 @@ def _store_refit_cost(key, value):
             _refit_costs.popitem(last=False)
 
 
-def _equivalent_clock_branches(weather_clock, horizon, *, surface_key=None, current_lap=1):
+def _equivalent_clock_branches(weather_clock, horizon, *, surface_key=None, current_lap=1,
+                               update_counts=None):
     """Quotient complete native future clock paths, without fitting delays.
 
     A node describes the surface before and after a paid fit, and both next
@@ -368,6 +405,8 @@ def _equivalent_clock_branches(weather_clock, horizon, *, surface_key=None, curr
     allowing equal future paths from different raw clocks to share scalar costs.
     """
     rows = [None] * horizon
+    updates = weather_clock.updates if update_counts is None else update_counts
+    intern = lru_cache(maxsize=None)(_shared_clock_node)
     shared_ids = [None] * horizon if surface_key is not None else None
     next_ids = None
     next_shared = None
@@ -380,8 +419,8 @@ def _equivalent_clock_branches(weather_clock, horizon, *, surface_key=None, curr
             for first in (False, True) if paid else (False,):
                 cancellation_checkpoint()
                 signature = (
-                    weather_clock.updates(offset, paid, first),
-                    weather_clock.updates(offset, paid + 1, first),
+                    updates(offset, paid, first),
+                    updates(offset, paid + 1, first),
                     next_ids[paid, first] if next_ids is not None else 0,
                     next_ids[paid + 1, first] if next_ids is not None else 0,
                 )
@@ -391,7 +430,7 @@ def _equivalent_clock_branches(weather_clock, horizon, *, surface_key=None, curr
                 row[paid, first] = representative
                 ids[paid, first] = identity
                 if surface_key is not None:
-                    shared_row[paid, first] = _shared_clock_node((
+                    shared_row[paid, first] = intern((
                         current_lap + offset, surface_key(signature[0]), surface_key(signature[1]),
                         next_shared[paid, first] if next_shared is not None else 0,
                         next_shared[paid + 1, first] if next_shared is not None else 0,
@@ -404,7 +443,8 @@ def _equivalent_clock_branches(weather_clock, horizon, *, surface_key=None, curr
     return rows, shared_ids
 
 
-def _budget_clock_branches(weather_clock, horizon, remaining_stops, surface_key, current_lap):
+def _budget_clock_branches(weather_clock, horizon, remaining_stops, surface_key, current_lap,
+                           *, update_counts=None):
     """Exact suffixes when every compound stays noncritical throughout.
 
     With no compulsory replacements, a legal history permits only its remaining
@@ -414,6 +454,8 @@ def _budget_clock_branches(weather_clock, horizon, remaining_stops, surface_key,
     the caller supplied no prior race-use credit.
     """
     maximum_paid = max(remaining_stops + 1, 2)
+    updates = weather_clock.updates if update_counts is None else update_counts
+    intern = lru_cache(maxsize=None)(_shared_clock_node)
     rows = [None] * horizon
     next_row = None
     for offset in range(horizon - 1, 0, -1):
@@ -421,15 +463,15 @@ def _budget_clock_branches(weather_clock, horizon, remaining_stops, surface_key,
         for paid in range(min(offset, maximum_paid) + 1):
             left = max(0, remaining_stops - paid)
             for first in (False, True) if paid else (False,):
-                before = surface_key(weather_clock.updates(offset, paid, first))
+                before = surface_key(updates(offset, paid, first))
                 for room in (left, left + 1) if paid < maximum_paid else (left,):
                     cancellation_checkpoint()
-                    after = (surface_key(weather_clock.updates(offset, paid + 1, first))
+                    after = (surface_key(updates(offset, paid + 1, first))
                              if room else None)
                     keep = next_row[paid, first, room] if next_row is not None else 0
                     fit = (next_row[paid + 1, first, room - 1]
                            if room and next_row is not None else 0)
-                    row[paid, first, room] = _shared_clock_node((
+                    row[paid, first, room] = intern((
                         current_lap + offset, before, after, keep, fit,
                     ))
         rows[offset] = row
@@ -510,10 +552,18 @@ def _clock_rain_transition(
         # dimension, and preserve extension hook call counts on the slow path.
         return 8 if native_safety and completed & 8 else completed
 
+    # Native clocks are immutable and their original method is registered with
+    # the extension guard. Share validated counts between graph construction
+    # and running branches; custom clocks and fitting delays keep dispatching.
+    native_updates = (lru_cache(maxsize=None)(weather_clock.updates)
+                      if native_safety and not warmup else None)
+
     def updates(offset, paid_stops, stopped_first, fit_delay=0.0):
         if fit_delay:
             return weather_clock.updates(offset, paid_stops, stopped_first,
                                         fit_delay=fit_delay)
+        if native_updates is not None:
+            return native_updates(offset, paid_stops, stopped_first)
         return weather_clock.updates(offset, paid_stops, stopped_first)
 
     def branch_surface(offset, paid_stops, stopped_first, fit_delay=0.0):
@@ -599,7 +649,7 @@ def _clock_rain_transition(
     if recursive and not warmup:
         if shared_green and horizon > 1:
             maximum_paid = min(horizon, max(remaining_stops + 1, 2))
-            last_update = max(weather_clock.updates(horizon - 1, maximum_paid, first)
+            last_update = max(updates(horizon - 1, maximum_paid, first)
                               for first in (False, True))
             projected_surface_key(last_update)
             # This sufficient proof includes skipped updates too. A later
@@ -609,12 +659,14 @@ def _clock_rain_transition(
         if budget_clock:
             shared_clock_ids = _budget_clock_branches(
                 weather_clock, horizon, remaining_stops, projected_surface_key, current_lap,
+                update_counts=native_updates,
             )
         else:
             clock_branches, shared_clock_ids = _equivalent_clock_branches(
                 weather_clock, horizon,
                 surface_key=projected_surface_key if shared_green else None,
                 current_lap=current_lap,
+                update_counts=native_updates,
             )
     if shared_clock_ids is not None:
         refit_package = (package, tuple(tire_values[compound_values[value]]

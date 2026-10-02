@@ -197,13 +197,17 @@ class NoSharedRefits(OrderedDict):
 @pytest.mark.parametrize("change", ["equivalent_clock", "boundary", "driver", "car", "track",
                                    "physical_distance", "fresh_tire", "weather", "schedule",
                                    "budget", "mask", "allowance", "retained_tire", "age"])
-def test_shared_future_refits_match_native_search_without_shared_hits(monkeypatch, change):
+@pytest.mark.parametrize("cache_limit", [3, 65_536])
+def test_shared_future_refits_match_native_search_without_shared_hits(
+    monkeypatch, change, cache_limit,
+):
     driver, car, track = models(laps=6)
     weather = Weather(track_wetness=.5, rain_intensity=.5)
     context = WeatherForecastContext.from_schedule([{"lap": 3, "rain_intensity": 1.}])
     clock = StrategyWeatherClock(tuple(index * 90. for index in range(6)),
                                  20., 90., 3, 5., 5.)
-    monkeypatch.setattr(rain_strategy, "_refit_costs", OrderedDict())
+    monkeypatch.setattr(rain_strategy, "_REFIT_COST_LIMIT", cache_limit)
+    monkeypatch.setattr(rain_strategy, "_refit_costs", rain_strategy._ForecastCostCache())
     options = dict(forecast_context=context, weather_clock=clock,
                    used_compounds=(TireCompound.INTERMEDIATE,), remaining_dry_stops=1,
                    remaining_damp_stops=1, physical_total_laps=8,
@@ -301,7 +305,7 @@ def test_equivalent_raw_clocks_share_only_future_refits(monkeypatch):
 
 def test_shared_clock_ids_are_bounded_and_never_recycled_after_eviction_or_reset(monkeypatch):
     monkeypatch.setattr(rain_strategy, "_clock_nodes", OrderedDict())
-    monkeypatch.setattr(rain_strategy, "_refit_costs", OrderedDict())
+    monkeypatch.setattr(rain_strategy, "_refit_costs", rain_strategy._ForecastCostCache())
     monkeypatch.setattr(rain_strategy, "_CLOCK_NODE_LIMIT", 3)
     monkeypatch.setattr(rain_strategy, "_REFIT_COST_LIMIT", 3)
     first = rain_strategy._shared_clock_node(("first",))
@@ -313,7 +317,57 @@ def test_shared_clock_ids_are_bounded_and_never_recycled_after_eviction_or_reset
     inherited = rain_strategy._shared_clock_node(("inherited",))
     rain_strategy._reset_green_cache_after_fork()
     assert not rain_strategy._clock_nodes and not rain_strategy._refit_costs
+    assert isinstance(rain_strategy._refit_costs, rain_strategy._ForecastCostCache)
     assert rain_strategy._shared_clock_node(("inherited",)) != inherited
+
+
+@pytest.mark.parametrize("limit", [16, 64])
+def test_fresh_fit_forecasts_survive_retained_tail_churn_within_total_bound(monkeypatch, limit):
+    monkeypatch.setattr(rain_strategy, "_REFIT_COST_LIMIT", limit)
+    monkeypatch.setattr(rain_strategy, "_refit_costs", rain_strategy._ForecastCostCache())
+    reserved = limit // 8
+    for index in range(reserved):
+        rain_strategy._store_refit_cost(("refit", index), 0. if index == 0 else inf)
+    for index in range(200):
+        rain_strategy._store_refit_cost(("tail", index), float(index))
+        assert len(rain_strategy._refit_costs) <= limit
+    for index in range(reserved):
+        assert rain_strategy._shared_refit_cost(("refit", index)) == (0. if index == 0 else inf)
+    # Access changes recency within the protected pool too.
+    assert rain_strategy._shared_refit_cost(("refit", 0)) == 0.
+    rain_strategy._store_refit_cost(("refit", reserved), 9.)
+    assert rain_strategy._shared_refit_cost(("refit", 0)) == 0.
+    assert rain_strategy._shared_refit_cost(("refit", 1)) is None
+    assert rain_strategy._shared_refit_cost(("refit", reserved)) == 9.
+    assert len(rain_strategy._refit_costs) == limit
+
+
+@pytest.mark.parametrize("budgeted", [False, True])
+@pytest.mark.parametrize("clock", [
+    StrategyWeatherClock(tuple(index * 90. for index in range(6)), 0., 90., 8, 7., 7.),
+    StrategyWeatherClock(tuple(index * 90. for index in range(6)), 5., 90., 8, 95., 7.),
+    StrategyWeatherClock((0.,) + (1.e308,) * 5, 1., 1.e-308, 8, 1.e308, 1.e308),
+])
+def test_reusing_validated_clock_counts_preserves_complete_graph(clock, budgeted):
+    calls = {}
+
+    def counted(offset, paid, first):
+        key = offset, paid, first
+        calls[key] = calls.get(key, 0) + 1
+        return clock.updates(offset, paid, first)
+
+    cached = lru_cache(maxsize=None)(counted)
+    if budgeted:
+        expected = rain_strategy._budget_clock_branches(clock, 6, 2, str, 1)
+        actual = rain_strategy._budget_clock_branches(clock, 6, 2, str, 1,
+                                                     update_counts=cached)
+    else:
+        expected = rain_strategy._equivalent_clock_branches(clock, 6, surface_key=str)
+        actual = rain_strategy._equivalent_clock_branches(clock, 6, surface_key=str,
+                                                         update_counts=cached)
+    assert actual == expected
+    assert cached.cache_info().hits > 0
+    assert calls and all(count == 1 for count in calls.values())
 
 
 @pytest.mark.parametrize("used", [(), (TireCompound.SOFT,), (TireCompound.INTERMEDIATE,),

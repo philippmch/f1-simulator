@@ -1168,6 +1168,11 @@ fresh tyre parameters, retained age, budgets and actual-use history agree.
 Different raw clock times can share only through that
 exact future equivalence; current control, traffic and queue prices are computed
 separately. Cache eviction changes work performed, not the available schedules.
+The refit and retained-stint pools share a 65,536-entry bound, reserving one
+eighth for reusable fresh-fit forecasts during retained-stint churn. Within a
+decision, immutable native clocks reuse their validated update counts between
+graph construction and running branches, and equal graph nodes are interned
+once. Custom clocks and fitting-delay paths keep their original dispatch.
 No models or evaluator closures enter these shared caches. Long horizons retain
 the complete iterative search when recursion capacity is insufficient, and
 cancellation releases each decision's local graph.
