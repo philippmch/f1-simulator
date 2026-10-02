@@ -542,7 +542,7 @@ already lost stays on the clock. Retired cars are not serviced. A suspension
 after the final lap adds no tyre stint or compound-use credit.
 
 Changing wheels and tyres during a suspension is permitted by B5.14.4(a)(vii) of
-the [FIA 2026 Sporting Regulations, Issue 08](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_b_sporting_-_iss_08_-_2026-08-05_7.pdf).
+the [FIA 2026 Sporting Regulations, Issue 09](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_b_sporting_-_iss_09_-_2026-10-01.pdf).
 Without a finite race pool, the model assumes a free fresh set is available.
 Finite pools restrict this selection to actual reusable sets and can retain
 the current set. The full suspension work procedure is not modeled; elapsed
@@ -1328,6 +1328,10 @@ class/MRO dictionary comparisons never execute descriptors. Later decisions
 check definitions afresh. Projection calibration, expected-service helpers and
 opening candidate/seed constants also participate in native eligibility.
 
+Copy methods and Pydantic state descriptors also participate in native
+eligibility. Replacement behavior is checked afresh at later decisions, so
+previously cached projections cannot hide a changed copy method.
+
 Each non-native decision owns deep copies of its actual model objects and uses
 public deterministic physics. Its private snapshot references distinguish
 objects with identical serialized values and preserve subclasses and callable
@@ -1353,3 +1357,19 @@ synthetic workload measurements, not a general speed guarantee. Outcome hashes
 matched for every timed pair and 120 additional short-race cases spanning both
 engines, five weather patterns, finite and unlimited inventories, explicit and
 automatic openings, evolving weather, and custom pit plans.
+
+## Active Aero modeling limits
+
+Race execution and deterministic strategy forecasts use one scalar gain for
+configured Active Aero zones. Green wet and dry laps use the same configured
+gain before the shared weather multiplier; SC, VSC and red flags disable it.
+Live venue profiles provide zone counts and
+assumed gains, without official activation-zone maps. Qualifying has no separate
+Active Aero lap-time term.
+
+[FIA 2026 sporting regulations B1.5.11 and B7.1](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_b_sporting_-_iss_09_-_2026-10-01.pdf)
+allow only front-wing activation in designated low-grip zones after race control
+declares Low Grip Conditions. The simulator does not represent that declaration,
+partial wing activation or those separate zones. Weather-dependent aero gains
+would need explicit zone data and defensible effect estimates; the configured
+scalar gains do not establish those values.

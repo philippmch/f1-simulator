@@ -6,15 +6,18 @@ import pytest
 from f1sim.models import Car, Driver, TireCompound, Track, Weather
 from f1sim.simulation.chronological_race import ChronologicalRace
 from f1sim.simulation.events import EventType, RaceEvent
+from f1sim.simulation.pit_strategy import expected_stationary_time
 from f1sim.simulation.race import DriverStatus, RaceSimulator
 
 
-def setup(monkeypatch, *, pause=600, laps=3, red=(1,), paces=None, pit=False):
+def setup(monkeypatch, *, pause=600, laps=3, red=(1,), paces=None, pit=False,
+          teams=None, pit_drivers=("B",)):
     paces = paces or {"A": 90, "B": 110}
     simulator = RaceSimulator(np.random.default_rng(7))
     engine = ChronologicalRace(simulator, red_flag_pause_seconds=pause)
-    drivers = [Driver(id=key, name=key, team_id=key) for key in paces]
-    cars = {key: Car(team_id=key, team_name=key) for key in paces}
+    teams = teams or {key: key for key in paces}
+    drivers = [Driver(id=key, name=key, team_id=teams[key]) for key in paces]
+    cars = {team: Car(team_id=team, team_name=team) for team in teams.values()}
     track = Track(id="t", name="T", country="T", total_laps=laps, base_lap_time=90)
     control = simulator.event_manager
     for lap in red:
@@ -26,7 +29,7 @@ def setup(monkeypatch, *, pause=600, laps=3, red=(1,), paces=None, pit=False):
     def scripted_stop(state, states, track, lap, *args, **kwargs):
         # This fixture exercises service across a red flag, so the stop is
         # required independently of the elective strategy's finish forecast.
-        stop = pit and state.driver.id == "B" and lap == 2
+        stop = pit and state.driver.id in pit_drivers and lap == 2
         if stop:
             state.force_pit_next_lap = True
         return stop
@@ -107,6 +110,90 @@ def test_paid_service_waits_at_closed_exit_and_runs_once_after_restart(monkeypat
     b = next(row for row in results if row.driver_id == "B")
     assert b.pit_stops == 1 and b.pit_laps == [2] and b.laps_completed == 3
     assert b.total_time == 1020
+
+
+def test_queued_teammate_services_collect_before_restart_and_timed_finish(monkeypatch):
+    monkeypatch.setattr("f1sim.simulation.race_timing.RACING_TIME_LIMIT_SECONDS", 280)
+    pause, service = 100, 100
+    engine, run, samples, services, fits, _ = setup(
+        monkeypatch, laps=10, pause=pause, red=(2,), paces={"C": 70, "A": 90, "B": 91},
+        pit=True, teams={"C": "C", "A": "T", "B": "T"}, pit_drivers=("A", "B"),
+    )
+    simulator = engine.simulator
+    decide = simulator._should_pit
+    queues, forecasts, collection, red_services = {}, {}, [], []
+
+    def record_decision(state, states, planning, lap, *args, **kwargs):
+        queues[state.driver.id, lap] = kwargs["additional_current_stop_cost"]
+        return decide(state, states, planning, lap, *args, **kwargs)
+
+    monkeypatch.setattr(simulator, "_should_pit", record_decision)
+    control = simulator.event_manager
+    process = control.process_lap
+
+    def record_red(*args, **kwargs):
+        events = process(*args, **kwargs)
+        if any(event.event_type == EventType.RED_FLAG for event in events):
+            red_services.extend((record.driver_id, record.arrival_time, record.service_start,
+                                 record.service_end) for record in engine.pit_service_records)
+        return events
+
+    monkeypatch.setattr(control, "process_lap", record_red)
+    planning_track = engine._planning_track
+
+    def record_restart_forecast(state, now, *, restart=False):
+        planning = planning_track(state, now, restart=restart)
+        if restart:
+            forecasts[state.driver.id] = (
+                planning.total_laps, dict(engine.expected_box_releases),
+                list(engine.pit_service_records), engine._team_release_forecast("T", now),
+            )
+        return planning
+
+    monkeypatch.setattr(engine, "_planning_track", record_restart_forecast)
+    resume = engine._resume_if_collected
+
+    def record_collection(now):
+        collection.append((now, set(engine.red_waiting)))
+        return resume(now)
+
+    monkeypatch.setattr(engine, "_resume_if_collected", record_collection)
+    results = run()
+    by_driver = {result.driver_id: result for result in results}
+    mean = expected_stationary_time(engine.states["A"].car)
+    assert queues["B", 2] == pytest.approx(mean - (91 - 90))
+    assert red_services == [("A", 90, 90, 190), ("B", 91, 190, 290)]
+    # At the 140-second red flag A is still served and B is still queued.
+    assert engine.crossings[:4] == [
+        ("C", 1, 70), ("A", 1, 90), ("B", 1, 91), ("C", 2, 140),
+    ]
+    assert collection == [(140, {"C"}), (210, {"C", "A"}), (310, {"C", "A", "B"})]
+    assert engine.suspensions == [(140, 310 + pause, ("C", "A", "B"))]
+    assert engine.pit_exits == [("A", 2, 410), ("B", 2, 410)]
+    assert services == ["T", "T"]
+    assert fits == [("A", 1), ("B", 1), ("C", 2), ("A", 1), ("B", 1)]
+    for driver, queue in [("A", 0), ("B", service - 1)]:
+        result = by_driver[driver]
+        assert result.pit_stops == 1 and result.pit_laps == [2]
+        stop, = result.pit_stop_details
+        assert (stop["queue_time"], stop["service_time"], stop["total_loss"]) == (
+            queue, service, engine.track.pit_lane_delta + service + queue,
+        )
+        paid_running = [sample for sample in samples if sample[:2] == (driver, 2)]
+        assert len(paid_running) == 1 and paid_running[0][2] == 410
+        assert queues[driver, 3] == 0
+    assert by_driver["C"].pit_stops == 0
+    assert forecasts == {driver: (horizon, {}, [], 410)
+                         for driver, horizon in [("C", 5), ("A", 4), ("B", 4)]}
+    assert engine.timeline.total_suspension_seconds == 410 - 140
+    assert engine.timeline.time_limit_seconds == 280 + (410 - 140)
+    assert engine.timeline.final_lap == 5 and engine.timeline.chequered_time == 620
+    assert [(row.driver_id, row.laps_completed, row.total_time) for row in results] == [
+        ("C", 5, 620), ("A", 4, 680), ("B", 4, 683),
+    ]
+    assert all(row.race_time_limited for row in results)
+    assert all(sample[4] == 10 for sample in samples)
+    assert not engine.expected_box_releases and not engine.pit_service_records
 
 
 def test_collection_retirement_releases_survivor_without_extra_work(monkeypatch):

@@ -143,7 +143,7 @@ free-running pace rather than treating a suspension as recurring lap time.
 The finish clock adds completed suspension intervals, including collection, to
 the two-hour threshold, with a maximum extension of one hour. An already
 announced final lap stays fixed. This follows the timing framework in
-[FIA sporting regulations B2.5.3, B5.14.2 and B5.15.2](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_b_sporting_-_iss_08_-_2026-08-05_7.pdf).
+[FIA sporting regulations B2.5.3, B5.14.2 and B5.15.2](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_b_sporting_-_iss_09_-_2026-10-01.pdf).
 Collection remains a lap-resolution approximation: it does not recalculate
 partially driven sectors at reduced speed. The model also omits the detailed
 restart formation procedure, abandonment and results countback. The standard

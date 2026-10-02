@@ -15,6 +15,9 @@ A Formula 1 race simulator whose live runs use **only the current UTC season**. 
 
 The race engine models circuit-dependent car performance, tyre stress and degradation, wet-weather car/driver performance, race-level safety-car risk, 2026 Active Aero, proximity-gated and energy-limited Overtake Mode, incidents with time/strategy consequences, current-season compound form, reliability, pit strategy, and Monte Carlo uncertainty. Active Aero is available to the field on configured straights rather than being a following aid; Overtake Mode is handled separately and is disabled during neutralisations, wet running, and restart laps. Monaco's 2026 Active Aero exception is represented with no configured zones.
 
+Configured aero gains are simplified lap-time inputs; see the
+[wet-running and qualifying approximations](docs/strategy-model.md#active-aero-modeling-limits).
+
 Pit strategy compares remaining tyre and pit costs, including slick starts on
 damp tracks and transitions between slicks and rain tyres as the surface changes;
 see [the strategy model and its limits](docs/strategy-model.md)

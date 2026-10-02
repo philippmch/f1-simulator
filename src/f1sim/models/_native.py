@@ -19,6 +19,8 @@ _VALUES = []
 _CLASS_DICT = type.__dict__["__dict__"]
 _CLASS_MRO = type.__dict__["__mro__"]
 _HELPERS = []
+_COPY_APIS = {name: inspect.getattr_static(BaseModel, name)
+              for name in ("model_copy", "__copy__", "__deepcopy__")}
 # Eligibility, actual-model references, local results and defining-class verdicts
 # all live only until the outermost decision exits.
 _STATE = ContextVar("native_forecast_state", default=None)
@@ -28,11 +30,13 @@ def register_native_model(owner):
     """Called at defining-module completion, before consumers can patch it."""
     _FIELDS[owner] = dict(owner.model_fields)
     names = set(owner.model_fields) | {"__getattribute__", "__getattr__", "__dict__",
-                                       "__pydantic_extra__"}
+                                       "__pydantic_extra__", "__pydantic_private__",
+                                       "__pydantic_fields_set__", *_COPY_APIS}
     names.update(name for name, value in vars(owner).items()
                  if not name.startswith("_") and name != "evolve" and
                  (callable(value) or isinstance(value, (property, classmethod, staticmethod))))
     _SHAPES[owner] = {name: inspect.getattr_static(owner, name, _MISSING) for name in names}
+    _SHAPES[owner].update(_COPY_APIS)
     _HOOKS[owner] = frozenset(names - owner.model_fields.keys())
 
 
@@ -77,10 +81,18 @@ def _native_model_instance(model, classes):
         return False
     values = object.__getattribute__(model, "__dict__")
     extra = object.__getattribute__(model, "__pydantic_extra__") or {}
-    if any(name in values or name in extra for name in _HOOKS[owner]):
+    hooks = _HOOKS[owner]
+    if type(values) is dict and type(extra) is dict:
+        if not hooks.isdisjoint(values) or not hooks.isdisjoint(extra):
+            return False
+    elif any(name in values or name in extra for name in hooks):
+        # Custom mappings can define membership independently of their keys.
         return False
-    return all(_native_model_instance(item, classes)
-               for name in ("sectors", "active_aero_zones") for item in values.get(name, ()))
+    for name in ("sectors", "active_aero_zones"):
+        for item in values.get(name, ()):
+            if not _native_model_instance(item, classes):
+                return False
+    return True
 
 
 def native_model(model):
