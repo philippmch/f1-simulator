@@ -31,8 +31,8 @@ def _workers(value: str) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Compare Standard and Lap-aware engines using saved inputs offline.",
-        epilog="Lap-aware (chronological) remains experimental. Equal seeds do not freeze "
-        "later race events. Differences describe model sensitivity, not real-race accuracy.",
+        epilog="Equal seeds do not freeze later race events. Differences describe "
+        "model sensitivity, not real-race accuracy.",
     )
     parser.add_argument("path", type=Path, help="Saved statistics or dashboard JSON with inputs")
     parser.add_argument("--scenario", help="Exact source scenario when the file contains several")
@@ -93,8 +93,7 @@ def main() -> int:
         else:
             weather_draws = "not recorded."
         print("Weather draws: " + weather_draws)
-        print("Lap-aware (chronological) is experimental. "
-              "Equal seeds do not freeze later race events.")
+        print("Equal seeds do not freeze later race events.")
         print("Intervals measure sampling uncertainty; differences show model sensitivity.")
         for engine, result in results.items():
             distance = result.get_race_distance_statistics()

@@ -140,6 +140,8 @@ def test_dashboard_summary_shape() -> None:
     ]["dry_forecast"]["share"] == 1.0
     assert summary["scenarios"]["dry"]["sample_index"] == 0
     assert summary["scenarios"]["dry"]["qualifying_mode"] == "simulated"
+    # Old result objects without engine metadata retain their Standard identity.
+    assert summary["scenarios"]["dry"]["race_engine"] == "standard"
 
 
 def test_representative_sample_uses_race_closest_to_aggregate() -> None:
@@ -215,6 +217,7 @@ def test_dashboard_request_defaults_to_current_season_and_simulated_qualifying()
 
     assert request.year == datetime.now(timezone.utc).year
     assert request.qualifying_mode == "simulated"
+    assert request.race_engine == "chronological"
 
 
 def test_api_responses_disable_client_and_proxy_caching() -> None:

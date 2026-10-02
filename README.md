@@ -93,11 +93,15 @@ python examples/simulate_race.py --race "Italian Grand Prix" --simulations 500
 python examples/simulate_race.py --race 14 --scenarios dry,light_rain,heavy_rain
 ```
 
-The standard race model remains the default. To try individual car crossings
-and lapped finishes, choose **Lap-aware (experimental)**
-in the dashboard or pass `--race-engine chronological` to the CLI. The API and
-Python `MonteCarloRunner` accept `race_engine="chronological"` (or `"standard"`).
-Results record the selected model; see [its assumptions and limits](docs/chronological-race-design.md).
+**Lap-aware** (`chronological`) is the default for new dashboard, CLI, API and
+Python `MonteCarloRunner` runs. It models individual car crossings and lapped
+finishes. Choose **Standard**, pass `--race-engine standard`, or set
+`race_engine="standard"` for the faster synchronous model. Wet weather and finite
+tyre inventories can make Lap-aware batches take substantially longer.
+Omitting `race_engine` in a new API request now selects chronological execution;
+clients that need the previous behavior should send `"standard"` explicitly.
+Saved runs and replays retain their recorded engine. Results record the selected
+model; see [its assumptions and limits](docs/chronological-race-design.md).
 
 To configure tyres in the dashboard, choose **Edit tyre setup**. Add a driver,
 choose an opening compound and its prior laps, and optionally limit the available
@@ -327,7 +331,7 @@ race decisions; this is not a way to freeze every event between strategies.
 python examples/compare_starting_tyres.py output/saved_statistics.json --driver VER --compounds soft,hard --rng-policy isolated_weather_mechanical_v1 --export
 ```
 
-You can also compare the Standard and experimental Lap-aware engines against
+You can also compare the Standard and Lap-aware engines against
 the same saved models, weather behavior, starting tyres and base seed:
 
 ```bash

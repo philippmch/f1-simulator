@@ -2,7 +2,12 @@ from typing import cast
 
 import pytest
 
-from f1sim.analysis.montecarlo import POINTS_SYSTEM, DriverStatistics, MonteCarloRunner
+from f1sim.analysis.montecarlo import (
+    POINTS_SYSTEM,
+    DriverStatistics,
+    MonteCarloRunner,
+    SimulationResults,
+)
 
 
 def test_points_system_top10_values() -> None:
@@ -43,3 +48,11 @@ def test_driver_statistics_rates_empty_positions() -> None:
 def test_montecarlo_rejects_non_positive_simulation_count() -> None:
     with pytest.raises(ValueError, match="num_simulations must be greater than 0"):
         MonteCarloRunner.run(cast(MonteCarloRunner, object()), num_simulations=0)
+
+
+def test_manual_results_without_recorded_engine_keep_legacy_standard_metadata():
+    results = SimulationResults(
+        num_simulations=1, track_name="Legacy", driver_stats={},
+        race_results=[], qualifying_results=[],
+    )
+    assert results.race_engine == "standard"

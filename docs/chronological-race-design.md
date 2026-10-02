@@ -1,29 +1,35 @@
 # Chronological race crossings
 
-The default standard race loop advances every surviving driver once per leader
-lap. This gives surviving cars equal completed distances. A controlled ten-lap
-race with constant 90-second and 110-second cars ends at 900/1100 seconds and
-10/10 laps in that engine. The opt-in chronological engine instead gives the
-slower car the flag at its next crossing after the winner: 990 seconds, lap 9.
-Its tenth lap never starts.
+The default chronological engine advances individual cars on their actual
+crossing clocks. In a controlled ten-lap race with constant 90-second and
+110-second cars, the slower car takes the flag at its next crossing after the
+winner: 990 seconds, lap 9. Its tenth lap never starts. The optional standard
+race loop gives surviving cars equal completed distances: 900/1100 seconds and
+10/10 laps for the same fixture.
 
-This document describes the implemented chronological engine and the remaining
-requirements for making it the default.
+This document describes the implemented chronological engine, its execution
+conventions and its remaining model limits.
 
-## Experimental execution
+## Execution
 
 `simulation/chronological_race.py` provides `ChronologicalRace(simulator).run(...)`
-and `simulate_chronological_race(...)` for explicit Python experiments. They use
-the existing models and return `RaceResult` objects. The standard engine remains
-the default. Select chronological execution through `--race-engine chronological`
-in the CLI, **Race model: Lap-aware (experimental)** in the dashboard, or
-`race_engine="chronological"` on `MonteCarloRunner` and the API request.
+and `simulate_chronological_race(...)` for direct Python use. They use the
+existing models and return `RaceResult` objects. Chronological execution is the
+default for new `MonteCarloRunner` runs, CLI simulations, API requests and the
+dashboard's **Lap-aware** selection. Race-probability evaluation uses the same
+new-run default. Either engine can be selected explicitly through
+`--race-engine chronological` or `--race-engine standard`, and the corresponding
+`race_engine` value on Python and API calls.
+The race-probability evaluation CLI uses `--engine` for the same choice.
 Both sequential and process-pool execution preserve per-run seeds and freshly
 simulated qualifying. API summaries, JSON exports, export history and HTML
-reports record the selected engine. This exposes the experiment; it does not
-establish empirical calibration or change the default.
+reports record the selected engine. Individual crossing execution does not
+establish empirical calibration or complete implementation of sporting rules.
 
-The experimental engine schedules individual crossings and pit exits on an
+The lower-level `RaceSimulator.simulate_race(...)` method retains its standard
+execution semantics. Direct chronological callers use the helpers above.
+
+The chronological engine schedules individual crossings and pit exits on an
 absolute timeline. A persistent constructor queue accounts for staggered box
 arrivals. A circular physical order constrains crossings: a faster provisional
 clock requires a passing outcome or a compliant blue-flag yield before the car
@@ -212,10 +218,9 @@ opportunity trigger differs from the standard engine's proximity gate, so
 attempt rates across engines are not directly comparable.
 
 Chronological execution is integrated with the runner, process workers, CLI,
-API, dashboard, exports and replay, but remains opt-in. The standard engine is
-still the default while runtime cost and model readiness are assessed. Detailed
+API, dashboard, exports and replay. Detailed
 restart formation and abandonment remain model limitations, rather than
-features of the existing production loop that have not yet been migrated.
+features of the standard loop that have not yet been migrated.
 The existing minor-contact time losses and personal spin/puncture/crash outcomes
 are already reused; a richer damage-severity model would improve both engines
 rather than close a migration gap.
@@ -223,7 +228,7 @@ rather than close a migration gap.
 ## Finish boundary
 
 `RaceFinishClock` in `simulation/race_timing.py` owns the original scheduled
-distance, the announced final lap and the leader's chequered clock. Production
+distance, the announced final lap and the leader's chequered clock. Standard
 race simulation and isolated opening-strategy projections use it. Leader
 crossings advance the leading distance even when the leading driver's identity
 changes. Time must be finite and monotonic. A retirement can hand the lead to
@@ -236,7 +241,8 @@ accepts chronological observations; the caller resolves exact timestamp ties
 with the leader first. Once the winner takes the flag, other cars remain racing
 until their own next crossing or retirement. A car cannot start another lap
 after its own finish. Retirement must not manufacture a crossing or a winner.
-This layer is used by the experimental scheduler but not the production loop.
+This layer is used by the chronological scheduler; the standard loop uses the
+shared leader finish clock without individual crossing records.
 
 Race control resolves the completed leading interval before recording its
 crossing and possible chequered flag. Final-interval SC, VSC and red flags still
@@ -263,7 +269,7 @@ retiree can retain more completed laps than the winner and still rank ahead of
 another finisher. Classification eligibility and reduced points continue to use
 the winner's actual distance. This is an explicit interpretation of B2.5.3 and
 B2.5.5, not a claim that an official precedent for this combination was found.
-The synchronous production loop cannot encounter this distance reset.
+The synchronous standard loop cannot encounter this distance reset.
 
 An executable regression has A complete four laps at 7200 seconds, announce the
 flag, then retire at 7250. B receives it on its second lap at 7300, and C finishes
@@ -271,9 +277,9 @@ its second lap at 7600. No B lap-three physics or pit decision runs. The result
 is marked time-limited even when the original announcement matched the scheduled
 distance cap; A retains all four completed laps.
 
-## Remaining integration
+## Execution and compatibility
 
-The opt-in scheduler already invokes strategy, race-control and battle behavior
+The default scheduler invokes strategy, race-control and battle behavior
 on its individual-car timeline. It distinguishes a lap's immutable starting
 conditions from consequences committed during that lap. Tyre history, service
 draws, energy, incidents and fastest laps are recorded during execution rather
@@ -281,20 +287,30 @@ than reconstructed by trimming final results. The standard loop's shallow
 `replace(state)` snapshots share mutable driver state and cannot serve as
 speculative transactions.
 
-A future default change must coordinate the runner, CLI, API and dashboard;
-changing an omitted API request field also changes behavior for existing
-clients. Saved replay must retain its recorded engine, and legacy worker tuples
-and output metadata without an engine must retain their standard interpretation.
-Opt-in integration alone does not establish acceptable runtime across weather
-and inventory workloads or empirical calibration.
+New-run Python and API defaults share `DEFAULT_RACE_ENGINE`; the CLI and
+dashboard also select chronological execution by default. An omitted API
+`race_engine` field therefore changes behavior for existing clients. Send
+`"standard"` explicitly to retain synchronous execution. Saved replay uses its
+recorded engine and continues rejecting a missing engine. Legacy five-item
+worker tuples, manually constructed result objects and display metadata without
+an engine retain their standard interpretation. Engine comparisons retain their
+explicit standard-first order.
+
+Wet and finite-inventory batches can take substantially longer than Standard.
+The dashboard waits for the simulation response and has no automatic run
+timeout; its five-second health check is separate. Manual cancellation remains
+available, and the server retains capacity until the cancelled worker drains.
+Count limits still bound the admitted workload. External proxy deadlines are
+not controlled by this application. Choosing this default prioritizes individual
+car execution; it does not establish empirical pace or weather calibration.
 
 Elapsed crossing time must be monotonic and distinct from relative racing gaps.
 Both engines now use bounded future running for full-SC catch-up. The standard
 engine resolves a frozen post-pit queue once per shared lap and collects the
 field at completed lap crossings before a common red-flag restart. The
-experimental engine's pit merges and blocked-car reconciliation use physical
-ordering independently of completed distance; production migration must retain
-those distinctions. See [standard queue timing and limits](strategy-model.md#safety-car-queues-and-elapsed-time).
+chronological engine's pit merges and blocked-car reconciliation use physical
+ordering independently of completed distance. See [standard queue timing and
+limits](strategy-model.md#safety-car-queues-and-elapsed-time).
 
 Pit arrivals require a persistent per-team service queue on the absolute
 timeline. Decisions use expected service; execution samples service once.

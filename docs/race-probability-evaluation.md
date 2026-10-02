@@ -19,7 +19,8 @@ Increasing the trial count preserves the earlier trial seeds. The default is
 100 trials per event and seed 0; both the per-event and total selected-event
 budgets are capped at 10,000 trials. Runs execute serially by default.
 
-Use `--engine chronological` to select the alternative execution engine,
+Chronological execution is the new-run default. Use `--engine standard` to
+select the synchronous model or `--engine chronological` explicitly,
 `--scenario light_rain` or `--scenario heavy_rain` for wet assumptions, and
 `--form-races 0` to disable recent form inputs. Live collection defaults to a
 120-second total fetch budget; `--fetch-budget` accepts 1–300 seconds.
@@ -116,7 +117,7 @@ completed 100 trials for each of 15 available races (1,500 trials total). All
 15 events had a scoreable observed winner. Reproduce the collection with:
 
 ```powershell
-python examples/evaluate_race_probabilities.py --all --trials 100 --seed 42 --fetch-budget 180
+python examples/evaluate_race_probabilities.py --all --trials 100 --seed 42 --fetch-budget 180 --engine standard
 ```
 
 Mean Brier loss was **0.8174**, against **0.9538** for the equal-chance baseline;

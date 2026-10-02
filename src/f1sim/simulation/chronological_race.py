@@ -1,4 +1,4 @@
-"""Experimental chronological race execution; production still uses RaceSimulator.
+"""Chronological race execution with individual car timing and lapped finishes.
 
 Each car owns one pending lap. Whole-lap physics freezes weather/control when
 running starts, after any paid service; red flags collect the field before a
@@ -86,7 +86,7 @@ class _PitServiceRecord:
 
 
 class ChronologicalRace:
-    """Runnable opt-in engine with absolute crossings, stops, and per-car flags."""
+    """Race engine with absolute crossings, stops, and per-car flags."""
 
     def __init__(self, simulator, *, red_flag_pause_seconds=600.0):
         if (isinstance(red_flag_pause_seconds, bool)
@@ -1281,7 +1281,7 @@ def simulate_chronological_race(simulator, drivers, cars, track, weather, starti
                                 *, starting_tires=None, starting_tire_ages=None,
                                 red_flag_pause_seconds=600.0, tire_inventory=None,
                                 pit_plans=None):
-    """Run the experimental engine explicitly; production dispatch is unchanged."""
+    """Run chronological car timing using the supplied simulator's physics."""
     return ChronologicalRace(simulator, red_flag_pause_seconds=red_flag_pause_seconds).run(
         drivers, cars, track, weather, starting_grid, starting_tires=starting_tires,
         starting_tire_ages=starting_tire_ages,

@@ -26,7 +26,7 @@ from f1sim.analysis.race_probability_scores import (
 from f1sim.analysis.scenarios import scenario_weather_from_label
 from f1sim.data.current import CurrentSeasonDataError, CurrentSeasonDataLoader
 from f1sim.models import Weather
-from f1sim.simulation.execution import validate_race_engine
+from f1sim.simulation.execution import DEFAULT_RACE_ENGINE, validate_race_engine
 from f1sim.simulation.randomness import DEFAULT_RNG_POLICY, validate_rng_policy
 
 _MAX_TRIALS = 10_000
@@ -184,7 +184,7 @@ def evaluate_race_probabilities(
     seed: int = 0,
     form_races: int = 3,
     scenario: str = "dry",
-    race_engine: str = "standard",
+    race_engine: str = DEFAULT_RACE_ENGINE,
     rng_policy: str = DEFAULT_RNG_POLICY,
 ) -> dict[str, Any]:
     """Evaluate Monte Carlo winner probabilities against completed races.

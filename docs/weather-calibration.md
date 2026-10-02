@@ -180,7 +180,9 @@ Only `--observed`, `--observed-stints`, or `--observed-strategy` makes network
 requests. The diagnostic prints summaries and does not add runtime feed
 dependencies, replay data, or a persistent cache.
 
-`--race-engine` accepts `standard` (the default), `chronological`, or `both`.
+This diagnostic's `--race-engine` accepts `standard` (its default),
+`chronological`, or `both`. The application defaults new races to chronological
+execution; this diagnostic keeps its standard baseline for historical comparisons.
 Comparison runs use the same synthetic field, weather inputs and seed range.
 Qualifying draws match; later random draws follow each engine's event order,
 so individual race outcomes are not paired counterfactuals. Both engines now

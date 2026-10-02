@@ -46,6 +46,7 @@ from f1sim.output.comparison import (
 )
 from f1sim.output.timing import finite_time, suspension_statistics
 from f1sim.simulation.execution import (
+    DEFAULT_RACE_ENGINE,
     validate_race_engine,
     validate_starting_tire_ages,
     validate_starting_tires,
@@ -134,7 +135,7 @@ class DashboardRunRequest:
     qualifying_mode: str = "simulated"
     parallel: StrictBool = True
     max_workers: StrictInt | None = None
-    race_engine: str = "standard"
+    race_engine: str = DEFAULT_RACE_ENGINE
     starting_tires: dict[str, str] | None = None
     weather_mode: str = "evolving"
     starting_tire_ages: dict[str, StrictInt] | None = None

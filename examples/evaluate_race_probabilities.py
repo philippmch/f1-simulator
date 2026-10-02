@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from f1sim.analysis.race_probability_evaluation import evaluate_race_probabilities
 from f1sim.data import CurrentSeasonDataError, CurrentSeasonDataLoader
+from f1sim.simulation.execution import DEFAULT_RACE_ENGINE, RACE_ENGINES
 
 
 def _race_value(value: str) -> str | int:
@@ -29,8 +30,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Earlier eligible form rounds to include (0–24)")
     parser.add_argument("--scenario", choices=("dry", "light_rain", "heavy_rain"),
                         default="dry")
-    parser.add_argument("--engine", choices=("standard", "chronological"),
-                        default="standard", help="Race execution engine")
+    parser.add_argument("--engine", choices=RACE_ENGINES,
+                        default=DEFAULT_RACE_ENGINE,
+                        help=f"Race execution engine (default: {DEFAULT_RACE_ENGINE})")
     parser.add_argument("--fetch-budget", type=float, default=120,
                         help="Total live fetch budget in seconds (1–300)")
     return parser

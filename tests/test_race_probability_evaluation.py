@@ -488,7 +488,7 @@ def test_api_validates_controls_before_fetch(evaluation_data, kwargs, message):
         run_target(loader, **kwargs)
 
 
-@pytest.mark.parametrize("engine", ["standard", "chronological"])
+@pytest.mark.parametrize("engine", [None, "standard", "chronological"])
 def test_one_lap_real_runner_smoke_simulates_qualifying_for_each_engine(
     evaluation_data, monkeypatch, engine,
 ):
@@ -502,11 +502,13 @@ def test_one_lap_real_runner_smoke_simulates_qualifying_for_each_engine(
         ),
     )
 
-    report = run_target(loader, trials=1, race_engine=engine)
+    engine_options = {} if engine is None else {"race_engine": engine}
+    expected_engine = "chronological" if engine is None else engine
+    report = run_target(loader, trials=1, **engine_options)
     fold = report["folds"][0]
     assert fold["status"] == "scored"
     assert fold["forecast"]["trials"] == 1
-    assert fold["simulation"]["race_engine"] == engine
+    assert fold["simulation"]["race_engine"] == expected_engine
     assert fold["simulation"]["qualifying"] == "simulated_per_trial"
     assert sum(item["probability"] for item in fold["forecast"]["drivers"].values()) + (
         fold["forecast"]["no_classified_winner"]["probability"]
@@ -534,17 +536,25 @@ def test_cli_requires_explicit_target_and_emits_no_partial_json_on_failure(monke
     assert "provider feed unavailable" in captured.err
 
 
-def test_cli_flags_and_json_output_are_machine_readable(monkeypatch, capsys):
+@pytest.mark.parametrize("engine", [None, "standard", "chronological"])
+def test_cli_flags_and_json_output_are_machine_readable(monkeypatch, capsys, engine):
     cli = load_cli_module()
     monkeypatch.setattr(cli, "CurrentSeasonDataLoader", lambda **kwargs: object())
-    monkeypatch.setattr(
-        cli, "evaluate_race_probabilities", lambda *args, **kwargs: {"ok": True},
-    )
+    calls = []
+    def evaluate(*args, **kwargs):
+        calls.append(kwargs)
+        return {"ok": True}
+    monkeypatch.setattr(cli, "evaluate_race_probabilities", evaluate)
 
     with pytest.raises(SystemExit) as both_targets:
         cli.main(["--race", "2", "--all"])
     assert both_targets.value.code == 2
     assert capsys.readouterr().out == ""
 
-    cli.main(["--race", "2", "--trials", "1", "--seed", "7"])
+    engine_args = [] if engine is None else ["--engine", engine]
+    arguments = ["--race", "2", "--trials", "1", "--seed", "7", *engine_args]
+    expected_engine = "chronological" if engine is None else engine
+    assert cli.build_parser().parse_args(arguments).engine == expected_engine
+    cli.main(arguments)
     assert json.loads(capsys.readouterr().out) == {"ok": True}
+    assert calls[0]["race_engine"] == expected_engine

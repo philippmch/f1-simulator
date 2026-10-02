@@ -88,9 +88,10 @@ classification-based full-points fallback.
 
 ## Limits
 
-The standard engine is a synchronous lap simulation: surviving cars complete
-the same lap count. It does not model lapped-car finishing or abandoned-race
-classification. Red flags now preserve completed crossings and include field
+The default chronological engine executes individual crossings and lapped-car
+finishes. The optional standard engine is a synchronous lap simulation:
+surviving cars complete the same lap count. Neither implements abandoned-race
+classification. Red flags preserve completed crossings and include field
 collection plus a fixed pause in elapsed time. The shared finish clock extends
 the two-hour threshold by accumulated suspension time, capped at one hour;
 the already announced final lap remains fixed. See [suspension timing and limits](strategy-model.md#red-flag-suspension-timing).
@@ -98,7 +99,7 @@ Pit planning assumes observed pace continues, with current control on the upcomi
 green running thereafter. Future stops, traffic changes, incidents and weather
 can make its estimated finish distance wrong; it is recalculated each lap.
 The [chronological crossing design](chronological-race-design.md) describes the
-finish-controller foundation and the remaining scheduler integration.
+finish controller and its execution conventions and limits.
 If every car retires, there is no modeled winner and no classification or points.
 The simulation records the final retirement incidents and stops. It does not
 deploy new SC, VSC or red flags once that lap has no survivors, including forced

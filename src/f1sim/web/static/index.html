@@ -2019,9 +2019,9 @@ input:focus-visible {
       </div>
       <div class="control-group">
         <label class="control-label" for="raceEngineSelect">Race model</label>
-        <select id="raceEngineSelect" title="Lap-aware models individual car crossings, lapped finishes and shared restarts; experimental calibration.">
-          <option value="standard" selected>Standard</option>
-          <option value="chronological">Lap-aware (experimental)</option>
+        <select id="raceEngineSelect" title="Lap-aware models individual car timing and lapped finishes. Standard is faster for large batches.">
+          <option value="standard">Standard</option>
+          <option value="chronological" selected>Lap-aware</option>
         </select>
       </div>
       <div class="control-group">
@@ -5197,7 +5197,7 @@ function renderRace() {
     simResults.provenance?.source || 'Fresh current-season data',
     'Simulated qualifying',
     (scenario.race_engine || simResults.request?.race_engine) === 'chronological'
-      ? 'Lap-aware model (experimental)' : 'Standard race model',
+      ? 'Lap-aware model' : 'Standard race model',
     Number.isInteger(scenario.sample_index) ? `Representative run ${scenario.sample_index + 1}` : '',
     simResults.request?.parallel ? 'Parallel execution' : 'Single-core execution',
     simResults.request?.max_workers ? `${simResults.request.max_workers} worker cap` : 'Auto workers',

@@ -46,7 +46,7 @@ def test_engine_cli_exports_unique_comparisons_and_replays(monkeypatch, tmp_path
     assert "Win % [95% range]" in output
     assert "mean winning distance 3.00 laps (2 known winners)" in output
     assert "Equal seeds do not freeze later race events" in output
-    assert "experimental" in output
+    assert "Intervals measure sampling uncertainty; differences show model sensitivity." in output
     comparisons = list(target.glob("race_engines_*.json"))
     assert len(comparisons) == 2
     reports = list(target.glob("race_engines_*.html"))

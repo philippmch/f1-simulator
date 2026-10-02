@@ -72,5 +72,18 @@ def test_repeated_prefix_preserves_original_artifacts_and_model_history(tmp_path
         assert stats["metadata"]["race_engine"] == row["race_engine"]
     html = second["runs_index_html"].read_text(encoding="utf-8")
     assert "Race model" in html
-    assert "Lap-aware (experimental)" in html
+    assert "Lap-aware" in html
+    assert "experimental" not in html
     assert "Standard" in html
+
+
+def test_legacy_history_without_model_metadata_still_labels_standard(tmp_path):
+    exporter = Exporter(output_dir=tmp_path)
+    legacy = [{"track": "Bahrain", "num_simulations": 10, "seed": 11}]
+    exporter._write_history(legacy)
+
+    html = exporter.export_run_index_html().read_text(encoding="utf-8")
+
+    assert "Standard" in html
+    assert "Lap-aware" not in html
+    assert exporter._read_history() == legacy

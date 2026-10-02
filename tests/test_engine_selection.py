@@ -7,7 +7,7 @@ import pytest
 from f1sim.analysis.montecarlo import MonteCarloRunner, _run_single_simulation
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.simulation.events import EventManager
-from f1sim.simulation.execution import RACE_ENGINES, validate_race_engine
+from f1sim.simulation.execution import DEFAULT_RACE_ENGINE, RACE_ENGINES, validate_race_engine
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.overtaking import OvertakingModel
 from f1sim.simulation.race import RaceSimulator
@@ -35,21 +35,26 @@ def test_invalid_engine_rejected_at_construction(value):
         validate_race_engine(value)
 
 
-def test_default_standard_preserves_legacy_worker_results():
+def test_omitted_runner_engine_matches_explicit_chronological():
     values = inputs()
     default = MonteCarloRunner(*values, seed=42).run(1, parallel=False)
-    explicit = MonteCarloRunner(*values, seed=42, race_engine="standard").run(
+    explicit = MonteCarloRunner(*values, seed=42, race_engine="chronological").run(
         1, parallel=False,
     )
-    legacy_race, legacy_quali, _ = _run_single_simulation((*serialized(values), 42))
     assert default == explicit
-    shared = MonteCarloRunner(*values, seed=42, rng_policy="shared_v1").run(
+    assert default.race_engine == DEFAULT_RACE_ENGINE == "chronological"
+    assert RACE_ENGINES == ("standard", "chronological")
+
+
+def test_legacy_five_item_worker_keeps_standard_and_shared_rng():
+    values = inputs()
+    legacy_race, legacy_quali, _ = _run_single_simulation((*serialized(values), 42))
+    shared = MonteCarloRunner(*values, seed=42, race_engine="standard", rng_policy="shared_v1").run(
         1, parallel=False,
     )
     assert shared.race_results == [legacy_race]
     assert shared.qualifying_results == [legacy_quali]
-    assert default.race_engine == "standard"
-    assert RACE_ENGINES == ("standard", "chronological")
+    assert shared.race_engine == "standard"
 
 
 def test_chronological_real_process_pool_matches_sequential_and_preserves_inputs():
@@ -65,7 +70,7 @@ def test_chronological_real_process_pool_matches_sequential_and_preserves_inputs
     assert asdict(sequential) == parallel_data
     assert sequential.race_engine == "chronological"
     assert serialized(values) == before
-    standard = MonteCarloRunner(*values, seed=71).run(3, parallel=False)
+    standard = MonteCarloRunner(*values, seed=71, race_engine="standard").run(3, parallel=False)
     assert standard.qualifying_results == sequential.qualifying_results
 
 
@@ -90,4 +95,10 @@ def test_selected_worker_executes_lapped_finish_instead_of_full_distance(monkeyp
     assert chrono_by_id["1"].laps_completed == 9
     assert chrono_by_id["1"].total_time == 990
     assert {row.laps_completed for row in standard} == {10}
+    omitted = MonteCarloRunner(*values, seed=42).run(1, parallel=False)
+    omitted_by_id = {row.driver_id: row for row in omitted.race_results[0]}
+    assert omitted.race_engine == "chronological"
+    assert omitted_by_id["0"].laps_completed == 10
+    assert omitted_by_id["1"].laps_completed == 9
+    assert omitted_by_id["1"].total_time == 990
     assert serialized(values) == before

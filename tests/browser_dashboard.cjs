@@ -416,8 +416,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     await page.locator('#tireInventoryInput').fill('');
 
     await page.locator('#simCount').fill('10');
-    assert.equal(await page.locator('#raceEngineSelect').inputValue(), 'standard');
-    await page.locator('#raceEngineSelect').selectOption('chronological');
+    assert.equal(await page.locator('#raceEngineSelect').inputValue(), 'chronological');
+    assert.equal(await page.evaluate(() => buildRunPayload().race_engine), 'chronological');
     await page.locator('#parallelSelect').selectOption('false');
     assert.equal(await page.locator('#weatherModeSelect').inputValue(), 'evolving');
     await page.locator('#weatherModeSelect').selectOption('fixed_rainfall');
@@ -725,7 +725,35 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     // include the winner of the representative individual race.
     const driverId = Object.values(payload.scenarios)[0].win_probabilities[0][0];
     await page.waitForFunction(() => !runInProgress);
-    assert((await page.locator('#panel-race').textContent()).includes('Lap-aware model (experimental)'));
+    assert((await page.locator('#panel-race').textContent()).includes('Lap-aware model'));
+    assert(!(await page.locator('#panel-race').textContent()).includes('experimental'));
+    await page.locator('#raceEngineSelect').selectOption('standard');
+    assert.equal(await page.evaluate(() => buildRunPayload().race_engine), 'standard');
+    await page.evaluate(() => renderRace());
+    assert((await page.locator('#panel-race').textContent()).includes('Lap-aware model'),
+      'Changing the current race model control must not relabel saved results');
+    await page.locator('#raceEngineSelect').selectOption('chronological');
+    const savedModelLabels = await page.evaluate(() => {
+      const scenario = getScenarioEntry().data;
+      const originalScenarioEngine = scenario.race_engine;
+      const originalRequestEngine = simResults.request.race_engine;
+      try {
+        scenario.race_engine = 'standard';
+        renderRace();
+        const explicitStandard = document.getElementById('panel-race').textContent;
+        delete scenario.race_engine;
+        delete simResults.request.race_engine;
+        renderRace();
+        const legacy = document.getElementById('panel-race').textContent;
+        return {explicitStandard, legacy};
+      } finally {
+        scenario.race_engine = originalScenarioEngine;
+        simResults.request.race_engine = originalRequestEngine;
+        renderRace();
+      }
+    });
+    assert(savedModelLabels.explicitStandard.includes('Standard race model'));
+    assert(savedModelLabels.legacy.includes('Standard race model'));
     assert((await page.locator('#panel-race').textContent()).includes('Fixed rainfall; surface wetness still evolves'));
     assert((await page.locator('#panel-race').textContent())
       .includes('Match random draws: Weather (default)'));

@@ -793,7 +793,7 @@ propagates through several cars on the same lap. A car too slow to join the
 queue keeps losing ground; it can also hold up cars behind it. Compact gaps
 need not be widened, and physical order breaks equal-time ties. The one-second
 target and lap-resolution pace bounds are modeling assumptions, shared with
-the experimental engine, rather than a fitted SC speed profile.
+the chronological engine, rather than a fitted SC speed profile.
 
 For example, two 90-second cars starting an SC lap 80 seconds apart take four
 laps to settle at the target gap. With the leader running 126-second laps,
@@ -806,7 +806,7 @@ The lap on which an SC countdown ends still uses its starting restrictions.
 This does not make the standard loop chronological: it still advances every
 survivor once per leading lap. Pit optimizers retain their nominal
 current SC multiplier and do not predict the field's full catch-up sequence or
-future SC duration. The experimental engine instead schedules individual
+future SC duration. The chronological engine instead schedules individual
 crossings and pit exits. The engines share catch-up bounds, but their physical
 queue and pit-arrival approximations can produce different results.
 

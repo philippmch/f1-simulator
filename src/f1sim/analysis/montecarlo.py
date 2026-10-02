@@ -25,6 +25,7 @@ from f1sim.models.tire import TireCompound
 from f1sim.simulation.chronological_race import ChronologicalRace
 from f1sim.simulation.events import EventType
 from f1sim.simulation.execution import (
+    DEFAULT_RACE_ENGINE,
     validate_race_engine,
     validate_starting_tire_ages,
     validate_starting_tires,
@@ -1121,7 +1122,7 @@ class MonteCarloRunner:
         track: Track,
         weather: Weather,
         seed: int | None = None,
-        race_engine: str = "standard",
+        race_engine: str = DEFAULT_RACE_ENGINE,
         starting_tires: dict[str, str | TireCompound] | None = None,
         rng_policy: str = DEFAULT_RNG_POLICY,
         starting_tire_ages: dict[str, int] | None = None,
@@ -1137,7 +1138,7 @@ class MonteCarloRunner:
             track: Circuit to simulate
             weather: Initial weather conditions
             seed: Random seed for reproducibility
-            race_engine: Standard lap loop or experimental chronological execution
+            race_engine: Chronological car timing (default) or the standard lap loop
             starting_tires: Explicit opening compounds by driver ID; omitted drivers use policy
             rng_policy: Versioned shared or independent weather random streams
             tire_inventory: Finite reusable race sets for listed drivers; others unlimited

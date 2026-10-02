@@ -33,6 +33,7 @@ from f1sim.data import CurrentSeasonDataLoader
 from f1sim.models import Weather, WeatherCondition
 from f1sim.output import ConsoleOutput, Exporter
 from f1sim.simulation.execution import (
+    DEFAULT_RACE_ENGINE,
     RACE_ENGINES,
     parse_starting_tire_spec,
     validate_starting_tire_ages,
@@ -197,8 +198,8 @@ def main() -> int:
         ),
     )
     parser.add_argument(
-        "--race-engine", choices=RACE_ENGINES, default="standard",
-        help="Race model (default: standard; chronological is experimental)",
+        "--race-engine", choices=RACE_ENGINES, default=DEFAULT_RACE_ENGINE,
+        help=f"Race model (default: {DEFAULT_RACE_ENGINE}; standard is faster for large batches)",
     )
     parser.add_argument(
         "--starting-tyres", "--starting-tires", dest="starting_tires", type=_starting_tires,

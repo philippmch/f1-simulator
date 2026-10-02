@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from f1sim.models.tire import TireCompound
 
 RACE_ENGINES = ("standard", "chronological")
+DEFAULT_RACE_ENGINE = "chronological"
 
 
 def validate_starting_tires(

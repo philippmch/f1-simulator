@@ -88,7 +88,7 @@ class Exporter:
             seed = escape(str(row.get("seed", "-")))
             engine = row.get("race_engine", "standard")
             engine = escape({
-                "standard": "Standard", "chronological": "Lap-aware (experimental)",
+                "standard": "Standard", "chronological": "Lap-aware",
             }.get(engine, engine) if isinstance(engine, str) else "Unknown")
             files = row.get("files", {})
             report = files.get("report_html") if isinstance(files, dict) else None
