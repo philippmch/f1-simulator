@@ -52,8 +52,14 @@ automatic selector compares opening choices while executing this driver's
 custom plan in its isolated projections. An empty plan suppresses elective
 stops in those comparisons too. Compulsory corrections, actual compound use,
 finite-set wear and the timed race finish remain active. The selector compares
-completed distance before elapsed time, using mean pace and expected service;
-it does not search for a different pit schedule or predict traffic and incidents.
+completed distance first, then the number of requests actually executed before
+the finish, then elapsed time, using mean pace and expected service. Skipped,
+overridden and unreached instructions earn no execution credit. This can reserve
+a sole physical wet set for a later paid request by starting on intermediates,
+even if starting on wets and skipping that request would be quicker.
+The selector does not search for a different pit schedule or predict traffic
+and incidents. A longer legal projected race still takes priority over more
+executed requests at a shorter distance.
 Unlisted drivers retain the automatic later policy. Supply an opening
 explicitly when testing a complete tyre sequence; its compound and age remain
 authoritative.

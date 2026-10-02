@@ -35,10 +35,12 @@ def test_equivalent_scores_match_independent_per_identity_paths(
     original = opening_strategy._policy_path_outcome
     expected = []
     for item in eligible:
-        laps, time = original(*args, TireCompound(item["compound"]), 0,
-                              tire_inventory=records, opening_set_id=item["id"], pit_plan=pit_plan)
+        laps, time, instructions = original(
+            *args, TireCompound(item["compound"]), 0, tire_inventory=records,
+            opening_set_id=item["id"], pit_plan=pit_plan, include_instructions=True,
+        )
         expected.append((item["id"], opening_strategy.OpeningPolicyScore(
-            -laps if time != inf else inf, time)))
+            -laps if time != inf else inf, time, -instructions if time != inf else 0)))
     calls = []
 
     def observe(*args, **kwargs):

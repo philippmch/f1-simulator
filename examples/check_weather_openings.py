@@ -7,6 +7,7 @@ opening comparison. This validates the conditional model, not real-race pace
 or globally optimal strategy under traffic and unknown future weather.
 Use --custom-plans to check supplied pit schedules, including empty plans,
 physical tyre pools, known rainfall changes and a shortened timed finish.
+Rank completed distance, executed requests and elapsed time in that order.
 """
 
 import argparse
@@ -69,6 +70,30 @@ CUSTOM_PLAN_CASES = (
                     dict(id="wet-fresh", compound="wet", age=0)],
          schedule=[dict(lap=4, rain_intensity=.85), dict(lap=9, rain_intensity=0.)],
          pit_plan=[dict(lap=4, compound="wet"), dict(lap=10, compound="soft")]),
+    *(dict(name=f"reserve_requested_wet_{water}", water=water, rain=rain, laps=20,
+           base=90., lane=20.,
+           inventory=[dict(id="inter", compound="intermediate", age=0),
+                      dict(id="wet", compound="wet", age=0)],
+           pit_plan=[dict(lap=4, compound="wet")])
+      for water, rain in ((.4, .4), (.55, .55), (.7, .75), (.8, .8))),
+    dict(name="reuse_requested_wet", water=.55, rain=.55, laps=20, base=90., lane=20.,
+         inventory=[dict(id="inter", compound="intermediate", age=3),
+                    dict(id="wet", compound="wet", age=5)],
+         pit_plan=[dict(lap=4, compound="wet"), dict(lap=8, compound="intermediate"),
+                   dict(lap=12, compound="wet")]),
+    dict(name="two_wet_sets", water=.55, rain=.55, laps=20, base=90., lane=20.,
+         inventory=[dict(id="inter", compound="intermediate", age=0),
+                    dict(id="wet-first", compound="wet", age=0),
+                    dict(id="wet-second", compound="wet", age=0)],
+         pit_plan=[dict(lap=4, compound="wet")]),
+    dict(name="dry_start_known_rain", water=0., rain=0., laps=20, base=90., lane=22.,
+         schedule=[dict(lap=4, rain_intensity=.35), dict(lap=12, rain_intensity=.85)],
+         pit_plan=[dict(lap=10, compound="intermediate")]),
+    dict(name="reserve_wet_before_timed_finish", water=.55, rain=.55, laps=10,
+         base=1800., lane=20.,
+         inventory=[dict(id="inter", compound="intermediate", age=0),
+                    dict(id="wet", compound="wet", age=0)],
+         pit_plan=[dict(lap=3, compound="wet"), dict(lap=8, compound="intermediate")]),
 )
 
 
@@ -165,9 +190,14 @@ def compare_openings(cases=CASES, engines=ENGINES):
                 outcomes = [run_race(case, engine, compound, seed, age) for seed in SEEDS]
                 scores[label] = dict(
                     mean_laps=sum(row["laps_completed"] for row in outcomes) / len(outcomes),
+                    mean_executed_instructions=sum(
+                        sum(item["status"] == "executed"
+                            for item in row.get("pit_plan_history", ()))
+                        for row in outcomes) / len(outcomes),
                     mean_seconds=sum(row["total_seconds"] for row in outcomes) / len(outcomes),
                 )
             best = min(scores, key=lambda compound: (-scores[compound]["mean_laps"],
+                                                    -scores[compound]["mean_executed_instructions"],
                                                     scores[compound]["mean_seconds"]))
             chosen = selected.get("opening", selected["compounds"][0])
             if chosen not in scores:
@@ -176,6 +206,8 @@ def compare_openings(cases=CASES, engines=ENGINES):
                 case=dict(case), engine=engine, reaction_seeds=list(SEEDS),
                 selected=selected, alternatives=scores, best_opening=best,
                 mean_distance_gap=scores[chosen]["mean_laps"] - scores[best]["mean_laps"],
+                mean_instruction_gap=(scores[chosen]["mean_executed_instructions"]
+                                      - scores[best]["mean_executed_instructions"]),
                 mean_time_gap_seconds=scores[chosen]["mean_seconds"] - scores[best]["mean_seconds"],
             ))
     return rows
@@ -192,7 +224,7 @@ def main():
         cases=CUSTOM_PLAN_CASES if args.custom_plans else CASES, engines=engines,
     )
     print(json.dumps(rows, indent=2, allow_nan=False))
-    return 1 if any(row["mean_distance_gap"] != 0 or
+    return 1 if any(row["mean_distance_gap"] != 0 or row["mean_instruction_gap"] != 0 or
                     abs(row["mean_time_gap_seconds"]) > 1.e-7 for row in rows) else 0
 
 

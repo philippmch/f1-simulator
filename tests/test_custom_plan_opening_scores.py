@@ -59,7 +59,7 @@ def cache_for(name):
 
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])
-@pytest.mark.parametrize("case_index", range(12))
+@pytest.mark.parametrize("case_index", range(20))
 def test_custom_opening_scores_match_every_executed_alternative(harness, engine, case_index):
     case = deepcopy(harness.CUSTOM_PLAN_CASES[case_index])
     before = deepcopy(case)
@@ -89,8 +89,10 @@ def test_custom_opening_scores_match_every_executed_alternative(harness, engine,
             label = candidate.value
         actual = row["alternatives"][label]
         assert score.negative_mean_laps == -actual["mean_laps"]
+        assert score.negative_mean_instructions == -actual["mean_executed_instructions"]
         assert score.mean_time == pytest.approx(actual["mean_seconds"], rel=0, abs=1.e-8)
     assert row["mean_distance_gap"] == 0
+    assert row["mean_instruction_gap"] == 0
     assert row["mean_time_gap_seconds"] == pytest.approx(0., abs=1.e-8)
     assert (args, simulator.rng.bit_generator.state) == input_before
     assert case == before
@@ -107,6 +109,24 @@ def test_custom_opening_scores_match_every_executed_alternative(harness, engine,
     if case["name"] == "timed_unreached_plan":
         assert row["selected"]["laps_completed"] < case["laps"]
         assert row["selected"]["pit_plan_history"][0]["status"] == "not_reached"
+    if case["name"].startswith("reserve_requested_wet"):
+        assert row["selected"]["opening"] == "intermediate@0"
+        assert row["selected"]["pit_plan_history"][0]["status"] == "executed"
+        assert row["selected"]["total_seconds"] > row["alternatives"]["wet@0"]["mean_seconds"]
+    if case["name"] == "reuse_requested_wet":
+        assert [item["status"] for item in row["selected"]["pit_plan_history"]] == [
+            "executed", "executed", "executed"]
+    if case["name"] == "two_wet_sets":
+        assert row["alternatives"]["wet@0"]["mean_executed_instructions"] == 1
+        fitted = harness.run_race(case, engine, TireCompound.WET)
+        assert fitted["pit_plan_history"][0]["status"] == "executed"
+        assert [item["set_id"] for item in fitted["tire_set_history"]] == [
+            "wet-first", "wet-second"]
+    if case["name"] == "reserve_wet_before_timed_finish":
+        assert row["selected"]["opening"] == "intermediate@0"
+        assert row["selected"]["laps_completed"] < case["laps"]
+        assert [item["status"] for item in row["selected"]["pit_plan_history"]] == [
+            "executed", "not_reached"]
     if case.get("warmup"):
         assert all(item["lap"] != 1 for item in row["selected"]["warmup_laps"])
 
@@ -235,8 +255,9 @@ def test_custom_plan_opening_diagnostic_is_reproducible():
     second = subprocess.run(command, check=True, capture_output=True, text=True, timeout=30)
     assert first.stdout == second.stdout
     rows = json.loads(first.stdout)
-    assert len(rows) == 24
+    assert len(rows) == 40
     assert {row["engine"] for row in rows} == {"standard", "chronological"}
     assert all(row["reaction_seeds"] == list(range(8)) for row in rows)
-    assert all(row["mean_distance_gap"] == 0 and abs(row["mean_time_gap_seconds"]) < 1.e-7
+    assert all(row["mean_distance_gap"] == row["mean_instruction_gap"] == 0
+               and abs(row["mean_time_gap_seconds"]) < 1.e-7
                for row in rows)

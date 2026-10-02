@@ -156,14 +156,18 @@ Automatic starting-compound selection on a clearly dry track compares isolated
 runs of the existing pit policy for each slick, using noise-free lap pace and
 expected service time. These runs follow the race clock, retain the original
 fuel distance, and include later paid stops and the distinct-compound rule.
-They compare completed distance first and elapsed time second. This avoids
-choosing an opening tyre for a scheduled distance that the time limit will cut
+They compare completed distance first, then fulfilled custom instructions when
+a plan is supplied, then elapsed time. Only actually executed requests before
+the projected finish count; skipped, overridden and unreached requests do not.
+This avoids choosing an opening tyre for a scheduled distance that the time limit will cut
 short, or rewarding a slower policy merely because it completes fewer laps.
 Existing strategy weights choose among equivalent best outcomes, with a
-one-billionth-of-a-second tolerance for elapsed-time ties. One-lap races and
-cases without a legal projected finish retain the original weighted choice.
-Explicit starting-tyre overrides and rain sets selected by the surface/rainfall
-crossover retain priority.
+one-billionth-of-a-second tolerance for elapsed-time ties after matching both
+distance and request fulfillment. A dry direct comparison with prescribed
+weather changes uses the same eight private reaction seeds as the general
+weather-opening comparison; a dry surface without that schedule retains one.
+One-lap races and cases without a legal projected finish retain the original
+weighted choice. Explicit starting-tyre overrides retain priority.
 
 The dashboard's Statistics tab and saved HTML reports show recorded tyre
 sequence frequencies for each driver across the full run. Expand a driver to
@@ -410,11 +414,16 @@ comparisons match the fastest safe executed opening policy. This checks the
 existing later pit policy under fixed rainfall, not every possible schedule or
 real-world tyre performance. `--engine` selects either engine or both.
 
-Add `--custom-plans` to check twelve custom-policy cases in both engines:
+Add `--custom-plans` to check twenty custom-policy cases in both engines:
 empty, early, late and repeated-compound plans; unsafe requests; prescribed
 weather; finite pools with used and equivalent physical sets; fitting costs;
-and instructions beyond a timed finish. All twenty-four comparisons must match
-the best safe executed opening, comparing completed distance before elapsed time.
+and instructions beyond a timed finish. The additional finite cases check
+reservation of a sole requested wet set, reuse at accumulated wear, equivalent
+wet replacements and request fulfillment before a timed finish. All forty
+comparisons must match the best safe executed opening, comparing completed
+distance, then executed requests, then elapsed time. The report includes
+`mean_executed_instructions` and `mean_instruction_gap` alongside distance and
+time; all three gaps must be zero.
 Finite alternatives preserve both compound and prior wear. In the synthetic
 60-lap, high-wear case with no elective stops, starting on hard tyres saves about
 107 model seconds against the former automatic medium opening. These checks

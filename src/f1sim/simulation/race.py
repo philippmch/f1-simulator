@@ -993,6 +993,7 @@ class RaceSimulator(InventoryStrategyMixin):
         complete-race costs restrict those probabilities to optimal opening sets.
         A supplied custom pit plan replaces elective automatic stops in those
         comparisons; its compulsory safety and compound corrections remain.
+        Equal-distance custom paths prefer more executed requests before time.
         """
         if (self.weather_forecast_context is not None and self.weather_forecast_context.schedule
                 and driver is not None and car is not None):
@@ -1063,10 +1064,11 @@ class RaceSimulator(InventoryStrategyMixin):
             )
             best = min(score for _, score in scores)
             if np.isfinite(best.mean_time):
-                # Compare the actual policy's completed distance first: a
-                # shorter timed race must not win merely by ending sooner.
+                # Retain distance and custom-request priority before comparing
+                # time; a skipped requested service must not create a cheap tie.
                 weights *= np.asarray([
                     score.negative_mean_laps == best.negative_mean_laps
+                    and score.negative_mean_instructions == best.negative_mean_instructions
                     and score.mean_time <= best.mean_time + 1e-9
                     for _, score in scores
                 ])

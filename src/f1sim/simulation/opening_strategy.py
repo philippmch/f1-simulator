@@ -2,6 +2,7 @@
 
 import json
 from dataclasses import dataclass
+from functools import total_ordering
 from math import inf
 
 import numpy as np
@@ -25,7 +26,11 @@ from f1sim.simulation.pit_plans import (
 )
 from f1sim.simulation.race_timing import RaceFinishClock, forecast_final_lap
 from f1sim.simulation.warmup import validate_tire_warmup
-from f1sim.simulation.weather_schedule import paid_compound_candidates, validate_forecast_context
+from f1sim.simulation.weather_schedule import (
+    has_prescribed_weather,
+    paid_compound_candidates,
+    validate_forecast_context,
+)
 
 REACTION_SEEDS = tuple(range(8))
 OPENING_CANDIDATES = (TireCompound.INTERMEDIATE, TireCompound.SOFT,
@@ -33,12 +38,35 @@ OPENING_CANDIDATES = (TireCompound.INTERMEDIATE, TireCompound.SOFT,
 SLICKS = (TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD)
 
 
-@dataclass(frozen=True, order=True)
+@total_ordering
+@dataclass(frozen=True)
 class OpeningPolicyScore:
-    """Prefer greater mean race distance, then less elapsed time at that distance."""
+    """Prefer distance, fulfilled custom instructions, then elapsed time.
+
+    The first two constructor arguments retain their distance/time meaning.
+    Automatic policies have no custom instructions and keep their old order.
+    """
 
     negative_mean_laps: float
     mean_time: float
+    negative_mean_instructions: float = 0.
+
+    def __lt__(self, other):
+        if type(self) is not type(other):
+            return NotImplemented
+        return (self.negative_mean_laps, self.negative_mean_instructions, self.mean_time) < (
+            other.negative_mean_laps, other.negative_mean_instructions, other.mean_time)
+
+
+def _mean_policy_score(outcomes):
+    """Aggregate executed paths; an infeasible path cannot earn plan credit."""
+    mean_time = sum(outcome[1] for outcome in outcomes) / len(outcomes)
+    if mean_time == inf:
+        return OpeningPolicyScore(inf, inf)
+    return OpeningPolicyScore(
+        -sum(outcome[0] for outcome in outcomes) / len(outcomes), mean_time,
+        -sum(outcome[2] for outcome in outcomes if len(outcome) == 3) / len(outcomes),
+    )
 
 
 def _policy_snapshots(driver, car, track, weather, tuning, profiles):
@@ -67,8 +95,9 @@ def dry_opening_policy_costs(driver, car, track, weather, strategy, tuning, prof
                              *, tire_warmup=None, forecast_context=None, pit_plan=None):
     """Score actual slick-opening policies, including the timed race finish.
 
-    Rain-free, dry surfaces have deterministic pit decisions, so one private
-    seed suffices. Transitional surfaces retain the wet policy's reaction sample.
+    Rain-free, dry surfaces without a prescribed weather schedule have
+    deterministic pit decisions, so one private seed suffices. Transitional
+    surfaces and prescribed changes retain the wet policy's reaction sample.
     Identity and prior race state do not affect these isolated policy paths.
     """
     from f1sim.simulation import race_timing
@@ -103,6 +132,7 @@ def _cached_dry_policy_costs(driver_json, car_json, track_json, weather_json,
     tire_warmup = json.loads(warmup_json)
     pit_plan = json.loads(pit_plan_json) if pit_plan_json is not None else None
     seeds = ((0,) if weather.rain_intensity == 0 and weather.track_wetness < 0.08
+             and not has_prescribed_weather(forecast_context)
              else REACTION_SEEDS)
     scores = []
     for compound in SLICKS:
@@ -111,12 +141,10 @@ def _cached_dry_policy_costs(driver_json, car_json, track_json, weather_json,
             driver, car, track, weather, TeamStrategyArchetype(strategy), tuning, profiles,
             compound, seed, **({"tire_warmup": tire_warmup} if tire_warmup else {}),
             **({"forecast_context": forecast_context} if forecast_context is not None else {}),
-            **({"pit_plan": pit_plan} if pit_plan is not None else {}),
+            **({"pit_plan": pit_plan, "include_instructions": True}
+               if pit_plan is not None else {}),
         ) for seed in seeds]
-        mean_time = sum(time for _, time in outcomes) / len(outcomes)
-        negative_mean_laps = (-sum(laps for laps, _ in outcomes) / len(outcomes)
-                              if mean_time != inf else inf)
-        scores.append((compound, OpeningPolicyScore(negative_mean_laps, mean_time)))
+        scores.append((compound, _mean_policy_score(outcomes)))
     return tuple(scores)
 
 
@@ -125,8 +153,9 @@ def opening_policy_costs(driver, car, track, weather, strategy, tuning, profiles
                          *, tire_warmup=None, forecast_context=None, pit_plan=None):
     """Score every currently noncritical opening through the actual pit policy.
 
-    Compare completed distance before elapsed time. The conditional projection
-    holds observed rainfall fixed unless a prescribed scenario supplies later
+    Compare completed distance, fulfilled custom requests, then elapsed time.
+    The conditional projection holds observed rainfall fixed unless a prescribed
+    scenario supplies later
     changes; it does not sample future weather or consume the actual race RNG.
     """
     from f1sim.simulation import race_timing
@@ -171,13 +200,10 @@ def _cached_policy_costs(driver_json, car_json, track_json, weather_json,
             driver, car, track, weather, TeamStrategyArchetype(strategy), tuning, profiles,
             compound, seed, **({"tire_warmup": tire_warmup} if tire_warmup else {}),
             **({"forecast_context": forecast_context} if forecast_context is not None else {}),
-            **({"pit_plan": pit_plan} if pit_plan is not None else {}),
+            **({"pit_plan": pit_plan, "include_instructions": True}
+               if pit_plan is not None else {}),
         ) for seed in REACTION_SEEDS]
-        mean_time = sum(time for _, time in outcomes) / len(outcomes)
-        # A policy that cannot finish legally must not win by running farther.
-        negative_mean_laps = (-sum(laps for laps, _ in outcomes) / len(outcomes)
-                              if mean_time != inf else inf)
-        scores.append((compound, OpeningPolicyScore(negative_mean_laps, mean_time)))
+        scores.append((compound, _mean_policy_score(outcomes)))
     return tuple(scores)
 
 
@@ -238,8 +264,8 @@ def _cached_inventory_policy_costs(driver_json, car_json, track_json, weather_js
         cancellation_checkpoint()
         key = (item["compound"], item.get("age", 0))
         if key not in equivalent_outcomes:
-            # Only elapsed time and completed distance are returned. Fitting
-            # an equivalent identity leaves the same anonymous future pool;
+            # Fitting an equivalent identity leaves the same anonymous future
+            # pool and the same compound-request fulfillment;
             # retain every physical record and the original score/tie order.
             equivalent_outcomes[key] = _policy_path_outcome(
                 driver, car, track, weather, TeamStrategyArchetype(strategy),
@@ -247,17 +273,22 @@ def _cached_inventory_policy_costs(driver_json, car_json, track_json, weather_js
                 TireCompound(item["compound"]), 0, tire_warmup=tire_warmup,
                 tire_inventory=records, opening_set_id=item["id"],
                 **({"forecast_context": forecast_context} if forecast_context is not None else {}),
-                **({"pit_plan": pit_plan} if pit_plan is not None else {}),
+                **({"pit_plan": pit_plan, "include_instructions": True}
+                   if pit_plan is not None else {}),
             )
-        laps, time = equivalent_outcomes[key]
-        scores.append((item["id"], OpeningPolicyScore(-laps if time != inf else inf, time)))
+        scores.append((item["id"], _mean_policy_score((equivalent_outcomes[key],))))
     return tuple(scores)
 
 
 def _policy_path_outcome(driver, car, track, weather, strategy, tuning, profiles, compound, seed,
                          *, tire_inventory=None, opening_set_id=None, tire_warmup=None,
-                         forecast_context=None, pit_plan=None):
-    """Run one isolated existing pit policy with deterministic pace and mean service."""
+                         forecast_context=None, pit_plan=None, include_instructions=False):
+    """Run the existing policy with mean pace/service and optional plan credit.
+
+    Direct comparisons keep the (laps, time) result. Opening selectors can also
+    request the number of instructions actually executed before this finish.
+    Skipped, overridden and unreached instructions never count as fulfillment.
+    """
     from f1sim.simulation.race import DriverRaceState, DriverStatus, RaceSimulator
 
     simulator = RaceSimulator(np.random.default_rng(seed), tuning, profiles,
@@ -271,6 +302,14 @@ def _policy_path_outcome(driver, car, track, weather, strategy, tuning, profiles
                             strategy_archetype=strategy, planned_pit_laps=plans[0],
                             pit_plan_options=plans)
     initialize_pit_plan_state(state, pit_plan)
+
+    def outcome(elapsed):
+        if include_instructions:
+            executed = sum(item["status"] == "executed"
+                           for item in state.pit_plan_history or ())
+            return state.laps_completed, elapsed, executed
+        return state.laps_completed, elapsed
+
     if tire_inventory is not None:
         from f1sim.simulation.tire_inventory import TireInventory
 
@@ -309,7 +348,7 @@ def _policy_path_outcome(driver, car, track, weather, strategy, tuning, profiles
                    if planning_final_lap < track.total_laps else {}),
             )
             if state.status != DriverStatus.RACING:
-                return state.laps_completed, inf
+                return outcome(inf)
             state.total_time += loss
             state.pit_stops += 1
             state.pit_laps.append(lap)
@@ -342,11 +381,13 @@ def _policy_path_outcome(driver, car, track, weather, strategy, tuning, profiles
             simulator.weather_forecast_context = simulator.weather_forecast_context.advanced()
     if state.laps_completed > 1 and not (simulator._has_used_wet_compound(state)
                                     or len(simulator._used_slick_compounds(state)) >= 2):
-        return state.laps_completed, inf
-    return state.laps_completed, state.total_time
+        return outcome(inf)
+    return outcome(state.total_time)
 
 
-register_forecast_helpers(globals(), ('_policy_path_outcome', 'paid_compound_candidates',
+register_forecast_helpers(globals(), ('_policy_path_outcome', '_mean_policy_score',
+                                      'OpeningPolicyScore', 'paid_compound_candidates',
+                                      'has_prescribed_weather',
                                       'initialize_pit_plan_state', 'override_pit_plan_instruction',
                                       'CustomPitFinishContext'))
 

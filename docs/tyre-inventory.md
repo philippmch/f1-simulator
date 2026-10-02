@@ -67,6 +67,14 @@ Finite-pool planning adds work for each distinct driver, set age and forecast.
 Automatic opening selection also compares complete policy paths. Start with a
 small trial count when checking a new pool before running a large ensemble.
 
+With a custom plan, equal-distance opening paths prefer more requests actually
+executed before comparing time. A currently fitted set cannot satisfy a later
+paid request for that same physical set; another set of the requested compound
+must be available. Automatic openings can therefore reserve the sole requested
+wet set by starting on intermediates. Two equivalent wet sets can instead allow
+a wet opening followed by the requested wet refit. Explicit openings remain
+authoritative, including plans whose later requests must be skipped.
+
 If no complete forecast is feasible, a required stop can still choose the
 available set with the lowest predicted next-lap time. For a timed paid stop,
 that fallback uses the projected surface after expected lane, service and queue
