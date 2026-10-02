@@ -558,6 +558,7 @@ def plan_inventory_strategy(
             require_compound_rule=require_compound_rule, weather_clock=weather_clock,
             tire_warmup=tire_warmup, current_fit_pending=current_fit_pending,
         )
+    prepared_lap_time = simulator.prepare_deterministic_lap_time(driver, car, track, physical)
     surfaces = tuple(projected_surfaces(weather, horizon, intervals))
     green_stop = track.pit_lane_delta + expected_stationary_time(car)
     current_stop = (track.pit_lane_delta * pit_lane_factor + expected_stationary_time(car)
@@ -583,13 +584,20 @@ def plan_inventory_strategy(
     @lru_cache(maxsize=None)
     def running(offset, compound, age, first_kind=None):
         first = first_kind is not None
-        driver.current_tire_laps = age
-        value = simulator.calculate_lap_time(
-            driver, car, track, TIRE_COMPOUNDS[TireCompound(compound)], surfaces[offset],
-            current_lap + offset, physical, sample_variation=False,
-            active_aero_enabled=active_aero_enabled if first else True,
-            gap_to_car_ahead=gaps[first_kind] if first and gaps is not None else None,
-        )
+        tire = TIRE_COMPOUNDS[TireCompound(compound)]
+        aero_enabled = active_aero_enabled if first else True
+        gap = gaps[first_kind] if first and gaps is not None else None
+        if prepared_lap_time is None:
+            driver.current_tire_laps = age
+            value = simulator.calculate_lap_time(
+                driver, car, track, tire, surfaces[offset], current_lap + offset,
+                physical, sample_variation=False,
+                active_aero_enabled=aero_enabled, gap_to_car_ahead=gap,
+            )
+        else:
+            value = prepared_lap_time(
+                tire, surfaces[offset], current_lap + offset, age, gap, aero_enabled,
+            )
         return value * current_lap_time_modifier if first else value
 
     def run(offset, compound, age, first_kind=None, fitted=False):

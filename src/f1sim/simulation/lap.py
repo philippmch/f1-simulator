@@ -279,6 +279,13 @@ class LapSimulator:
         if (type(driver) is not Driver or type(car) is not Car
                 or type(track) is not Track):
             return None
+        # These model helpers are evaluated once and captured below. Custom
+        # helpers may depend on state outside serialized fields, so retain
+        # their public per-lap dispatch instead of treating them as constants.
+        for model, (owner, name, native) in zip((car, track), _NATIVE_FIXED_MODEL_HOOKS):
+            if (getattr(owner, name) is not native or name in model.__dict__
+                    or name in (model.__pydantic_extra__ or {})):
+                return None
         if type(total_laps) is not int or total_laps <= 0:
             raise ValueError("total_laps must be a positive integer")
 
@@ -678,3 +685,8 @@ _NATIVE_METHODS = {
         "traffic_pace_contribution",
     )
 }
+
+_NATIVE_FIXED_MODEL_HOOKS = (
+    (Car, "pace_delta_seconds", Car.pace_delta_seconds),
+    (Track, "total_active_aero_gain", Track.total_active_aero_gain),
+)

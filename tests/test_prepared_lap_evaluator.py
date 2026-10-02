@@ -198,3 +198,43 @@ def test_custom_weather_uses_public_method_fallback():
 
     assert actual == expected
     assert driver.current_tire_laps == 9
+
+
+@pytest.mark.parametrize("model_kind", ["car", "track"])
+@pytest.mark.parametrize("target", ["class", "instance", "extra"])
+def test_stateful_fixed_model_helpers_disable_preparation_without_invoking_hook(
+    monkeypatch, model_kind, target,
+):
+    driver, car, track = _models()
+    model = car if model_kind == "car" else track
+    owner = type(model)
+    name = "pace_delta_seconds" if model_kind == "car" else "total_active_aero_gain"
+    original = getattr(owner, name)
+    calls = 0
+
+    def stateful(self, *args):
+        nonlocal calls
+        calls += 1
+        value = (original.fget(self) if isinstance(original, property)
+                 else original(self, *args))
+        return value + calls * .125
+
+    if target == "class":
+        monkeypatch.setattr(owner, name,
+                            property(stateful) if isinstance(original, property) else stateful)
+    else:
+        def bound(*args):
+            return stateful(model, *args)
+        if target == "instance":
+            model = model.model_copy(update={name: bound})
+        else:
+            # Pydantic extras can also contain values invisible to field dumps.
+            object.__setattr__(model, "__pydantic_extra__", {name: bound})
+        if model_kind == "car":
+            car = model
+        else:
+            track = model
+
+    simulator = LapSimulator(np.random.default_rng(3))
+    assert simulator.prepare_deterministic_lap_time(driver, car, track, 20) is None
+    assert calls == 0

@@ -122,13 +122,16 @@ Tyre-safety checks are also reused for each compound and projected weather
 update within that forecast. The cache is discarded with the planning call,
 so later race conditions are evaluated afresh.
 
-Repeated timed forecasts prepare the deterministic lap evaluator once for the
-fixed driver, car, track and physical fuel distance. The prepared path keeps
-tyre age, projected weather, fuel lap, traffic gap and active-aero availability
-as explicit inputs, and shares the final arithmetic composition with ordinary
-lap calculation. Custom simulator methods, model subclasses and custom tyre
-or weather models use the public evaluator instead, so the shortcut does not
-change extension dispatch or seeded race behavior.
+Finite-pool forecasts prepare the deterministic lap evaluator once for the
+fixed driver, car, track and physical fuel distance, with either an external
+leading weather clock or the supplied own-lap surface intervals. The prepared
+path keeps tyre age, projected weather, fuel lap, traffic gap and active-aero
+availability as explicit inputs, and shares the final arithmetic composition
+with ordinary lap calculation. Custom simulator methods, overridden car pace or
+track active-aero calculations, and driver, car or track subclasses keep the
+public evaluator. Custom tyre or projected weather
+objects also use its fallback; surface projection retains its existing input
+normalization. The shortcut preserves extension dispatch and seeded race behavior.
 
 Automatic opening selection evaluates one deterministic policy path per distinct
 compound and prior age. Equivalent physical IDs receive the same score in their
@@ -193,6 +196,17 @@ outcomes. Another 24 shorter cases covered both engines, all five benchmark
 weather patterns, both opening modes and additional seeds without an outcome
 change. These are local workload measurements, not a general speed guarantee;
 the optimization changes neither search allowances nor cancellation checks.
+
+A 2026-10-02 check compared untimed preparation with the inventory planner from
+`72fccc8`, using shared native lap physics with the custom-hook guards above.
+Three alternating fresh-process pairs used chronological wetting weather,
+finite pools, automatic openings, two drivers and 53 laps, running seeds 42
+then 43 in each process. Median first-trial time fell from 19.828 to 18.263
+seconds (about 8%); the second-trial median fell from 3.388 to 3.173 seconds
+(about 6%), with variation across pairs. Every complete outcome digest matched
+(`30397bd0a312`). A smaller Standard finite-pool case also retained its exact
+outputs. These measurements describe that synthetic workload; they do not
+establish a full-grid runtime bound or empirical strategy accuracy.
 
 ## Saved inputs and audit records
 
