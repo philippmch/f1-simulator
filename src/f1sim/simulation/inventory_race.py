@@ -119,6 +119,7 @@ class InventoryStrategyMixin:
                 physical_total_laps=physical_total_laps, weather_intervals=weather_intervals,
                 weather_clock=weather_clock,
                 additional_current_stop_cost=additional_current_stop_cost,
+                current_traffic_gaps=current_traffic_gaps,
             )
             return InventoryDecision(choice.cost, float("inf"), choice.set_id, choice.compound)
 

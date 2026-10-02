@@ -18,6 +18,7 @@ from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.pit_plans import initialize_pit_plan_state
 from f1sim.simulation.pit_strategy import expected_stationary_time
 from f1sim.simulation.race import DriverRaceState, DriverStatus, RaceSimulator
+from f1sim.simulation.race_timing import RaceFinishClock
 from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.tire_inventory import TireInventory
 from f1sim.simulation.weather_schedule import WeatherForecastContext
@@ -66,7 +67,9 @@ def inputs(finite=False, plan=(), *, laps=8):
 
 
 def execution_costs(simulator, state, track, weather, lap, *, free_fit=False,
-                    physical_total_laps=None, weather_intervals=None, weather_clock=None):
+                    physical_total_laps=None, weather_intervals=None, weather_clock=None,
+                    current_traffic_gaps=None, additional_current_stop_cost=0.,
+                    finish_context=None):
     """Enumerate compulsory alternatives using execution helpers, never a planner.
 
     Every branch fits a real set, runs public lap physics, consumes the real
@@ -78,6 +81,10 @@ def execution_costs(simulator, state, track, weather, lap, *, free_fit=False,
     first_control = (simulator.event_manager.safety_car_active, simulator.event_manager.vsc_active)
     physical = track.total_laps if physical_total_laps is None else physical_total_laps
     context = simulator.weather_forecast_context
+    infeasible = (inf,) * (2 if finish_context is None else 3)
+
+    def add_seconds(seconds, outcome):
+        return (*outcome[:-1], seconds + outcome[-1])
 
     def surface(offset, paid, first_stop, warmup_delay):
         if weather_clock is not None:
@@ -116,18 +123,22 @@ def execution_costs(simulator, state, track, weather, lap, *, free_fit=False,
     def running(state, offset, paid, first_stop, delay):
         after = surface(offset, paid, first_stop, delay)
         if after.tire_mismatch(state.current_tire.compound) == "critical":
-            return inf, inf
+            return infeasible
         state.driver.current_tire_laps = state.tire_laps
         seconds = LapSimulator().calculate_lap_time(
             state.driver, state.car, track, state.current_tire, after, lap + offset,
             physical, sample_variation=False,
             active_aero_enabled=simulator.event_manager.is_active_aero_allowed(),
+            gap_to_car_ahead=(current_traffic_gaps[int(first_stop)]
+                              if offset == 0 and current_traffic_gaps is not None else None),
         ) * simulator.event_manager.get_lap_time_modifier()
         fee = simulator._consume_tire_warmup(state)
         state.tire_laps += 1
         state.laps_completed = lap + offset
-        requested, later = tail(state, offset + 1, paid, first_stop, delay + fee)
-        return requested, seconds + fee + later
+        if finish_context is not None:
+            state.total_time += seconds + fee
+            state.execution_finish_clock.observe_leader_crossing(lap + offset, state.total_time)
+        return add_seconds(seconds + fee, tail(state, offset + 1, paid, first_stop, delay + fee))
 
     def service(state, offset, paid, first_stop, delay, option):
         state = deepcopy(state)
@@ -136,33 +147,45 @@ def execution_costs(simulator, state, track, weather, lap, *, free_fit=False,
             state.inventory_pit_proposal = (lap + offset, option[1])
         seconds = original_execute(simulator, state, track,
                                    surface(offset, paid, first_stop, delay), lap + offset,
-                                   sample_service=False, physical_total_laps=physical)
+                                   sample_service=False, physical_total_laps=physical,
+                                   **(dict(pit_box_releases={state.car.team_id:
+                                                           additional_current_stop_cost},
+                                           arrival_time=0.) if offset == 0 else {}))
+        if finish_context is not None:
+            state.total_time += seconds
         simulator._commit_pit_plan_if_due(state,
                                          overridden=state.pit_plan_override_reason is not None)
         state.pit_plan_target = None
         state.force_pit_next_lap = False
-        requested, later = running(state, offset, paid + 1, first_stop or offset == 0, delay)
-        return requested, seconds + later
+        return add_seconds(seconds, running(state, offset, paid + 1,
+                                            first_stop or offset == 0, delay))
 
     def tail(state, offset, paid, first_stop, delay):
-        if lap + offset > track.total_laps:
+        finished = (finish_context is not None
+                    and state.execution_finish_clock.winner_time is not None)
+        if lap + offset > track.total_laps or finished:
             if simulator._stay_satisfies_tire_rule(state) or physical <= 1:
-                return -sum(item["status"] == "executed" for item in state.pit_plan_history), 0.
-            return inf, inf
+                requested = -sum(item["status"] == "executed" for item in state.pit_plan_history)
+                return ((requested, 0.) if finish_context is None else
+                        (-state.laps_completed, requested, 0.))
+            return infeasible
         simulator.event_manager.safety_car_active = first_control[0] if offset == 0 else False
         simulator.event_manager.vsc_active = first_control[1] if offset == 0 else False
         entry = surface(offset, paid, first_stop, delay)
-        request = simulator._custom_pit_plan_decision(state, track, entry, lap + offset)
+        planning = (track if finish_context is None else track.model_copy(update={
+            "total_laps": state.execution_finish_clock.final_lap,
+        }))
+        request = simulator._custom_pit_plan_decision(state, planning, entry, lap + offset)
         if request is True:
             selected = (state.pit_plan_target, state.pit_plan_target_set_id)
             return service(state, offset, paid, first_stop, delay, selected)
-        if simulator._pit_plan_compulsory_reason(state, track, entry, lap + offset) is not None:
+        if simulator._pit_plan_compulsory_reason(state, planning, entry, lap + offset) is not None:
             candidates = options(state, entry)
-            if lap + offset >= max(2, track.total_laps):
+            if lap + offset >= max(2, planning.total_laps):
                 candidates = [option for option in candidates
                               if simulator._pit_plan_satisfies_rule(state, option[0])]
             return min((service(state, offset, paid, first_stop, delay, option)
-                        for option in candidates), default=(inf, inf))
+                        for option in candidates), default=infeasible)
         return running(state, offset, paid, first_stop, delay)
 
     def forbid_planning(*args, **kwargs):
@@ -174,6 +197,15 @@ def execution_costs(simulator, state, track, weather, lap, *, free_fit=False,
             simulator.event_manager.safety_car_active, simulator.event_manager.vsc_active = (
                 first_control)
             candidate = deepcopy(state)
+            if finish_context is not None:
+                candidate.execution_finish_clock = RaceFinishClock(track.total_laps)
+                assert candidate.execution_finish_clock.time_limit_seconds == (
+                    finish_context.time_limit_seconds)
+                for completed in range(1, lap):
+                    candidate.execution_finish_clock.observe_leader_crossing(
+                        completed, finish_context.now * completed / (lap - 1),
+                    )
+                candidate.total_time = finish_context.now
             if free_fit:
                 if candidate.tire_inventory is None:
                     simulator._fit_tire(candidate, compound)

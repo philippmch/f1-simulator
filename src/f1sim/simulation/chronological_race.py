@@ -876,6 +876,9 @@ class ChronologicalRace:
                 physical_total_laps=self.track.total_laps,
                 weather_intervals=cadence,
                 weather_clock=weather_clock,
+                **(dict(current_traffic_gaps=traffic.current_traffic_gaps,
+                        additional_current_stop_cost=delay)
+                   if state.pit_plan is not None else {}),
             )
             if state.status != DriverStatus.RACING:
                 self._retire(driver_id, now, state.dnf_reason)

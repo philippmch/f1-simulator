@@ -97,8 +97,16 @@ physical-set wear and availability, including sets removed and reused later,
 and accounts for skipped requests and optional fitting costs. It does not add
 profitable elective stops or change an executable requested compound.
 
-The forecast uses expected service and mean clean-air pace, current control on
-the next lap, and green running thereafter. A projected leader's observed clock
+The forecast uses expected service and mean pace, with current control on the
+next lap and green running thereafter. Compulsory paid replacements keep the
+observed rejoin gap and expected pit-box wait from the stop decision. That gap
+enters the first lap's physics before minimum-time clipping and control scaling;
+later laps assume clean air. A directly supplied free-fit forecast uses the
+stay gap until a paid service is committed on that same lap. Suspension fits
+without a traffic observation retain the clean-air assumption. Expected box
+waits are separate from sampled service and actual queue loss, so a long random
+service cannot change the forecast after the stop decision.
+A projected leader's observed clock
 can shorten each candidate at the lap following expiry; completed distance
 is ranked first, then fulfilled instructions, then time. This prevents a cheap
 replacement winning by making a later safe request unavailable when an equally

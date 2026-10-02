@@ -17,6 +17,7 @@ from f1sim.models._native import forecast_decision, register_forecast_helpers
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.pit_strategy import expected_stationary_time
+from f1sim.simulation.strategy_traffic import normalize_current_traffic_gaps
 from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.surface_projection import normalize_weather_intervals, projected_surfaces
 from f1sim.simulation.warmup import tire_warmup_seconds, validate_tire_warmup
@@ -48,7 +49,7 @@ def choose_custom_pit_replacement(
     current_fit_pending=False, pit_lane_factor=1., current_lap_time_modifier=1.,
     active_aero_enabled=True, physical_total_laps=None, weather_intervals=None,
     weather_clock=None, additional_current_stop_cost=0., tire_warmup=None,
-    forecast_context=None, finish_context=None,
+    current_traffic_gaps=None, forecast_context=None, finish_context=None,
 ):
     """Price a committed paid replacement or a free restart fit without mutation.
 
@@ -58,8 +59,10 @@ def choose_custom_pit_replacement(
     order breaking ties, exactly as execution does. A free retained set keeps
     its wear and pending fitting penalty; an unrun fit earns no compound credit.
 
-    Costs use deterministic clean-air physics and expected service. The current
-    control applies to the first running lap, later laps assume green. External
+    Costs use deterministic physics and expected service. Observed stay/rejoin
+    gaps enter the first running lap before clipping and control scaling; later
+    laps assume clean air and green. Only a paid service on the current lap
+    receives its expected queue cost, including a request after a free fit. External
     weather updates include physical stop delays and previously run warmup fees.
     An observed leader clock can shorten each branch at its following crossing
     after expiry. Completed distance is ranked first, then fulfilled requests,
@@ -84,6 +87,7 @@ def choose_custom_pit_replacement(
             raise ValueError("weather_clock must be a StrategyWeatherClock")
         weather_clock.validate_horizon(horizon)
     physical = track.total_laps if physical_total_laps is None else physical_total_laps
+    gaps = normalize_current_traffic_gaps(current_traffic_gaps)
     warmup = validate_tire_warmup(tire_warmup)
     driver = driver.model_copy(deep=True)
     car = car.model_copy(deep=True)
@@ -158,18 +162,20 @@ def choose_custom_pit_replacement(
                      and entry.tire_mismatch(compound) != "critical")
 
     @lru_cache(maxsize=4096)
-    def running(offset, selected, age, update):
+    def running(offset, selected, age, update, stopped_first):
         tire = TIRE_COMPOUNDS[compounds[selected]]
         aero = active_aero_enabled if offset == 0 else True
+        gap = gaps[int(stopped_first)] if offset == 0 and gaps is not None else None
         if prepared is None:
             driver.current_tire_laps = age
             value = simulator.calculate_lap_time(
                 driver, car, track, tire, surface_path[update], current_lap + offset,
                 physical, sample_variation=False, active_aero_enabled=aero,
+                gap_to_car_ahead=gap,
             )
         else:
             value = prepared(tire, surface_path[update], current_lap + offset, age,
-                             active_aero_enabled=aero)
+                             active_aero_enabled=aero, gap_to_car_ahead=gap)
         return value * current_lap_time_modifier if offset == 0 else value
 
     def run(offset, selected, ages, used, paid, fit_delay, pending, stopped_first):
@@ -177,7 +183,8 @@ def choose_custom_pit_replacement(
         if after.tire_mismatch(compounds[selected]) == "critical":
             return None
         fee = tire_warmup_seconds(warmup, compounds[selected]) if pending else 0.
-        return (running(offset, selected, age_at(ages, selected), update) + fee,
+        return (running(offset, selected, age_at(ages, selected), update,
+                        stopped_first if offset == 0 else False) + fee,
                 increment(ages, selected), used | bits[compounds[selected]], fit_delay + fee)
 
     def paid_fit(offset, selected, ages, used, paid, fit_delay, stopped_first, elapsed, announced,
@@ -278,4 +285,5 @@ def choose_custom_pit_replacement(
         running.cache_clear()
 
 
-register_forecast_helpers(globals(), ("choose_custom_pit_replacement", "project_next_surface"))
+register_forecast_helpers(globals(), ("choose_custom_pit_replacement", "project_next_surface",
+                                      "normalize_current_traffic_gaps"))

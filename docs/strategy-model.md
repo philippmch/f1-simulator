@@ -863,6 +863,17 @@ only a scalar rejoin cost retain their additive behavior. The remaining reactive
 fallback uses the separate optimistic cost veto described below; it does not
 claim to optimize the observed rejoin gap.
 
+Custom-plan compulsory replacements also retain these observed gaps and the
+expected queue delay supplied at commitment. Their first paid outlap uses the
+rejoin gap in full lap physics; a free-fit projection uses the stay gap until
+a paid request or compulsory correction occurs on that same lap. Later laps
+assume clean air. Expected queue loss enters only that current paid service,
+including its conditional finish clock, and remains independent of actual
+sampled service. The standard engine keeps each car's commitment snapshot
+through the service batch; the chronological engine passes its observed
+traffic and remaining expected box wait directly to the replacement forecast.
+This does not change an executable requested compound or forecast future queues.
+
 ### Safety-car queues and elapsed time
 
 Both engines close full-safety-car gaps through subsequent running. Deploying

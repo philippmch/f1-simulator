@@ -1325,6 +1325,7 @@ class RaceSimulator(InventoryStrategyMixin):
         )
         expected_releases: dict[str, float] = {}
         expected_losses: dict[str, float] = {}
+        custom_contexts = {}
         pitting = []
         for state in ordered:
             arrival = arrivals[state.driver.id][0]
@@ -1362,6 +1363,11 @@ class RaceSimulator(InventoryStrategyMixin):
                     state, state.pit_plan_override_reason,
                 )
             if should_pit:
+                if state.pit_plan is not None:
+                    custom_contexts[state.driver.id] = dict(
+                        current_traffic_gaps=traffic_snapshot.current_traffic_gaps,
+                        additional_current_stop_cost=delay,
+                    )
                 if state.tire_inventory is not None and not self._prepare_inventory_pit(
                     state,
                     track,
@@ -1387,6 +1393,7 @@ class RaceSimulator(InventoryStrategyMixin):
                 state, track, weather, current_lap=lap,
                 pit_box_releases=actual_releases,
                 arrival_time=arrivals[state.driver.id][0],
+                **custom_contexts.get(state.driver.id, {}),
                 **({"physical_total_laps": physical_total_laps}
                    if physical_total_laps is not None else {}),
             )
@@ -2247,6 +2254,8 @@ class RaceSimulator(InventoryStrategyMixin):
         physical_total_laps: int | None = None,
         weather_intervals: tuple[int, ...] | None = None,
         weather_clock: StrategyWeatherClock | None = None,
+        current_traffic_gaps: tuple[float | None, float | None] | None = None,
+        additional_current_stop_cost: float = 0.,
     ) -> float:
         """Execute pit stop and return total time lost.
 
@@ -2257,6 +2266,9 @@ class RaceSimulator(InventoryStrategyMixin):
 
         Returns:
             Time lost in seconds
+
+        Replacement forecasts use the caller's expected queue and rejoin
+        observations, independently of the service sampled below.
         """
         forced_repair = bool(state.force_pit_next_lap)
         decision_context = state.pit_decision_context
@@ -2289,9 +2301,22 @@ class RaceSimulator(InventoryStrategyMixin):
             if not self._prepare_inventory_pit(
                 state, track, weather, current_lap, physical_total_laps=physical_total_laps,
                 weather_intervals=weather_intervals, weather_clock=weather_clock,
+                current_traffic_gaps=current_traffic_gaps,
+                additional_current_stop_cost=additional_current_stop_cost,
             ):
                 return 0.0
             selected_set = state.inventory_pit_proposal[1]
+        custom_target = state.pit_plan_target
+        custom_choice = None
+        if (state.pit_plan is not None and state.tire_inventory is None
+                and custom_target is None):
+            custom_choice = self._custom_plan_replacement_choice(
+                state, track, weather, current_lap,
+                physical_total_laps=physical_total_laps,
+                weather_intervals=weather_intervals, weather_clock=weather_clock,
+                current_traffic_gaps=current_traffic_gaps,
+                additional_current_stop_cost=additional_current_stop_cost,
+            )
         # Pit lane time + stationary time.  Under a full safety car the field
         # is travelling much more slowly, so the relative pit-lane loss is
         # materially smaller; VSC provides a moderate reduction.  Stationary
@@ -2310,15 +2335,6 @@ class RaceSimulator(InventoryStrategyMixin):
         weather_compound = self._choose_weather_compound(weather)
         proposal = state.dry_pit_proposal
         weather_proposal = state.weather_pit_proposal
-        custom_target = state.pit_plan_target
-        custom_choice = None
-        if (state.pit_plan is not None and state.tire_inventory is None
-                and custom_target is None):
-            custom_choice = self._custom_plan_replacement_choice(
-                state, track, weather, current_lap,
-                physical_total_laps=physical_total_laps,
-                weather_intervals=weather_intervals, weather_clock=weather_clock,
-            )
         state.dry_pit_proposal = None
         state.weather_pit_proposal = None
         if selected_set is not None:
@@ -2984,6 +3000,7 @@ class RaceSimulator(InventoryStrategyMixin):
         self, state, track, weather, lap, *, free_fit=False,
         physical_total_laps=None, weather_intervals=None, weather_clock=None,
         additional_current_stop_cost=0.,
+        current_traffic_gaps=None,
     ):
         """Share the remaining requested policy across paid and free refits."""
         return choose_custom_pit_replacement(
@@ -2998,6 +3015,7 @@ class RaceSimulator(InventoryStrategyMixin):
             physical_total_laps=physical_total_laps, weather_intervals=weather_intervals,
             weather_clock=weather_clock,
             additional_current_stop_cost=additional_current_stop_cost,
+            current_traffic_gaps=current_traffic_gaps,
             tire_warmup=self.tire_warmup, finish_context=state.strategy_finish_context,
             **self._forecast_options(),
         )
