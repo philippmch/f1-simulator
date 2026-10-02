@@ -470,6 +470,14 @@ and drying, and race incidents and interruptions remain active. The default is
 `evolving`; neither mode is a forecast. Saved inputs and replay retain the chosen
 behavior, and result labels describe the completed run rather than current controls.
 
+For a repeatable rain-and-drying experiment, supply a **prescribed rainfall
+schedule** in the dashboard, repeat `--rainfall-step 3=0.8:heavy_rain` and
+`--rainfall-step 6=0:cloudy` in the CLI, or pass `weather_schedule` in Python or
+the API. The automatic tyre policy knows the same future sequence used by race
+execution. Changes occur at shared leading laps and preserve existing surface
+water. See [prescribed race rainfall](docs/weather-schedule.md) for input format,
+replay and the conditional forecast limits.
+
 ## Server capacity
 
 Run requests require JSON integers for `year`, `simulations`, `seed` and

@@ -1732,6 +1732,34 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       assert.equal(qualifyingChecks.blank, null);
       assert(qualifyingChecks.saved.includes('Q2: Dry'));
       assert(!qualifyingChecks.hostile.includes('<img'));
+      const scheduleChecks = await page.evaluate(() => {
+        const input = document.getElementById('weatherScheduleInput');
+        const defaults = buildRunPayload();
+        input.value = '2=0.8:heavy_rain\n4=0:dry';
+        const valid = buildRunPayload();
+        input.value = '2=0.8\n2=0';
+        const duplicate = buildRunPayload();
+        input.value = '1=0';
+        const early = buildRunPayload();
+        input.value = '3=NaN';
+        const invalid = buildRunPayload();
+        input.value = '4=0';
+        const saved = renderWeatherScheduleSnapshot({weather_schedule_context:
+          'Prescribed race rainfall (known to strategy; shared leading laps): lap 2: rain 0.8; lap 4: rain 0. Surface water continues to evolve; random atmosphere changes are disabled.'});
+        const hostile = renderWeatherScheduleSnapshot({weather_schedule_context: '<img src=x onerror=alert(1)>'});
+        input.value = '';
+        return {defaults, valid, duplicate, early, invalid, saved, hostile};
+      });
+      assert.equal(Object.hasOwn(scheduleChecks.defaults, 'weather_schedule'), false);
+      assert.deepEqual(scheduleChecks.valid.weather_schedule, [
+        {lap: 2, rain_intensity: 0.8, condition: 'heavy_rain'},
+        {lap: 4, rain_intensity: 0, condition: 'dry'},
+      ]);
+      assert.equal(scheduleChecks.duplicate, null);
+      assert.equal(scheduleChecks.early, null);
+      assert.equal(scheduleChecks.invalid, null);
+      assert(scheduleChecks.saved.includes('lap 2: rain 0.8'));
+      assert(!scheduleChecks.hostile.includes('<img'));
       const warmupChecks = await page.evaluate(() => {
         const input = document.getElementById('tireWarmupInput');
         input.value = 'soft=0.5,medium=1';

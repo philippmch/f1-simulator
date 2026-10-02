@@ -19,6 +19,7 @@ from f1sim.output.timing import (
     suspension_statistics,
 )
 from f1sim.output.warmup_context import warmup_context
+from f1sim.output.weather_schedule_context import weather_schedule_context
 from f1sim.simulation.qualifying import QualifyingResult
 from f1sim.simulation.race import RaceResult, result_is_classified
 from f1sim.simulation.race_points import points_for_result
@@ -240,6 +241,8 @@ class ConsoleOutput:
                 print(f"  {context}")
             if context := qualifying_weather_context(results[label].input_snapshot):
                 print(f"  {context}")
+            if context := weather_schedule_context(results[label].input_snapshot):
+                print(f"  {context}")
             if comparison["status"] == "unavailable":
                 print(f"  Unavailable: {comparison['reason']}")
                 continue
@@ -400,6 +403,8 @@ class ConsoleOutput:
         if context := warmup_context(results.input_snapshot):
             print(context)
         if context := qualifying_weather_context(results.input_snapshot):
+            print(context)
+        if context := weather_schedule_context(results.input_snapshot):
             print(context)
         if results.seed is not None:
             print(
@@ -645,6 +650,8 @@ class ConsoleOutput:
         print("All scenario entrants; -- means no recorded results for that driver.")
         for label, result in scenario_results.items():
             if context := qualifying_weather_context(result.input_snapshot):
+                print(f"{label}: {context}")
+            if context := weather_schedule_context(result.input_snapshot):
                 print(f"{label}: {context}")
         print("=" * 80)
 

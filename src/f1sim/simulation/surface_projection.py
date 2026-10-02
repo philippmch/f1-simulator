@@ -9,10 +9,25 @@ from f1sim.models._native import (
     native_model_class,
     register_forecast_helpers,
 )
+from f1sim.simulation.weather_schedule import (
+    ScheduledWeatherIntervals,
+    WeatherForecastContext,
+    project_next_surface,
+)
 
 
-def normalize_weather_intervals(horizon, weather_intervals=None, *, weather=None):
+def normalize_weather_intervals(horizon, weather_intervals=None, *, weather=None,
+                                forecast_context=None):
     """Validate cumulative update counts; None keeps the ordinary lap clock."""
+    if forecast_context is not None and type(forecast_context) is not WeatherForecastContext:
+        raise ValueError("forecast_context must be a WeatherForecastContext")
+    if isinstance(weather_intervals, ScheduledWeatherIntervals):
+        if forecast_context is not None and forecast_context != weather_intervals.context:
+            raise ValueError("conflicting forecast contexts")
+        forecast_context = weather_intervals.context
+        weather_intervals = weather_intervals.values
+    if weather_intervals is None and forecast_context is not None:
+        weather_intervals = tuple(range(horizon))
     if weather_intervals is None:
         return None
     if not isinstance(weather_intervals, tuple) or len(weather_intervals) != horizon:
@@ -23,6 +38,8 @@ def normalize_weather_intervals(horizon, weather_intervals=None, *, weather=None
     values = tuple(int(value) for value in weather_intervals)
     if not values or values[0] != 0 or any(a > b for a, b in zip(values, values[1:])):
         raise ValueError("weather_intervals must start at zero and be nondecreasing")
+    if forecast_context is not None:
+        return ScheduledWeatherIntervals(values, forecast_context)
     return _canonical_intervals(values, weather)
 
 
@@ -56,6 +73,12 @@ def _canonical_intervals(values, weather):
 
 def suffix_weather_intervals(weather_intervals, offset, weather=None):
     """Rebase a future own-lap suffix onto its already projected weather."""
+    if isinstance(weather_intervals, ScheduledWeatherIntervals):
+        origin = weather_intervals[offset]
+        return ScheduledWeatherIntervals(
+            tuple(value - origin for value in weather_intervals.values[offset:]),
+            weather_intervals.context.advanced(origin),
+        )
     if weather_intervals is None or (weather is not None and native_model(weather)
                                       and weather.track_wetness == weather.rain_intensity):
         return None
@@ -69,17 +92,20 @@ def _surface_snapshots(weather_json, intervals):
     surface = Weather.model_validate_json(weather_json)
     snapshots = []
     previous = 0
+    context = intervals.context if isinstance(intervals, ScheduledWeatherIntervals) else None
     for interval in intervals:
-        for _ in range(interval - previous):
-            surface = surface.project_surface()
+        for update in range(previous, interval):
+            surface = project_next_surface(surface, context, update)
         snapshots.append(surface.model_dump_json())
         previous = interval
     return tuple(snapshots)
 
 
-def projected_surfaces(weather: Weather, horizon: int, weather_intervals=None):
-    """Return isolated surfaces without randomness or changing rainfall/condition."""
-    intervals = normalize_weather_intervals(horizon, weather_intervals, weather=weather)
+def projected_surfaces(weather: Weather, horizon: int, weather_intervals=None,
+                       *, forecast_context=None):
+    """Return isolated surfaces on the explicit shared clock, without randomness."""
+    intervals = normalize_weather_intervals(horizon, weather_intervals, weather=weather,
+                                           forecast_context=forecast_context)
     # This forecast boundary intentionally projects only the base Weather schema.
     # Callable extras and subclass methods are outside that documented policy.
     values = object.__getattribute__(weather, "__dict__")
@@ -91,4 +117,6 @@ def projected_surfaces(weather: Weather, horizon: int, weather_intervals=None):
     return tuple(Weather.model_validate_json(snapshot) for snapshot in snapshots)
 
 
-register_forecast_helpers(globals(), ('_surface_snapshots', '_drying_steps'))
+register_forecast_helpers(globals(), (
+    '_surface_snapshots', '_drying_steps', 'project_next_surface',
+))

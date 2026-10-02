@@ -9,6 +9,7 @@ from numbers import Real
 import numpy as np
 
 from f1sim.cancellation import cancellation_checkpoint
+from f1sim.models._native import register_forecast_helpers
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.pit_strategy import expected_stationary_time
@@ -16,6 +17,7 @@ from f1sim.simulation.strategy_traffic import normalize_current_traffic_gaps
 from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.surface_projection import normalize_weather_intervals, projected_surfaces
 from f1sim.simulation.warmup import tire_warmup_seconds, validate_tire_warmup
+from f1sim.simulation.weather_schedule import project_next_surface
 
 
 @dataclass(frozen=True)
@@ -42,7 +44,7 @@ def _clock_inventory_strategy(
     pit_lane_factor, additional_current_stop_cost, current_lap_time_modifier,
     active_aero_enabled, physical_total_laps, current_traffic_gaps, force_stop,
     free_fit, require_compound_rule, weather_clock, tire_warmup,
-    current_fit_pending,
+    current_fit_pending, forecast_context=None,
 ):
     """Exact finite-pool search whose branch surfaces include paid-stop delay."""
     horizon = track.total_laps - current_lap + 1
@@ -78,7 +80,8 @@ def _clock_inventory_strategy(
 
     def projected_surface(updates):
         while len(surface_path) <= updates:
-            surface_path.append(surface_path[-1].project_surface())
+            surface_path.append(project_next_surface(
+                surface_path[-1], forecast_context, len(surface_path) - 1))
         return surface_path[updates]
 
     @lru_cache(maxsize=None)
@@ -496,7 +499,7 @@ def plan_inventory_strategy(
     current_lap_time_modifier=1., active_aero_enabled=True, physical_total_laps=None,
     weather_intervals=None, current_traffic_gaps=None, force_stop=False, free_fit=False,
     require_compound_rule=True, weather_clock=None, tire_warmup=None,
-    current_fit_pending=False,
+    current_fit_pending=False, forecast_context=None,
 ):
     """Minimize deterministic total time without inventing or freshening sets.
 
@@ -533,7 +536,9 @@ def plan_inventory_strategy(
         raise ValueError("current_fit_pending must be boolean")
     tire_warmup = validate_tire_warmup(tire_warmup)
     horizon = track.total_laps - current_lap + 1
-    intervals = normalize_weather_intervals(horizon, weather_intervals, weather=weather)
+    intervals = normalize_weather_intervals(horizon, weather_intervals, weather=weather,
+                                            forecast_context=forecast_context)
+    forecast_context = getattr(intervals, "context", forecast_context)
     _validate_weather_clock(weather_clock, horizon)
     gaps = normalize_current_traffic_gaps(current_traffic_gaps)
     driver = driver.model_copy(deep=True)
@@ -557,6 +562,7 @@ def plan_inventory_strategy(
             force_stop=force_stop, free_fit=free_fit,
             require_compound_rule=require_compound_rule, weather_clock=weather_clock,
             tire_warmup=tire_warmup, current_fit_pending=current_fit_pending,
+            forecast_context=forecast_context,
         )
     prepared_lap_time = simulator.prepare_deterministic_lap_time(driver, car, track, physical)
     surfaces = tuple(projected_surfaces(weather, horizon, intervals))
@@ -734,3 +740,5 @@ def plan_inventory_strategy(
             best, selected = cost, item
     return InventoryDecision(best, wait, selected.id if selected else None,
                              selected.compound if selected else None)
+
+register_forecast_helpers(globals(), ("project_next_surface",))

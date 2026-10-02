@@ -50,6 +50,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     });
     await page.goto('http://f1sim.test/index.html');
     assert(fixture.paired.includes('Qualifying weather (fixed within each session)'));
+    assert(fixture.paired.includes('Prescribed race rainfall (known to strategy; shared leading laps)'));
+    assert(fixture.paired.includes('random atmosphere changes are disabled'));
     assert(fixture.paired.includes('Q1:'));
     assert(fixture.paired.includes('Q2:'));
     assert(fixture.paired.includes('Q3:'));

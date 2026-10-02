@@ -40,6 +40,7 @@ class InventoryStrategyMixin:
                 driver, car, track, weather, strategy, self.strategy_tuning,
                 self.strategy_profiles, records,
                 **({"tire_warmup": self.tire_warmup} if self.tire_warmup else {}),
+                **self._forecast_options(),
             )
             selected = inventory.sets[min(scores, key=lambda item: item[1])[0]]
         return inventory, selected
@@ -111,7 +112,9 @@ class InventoryStrategyMixin:
                         weather_clock: StrategyWeatherClock | None = None):
         from f1sim.simulation.inventory_strategy import plan_inventory_strategy
 
-        surfaces = projected_surfaces(weather, track.total_laps - lap + 1, weather_intervals)
+        surfaces = projected_surfaces(
+            weather, track.total_laps - lap + 1, weather_intervals, **self._forecast_options(),
+        )
         dry_limit = self._dry_stop_budget(state, track)
         damp_limit = self._ordinary_stop_budget(state, track)
         maximum = damp_limit
@@ -145,6 +148,7 @@ class InventoryStrategyMixin:
             current_traffic_gaps=current_traffic_gaps, force_stop=force_stop, free_fit=free_fit,
             require_compound_rule=(physical_total_laps or track.total_laps) > 1,
             **options,
+            **self._forecast_options(),
         )
 
     def _inventory_immediate_set(self, state, track, weather, lap, *, free_fit=False,

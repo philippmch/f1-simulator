@@ -46,6 +46,7 @@ from f1sim.output.comparison import (
 )
 from f1sim.output.qualifying_context import qualifying_weather_context
 from f1sim.output.timing import finite_time, suspension_statistics
+from f1sim.output.weather_schedule_context import weather_schedule_context
 from f1sim.simulation.execution import (
     DEFAULT_RACE_ENGINE,
     validate_race_engine,
@@ -58,6 +59,7 @@ from f1sim.simulation.race_points import points_for_result
 from f1sim.simulation.randomness import DEFAULT_RNG_POLICY, validate_rng_policy
 from f1sim.simulation.tire_inventory import validate_tire_inventory
 from f1sim.simulation.warmup import validate_tire_warmup
+from f1sim.simulation.weather_schedule import validate_weather_schedule
 from f1sim.web.capacity import RunCapacity
 
 _LOGGER = logging.getLogger(__name__)
@@ -148,6 +150,7 @@ class DashboardRunRequest:
     tire_warmup: Any = None
     pit_plan_selection: DashboardPitPlanSelectionRequest | None = None
     qualifying_weather: Any = None
+    weather_schedule: Any = None
 
 
 def _pit_plan_selection_request(
@@ -164,6 +167,7 @@ def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
     """Validate resource bounds and return all scenarios before live I/O."""
 
     validate_weather_mode(request.weather_mode)
+    validate_weather_schedule(request.weather_schedule)
     validate_qualifying_weather(request.qualifying_weather)
     validate_race_engine(request.race_engine)
     validate_rng_policy(request.rng_policy)
@@ -552,6 +556,10 @@ def _summarize_scenario_results(
             ) or {},
             "suspension_statistics": suspension_statistics(results),
             "simulation_inputs": getattr(results, "input_snapshot", None),
+            **({"weather_schedule_context": schedule_context}
+               if (schedule_context := weather_schedule_context(
+                   getattr(results, "input_snapshot", None),
+               )) else {}),
             **({"qualifying_weather_context": context} if (context := qualifying_weather_context(
                 getattr(results, "input_snapshot", None)
             )) else {}),
@@ -645,6 +653,11 @@ def _dashboard_runner(
         "race_engine": request.race_engine,
         "rng_policy": request.rng_policy,
     }
+    weather_schedule = validate_weather_schedule(
+        request.weather_schedule, total_laps=getattr(track, "total_laps", None),
+    )
+    if weather_schedule:
+        kwargs["weather_schedule"] = weather_schedule
     qualifying_weather = validate_qualifying_weather(request.qualifying_weather)
     if qualifying_weather:
         kwargs["qualifying_weather"] = qualifying_weather
@@ -695,6 +708,8 @@ def _dashboard_request_metadata(
         "requested_max_workers": request.max_workers,
         "compare_automatic": compare_automatic,
     }
+    if weather_schedule := validate_weather_schedule(request.weather_schedule):
+        metadata["weather_schedule"] = weather_schedule
     if qualifying_weather := validate_qualifying_weather(request.qualifying_weather):
         metadata["qualifying_weather"] = qualifying_weather
     if selection := _pit_plan_selection_request(request.pit_plan_selection):
@@ -758,6 +773,7 @@ def run_dashboard_simulation(
     cars = loader.create_cars_from_stats(driver_stats)
     _check_dashboard_cancellation(cancel_requested)
     track = loader.create_track_from_stats(track_stats)
+    validate_weather_schedule(request.weather_schedule, total_laps=track.total_laps)
     from f1sim.simulation.pit_plans import validate_pit_plans
 
     pit_plans = validate_pit_plans(
@@ -948,6 +964,10 @@ def run_dashboard_simulation(
                         "report_context": {
                             "track_name": track.name,
                             "race_engine": runner.race_engine,
+                            **({"weather_schedule_context": schedule_context}
+                               if (schedule_context := weather_schedule_context(
+                                   result.input_snapshot,
+                               )) else {}),
                             **({"qualifying_weather_context": context} if (context :=
                                qualifying_weather_context(result.input_snapshot)) else {}),
                         },

@@ -19,8 +19,9 @@ remains available after it is exhausted. Three is a bounded search limit, not
 a requirement to make three stops or a claim that longer races never need more.
 Dry red-flag projections use the same budget.
 
-Dry planning scales tyre costs with the same current weather multiplier as
-simulated laps, including surface water, rainfall and the car's wet-performance
+Without a prescribed rainfall schedule, dry planning scales tyre costs with the
+same current weather multiplier as simulated laps, including surface water,
+rainfall and the car's wet-performance
 contribution. It holds that multiplier constant over the projected stint;
 this is not a forecast of future weather. Expected service and pit-lane loss
 are not weather-scaled. A current SC/VSC running multiplier applies in addition
@@ -52,8 +53,11 @@ surface updates between its own laps; a faster car can see the same surface
 twice. The forecast includes no update at the projected chequered crossing.
 It uses observed free pace and expected unfinished leader service, with current
 control on the upcoming lap and green running thereafter. Without usable pace
-observations it retains one update per own lap. Rainfall and condition remain
-fixed, and no future weather draws are consumed.
+observations it retains one update per own lap. By default rainfall and condition
+remain fixed, and no future weather draws are consumed. A supplied
+[prescribed rainfall schedule](weather-schedule.md) instead provides known
+future changes at that same leading cadence, with existing standing water
+carried through each change.
 
 When another car supplies the chronological forecast's leading clock, rain,
 weather-stop and finite-pool costs also account for the candidate's own planned
@@ -136,6 +140,17 @@ unchanging rainfall. It prevents random condition transitions while retaining
 surface-water response, incidents and adaptive pit decisions. The usual evolving
 mode remains the default. Both modes are scenario assumptions, not forecasts;
 saved-input tyre comparisons retain whichever weather behavior was exported.
+
+The optional [prescribed rainfall schedule](weather-schedule.md) supplies a
+known sequence for controlled rain-and-drying experiments. Its changes take
+precedence over random atmosphere transitions and are shared by race execution,
+automatic opening choices, paid and free tyre changes, and finite-pool planning.
+When future changes remain, constant-dry and same-rain shortcuts give way to the
+existing general surface-path searches. Schedule laps follow the shared leading
+clock, including red-flag restarts and leader handoffs, rather than a lapped car's
+own lap number. Rainfall changes before the ordinary surface update and never
+resets standing water. This supplies scenario knowledge, while retaining the
+conditional clock, bounded stop budget and other forecast limits described above.
 
 Automatic starting-compound selection on a clearly dry track compares isolated
 runs of the existing pit policy for each slick, using noise-free lap pace and

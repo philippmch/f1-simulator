@@ -2031,6 +2031,11 @@ input:focus-visible {
           <option value="fixed_rainfall">Fixed rainfall</option>
         </select>
       </div>
+      <div class="control-group control-group-scenarios">
+        <label class="control-label" for="weatherScheduleInput">Known race rainfall (optional)</label>
+        <p class="pit-plan-help" id="weatherScheduleHelp">One LAP=RAIN[:CONDITION] per line, for example 2=0.8:heavy_rain then 4=0:dry. Use ascending shared leading laps from 2 onwards and rainfall 0–1. Strategy knows this scenario; atmospheric randomness is disabled and surface water continues to evolve.</p>
+        <textarea id="weatherScheduleInput" rows="3" aria-describedby="weatherScheduleHelp" placeholder="2=0.8:heavy_rain&#10;4=0:dry"></textarea>
+      </div>
       <div class="control-group control-group-scenarios" role="group" aria-labelledby="qualifyingWeatherLabel">
         <span class="control-label" id="qualifyingWeatherLabel">Qualifying session weather (optional)</span>
         <p class="pit-plan-help" id="qualifyingWeatherHelp">Weather stays fixed within each session. Unchanged sessions use each race scenario weather; explicit sessions apply across the whole scenario set.</p>
@@ -3079,6 +3084,8 @@ function saveUiPrefs() {
     weatherMode: document.getElementById('weatherModeSelect').value,
     compareAutomatic: Boolean(compareAutomaticInput?.checked),
   };
+  const scheduleText = document.getElementById('weatherScheduleInput').value.trim();
+  if (scheduleText) payload.weatherSchedule = scheduleText;
   writeOptionalStorage(PREFS_KEY, JSON.stringify(payload));
 }
 
@@ -3089,6 +3096,9 @@ function loadUiPrefs() {
     const prefs = JSON.parse(raw);
     if (['evolving', 'fixed_rainfall'].includes(prefs.weatherMode)) {
       document.getElementById('weatherModeSelect').value = prefs.weatherMode;
+    }
+    if (typeof prefs.weatherSchedule === 'string') {
+      document.getElementById('weatherScheduleInput').value = prefs.weatherSchedule;
     }
     if (typeof prefs.focusScenario === 'string') {
       weatherSelectEl.value = prefs.focusScenario;
@@ -4479,6 +4489,25 @@ function parseQualifyingWeatherInputs() {
   return {ok: true, profile};
 }
 
+function parseWeatherScheduleInputs() {
+  const input = document.getElementById('weatherScheduleInput');
+  const lines = input.value.trim() ? input.value.trim().split(/\r?\n/) : [];
+  const schedule = [];
+  const conditions = ['dry', 'cloudy', 'light_rain', 'heavy_rain'];
+  for (const line of lines) {
+    const match = /^([0-9]+)=((?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)(?::([a-z_]+))?$/.exec(line.trim());
+    if (!match) return {ok: false, input, message: 'Rainfall steps must use LAP=RAIN[:CONDITION], one per line.'};
+    const lap = Number(match[1]), rain = Number(match[2]);
+    if (!Number.isSafeInteger(lap) || lap < 2 || (schedule.length && lap <= schedule.at(-1).lap) || !Number.isFinite(rain) || rain < 0 || rain > 1 || (match[3] && !conditions.includes(match[3]))) {
+      return {ok: false, input, message: 'Rainfall steps need ascending unique laps from 2, rainfall 0–1, and an existing weather condition.'};
+    }
+    const row = {lap, rain_intensity: rain};
+    if (match[3]) row.condition = match[3];
+    schedule.push(row);
+  }
+  return {ok: true, schedule};
+}
+
 function buildRunPayload() {
   const selectedRace = document.getElementById('trackSelect').value;
   const simulationsInput = document.getElementById('simCount');
@@ -4536,6 +4565,12 @@ function buildRunPayload() {
     tyreSetup.input?.focus();
     return null;
   }
+  const weatherScheduleSetup = parseWeatherScheduleInputs();
+  if (!weatherScheduleSetup.ok) {
+    setStatusMessage(weatherScheduleSetup.message, 'error');
+    weatherScheduleSetup.input.focus();
+    return null;
+  }
   const qualifyingWeatherSetup = parseQualifyingWeatherInputs();
   if (!qualifyingWeatherSetup.ok) {
     setStatusMessage(qualifyingWeatherSetup.message, 'error');
@@ -4583,6 +4618,7 @@ function buildRunPayload() {
     max_workers: workersValue ? Number(workersValue) : null,
     compare_automatic: compareAutomatic,
   };
+  if (weatherScheduleSetup.schedule.length) payload.weather_schedule = weatherScheduleSetup.schedule;
   if (Object.keys(qualifyingWeatherSetup.profile).length) payload.qualifying_weather = qualifyingWeatherSetup.profile;
   if (Object.keys(warmupSetup.profile).length) payload.tire_warmup = warmupSetup.profile;
   if (pitPlanSetup.pitPlans !== null) payload.pit_plans = pitPlanSetup.pitPlans;
@@ -4726,9 +4762,15 @@ function renderAll() {
 function savedWeatherBehavior(scenario) {
   const probability = scenario.simulation_inputs?.weather?.change_probability
     ?? scenario.weather?.change_probability;
+  if (scenario?.simulation_inputs?.weather_schedule?.length) return 'Known prescribed rainfall; surface wetness still evolves';
   if (probability === 0) return 'Fixed rainfall; surface wetness still evolves';
   if (typeof probability === 'number' && probability > 0) return 'Evolving weather';
   return 'Weather behavior not recorded';
+}
+
+function renderWeatherScheduleSnapshot(scenario) {
+  const saved = scenario?.weather_schedule_context;
+  return typeof saved === 'string' && saved ? `<div class="race-meta">${escapeHtml(saved)}</div>` : '';
 }
 
 function renderQualifyingWeatherSnapshot(scenario) {
@@ -5306,6 +5348,7 @@ function renderRace() {
         <div class="race-meta">${savedWeatherBehavior(scenario)}</div>
         ${renderRngPolicySnapshot(scenario)}
         ${renderWarmupSnapshot(scenario)}
+        ${renderWeatherScheduleSnapshot(scenario)}
         ${renderQualifyingWeatherSnapshot(scenario)}
         <div class="race-meta">Completed race suspension: ${formatSuspensionSeconds(sampleSuspension)}</div>
         <div class="race-meta">Race-wide collection + restart pause; already in finish clocks, not an individual driver's stopped or driving time.</div>
@@ -6780,6 +6823,7 @@ function renderScenarioLab() {
   await refreshLiveData();
 
   document.getElementById('weatherModeSelect').addEventListener('change', saveUiPrefs);
+  document.getElementById('weatherScheduleInput').addEventListener('change', saveUiPrefs);
   document.getElementById('compareAutomaticInput').addEventListener('change', saveUiPrefs);
   weatherSelectEl.addEventListener('change', () => {
     const focusedScenario = WEATHER_TO_SCENARIO[weatherSelectEl.value] || 'dry';

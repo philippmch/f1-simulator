@@ -41,6 +41,7 @@ from f1sim.simulation.execution import (
     validate_starting_tires,
 )
 from f1sim.simulation.qualifying_weather import validate_qualifying_weather
+from f1sim.simulation.weather_schedule import validate_weather_schedule
 
 MAX_SIMULATIONS = 1000
 MAX_WORKERS = 16
@@ -141,6 +142,25 @@ def _qualifying_weather(value: str) -> dict[str, dict]:
         raise argparse.ArgumentTypeError(f"qualifying weather: {exc}") from exc
 
 
+def _rainfall_step(value: str) -> dict:
+    """Parse a strict lap=rain[:condition] entry before live loading."""
+    import re
+
+    match = re.fullmatch(
+        r"([0-9]+)=((?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)(?::([a-z_]+))?",
+        value,
+    )
+    if match is None:
+        raise argparse.ArgumentTypeError("rainfall step must be LAP=RAIN[:CONDITION]")
+    row = {"lap": int(match[1]), "rain_intensity": float(match[2])}
+    if match[3] is not None:
+        row["condition"] = match[3]
+    try:
+        return validate_weather_schedule([row])[0]
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"rainfall step: {exc}") from exc
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Simulate F1 race with Monte Carlo")
     parser.add_argument(
@@ -237,15 +257,24 @@ def main() -> int:
         help='Optional JSON object with Q1/Q2/Q3 Weather fields; each session is fixed. '
              'Omitted sessions use each race scenario weather.',
     )
+    parser.add_argument(
+        "--rainfall-step", action="append", type=_rainfall_step,
+        help="Known shared leading-lap atmosphere: LAP=RAIN[:CONDITION], repeat in lap order. "
+             "Lap 2 onwards; surface wetness keeps evolving. Overrides atmospheric randomness.",
+    )
     args = parser.parse_args()
     from f1sim.simulation.tire_inventory import validate_tire_inventory
     try:
+        weather_schedule = validate_weather_schedule(args.rainfall_step)
         compounds, ages = args.starting_tires or ({}, {})
         validate_tire_inventory(args.tire_inventory, compounds, ages)
     except ValueError as exc:
         parser.error(str(exc))
     print(f"Race model: {args.race_engine}")
     print(f"Weather mode: {args.weather_mode}")
+    if weather_schedule:
+        print("Known prescribed rainfall (atmosphere takes precedence; surface evolves): "
+              f"{weather_schedule}")
     try:
         scenario_labels = parse_scenario_labels(args.scenarios) if args.scenarios else ["dry"]
     except ValueError as exc:
@@ -322,6 +351,7 @@ def main() -> int:
         print("Mechanical reliability uses a model prior; retirement causes are not identified.")
     track = loader.create_track_from_stats(track_stats)
     try:
+        weather_schedule = validate_weather_schedule(weather_schedule, total_laps=track.total_laps)
         from f1sim.simulation.pit_plans import validate_pit_plans
 
         pit_plans = validate_pit_plans(
@@ -380,6 +410,7 @@ def main() -> int:
             **({"pit_plans": pit_plans} if pit_plans else {}),
             **({"tire_warmup": args.tire_warmup} if args.tire_warmup else {}),
             **({"qualifying_weather": args.qualifying_weather} if args.qualifying_weather else {}),
+            **({"weather_schedule": weather_schedule} if weather_schedule else {}),
         )
 
         scenario_result = runner.run(

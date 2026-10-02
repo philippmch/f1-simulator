@@ -37,10 +37,14 @@ from f1sim.simulation.rain_strategy import plan_rain_stop, plan_rain_transition
 from f1sim.simulation.randomness import MechanicalRngFactory
 from f1sim.simulation.strategy_traffic import StrategyTrafficSnapshot
 from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
-from f1sim.simulation.surface_projection import projected_surfaces
+from f1sim.simulation.surface_projection import normalize_weather_intervals, projected_surfaces
 from f1sim.simulation.tire_inventory import TireInventory, validate_tire_inventory
 from f1sim.simulation.validation import validate_unique_ids
 from f1sim.simulation.warmup import tire_warmup_seconds, validate_tire_warmup
+from f1sim.simulation.weather_schedule import (
+    WeatherForecastContext,
+    validate_weather_schedule,
+)
 from f1sim.simulation.weather_strategy import weather_stop_costs
 
 
@@ -266,6 +270,7 @@ class RaceSimulator(InventoryStrategyMixin):
         self.tire_warmup = validate_tire_warmup(tire_warmup)
         self.suspensions: list[tuple[float, float, tuple[str, ...]]] = []
         self.weather_history: list[dict] = []
+        self.weather_forecast_context = None
         self.lap_simulator = LapSimulator(rng=self.rng)
         self.overtaking_model = OvertakingModel(rng=self.rng)
         event_manager_kwargs = {"rng": self.rng}
@@ -308,6 +313,18 @@ class RaceSimulator(InventoryStrategyMixin):
                 except ValueError:
                     continue
                 self.strategy_profiles[archetype].update(profile)
+
+    def _forecast_options(self):
+        context = self.weather_forecast_context
+        return {"forecast_context": context} if context is not None else {}
+
+    def _advance_race_weather(self, weather):
+        context = self.weather_forecast_context
+        if context is None:
+            return weather.evolve(self.weather_rng)
+        projected = context.project_next(weather)
+        self.weather_forecast_context = context.advanced()
+        return projected
 
     def _record_weather(self, lap: int, weather: Weather) -> None:
         """Record the shared race weather without retaining mutable model references."""
@@ -352,6 +369,7 @@ class RaceSimulator(InventoryStrategyMixin):
         starting_tire_ages: dict[str, int] | None = None,
         tire_inventory: dict[str, list[dict]] | None = None,
         pit_plans: dict[str, list[dict]] | None = None,
+        *, weather_schedule=None,
     ) -> list[RaceResult]:
         """Simulate a complete race.
 
@@ -368,6 +386,7 @@ class RaceSimulator(InventoryStrategyMixin):
         """
         # Validate explicit plans against the scheduled distance before any
         # mutable driver/event state is reset or any strategy RNG is consumed.
+        schedule = validate_weather_schedule(weather_schedule, total_laps=track.total_laps)
         driver_ids = tuple(driver.id for driver in drivers)
         normalized_pit_plans = validate_pit_plans(
             pit_plans,
@@ -382,6 +401,8 @@ class RaceSimulator(InventoryStrategyMixin):
                                            (d.id for d in drivers))
         inventories = validate_tire_inventory(tire_inventory, starting_tires, ages,
                                               (d.id for d in drivers))
+        self.weather_forecast_context = (WeatherForecastContext.from_schedule(schedule)
+                                         if schedule else None)
         # Reset mutable driver state as well as event state.  Monte Carlo
         # workers may intentionally reuse model instances between simulations.
         for driver in drivers:
@@ -819,7 +840,7 @@ class RaceSimulator(InventoryStrategyMixin):
                 # lap consumes exactly one evolved weather snapshot; no
                 # running, service, or RNG work is charged during collection.
                 self.event_manager.end_red_flag()
-                current_weather = current_weather.evolve(self.weather_rng)
+                current_weather = self._advance_race_weather(current_weather)
                 restart_final_lap = forecast_final_lap(
                     final_lap, lap, leader.total_time,
                     observed_running_pace.get(leader.driver.id),
@@ -837,7 +858,7 @@ class RaceSimulator(InventoryStrategyMixin):
             elif lap < final_lap:
                 # The initial weather snapshot was used unchanged on lap one.
                 # Evolve only when another lap will actually consume the result.
-                current_weather = current_weather.evolve(self.weather_rng)
+                current_weather = self._advance_race_weather(current_weather)
 
         # Mark finished drivers
         for state in states:
@@ -944,6 +965,15 @@ class RaceSimulator(InventoryStrategyMixin):
         stress, race length and overtaking difficulty. With driver/car context,
         complete-race costs restrict those probabilities to optimal opening sets.
         """
+        if (self.weather_forecast_context is not None and self.weather_forecast_context.schedule
+                and driver is not None and car is not None):
+            costs = opening_policy_costs(
+                driver, car, track, weather, strategy,
+                self.strategy_tuning, self.strategy_profiles,
+                **({"tire_warmup": self.tire_warmup} if self.tire_warmup else {}),
+                **self._forecast_options(),
+            )
+            return min(costs, key=lambda candidate: candidate[1])[0]
         weather_compound = self._choose_weather_compound(weather)
         if weather_compound is not None:
             return weather_compound
@@ -958,6 +988,7 @@ class RaceSimulator(InventoryStrategyMixin):
                     driver, car, track, weather, strategy,
                     self.strategy_tuning, self.strategy_profiles,
                     **({"tire_warmup": self.tire_warmup} if self.tire_warmup else {}),
+                    **self._forecast_options(),
                 )
                 return min(costs, key=lambda candidate: candidate[1])[0]
             return TireCompound.INTERMEDIATE
@@ -997,6 +1028,7 @@ class RaceSimulator(InventoryStrategyMixin):
                 driver, car, track, weather, strategy,
                 self.strategy_tuning, self.strategy_profiles,
                 **({"tire_warmup": self.tire_warmup} if self.tire_warmup else {}),
+                **self._forecast_options(),
             )
             best = min(score for _, score in scores)
             if np.isfinite(best.mean_time):
@@ -1511,6 +1543,11 @@ class RaceSimulator(InventoryStrategyMixin):
                     TireCompound.INTERMEDIATE, TireCompound.WET,
                 }):
             rain_transition = True
+        if self.weather_forecast_context is not None and weather is not None and lap > 1:
+            rain_transition = True
+            mixed_slick = state.current_tire.compound in {
+                TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
+            }
         # CRITICAL: Force pit if tires are completely wrong for conditions
         if weather is not None:
             tire_mismatch = self._check_tire_weather_mismatch(state.current_tire, weather)
@@ -1562,15 +1599,17 @@ class RaceSimulator(InventoryStrategyMixin):
             TeamStrategyArchetype.CONSERVATIVE: -0.1,
         }[strategy]
 
-        dry_planning = clearly_dry and state.current_tire.compound in {
-            TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
-        }
+        dry_planning = (clearly_dry and self.weather_forecast_context is None
+                        and state.current_tire.compound in {
+                            TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
+                        })
         # Dry optimization chooses how many stops pay for themselves; style
         # must not exclude a faster legal schedule before it is evaluated.
         max_stops = (self._dry_stop_budget(state, track) if dry_planning
                      else self._ordinary_stop_budget(state, track))
         mixed_surfaces = (tuple(projected_surfaces(
             weather, track.total_laps - lap + 1, weather_intervals,
+            **self._forecast_options(),
         )) if mixed_slick else ())
         if any(surface.track_wetness < .08 and surface.rain_intensity < .15
                for surface in mixed_surfaces):
@@ -1705,6 +1744,7 @@ class RaceSimulator(InventoryStrategyMixin):
                         0, self._ordinary_stop_budget(state, track) - state.pit_stops,
                     ),
                 } if rain_transition else {}),
+                **self._forecast_options(),
             )
             mode_gain = self._strategy_mode_gain(
                 state, track, weather, lap, mode_active,
@@ -1858,15 +1898,16 @@ class RaceSimulator(InventoryStrategyMixin):
 
         return False
 
-    @staticmethod
     def _rain_stint_can_be_planned(
-        state: DriverRaceState, track: Track, weather: Weather, lap: int,
+        self, state: DriverRaceState, track: Track, weather: Weather, lap: int,
         weather_intervals: tuple[int, ...] | None = None,
     ) -> bool:
         compound = state.current_tire.compound
         if compound not in {TireCompound.INTERMEDIATE, TireCompound.WET}:
             return False
-        for surface in projected_surfaces(weather, track.total_laps - lap + 1, weather_intervals):
+        for surface in projected_surfaces(
+            weather, track.total_laps - lap + 1, weather_intervals, **self._forecast_options(),
+        ):
             if surface.fresh_rain_compound() != compound:
                 return False
         return True
@@ -2026,10 +2067,23 @@ class RaceSimulator(InventoryStrategyMixin):
                 )
             except (TypeError, ValueError, OverflowError):
                 return weather, None
+            if self.weather_forecast_context is not None:
+                surface = projected_surfaces(weather, 2, (0, first),
+                                             **self._forecast_options())[-1]
+                return surface, normalize_weather_intervals(
+                    target_stint, counts,
+                    forecast_context=self.weather_forecast_context.advanced(first),
+                )
             surface = weather
             for _ in range(first):
                 surface = surface.project_surface()
             return surface, counts
+        if self.weather_forecast_context is not None:
+            values = (tuple(range(target_stint)) if weather_intervals is None
+                      else tuple(weather_intervals[:target_stint]))
+            return weather, normalize_weather_intervals(
+                target_stint, values, **self._forecast_options(),
+            )
         if weather_intervals is None or len(weather_intervals) < target_stint:
             return weather, None
         origin = weather_intervals[0]
@@ -2239,6 +2293,12 @@ class RaceSimulator(InventoryStrategyMixin):
             and weather.track_wetness < 0.08 and weather.rain_intensity < 0.15
         ):
             new_compound = proposal[1]
+        elif self.weather_forecast_context is not None:
+            new_compound = self._choose_scheduled_paid_compound(
+                state, weather, track, current_lap,
+                physical_total_laps=physical_total_laps,
+                weather_intervals=weather_intervals, weather_clock=weather_clock,
+            )
         elif weather.track_wetness < 0.08 and weather.rain_intensity < 0.15:
             new_compound = self._choose_committed_dry_compound(
                 state, track, current_lap, weather,
@@ -2874,6 +2934,36 @@ class RaceSimulator(InventoryStrategyMixin):
             state.dry_pit_proposal = None
             state.weather_pit_proposal = None
 
+    def _choose_scheduled_paid_compound(
+        self, state, weather, track, current_lap, *, physical_total_laps=None,
+        weather_intervals=None, weather_clock=None,
+    ):
+        """Price a compulsory paid fit on the same delayed clock as elective stops."""
+        dry_limit = self._dry_stop_budget(state, track)
+        damp_limit = self._ordinary_stop_budget(state, track)
+        maximum = max(dry_limit, damp_limit, 4, state.pit_stops + 1)
+        decision = plan_rain_transition(
+            state.driver, state.car, track, weather, state.current_tire,
+            state.tire_laps, current_lap, maximum - state.pit_stops,
+            pit_lane_factor=self._pit_lane_factor(),
+            current_lap_time_modifier=self.event_manager.get_lap_time_modifier(),
+            active_aero_enabled=self.event_manager.is_active_aero_allowed(),
+            physical_total_laps=physical_total_laps, weather_intervals=weather_intervals,
+            weather_clock=weather_clock,
+            remaining_dry_stops=max(0, dry_limit - state.pit_stops),
+            remaining_damp_stops=max(0, damp_limit - state.pit_stops),
+            used_compounds=self._actually_used_compounds(state),
+            **self._forecast_options(),
+            **({"tire_warmup": self.tire_warmup,
+                "current_fit_pending": state.fit_lap_pending} if self.tire_warmup else {}),
+        )
+        if decision.compound is not None:
+            return decision.compound
+        return self._choose_compound_for_next_stint(
+            state, track, current_lap, weather, physical_total_laps=physical_total_laps,
+            weather_intervals=weather_intervals, weather_clock=weather_clock,
+        )
+
     def _choose_red_flag_tire(
         self, state: DriverRaceState, weather: Weather, track: Track, current_lap: int,
         *, physical_total_laps: int | None = None,
@@ -2887,8 +2977,10 @@ class RaceSimulator(InventoryStrategyMixin):
         # Keep the inexpensive dry forecast when the whole no-stop weather
         # path stays clearly dry. A cadence or external clock can reveal a
         # future crossover even when the current snapshot still permits slicks.
-        projected = projected_surfaces(weather, remaining_laps, weather_intervals)
-        transition_forecast = any(
+        projected = projected_surfaces(
+            weather, remaining_laps, weather_intervals, **self._forecast_options(),
+        )
+        transition_forecast = self.weather_forecast_context is not None or any(
             surface.track_wetness >= .08 or surface.rain_intensity >= .15
             for surface in projected
         ) or (weather_clock is not None and weather.rain_intensity >= .08)
@@ -2935,6 +3027,7 @@ class RaceSimulator(InventoryStrategyMixin):
                     **({"tire_warmup": self.tire_warmup,
                         "current_fit_pending": True}
                        if self.tire_warmup else {}),
+                    **self._forecast_options(),
                 ).wait_cost
 
             candidates = [compound for compound in TireCompound
@@ -2997,6 +3090,7 @@ class RaceSimulator(InventoryStrategyMixin):
             **({"tire_warmup": self.tire_warmup,
                 "current_fit_pending": state.fit_lap_pending}
                if self.tire_warmup else {}),
+            **self._forecast_options(),
         )
         gain = self._strategy_mode_gain(
             state, track, weather, current_lap, current_overtake_mode_active,

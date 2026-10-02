@@ -37,6 +37,7 @@ from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.surface_projection import projected_surfaces
 from f1sim.simulation.tire_inventory import validate_tire_inventory
 from f1sim.simulation.validation import validate_unique_ids
+from f1sim.simulation.weather_schedule import WeatherForecastContext, validate_weather_schedule
 
 
 @dataclass
@@ -101,7 +102,8 @@ class ChronologicalRace:
         self.order: list[str] = []
 
     def run(self, drivers, cars, track, weather, starting_grid, *, starting_tires=None,
-            starting_tire_ages=None, tire_inventory=None, pit_plans=None):
+            starting_tire_ages=None, tire_inventory=None, pit_plans=None, weather_schedule=None):
+        schedule = validate_weather_schedule(weather_schedule, total_laps=track.total_laps)
         driver_ids = tuple(driver.id for driver in drivers)
         normalized_pit_plans = validate_pit_plans(
             pit_plans,
@@ -116,6 +118,8 @@ class ChronologicalRace:
                                            (d.id for d in drivers))
         inventories = validate_tire_inventory(tire_inventory, starting_tires, ages,
                                               (d.id for d in drivers))
+        self.simulator.weather_forecast_context = (
+            WeatherForecastContext.from_schedule(schedule) if schedule else None)
         self.track = track
         self.weather = weather.model_copy(deep=True)
         self.simulator.event_manager.reset()
@@ -568,7 +572,8 @@ class ChronologicalRace:
         # Keeping the legacy interval/cache path here also avoids turning a
         # forced stop in steady dry or steady-rain conditions into a new
         # weather-transition branch.
-        if self.weather.track_wetness == self.weather.rain_intensity:
+        if (self.weather.track_wetness == self.weather.rain_intensity
+                and self.simulator.weather_forecast_context is None):
             return None
         first_update, leader_pace, available = projection
         horizon = planning.total_laps - state.laps_completed
@@ -605,7 +610,8 @@ class ChronologicalRace:
         first_update, leader_pace, available = clock
         elapsed = (absolute_time - first_update) / leader_pace
         updates = min(available, max(0, floor(elapsed + 1e-12) + 1))
-        return projected_surfaces(self.weather, 2, (0, updates))[-1]
+        return projected_surfaces(self.weather, 2, (0, updates),
+                                  **self.simulator._forecast_options())[-1]
 
     @staticmethod
     def _clear_one_lap_pit_proposals(state):
@@ -1232,7 +1238,7 @@ class ChronologicalRace:
             self.free_refits.update(self.resumption_order)
         if (self.timeline.chequered_time is None
                 and any(state.status == DriverStatus.RACING for state in self.states.values())):
-            self.weather = self.weather.evolve(self.simulator.weather_rng)
+            self.weather = self.simulator._advance_race_weather(self.weather)
             # Shared leading intervals, not an individual car's completed distance.
             self.simulator._record_weather(self.control_intervals + 1, self.weather)
 
@@ -1280,11 +1286,13 @@ class ChronologicalRace:
 def simulate_chronological_race(simulator, drivers, cars, track, weather, starting_grid,
                                 *, starting_tires=None, starting_tire_ages=None,
                                 red_flag_pause_seconds=600.0, tire_inventory=None,
-                                pit_plans=None):
+                                pit_plans=None, weather_schedule=None):
     """Run chronological car timing using the supplied simulator's physics."""
+    schedule = validate_weather_schedule(weather_schedule, total_laps=track.total_laps)
     return ChronologicalRace(simulator, red_flag_pause_seconds=red_flag_pause_seconds).run(
         drivers, cars, track, weather, starting_grid, starting_tires=starting_tires,
         starting_tire_ages=starting_tire_ages,
         tire_inventory=tire_inventory,
         pit_plans=pit_plans,
+        **({"weather_schedule": schedule} if schedule else {}),
     )

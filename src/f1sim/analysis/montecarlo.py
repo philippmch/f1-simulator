@@ -50,6 +50,7 @@ from f1sim.simulation.randomness import (
 from f1sim.simulation.tire_inventory import validate_tire_inventory
 from f1sim.simulation.validation import validate_unique_ids
 from f1sim.simulation.warmup import validate_tire_warmup
+from f1sim.simulation.weather_schedule import validate_weather_schedule
 
 _PIT_DECISION_REASONS = frozenset({
     "forced_repair", "critical_weather", "weather_reaction", "compound_requirement",
@@ -979,8 +980,9 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     Args:
         args: Tuple of (drivers_data, cars_data, track_data, weather_data, seed,
             race_engine, starting_tires, rng_policy, starting_tire_ages, tire_inventory,
-            pit_plans, tire_warmup, qualifying_weather).
-            Legacy five through twelve-item calls remain supported; five/six/seven-item
+            pit_plans, tire_warmup, qualifying_weather, weather_schedule).
+            The fourteenth item is used only for a nonempty race schedule.
+            Legacy five through thirteen-item calls remain supported; five/six/seven-item
             calls retain the shared random stream.
 
     Returns:
@@ -992,6 +994,7 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     pit_plans = None
     tire_warmup = None
     qualifying_weather = None
+    weather_schedule = None
     rng_policy = "shared_v1"
     if len(args) == 5:
         drivers_data, cars_data, track_data, weather_data, seed = args
@@ -1022,8 +1025,21 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
         (drivers_data, cars_data, track_data, weather_data, seed,
          race_engine, starting_tires, rng_policy, starting_tire_ages,
          tire_inventory, pit_plans, tire_warmup, qualifying_weather) = args
+    elif len(args) == 14:
+        (*legacy, weather_schedule) = args
+        (drivers_data, cars_data, track_data, weather_data, seed,
+         race_engine, starting_tires, rng_policy, starting_tire_ages,
+         tire_inventory, pit_plans, tire_warmup, qualifying_weather) = legacy
+        if not validate_weather_schedule(weather_schedule):
+            raise ValueError(
+                "Simulation worker inputs must contain 5 through 13 items, "
+                "or 14 with a nonempty weather_schedule"
+            )
     else:
-        raise ValueError("Simulation worker inputs must contain 5 through 13 items")
+        raise ValueError(
+            "Simulation worker inputs must contain 5 through 13 items, "
+            "or 14 with a nonempty weather_schedule"
+        )
     qualifying_weather = validate_qualifying_weather(qualifying_weather)
     tire_warmup = validate_tire_warmup(tire_warmup)
     race_engine = validate_race_engine(race_engine)
@@ -1041,6 +1057,7 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
                                         (d.id for d in drivers))
     cars = {k: Car.model_validate(v) for k, v in cars_data.items()}
     track = Track.model_validate(track_data)
+    weather_schedule = validate_weather_schedule(weather_schedule, total_laps=track.total_laps)
     weather = Weather.model_validate(weather_data)
     pit_plans = _validate_pit_plans(
         pit_plans,
@@ -1087,6 +1104,7 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
         **({"starting_tire_ages": ages} if ages else {}),
         **({"tire_inventory": inventory} if inventory else {}),
         **({"pit_plans": pit_plans} if pit_plans else {}),
+        **({"weather_schedule": weather_schedule} if weather_schedule else {}),
     )
 
     # Collect event statistics
@@ -1142,6 +1160,8 @@ class MonteCarloRunner:
         pit_plans: dict[str, list[dict]] | None = None,
         tire_warmup: dict[str, float] | None = None,
         qualifying_weather: dict | None = None,
+        *,
+        weather_schedule: list[dict] | None = None,
     ):
         """Initialize Monte Carlo runner.
 
@@ -1158,9 +1178,13 @@ class MonteCarloRunner:
             pit_plans: Custom paid-stop instructions; omitted drivers remain automatic and
                 explicit empty lists disable elective stops.
             qualifying_weather: Fixed Q1/Q2/Q3 overrides; omitted sessions use race weather.
+            weather_schedule: Known atmosphere changes at shared leading laps; surface evolves.
             tire_warmup: Optional assumed seconds on the first running lap after each fitting.
                 Openings and qualifying are ready; zero disables the sensitivity overlay.
         """
+        self.weather_schedule = validate_weather_schedule(
+            weather_schedule, total_laps=getattr(track, "total_laps", None),
+        )
         self.qualifying_weather = validate_qualifying_weather(qualifying_weather)
         self.tire_warmup = validate_tire_warmup(tire_warmup)
         self.race_engine = validate_race_engine(race_engine)
@@ -1228,6 +1252,9 @@ class MonteCarloRunner:
 
         _raise_if_cancelled(cancel_requested)
         validate_unique_ids((driver.id for driver in self.drivers), "drivers")
+        weather_schedule = validate_weather_schedule(
+            self.weather_schedule, total_laps=self.track.total_laps,
+        )
         qualifying_weather = validate_qualifying_weather(self.qualifying_weather)
         tire_warmup = validate_tire_warmup(self.tire_warmup)
         rng_policy = validate_rng_policy(self.rng_policy)
@@ -1252,7 +1279,8 @@ class MonteCarloRunner:
         track_data = self.track.model_dump()
         weather_data = self.weather.model_dump()
         input_snapshot = {
-            "schema_version": (7 if qualifying_weather else 6 if tire_warmup else 5 if pit_plans
+            "schema_version": (8 if weather_schedule else 7 if qualifying_weather
+                               else 6 if tire_warmup else 5 if pit_plans
                                else 4 if inventory else 3 if ages else 2),
             "drivers": deepcopy(drivers_data),
             "cars": deepcopy(cars_data),
@@ -1263,6 +1291,8 @@ class MonteCarloRunner:
             "runtime": simulation_runtime(),
         }
 
+        if weather_schedule:
+            input_snapshot["weather_schedule"] = deepcopy(weather_schedule)
         if qualifying_weather:
             input_snapshot["qualifying_weather"] = deepcopy(qualifying_weather)
         if inventory:
@@ -1281,6 +1311,8 @@ class MonteCarloRunner:
             (drivers_data, cars_data, track_data, weather_data, seed,
              self.race_engine, starting_tires, rng_policy, ages, deepcopy(inventory),
              deepcopy(pit_plans)) + (
+                 (tire_warmup.copy(), deepcopy(qualifying_weather), deepcopy(weather_schedule))
+                 if weather_schedule else
                  (tire_warmup.copy(), deepcopy(qualifying_weather)) if qualifying_weather
                  else (tire_warmup.copy(),) if tire_warmup else ()
              )

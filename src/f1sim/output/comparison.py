@@ -18,6 +18,7 @@ from f1sim.output.paired_context import (
 from f1sim.output.qualifying_context import qualifying_weather_context
 from f1sim.output.timing import format_seconds, suspension_statistics
 from f1sim.output.warmup_context import warmup_context
+from f1sim.output.weather_schedule_context import weather_schedule_context
 
 _PIT_DECISION_LABELS = {
     "forced_repair": "Forced repair",
@@ -510,12 +511,16 @@ def _weather(result: SimulationResults) -> str:
         randomness = "shared with race events (legacy)"
     else:
         randomness = "not recorded"
+    schedule = weather_schedule_context(snapshot)
+    atmosphere = ("random atmosphere changes disabled" if schedule else
+                  f'weather change {percent("change_probability")}/lap; '
+                  f'weather draws {randomness}')
     return (f'{condition}; rain {percent("rain_intensity")}; '
             f'surface wetness {percent("track_wetness")}; '
-            f'weather change {percent("change_probability")}/lap; '
-            f'weather draws {randomness}'
+            + atmosphere
             + (f"; {context}" if (context := warmup_context(snapshot)) else "")
-            + (f"; {context}" if (context := qualifying_weather_context(snapshot)) else ""))
+            + (f"; {context}" if (context := qualifying_weather_context(snapshot)) else "")
+            + (f"; {schedule}" if schedule else ""))
 
 
 def _paired_driver_table(driver_id: str, paired: dict | None) -> str:
@@ -1358,6 +1363,9 @@ def render_rival_strategy_selection_report(manifest: dict) -> str:
     qualifying_context = report_context.get("qualifying_weather_context")
     qualifying_html = (f"<p>{_text(qualifying_context)}</p>"
                        if isinstance(qualifying_context, str) and qualifying_context else "")
+    schedule_context = report_context.get("weather_schedule_context")
+    schedule_html = (f"<p>{_text(schedule_context)}</p>"
+                     if isinstance(schedule_context, str) and schedule_context else "")
     members = selection.get("target_member_ids", [])
     members_text = ", ".join(str(member) for member in members) if members else "Not recorded"
     target_plans = manifest.get("target_plans", {})
@@ -1574,6 +1582,7 @@ separate held-out seed cohort. Supplied rival-scenario weights are analysis assu
 not probabilities learned from race data. Held-out results do not feed back into selection.</p>
 <p>Track: {_text(track_name)}. Race engine: {_text(race_engine)}.</p>
 {qualifying_html}
+{schedule_html}
 <p class="scroll-hint">Scroll tables sideways to see every column.</p>
 <h2>Frozen target plans</h2>
 <p>Target: {_text(target_mode)} {_text(target_id)}. Member driver IDs: {_text(members_text)}.

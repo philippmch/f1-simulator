@@ -26,6 +26,7 @@ from f1sim.simulation.surface_projection import (
     suffix_weather_intervals,
 )
 from f1sim.simulation.warmup import tire_warmup_seconds, validate_tire_warmup
+from f1sim.simulation.weather_schedule import project_next_surface
 
 
 @dataclass(frozen=True)
@@ -45,7 +46,7 @@ def _clock_weather_stop_costs(
     driver, car, track, weather, current_tire, tire_age, current_lap,
     *, pit_lane_factor, additional_current_stop_cost, current_lap_time_modifier,
     active_aero_enabled, traffic_possible, physical_total_laps, weather_clock,
-    tire_warmup, current_fit_pending,
+    tire_warmup, current_fit_pending, forecast_context=None,
 ):
     """Evaluate weather-stop bounds while each paid stop delays the clock."""
     horizon = track.total_laps - current_lap + 1
@@ -73,7 +74,7 @@ def _clock_weather_stop_costs(
             return branch_surfaces[branch]
         update_count = updates(offset, paid_stops, stopped_first, fit_delay)
         while len(projected) <= update_count:
-            value = projected[-1].project_surface()
+            value = project_next_surface(projected[-1], forecast_context, len(projected) - 1)
             projected.append(value)
             observed_surfaces[id(value)] = value
         value = projected[update_count]
@@ -372,6 +373,7 @@ def weather_stop_costs(
     weather_clock: StrategyWeatherClock | None = None,
     tire_warmup=None,
     current_fit_pending: bool = False,
+    forecast_context=None,
 ) -> WeatherStopCosts:
     """Compare retaining while safe with an optimistic schedule of paid refits.
 
@@ -390,7 +392,9 @@ def weather_stop_costs(
     horizon = track.total_laps - current_lap + 1
     if horizon <= 0:
         raise ValueError("current_lap must not exceed the race distance")
-    intervals = normalize_weather_intervals(horizon, weather_intervals, weather=weather)
+    intervals = normalize_weather_intervals(horizon, weather_intervals, weather=weather,
+                                            forecast_context=forecast_context)
+    forecast_context = getattr(intervals, "context", forecast_context)
     tire_warmup = validate_tire_warmup(tire_warmup)
     if type(current_fit_pending) is not bool:
         raise ValueError("current_fit_pending must be boolean")
@@ -407,6 +411,7 @@ def weather_stop_costs(
             active_aero_enabled=active_aero_enabled, traffic_possible=traffic_possible,
             physical_total_laps=int(physical_total_laps), weather_clock=weather_clock,
             tire_warmup=tire_warmup, current_fit_pending=current_fit_pending,
+            forecast_context=forecast_context,
         )
     clean = driver.model_copy(deep=True)
     clean.reset_race_state()
@@ -458,3 +463,5 @@ def weather_stop_costs(
 
 
 register_forecast_helpers(globals(), ('_running', '_surface_path'))
+
+register_forecast_helpers(globals(), ("project_next_surface",))
