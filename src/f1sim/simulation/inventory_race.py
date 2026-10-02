@@ -111,7 +111,16 @@ class InventoryStrategyMixin:
                         weather_intervals=None, additional_current_stop_cost=0,
                         current_traffic_gaps=None, force_stop=False, free_fit=False,
                         weather_clock: StrategyWeatherClock | None = None):
-        from f1sim.simulation.inventory_strategy import plan_inventory_strategy
+        from f1sim.simulation.inventory_strategy import InventoryDecision, plan_inventory_strategy
+
+        if state.pit_plan is not None and (force_stop or free_fit):
+            choice = self._custom_plan_replacement_choice(
+                state, track, weather, lap, free_fit=free_fit,
+                physical_total_laps=physical_total_laps, weather_intervals=weather_intervals,
+                weather_clock=weather_clock,
+                additional_current_stop_cost=additional_current_stop_cost,
+            )
+            return InventoryDecision(choice.cost, float("inf"), choice.set_id, choice.compound)
 
         surfaces = projected_surfaces(
             weather, track.total_laps - lap + 1, weather_intervals, **self._forecast_options(),

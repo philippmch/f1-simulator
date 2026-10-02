@@ -12,6 +12,10 @@ from f1sim.cancellation import raise_if_cancelled
 from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather
 from f1sim.models._native import register_forecast_helpers
 from f1sim.models.tire import TIRE_COMPOUNDS
+from f1sim.simulation.custom_pit_strategy import (
+    CustomPitFinishContext,
+    choose_custom_pit_replacement,
+)
 from f1sim.simulation.events import EventManager, EventType, RaceEvent
 from f1sim.simulation.execution import validate_starting_tire_ages, validate_starting_tires
 from f1sim.simulation.inventory_race import (
@@ -124,6 +128,9 @@ class DriverRaceState:
     pit_plan_target_set_id: str | None = None
     pit_plan_reason: str | None = None
     pit_plan_override_reason: str | None = None
+    # Transient observed leader clock for conditional custom replacements.
+    # Followers use the engine's existing estimated own-lap planning horizon.
+    strategy_finish_context: CustomPitFinishContext | None = None
 
     def __post_init__(self) -> None:
         """Seed tyre history from the driver's actual starting set."""
@@ -570,6 +577,12 @@ class RaceSimulator(InventoryStrategyMixin):
 
             # Decide every stop before sampling service or running laps. Both
             # pit-box queues use frozen lap-start clocks as arrival proxies.
+            for state in states:
+                state.strategy_finish_context = (
+                    CustomPitFinishContext(state.total_time, finish_clock.time_limit_seconds,
+                                           finish_clock.time_limit_announced)
+                    if state.pit_plan is not None and state is leader else None
+                )
             drivers_pitting = self._process_pit_stops(
                 states, lap_start_states, planning_track, current_weather, lap,
                 **({"physical_total_laps": track.total_laps}
@@ -855,6 +868,12 @@ class RaceSimulator(InventoryStrategyMixin):
                 )
                 restart_track = (track if restart_final_lap == track.total_laps else
                                  track.model_copy(update={"total_laps": restart_final_lap}))
+                for state in states:
+                    state.strategy_finish_context = (
+                        CustomPitFinishContext(resume, finish_clock.time_limit_seconds,
+                                               finish_clock.time_limit_announced)
+                        if state.pit_plan is not None and state is leader else None
+                    )
                 self._fit_red_flag_tires(
                     states, current_weather, restart_track, lap,
                     **({"physical_total_laps": track.total_laps}
@@ -2290,6 +2309,14 @@ class RaceSimulator(InventoryStrategyMixin):
         proposal = state.dry_pit_proposal
         weather_proposal = state.weather_pit_proposal
         custom_target = state.pit_plan_target
+        custom_choice = None
+        if (state.pit_plan is not None and state.tire_inventory is None
+                and custom_target is None):
+            custom_choice = self._custom_plan_replacement_choice(
+                state, track, weather, current_lap,
+                physical_total_laps=physical_total_laps,
+                weather_intervals=weather_intervals, weather_clock=weather_clock,
+            )
         state.dry_pit_proposal = None
         state.weather_pit_proposal = None
         if selected_set is not None:
@@ -2298,6 +2325,8 @@ class RaceSimulator(InventoryStrategyMixin):
             # Explicit instructions bypass automatic profitability and forecast
             # choices after the request has passed the safety checks.
             new_compound = custom_target
+        elif custom_choice is not None and custom_choice.compound is not None:
+            new_compound = custom_choice.compound
         elif (weather_proposal is not None and weather_proposal[0] == current_lap
               and self._automatic_weather_fit_is_eligible(
                   state, weather, weather_proposal[1], current_lap, track)):
@@ -2949,6 +2978,28 @@ class RaceSimulator(InventoryStrategyMixin):
             state.dry_pit_proposal = None
             state.weather_pit_proposal = None
 
+    def _custom_plan_replacement_choice(
+        self, state, track, weather, lap, *, free_fit=False,
+        physical_total_laps=None, weather_intervals=None, weather_clock=None,
+        additional_current_stop_cost=0.,
+    ):
+        """Share the remaining requested policy across paid and free refits."""
+        return choose_custom_pit_replacement(
+            state.driver, state.car, track, weather, state.current_tire,
+            state.tire_laps, lap, state.pit_plan,
+            pit_plan_index=state.pit_plan_index, inventory=state.tire_inventory,
+            used_compounds=self._actually_used_compounds(state), free_fit=free_fit,
+            current_fit_pending=state.fit_lap_pending,
+            pit_lane_factor=self._pit_lane_factor(),
+            current_lap_time_modifier=self.event_manager.get_lap_time_modifier(),
+            active_aero_enabled=self.event_manager.is_active_aero_allowed(),
+            physical_total_laps=physical_total_laps, weather_intervals=weather_intervals,
+            weather_clock=weather_clock,
+            additional_current_stop_cost=additional_current_stop_cost,
+            tire_warmup=self.tire_warmup, finish_context=state.strategy_finish_context,
+            **self._forecast_options(),
+        )
+
     def _choose_forecast_paid_compound(
         self, state, weather, track, current_lap, *, physical_total_laps=None,
         weather_intervals=None, weather_clock=None,
@@ -2996,6 +3047,14 @@ class RaceSimulator(InventoryStrategyMixin):
         remaining_laps = track.total_laps - current_lap
         if remaining_laps <= 0:
             return state.current_tire.compound
+        if state.pit_plan is not None:
+            choice = self._custom_plan_replacement_choice(
+                state, track, weather, current_lap + 1, free_fit=True,
+                physical_total_laps=physical_total_laps,
+                weather_intervals=weather_intervals, weather_clock=weather_clock,
+            )
+            if choice.compound is not None:
+                return choice.compound
         # Keep the inexpensive dry forecast when the whole no-stop weather
         # path stays clearly dry. A cadence or external clock can reveal a
         # future crossover even when the current snapshot still permits slicks.
@@ -3145,10 +3204,13 @@ class RaceSimulator(InventoryStrategyMixin):
 register_forecast_helpers(globals(), (
     "has_prescribed_weather", "paid_compound_candidates", "current_pit_plan_instruction",
     "skip_pit_plan_instruction", "override_pit_plan_instruction", "commit_pit_plan_service",
+    "choose_custom_pit_replacement", "CustomPitFinishContext",
 ))
 register_forecast_helpers(vars(RaceSimulator), (
     "_has_weather_schedule", "_choose_forecast_paid_compound",
     "_automatic_weather_fit_is_eligible", "_pit_plan_satisfies_rule",
     "_custom_pit_plan_decision", "_prepare_pit_plan_stop", "_pit_plan_compulsory_reason",
     "_pit_plan_replacement", "_commit_pit_plan_if_due",
+    "_custom_plan_replacement_choice", "_execute_pit_stop", "_choose_red_flag_tire",
 ))
+register_forecast_helpers(vars(InventoryStrategyMixin), ("_plan_inventory",))

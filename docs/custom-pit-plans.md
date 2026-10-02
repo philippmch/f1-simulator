@@ -84,6 +84,24 @@ causes that instruction to be skipped. It is not silently deferred.
 
 A free red-flag tyre change does not consume a scheduled paid-stop instruction.
 Earlier repairs and weather stops likewise do not consume future instructions.
+Automatic compulsory replacements and free restart fits are priced against the
+remaining custom instructions, including an empty plan. The forecast inserts
+only critical-weather repairs and required compound corrections. It preserves
+physical-set wear and availability, including sets removed and reused later,
+and accounts for skipped requests and optional fitting costs. It does not add
+profitable elective stops or change an executable requested compound.
+
+The forecast uses expected service and mean clean-air pace, current control on
+the next lap, and green running thereafter. A projected leader's observed clock
+can shorten each candidate at the lap following expiry; completed distance
+is ranked first, then fulfilled instructions, then time. This prevents a cheap
+replacement winning by making a later safe request unavailable when an equally
+long continuation can honor it. This also works before an initial pace observation,
+so a future request beyond that finish need not reserve a fresh physical set.
+Other cars retain the engine's estimated own-lap finish horizon and shared
+weather cadence. Original scheduled fuel distance remains unchanged. Future
+incidents, traffic, leader changes and unprescribed weather remain unknown.
+
 Actual finish boundaries always apply: a retirement, shortened race, or lapped
 finish can leave later instructions unrun. No pit service is created on a lap
 that the driver never starts.

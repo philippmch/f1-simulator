@@ -33,7 +33,7 @@ post-fit costs, incident loss and time spent waiting behind another car are
 excluded from the recurring pace estimate. Current control affects the upcoming
 lap, with later laps assumed green. The estimate includes the lap following
 clock expiry and never exceeds the scheduled distance. Without a pace
-observation it retains that schedule. Both engines use this estimate for pit
+observation the automatic policy retains that schedule. Both engines use this estimate for pit
 decisions and free tyre choices; chronological races also map the leader's
 estimated finish time to each car's own remaining laps and include completed
 suspension extensions.
@@ -378,6 +378,19 @@ elective stops; unsafe or unavailable requests and mandatory corrections use the
 same decisions as actual execution. The supplied schedule is retained, rather
 than searching for a different one. Dry, wet and finite-pool opening comparisons
 all account for it. Explicit opening compounds and ages keep priority.
+Compulsory replacements and free red-flag choices under a supplied plan use a
+separate continuation over the remaining requested services. It follows the
+same skip, availability and actual-use rules, with compulsory weather and final
+compound corrections but no elective automatic stops. A projected leader's
+observed deadline also truncates these candidate continuations at the lap after
+expiry, even before the first pace observation. Distance is ranked first,
+fulfilled requests second, and time third. A cheap continuation cannot win by
+making a safe requested set unavailable when an equally long path can honor it.
+The existing planning cap still applies. Followers retain their estimated own
+finish horizon and externally observed weather clock. The forecast preserves
+original fuel distance, set wear and post-fit costs and assumes later green
+running. It does not forecast traffic, random weather or leader changes, or
+optimize the user's requested schedule.
 Results are cached with a bounded capacity, including the driver, car, circuit,
 weather, tyre configuration, strategy settings, supplied pit plan and race time limit. Dry,
 precautionary and finite-pool scores share the same input normalization: driver

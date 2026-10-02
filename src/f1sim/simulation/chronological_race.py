@@ -15,6 +15,7 @@ from numbers import Real
 
 from f1sim.cancellation import raise_if_cancelled
 from f1sim.models.tire import TIRE_COMPOUNDS
+from f1sim.simulation.custom_pit_strategy import CustomPitFinishContext
 from f1sim.simulation.events import EventType, RaceEvent
 from f1sim.simulation.execution import validate_starting_tire_ages, validate_starting_tires
 from f1sim.simulation.finish_strategy import ReplacementOption, evaluate_finish_protection
@@ -278,8 +279,14 @@ class ChronologicalRace:
         # Collected services are finished; their old expected exits and the
         # order in which new running is sampled cannot anchor these forecasts.
         restart_plans = {}
+        forecast_leader = self._forecast_leader()
         for driver_id in self.order:
             state = self.states[driver_id]
+            state.strategy_finish_context = (
+                CustomPitFinishContext(resume, self.timeline.time_limit_seconds,
+                                       self.timeline.time_limit_announced)
+                if state.pit_plan is not None and state is forecast_leader else None
+            )
             planning = self._planning_track(state, resume, restart=True)
             cadence = self._weather_intervals(state, resume, planning, restart=True)
             restart_plans[driver_id] = (
@@ -775,6 +782,11 @@ class ChronologicalRace:
             return
         lap = state.laps_completed + 1
         control = self.simulator.event_manager
+        state.strategy_finish_context = (
+            CustomPitFinishContext(now, self.timeline.time_limit_seconds,
+                                   self.timeline.time_limit_announced)
+            if state.pit_plan is not None and state is self._forecast_leader() else None
+        )
         if restart_planning is None:
             planning, cadence, weather_clock = self._planning_track(state, now), None, None
         else:

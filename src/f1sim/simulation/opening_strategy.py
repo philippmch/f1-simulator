@@ -17,6 +17,7 @@ from f1sim.models._native import (
     restore_model,
 )
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
+from f1sim.simulation.custom_pit_strategy import CustomPitFinishContext
 from f1sim.simulation.pit_plans import (
     initialize_pit_plan_state,
     override_pit_plan_instruction,
@@ -287,6 +288,11 @@ def _policy_path_outcome(driver, car, track, weather, strategy, tuning, profiles
         )
         planning_track = (track if planning_final_lap == track.total_laps else
                           track.model_copy(update={"total_laps": planning_final_lap}))
+        state.strategy_finish_context = (
+            CustomPitFinishContext(state.total_time, finish_clock.time_limit_seconds,
+                                   finish_clock.time_limit_announced)
+            if state.pit_plan is not None else None
+        )
         loss = 0.0
         custom_stop = simulator._custom_pit_plan_decision(state, planning_track, projected, lap)
         should_pit = (custom_stop if custom_stop is not None else simulator._should_pit(
@@ -341,6 +347,7 @@ def _policy_path_outcome(driver, car, track, weather, strategy, tuning, profiles
 
 
 register_forecast_helpers(globals(), ('_policy_path_outcome', 'paid_compound_candidates',
-                                      'initialize_pit_plan_state', 'override_pit_plan_instruction'))
+                                      'initialize_pit_plan_state', 'override_pit_plan_instruction',
+                                      'CustomPitFinishContext'))
 
 register_forecast_values(globals(), ("REACTION_SEEDS", "OPENING_CANDIDATES", "SLICKS"))

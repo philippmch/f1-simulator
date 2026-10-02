@@ -79,6 +79,15 @@ Red-flag fittings are free changes and can retain the current physical set.
 They consume no paid stop. The physical-set ledger includes opening and later
 fittings that never complete a lap; these do not earn compound-use credit.
 
+With a [custom pit plan](custom-pit-plans.md), compulsory paid replacements and
+free refits follow that remaining schedule instead of pricing future elective
+automatic stops. The continuation keeps every physical identity and its wear,
+so a fresh set can be reserved for a later requested compound and a removed
+set can be reused. Skipped requests, unavailable sets and required corrections
+remain part of the comparison. A leader's conditional timed finish can leave
+later requests unrun, while followers retain their existing estimated horizon.
+Keeping the fitted set preserves both its age and any pending first-lap cost.
+
 ## Search and benchmark
 
 Future planning groups interchangeable physical IDs by compound and age while

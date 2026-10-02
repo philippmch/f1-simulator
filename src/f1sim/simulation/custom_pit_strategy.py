@@ -1,0 +1,281 @@
+"""Replacement forecasts that retain a driver's remaining custom pit schedule.
+
+Only compulsory choices are optimized. Requested services keep their lap and
+compound, including a deliberately slow request or an unavailable request that
+execution would skip. The caller supplies the current estimated finish horizon;
+fuel always uses the original scheduled distance.
+"""
+
+from dataclasses import dataclass
+from functools import lru_cache
+from math import inf, isfinite
+
+import numpy as np
+
+from f1sim.cancellation import cancellation_checkpoint
+from f1sim.models._native import forecast_decision, register_forecast_helpers
+from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
+from f1sim.simulation.lap import LapSimulator
+from f1sim.simulation.pit_strategy import expected_stationary_time
+from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
+from f1sim.simulation.surface_projection import normalize_weather_intervals, projected_surfaces
+from f1sim.simulation.warmup import tire_warmup_seconds, validate_tire_warmup
+from f1sim.simulation.weather_schedule import ScheduledWeatherIntervals, project_next_surface
+
+
+@dataclass(frozen=True)
+class CustomPitFinishContext:
+    """Observed leader clock, used without announcing the live race's finish."""
+
+    now: float
+    time_limit_seconds: float
+    announced: bool = False
+
+
+@dataclass(frozen=True)
+class CustomPitChoice:
+    cost: float
+    compound: TireCompound | None = None
+    set_id: str | None = None
+    laps: int = 0
+    instructions: int = 0
+
+
+@forecast_decision
+def choose_custom_pit_replacement(
+    driver, car, track, weather, current_tire, tire_age, current_lap, pit_plan, *,
+    pit_plan_index=0, inventory=None, used_compounds=(), free_fit=False,
+    current_fit_pending=False, pit_lane_factor=1., current_lap_time_modifier=1.,
+    active_aero_enabled=True, physical_total_laps=None, weather_intervals=None,
+    weather_clock=None, additional_current_stop_cost=0., tire_warmup=None,
+    forecast_context=None, finish_context=None,
+):
+    """Price a committed paid replacement or a free restart fit without mutation.
+
+    No elective automatic stops are inserted, even for an empty plan. Future
+    weather repairs and the final compound correction are still compulsory.
+    Finite requests select the least worn available physical set, with pool
+    order breaking ties, exactly as execution does. A free retained set keeps
+    its wear and pending fitting penalty; an unrun fit earns no compound credit.
+
+    Costs use deterministic clean-air physics and expected service. The current
+    control applies to the first running lap, later laps assume green. External
+    weather updates include physical stop delays and previously run warmup fees.
+    An observed leader clock can shorten each branch at its following crossing
+    after expiry. Completed distance is ranked first, then fulfilled requests,
+    then time. A cheap choice cannot win solely by making a later safe request
+    unavailable when an equally long continuation can honor it. Other cars retain
+    the caller's estimated own-lap horizon. No live finish signal is changed.
+    An infeasible full continuation returns no choice so execution can retain
+    its existing immediate-safety fallback.
+    """
+    horizon = track.total_laps - current_lap + 1
+    if horizon < 1:
+        return CustomPitChoice(inf)
+    if pit_plan is None:
+        raise ValueError("custom replacement forecast requires a pit plan")
+    intervals = normalize_weather_intervals(
+        horizon, weather_intervals, weather=weather, forecast_context=forecast_context,
+    )
+    if isinstance(intervals, ScheduledWeatherIntervals):
+        forecast_context = intervals.context
+    if weather_clock is not None:
+        if not isinstance(weather_clock, StrategyWeatherClock):
+            raise ValueError("weather_clock must be a StrategyWeatherClock")
+        weather_clock.validate_horizon(horizon)
+    physical = track.total_laps if physical_total_laps is None else physical_total_laps
+    warmup = validate_tire_warmup(tire_warmup)
+    driver = driver.model_copy(deep=True)
+    car = car.model_copy(deep=True)
+    simulator = LapSimulator(np.random.default_rng(0))
+    prepared = simulator.prepare_deterministic_lap_time(driver, car, track, physical)
+    current_stop = (track.pit_lane_delta * pit_lane_factor
+                    + expected_stationary_time(car) + additional_current_stop_cost)
+    green_stop = track.pit_lane_delta + expected_stationary_time(car)
+    requests = {item["lap"]: TireCompound(item["compound"])
+                for item in pit_plan[pit_plan_index:]
+                if current_lap <= item["lap"] <= track.total_laps}
+    if not free_fit:
+        # This committed service resolves any overridden request on this lap.
+        requests.pop(current_lap, None)
+    finite = inventory is not None
+    if finite:
+        records = inventory.snapshot(tire_age)
+        compounds = tuple(TireCompound(item["compound"]) for item in records)
+        identifiers = tuple(item["id"] for item in records)
+        ages = tuple(item["age"] for item in records)
+        unavailable = frozenset(index for index, item in enumerate(records)
+                                if item["unavailable"])
+        current = identifiers.index(inventory.current_set_id)
+    else:
+        compounds = tuple(TireCompound)
+        identifiers = (None,) * len(compounds)
+        ages = (tire_age,)
+        unavailable = frozenset()
+        current = compounds.index(current_tire.compound)
+    bits = {compound: 1 << index if index < 3 else 8
+            for index, compound in enumerate(TireCompound)}
+    initial_used = 0
+    for compound in used_compounds:
+        initial_used |= bits[TireCompound(compound)]
+    surface_path = [projected_surfaces(weather, 1)[0]]
+    infeasible = (inf, inf, inf)
+
+    def add_stint(laps, seconds, tail, instructions=0):
+        return tail[0] - laps, tail[1] - instructions, tail[2] + seconds
+
+    def after_crossing(elapsed, seconds, announced):
+        if finish_context is None:
+            return 0., False
+        elapsed += seconds
+        return elapsed, announced or elapsed >= finish_context.time_limit_seconds
+
+    def surface(offset, paid, fit_delay, stopped_first):
+        update = (weather_clock.updates(offset, paid, stopped_first, fit_delay=fit_delay)
+                  if weather_clock is not None else
+                  intervals[offset] if intervals is not None else offset)
+        while len(surface_path) <= update:
+            cancellation_checkpoint()
+            surface_path.append(project_next_surface(
+                surface_path[-1], forecast_context, len(surface_path) - 1,
+            ))
+        return update, surface_path[update]
+
+    def legal(used):
+        return physical <= 1 or bool(used & 8) or (used & 7).bit_count() >= 2
+
+    def age_at(ages, selected):
+        return ages[selected] if finite else ages[0]
+
+    def increment(ages, selected):
+        if finite:
+            return ages[:selected] + (ages[selected] + 1,) + ages[selected + 1:]
+        return (ages[0] + 1,)
+
+    def replacements(current, entry):
+        return tuple(index for index, compound in enumerate(compounds)
+                     if index not in unavailable and (not finite or index != current)
+                     and entry.tire_mismatch(compound) != "critical")
+
+    @lru_cache(maxsize=4096)
+    def running(offset, selected, age, update):
+        tire = TIRE_COMPOUNDS[compounds[selected]]
+        aero = active_aero_enabled if offset == 0 else True
+        if prepared is None:
+            driver.current_tire_laps = age
+            value = simulator.calculate_lap_time(
+                driver, car, track, tire, surface_path[update], current_lap + offset,
+                physical, sample_variation=False, active_aero_enabled=aero,
+            )
+        else:
+            value = prepared(tire, surface_path[update], current_lap + offset, age,
+                             active_aero_enabled=aero)
+        return value * current_lap_time_modifier if offset == 0 else value
+
+    def run(offset, selected, ages, used, paid, fit_delay, pending, stopped_first):
+        update, after = surface(offset, paid, fit_delay, stopped_first)
+        if after.tire_mismatch(compounds[selected]) == "critical":
+            return None
+        fee = tire_warmup_seconds(warmup, compounds[selected]) if pending else 0.
+        return (running(offset, selected, age_at(ages, selected), update) + fee,
+                increment(ages, selected), used | bits[compounds[selected]], fit_delay + fee)
+
+    def paid_fit(offset, selected, ages, used, paid, fit_delay, stopped_first, elapsed, announced,
+                 requested=False):
+        fitted_ages = ages if finite else (0,)
+        stopped_first = stopped_first or offset == 0
+        outcome = run(offset, selected, fitted_ages, used, paid + 1, fit_delay, True,
+                      stopped_first)
+        if outcome is None:
+            return infeasible
+        cost, next_ages, next_used, next_delay = outcome
+        stop = current_stop if offset == 0 else green_stop
+        seconds = stop + cost
+        if announced:
+            return (-1, -int(requested), seconds) if legal(next_used) else infeasible
+        next_elapsed, next_announced = after_crossing(elapsed, seconds, announced)
+        return add_stint(1, seconds, continuation(
+            offset + 1, selected, next_ages, next_used, paid + 1, next_delay,
+            False, stopped_first, next_elapsed, next_announced,
+        ), int(requested))
+
+    @lru_cache(maxsize=4096)
+    def continuation(offset, current, ages, used, paid, fit_delay, pending, stopped_first,
+                     elapsed, announced):
+        cost = 0.
+        completed = 0
+        # Advance deterministic retained stints iteratively. Recursion occurs
+        # only at services, so a long scheduled distance cannot exhaust Python's
+        # call stack merely by keeping the same set.
+        while offset < horizon:
+            cancellation_checkpoint()
+            lap = current_lap + offset
+            _, entry = surface(offset, paid, fit_delay, stopped_first)
+            final = lap >= max(2, track.total_laps) or announced
+            compulsory = (current in unavailable
+                          or entry.tire_mismatch(compounds[current]) == "critical"
+                          or (final and not legal(used | bits[compounds[current]])))
+            options = None
+            honors_request = False
+            if lap in requests:
+                requested = [index for index in replacements(current, entry)
+                             if compounds[index] == requests[lap]
+                             and (not final or legal(used | bits[compounds[index]]))]
+                if requested:
+                    options = (min(requested, key=lambda index: (age_at(ages, index), index)),)
+                    honors_request = True
+            if options is None and compulsory:
+                options = tuple(index for index in replacements(current, entry)
+                                if not final or legal(used | bits[compounds[index]]))
+            if options is not None:
+                best = min((paid_fit(offset, index, ages, used, paid, fit_delay,
+                                     stopped_first, elapsed, announced, honors_request)
+                            for index in options), default=infeasible)
+                return add_stint(completed, cost, best)
+            outcome = run(offset, current, ages, used, paid, fit_delay, pending, stopped_first)
+            if outcome is None:
+                return infeasible
+            value, ages, used, fit_delay = outcome
+            cost += value
+            completed += 1
+            if announced:
+                return (-completed, 0, cost) if legal(used) else infeasible
+            elapsed, announced = after_crossing(elapsed, value, announced)
+            pending = False
+            offset += 1
+        return (-completed, 0, cost) if legal(used) else infeasible
+
+    # Eligibility is the observed commitment surface; the delayed pit-exit
+    # surface is used for running pace and feasibility, not eligibility.
+    candidates = list(replacements(current, surface_path[0]))
+    if free_fit and finite and current not in unavailable \
+            and surface_path[0].tire_mismatch(compounds[current]) != "critical":
+        candidates.insert(0, current)
+    choice = CustomPitChoice(inf)
+    best = infeasible
+    elapsed = 0. if finish_context is None else finish_context.now
+    announced = False if finish_context is None else finish_context.announced
+    try:
+        for index in candidates:
+            cancellation_checkpoint()
+            if free_fit:
+                fitted = not finite or index != current
+                score = continuation(0, index, ages if finite else (0,), initial_used,
+                                     0, 0., fitted or current_fit_pending, False,
+                                     elapsed, announced)
+            else:
+                if ((current_lap >= max(2, track.total_laps) or announced)
+                        and not legal(initial_used | bits[compounds[index]])):
+                    continue
+                score = paid_fit(0, index, ages, initial_used, 0, 0., False, elapsed, announced)
+            if isfinite(score[2]) and score < best:
+                best = score
+                choice = CustomPitChoice(score[2], compounds[index], identifiers[index],
+                                         -score[0], -score[1])
+        return choice
+    finally:
+        continuation.cache_clear()
+        running.cache_clear()
+
+
+register_forecast_helpers(globals(), ("choose_custom_pit_replacement", "project_next_surface"))
