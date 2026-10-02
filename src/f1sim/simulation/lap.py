@@ -187,13 +187,7 @@ class LapSimulator:
         # Active Aero Straight Mode is common to every green-running car on
         # the configured sections.  Unlike Overtake Mode, it is deliberately
         # not proximity-gated by the gap to the car ahead.
-        active_aero_gain = 0.0
-        if active_aero_enabled and track.total_active_aero_gain > 0.0:
-            _, opportunity_mix = self._track_profile(track)
-            active_aero_effectiveness = (0.65 + 0.35 * opportunity_mix) * (
-                0.9 + 0.2 * car.straight_line_speed
-            )
-            active_aero_gain = track.total_active_aero_gain * 0.8 * active_aero_effectiveness
+        active_aero_gain = self._active_aero_gain(car, track) if active_aero_enabled else 0.0
 
         # Overtake Mode is a separate, short-duration deployment.  Energy
         # accounting is owned by RaceSimulator; this term only converts an
@@ -217,6 +211,23 @@ class LapSimulator:
             tire_delta, fuel_delta, traffic_delta, active_aero_gain,
             overtake_mode_gain, weather_multiplier, mismatch_penalty, track,
         )
+
+    def _active_aero_gain(
+        self, car: Car, track: Track, *, total_gain: float | None = None,
+    ) -> float:
+        """Configured Straight Mode gain, optionally using a prepared total.
+
+        Public laps preserve the two Track reads around profile and Car
+        dispatch. Prepared laps supply their single captured Track value.
+        """
+        if not (track.total_active_aero_gain if total_gain is None else total_gain) > 0.0:
+            return 0.0
+        _, opportunity_mix = self._track_profile(track)
+        effectiveness = (0.65 + 0.35 * opportunity_mix) * (
+            0.9 + 0.2 * car.straight_line_speed
+        )
+        gain = track.total_active_aero_gain if total_gain is None else total_gain
+        return gain * 0.8 * effectiveness
 
     @staticmethod
     def _compose_lap_time(
@@ -293,15 +304,9 @@ class LapSimulator:
         )
 
         total_active_aero_gain = track.total_active_aero_gain
-        active_aero_gain = 0.0
-        if total_active_aero_gain > 0.0:
-            _, opportunity_mix = self._track_profile(track)
-            active_aero_effectiveness = (0.65 + 0.35 * opportunity_mix) * (
-                0.9 + 0.2 * car.straight_line_speed
-            )
-            active_aero_gain = (
-                total_active_aero_gain * 0.8 * active_aero_effectiveness
-            )
+        active_aero_gain = self._active_aero_gain(
+            car, track, total_gain=total_active_aero_gain,
+        )
 
         # Capture the native bound method for the rare custom-model fallback.
         # It retains the same driver-state update as the ordinary planner path.
@@ -571,6 +576,8 @@ class LapSimulator:
         weather: Weather,
         push_level: float = 1.0,
         sample_variation: bool = True,
+        *,
+        active_aero_enabled: bool = True,
     ) -> float:
         """Calculate a qualifying lap time.
 
@@ -582,6 +589,7 @@ class LapSimulator:
             weather: Current weather conditions
             push_level: How hard the driver is pushing (0-1)
             sample_variation: Sample variation/mistakes, or return noise-free pace
+            active_aero_enabled: Apply configured Active Aero Straight Mode gain
 
         Returns:
             Lap time in seconds
@@ -612,10 +620,11 @@ class LapSimulator:
         # Fresh-set grip, including rain compounds when required.
         tire_bonus = (tire.initial_grip - 1.0) * 0.5  # Bonus from soft tire grip
 
+        active_aero_gain = self._active_aero_gain(car, track) if active_aero_enabled else 0.0
         weather_multiplier = self.weather_pace_multiplier(driver, car, weather)
 
         lap_time = (
-            base_time + car_delta + skill_delta + random_variation - tire_bonus
+            base_time + car_delta + skill_delta + random_variation - tire_bonus - active_aero_gain
         ) * weather_multiplier
         lap_time += self._tire_weather_mismatch(tire, weather)
 
@@ -670,6 +679,7 @@ _NATIVE_METHODS = {
         "_compose_lap_time",
         "_track_car_delta",
         "_track_profile",
+        "_active_aero_gain",
         "_tire_pace_from_multiplier",
         "_compound_pace_delta",
         "tire_pace_contribution",

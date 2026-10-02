@@ -6,7 +6,7 @@ import math
 import numpy as np
 import pytest
 
-from f1sim.models import Car, Driver, TireCompound, Track, Weather
+from f1sim.models import ActiveAeroZone, Car, Driver, TireCompound, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.qualifying import QualifyingSimulator
@@ -31,9 +31,12 @@ def test_race_fresh_rain_boundaries_remain_unchanged(wetness, rain, expected):
 
 
 @pytest.mark.parametrize("wetness,rain", [(0, 0), (0, 0.5), (0.21, 0.3), (0.75, 0.8), (0.9, 0.9)])
-def test_session_selects_fastest_fresh_set_under_fixed_weather(monkeypatch, wetness, rain):
+@pytest.mark.parametrize("zones", [0, 3])
+def test_session_selects_fastest_fresh_set_under_fixed_weather(monkeypatch, wetness, rain, zones):
     driver, car, track = fixture()
     weather = Weather(track_wetness=wetness, rain_intensity=rain)
+    track.active_aero_zones = [ActiveAeroZone(zone_id=index + 1, sector=1, time_gain=.3)
+                              for index in range(zones)]
 
     class MeanPace:
         def normal(self, mean, std):
@@ -50,6 +53,7 @@ def test_session_selects_fastest_fresh_set_under_fixed_weather(monkeypatch, wetn
     attempts, projections = [], []
 
     def capture(**kwargs):
+        assert "active_aero_enabled" not in kwargs
         (attempts if kwargs.get("sample_variation", True) else projections).append(
             kwargs["tire"].compound
         )
@@ -115,8 +119,11 @@ def test_driver_wet_skill_only_changes_wet_qualifying(wetness):
     assert (times[0] > times[1]) if wetness > 0 else (times[0] == times[1])
 
 
-def test_dry_qualifying_preserves_previous_formula_and_rng():
+@pytest.mark.parametrize("enabled,zones", [(True, 0), (False, 3)])
+def test_dry_qualifying_preserves_previous_formula_and_rng(enabled, zones):
     driver, car, track = fixture()
+    track.active_aero_zones = [ActiveAeroZone(zone_id=index + 1, sector=1, time_gain=.3)
+                              for index in range(zones)]
     rng = np.random.default_rng(42)
     simulator = LapSimulator(np.random.default_rng(42))
     base = track.base_lap_time * 0.98
@@ -128,7 +135,8 @@ def test_dry_qualifying_preserves_previous_formula_and_rng():
                    + (1 - driver.skill_rating) * base * 0.012 + variation
                    - (TIRE_COMPOUNDS[TireCompound.SOFT].initial_grip - 1) * 0.5)
     assert simulator.calculate_qualifying_lap(
-        driver, car, track, TIRE_COMPOUNDS[TireCompound.SOFT], Weather()
+        driver, car, track, TIRE_COMPOUNDS[TireCompound.SOFT], Weather(),
+        active_aero_enabled=enabled,
     ) == expected
     assert simulator.rng.random() == rng.random()
 
@@ -146,3 +154,73 @@ def test_full_wet_session_has_finite_order_and_preserves_inputs():
     assert sum(r.q3_time is not None for r in results) == 10
     assert sum(r.q2_time is not None for r in results) == 16
     assert (drivers, car, weather) == before
+
+
+@pytest.mark.parametrize("draws", [(.001,), (.5, .001), (.5, .5)])
+def test_aero_keeps_qualifying_mistake_draw_order_and_weather_scaling(draws):
+    driver, car, track = fixture()
+    track.active_aero_zones = [ActiveAeroZone(zone_id=1, sector=1, time_gain=.3)]
+    weather = Weather(track_wetness=.6, rain_intensity=.7)
+    tire = TIRE_COMPOUNDS[TireCompound.INTERMEDIATE]
+
+    class ScriptedRng:
+        def __init__(self):
+            self.draws = iter(draws)
+            self.calls = []
+
+        def normal(self, mean, std):
+            self.calls.append(("normal", mean, std))
+            return .2
+
+        def random(self):
+            self.calls.append(("random",))
+            return next(self.draws)
+
+        def uniform(self, low, high):
+            self.calls.append(("uniform", low, high))
+            return low
+
+    enabled_rng, disabled_rng = ScriptedRng(), ScriptedRng()
+    enabled = LapSimulator(enabled_rng).calculate_qualifying_lap(driver, car, track, tire, weather)
+    disabled_simulator = LapSimulator(disabled_rng)
+    disabled = disabled_simulator.calculate_qualifying_lap(driver, car, track, tire, weather,
+                                                          active_aero_enabled=False)
+    gain = .3 * .8 * ((.65 + .35 * (1. - track.overtake_difficulty))
+                     * (.9 + .2 * car.straight_line_speed))
+    multiplier = disabled_simulator.weather_pace_multiplier(driver, car, weather)
+    assert disabled - enabled == pytest.approx(gain * multiplier, abs=1e-13)
+    assert enabled_rng.calls == disabled_rng.calls
+    names = [call[0] for call in enabled_rng.calls]
+    expected = ["normal", "random"]
+    if len(draws) == 2:
+        expected.append("random")
+    if draws[-1] == .001:
+        expected.append("uniform")
+    assert names == expected
+
+
+def test_saturated_gain_keeps_compound_enum_tie_and_projection_rng_free(monkeypatch):
+    driver, car, track = fixture()
+    driver.skill_rating = car.base_pace = car.straight_line_speed = 1.
+    track.active_aero_zones = [ActiveAeroZone(zone_id=index + 1, sector=1, time_gain=1.)
+                              for index in range(20)]
+    weather = Weather()
+    simulator = QualifyingSimulator(np.random.default_rng(42))
+    original = simulator.lap_simulator.calculate_qualifying_lap
+    attempts = []
+    before = copy.deepcopy((driver, car, track, weather))
+
+    def capture(**kwargs):
+        state = copy.deepcopy(simulator.rng.bit_generator.state)
+        result = original(**kwargs)
+        if kwargs.get("sample_variation", True):
+            attempts.append(kwargs["tire"].compound)
+        else:
+            assert simulator.rng.bit_generator.state == state
+        return result
+
+    monkeypatch.setattr(simulator.lap_simulator, "calculate_qualifying_lap", capture)
+    times = simulator._simulate_session([driver], {"A": car}, track, weather)
+    assert attempts == [TireCompound.SOFT, TireCompound.SOFT]
+    assert times == {driver.id: track.base_lap_time * .93}
+    assert (driver, car, track, weather) == before

@@ -332,3 +332,64 @@ def test_preimport_stateful_model_hooks_keep_public_lap_dispatch(model_kind):
         assert first != second
         assert calls > first_calls > 0
     ''')
+
+
+@pytest.mark.parametrize("target", ["class", "instance"])
+def test_active_aero_helper_override_rejects_preparation_and_shared_green_cache(
+    monkeypatch, target,
+):
+    from f1sim.models._native import native_physics
+    from f1sim.simulation.rain_strategy import _native_green_cache_available
+
+    driver, car, track = _models()
+    simulator = LapSimulator()
+    calls = []
+
+    def custom(*args, **kwargs):
+        calls.append(1)
+        return .125
+
+    if target == "class":
+        monkeypatch.setattr(LapSimulator, "_active_aero_gain", custom)
+        assert not native_physics(driver, car, track)
+    else:
+        monkeypatch.setattr(simulator, "_active_aero_gain", custom)
+    assert simulator.prepare_deterministic_lap_time(driver, car, track, 20) is None
+    assert not _native_green_cache_available(simulator)
+    assert calls == []
+    tire = TIRE_COMPOUNDS[TireCompound.MEDIUM]
+    disabled = simulator.calculate_lap_time(driver, car, track, tire, Weather(), 1, 20,
+                                            active_aero_enabled=False, sample_variation=False)
+    enabled = simulator.calculate_lap_time(driver, car, track, tire, Weather(), 1, 20,
+                                           sample_variation=False)
+    assert disabled - enabled == pytest.approx(.125)
+    assert calls == [1]
+
+
+def test_aero_helper_definition_reference_survives_fresh_process_replacement():
+    script = dedent("""
+        from f1sim.models import Weather
+        from f1sim.simulation.lap import LapSimulator
+        original = LapSimulator._active_aero_gain
+        calls = []
+        def custom(self, *args, **kwargs):
+            calls.append(1)
+            return .125
+        LapSimulator._active_aero_gain = custom
+        from f1sim.simulation.lap import _NATIVE_METHODS, native_lap_physics
+        from test_prepared_lap_evaluator import _models
+        assert _NATIVE_METHODS['_active_aero_gain'] is original
+        assert not native_lap_physics()
+        driver, car, track = _models()
+        assert LapSimulator().prepare_deterministic_lap_time(driver, car, track, 20) is None
+        assert calls == []
+        from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
+        LapSimulator().calculate_qualifying_lap(
+            driver, car, track, TIRE_COMPOUNDS[TireCompound.MEDIUM], Weather(),
+            sample_variation=False,
+        )
+        assert calls == [1]
+    """)
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
+                            timeout=30, env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)})
+    assert result.returncode == 0, result.stdout + result.stderr

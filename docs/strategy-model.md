@@ -502,7 +502,11 @@ the same driver/car weather multiplier and additive
 tyre-weather mismatch penalty as race laps, while retaining qualifying's own
 base pace, fresh-tyre grip and push-level variation. A driver with stronger wet
 skill can therefore improve a wet qualifying lap, and slicks no longer escape
-their mismatch penalty on a wet surface. Each attempt assumes a fresh set;
+their mismatch penalty on a wet surface. Qualifying also uses the configured
+Straight Mode gain shared by race laps and strategy forecasts, subtracting it
+before the weather multiplier and applying its existing qualifying time floor.
+Compound comparisons and sampled attempts both assume that gain is available.
+Each attempt assumes a fresh set;
 weather remains fixed across Q1, Q2 and Q3. Qualifying does not model tyre
 inventory, track evolution, traffic or a changing-weather session strategy.
 
@@ -1360,12 +1364,15 @@ automatic openings, evolving weather, and custom pit plans.
 
 ## Active Aero modeling limits
 
-Race execution and deterministic strategy forecasts use one scalar gain for
-configured Active Aero zones. Green wet and dry laps use the same configured
-gain before the shared weather multiplier; SC, VSC and red flags disable it.
-Live venue profiles provide zone counts and
-assumed gains, without official activation-zone maps. Qualifying has no separate
-Active Aero lap-time term.
+Race execution, deterministic strategy forecasts and qualifying use one scalar
+gain for configured Active Aero zones, with the same circuit and car
+effectiveness calculation. Green wet and dry laps use that gain before the shared
+weather multiplier; SC, VSC and red flags disable it in racing. Qualifying assumes
+configured Straight Mode is available throughout its fixed-weather sessions.
+Direct callers can disable the qualifying gain with
+`calculate_qualifying_lap(..., active_aero_enabled=False)` for controlled comparisons.
+Live venue profiles provide zone counts and assumed gains, without official
+activation-zone maps or a separate qualifying calibration.
 
 [FIA 2026 sporting regulations B1.5.11 and B7.1](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_b_sporting_-_iss_09_-_2026-10-01.pdf)
 allow only front-wing activation in designated low-grip zones after race control
