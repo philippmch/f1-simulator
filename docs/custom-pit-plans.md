@@ -108,6 +108,14 @@ Other cars retain the engine's estimated own-lap finish horizon and shared
 weather cadence. Original scheduled fuel distance remains unchanged. Future
 incidents, traffic, leader changes and unprescribed weather remain unknown.
 
+At a chronological red-flag restart, free fits use the collected field's
+frozen finish horizons, weather clocks and projected-leader identity. Every
+survivor completes that fit before any restart lap is released or new paid
+service begins. A car entering the pits immediately after the restart cannot
+change a later car's suspension-time tyre choice. Cars still held at a closed
+pit exit follow the same fitting step without a second paid service. Subsequent
+ordinary lap starts refresh the finish context from the live field.
+
 Actual finish boundaries always apply: a retirement, shortened race, or lapped
 finish can leave later instructions unrun. No pit service is created on a lap
 that the driver never starts.

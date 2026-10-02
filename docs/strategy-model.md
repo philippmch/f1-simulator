@@ -601,10 +601,16 @@ The race applies its usual between-lap weather update before selecting the free
 set, so that choice uses the conditions in which racing resumes. This avoids
 fitting a set for the completed lap's weather and then paying to replace it on
 the restart. It adds no extra weather update during the modeled waiting period.
-The chronological engine freezes every car's restart horizon and weather
-clock before fitting or releasing the first car. This includes a car whose
+The chronological engine freezes every car's restart horizon, weather clock
+and custom-plan finish context before fitting or releasing the first car.
+All free suspension fits finish before any car begins restart running or
+starts a new paid service. This includes a car whose
 paid service finished while the pit exit was closed; old service forecasts and
 release order cannot change the free-tyre projection.
+An exhausted pool retires that car before survivors are released. A scheduled
+paid stop after the restart cannot change a follower's earlier suspension fit
+by promoting it to projected leader during the release loop. Ordinary later
+lap starts update the finish forecast from the observed field as before.
 
 `python examples/check_weather_restart_choices.py` compares these choices with
 separately executed alternatives in both engines, under increasing rain,

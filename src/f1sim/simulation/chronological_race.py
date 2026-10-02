@@ -296,6 +296,13 @@ class ChronologicalRace:
             )
         for driver_id in list(self.order):
             state = self.states[driver_id]
+            # Suspension fits belong to the collected field. Complete them all
+            # before a new paid stop changes its leader or running consumes RNG.
+            self._fit_red_flag_set(state, *restart_plans[driver_id])
+            if state.status != DriverStatus.RACING:
+                self._retire(driver_id, resume, state.dnf_reason)
+        for driver_id in list(self.order):
+            state = self.states[driver_id]
             pending = self.pending.get(driver_id)
             if pending is None:
                 self._start_lap(state, resume, restart_planning=restart_plans.get(driver_id))
@@ -303,10 +310,6 @@ class ChronologicalRace:
             # This paid stop completed service while the exit was closed. Its
             # running has never been sampled. Fit the shared restart set and
             # release the existing lap without charging/sampling another stop.
-            self._fit_red_flag_set(state, *restart_plans[driver_id])
-            if state.status != DriverStatus.RACING:
-                self._retire(driver_id, resume, state.dnf_reason)
-                continue
             pending.tire = state.current_tire.model_copy(deep=True)
             pending.tire_age = state.tire_laps
             pending.generation += 1
@@ -782,14 +785,16 @@ class ChronologicalRace:
             return
         lap = state.laps_completed + 1
         control = self.simulator.event_manager
-        state.strategy_finish_context = (
-            CustomPitFinishContext(now, self.timeline.time_limit_seconds,
-                                   self.timeline.time_limit_announced)
-            if state.pit_plan is not None and state is self._forecast_leader() else None
-        )
         if restart_planning is None:
+            state.strategy_finish_context = (
+                CustomPitFinishContext(now, self.timeline.time_limit_seconds,
+                                       self.timeline.time_limit_announced)
+                if state.pit_plan is not None and state is self._forecast_leader() else None
+            )
             planning, cadence, weather_clock = self._planning_track(state, now), None, None
         else:
+            # Keep the leader clock frozen with this restart's horizon and
+            # weather path, even if an earlier released car has entered service.
             planning = restart_planning[0]
             cadence = restart_planning[1] if len(restart_planning) > 1 else None
             weather_clock = restart_planning[2] if len(restart_planning) > 2 else None

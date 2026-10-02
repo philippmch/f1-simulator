@@ -168,6 +168,16 @@ def test_automatic_restart_reuses_worn_set_after_unrun_paid_fit_and_shortened_fi
         return clock
 
     monkeypatch.setattr(engine, "_strategy_weather_clock", record_clock)
+    begin_running = engine._begin_running
+
+    def release_after_field_fit(state, pending, now):
+        if engine.suspensions and now == engine.suspensions[-1][1]:
+            # The paid set held at the closed exit and the ordinary restart
+            # car both finish their free fits before either running is sampled.
+            assert not engine.free_refits
+        begin_running(state, pending, now)
+
+    monkeypatch.setattr(engine, "_begin_running", release_after_field_fit)
     actual_plan = simulator._plan_inventory
 
     def record_plan(state, track, weather, lap, **kwargs):
