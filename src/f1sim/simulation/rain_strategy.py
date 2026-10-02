@@ -44,7 +44,7 @@ from f1sim.simulation.weather_schedule import (
 _GREEN_LAP_LIMIT = 65_536
 _green_laps = OrderedDict()
 _green_lap_lock = RLock()
-# Exact future weather graphs and refit costs contain immutable values only.
+# Exact future weather graphs and strategy costs contain immutable values only.
 _CLOCK_NODE_LIMIT = 65_536
 _REFIT_COST_LIMIT = 65_536
 _clock_nodes = OrderedDict()
@@ -404,6 +404,39 @@ def _equivalent_clock_branches(weather_clock, horizon, *, surface_key=None, curr
     return rows, shared_ids
 
 
+def _budget_clock_branches(weather_clock, horizon, remaining_stops, surface_key, current_lap):
+    """Exact suffixes when every compound stays noncritical throughout.
+
+    With no compulsory replacements, a legal history permits only its remaining
+    elective fits. An incomplete history after a running lap needs at most one
+    extra fit: an unused slick or rain set completes the rule. Keep both bounds
+    until the actual use mask selects one, including a paid opening fit when
+    the caller supplied no prior race-use credit.
+    """
+    maximum_paid = max(remaining_stops + 1, 2)
+    rows = [None] * horizon
+    next_row = None
+    for offset in range(horizon - 1, 0, -1):
+        row = {}
+        for paid in range(min(offset, maximum_paid) + 1):
+            left = max(0, remaining_stops - paid)
+            for first in (False, True) if paid else (False,):
+                before = surface_key(weather_clock.updates(offset, paid, first))
+                for room in (left, left + 1) if paid < maximum_paid else (left,):
+                    cancellation_checkpoint()
+                    after = (surface_key(weather_clock.updates(offset, paid + 1, first))
+                             if room else None)
+                    keep = next_row[paid, first, room] if next_row is not None else 0
+                    fit = (next_row[paid + 1, first, room - 1]
+                           if room and next_row is not None else 0)
+                    row[paid, first, room] = _shared_clock_node((
+                        current_lap + offset, before, after, keep, fit,
+                    ))
+        rows[offset] = row
+        next_row = row
+    return rows
+
+
 def _clock_rain_transition(
     driver, car, track, weather, current_tire, tire_age, current_lap, remaining_stops,
     *, pit_lane_factor, additional_current_stop_cost, current_lap_time_modifier,
@@ -562,11 +595,27 @@ def _clock_rain_transition(
         return surface_values[identity]
 
     clock_branches = shared_clock_ids = None
+    budget_clock = False
     if recursive and not warmup:
-        clock_branches, shared_clock_ids = _equivalent_clock_branches(
-            weather_clock, horizon, surface_key=projected_surface_key if shared_green else None,
-            current_lap=current_lap,
-        )
+        if shared_green and horizon > 1:
+            maximum_paid = min(horizon, max(remaining_stops + 1, 2))
+            last_update = max(weather_clock.updates(horizon - 1, maximum_paid, first)
+                              for first in (False, True))
+            projected_surface_key(last_update)
+            # This sufficient proof includes skipped updates too. A later
+            # critical scheduled step keeps the full compulsory-fit graph.
+            budget_clock = all(len(surface_safety(surface)[0]) == len(TireCompound)
+                               for surface in projected)
+        if budget_clock:
+            shared_clock_ids = _budget_clock_branches(
+                weather_clock, horizon, remaining_stops, projected_surface_key, current_lap,
+            )
+        else:
+            clock_branches, shared_clock_ids = _equivalent_clock_branches(
+                weather_clock, horizon,
+                surface_key=projected_surface_key if shared_green else None,
+                current_lap=current_lap,
+            )
     if shared_clock_ids is not None:
         refit_package = (package, tuple(tire_values[compound_values[value]]
                                        for value in TireCompound))
@@ -580,6 +629,12 @@ def _clock_rain_transition(
                        clock_branches[offset][state[8], state[9]])
         return (*state[:8], paid, first, state[10])
 
+    def shared_clock(offset, paid, first, left, used):
+        if budget_clock:
+            room = left + (not legal(used))
+            return shared_clock_ids[offset][paid, first, room]
+        return shared_clock_ids[offset][paid, first]
+
     @lru_cache(maxsize=None)
     def recursive_refit(offset, left, dry, damp, used, paid_stops, stopped_first,
                         fit_delay, allowed):
@@ -592,7 +647,8 @@ def _clock_rain_transition(
         cancellation_checkpoint()
         shared_key = None
         if shared_clock_ids is not None:
-            shared_key = (refit_package, shared_clock_ids[offset][paid_stops, stopped_first],
+            shared_key = ("refit", refit_package,
+                          shared_clock(offset, paid_stops, stopped_first, left, used),
                           left, dry, damp, used, allowed)
             cached = _shared_refit_cost(shared_key)
             if cached is not None:
@@ -626,6 +682,17 @@ def _clock_rain_transition(
          paid_stops, stopped_first, fit_delay) = state
         if offset == horizon:
             return 0.0 if legal(used) else inf
+        shared_key = None
+        if shared_clock_ids is not None:
+            # Full tyre parameters and age distinguish retained and fresh sets.
+            # The complete suffix graph prices every future retain/refit path;
+            # current traffic/control costs and any already-paid fit stay out.
+            shared_key = ("tail", refit_package, tire_values[tire_key], age,
+                          shared_clock(offset, paid_stops, stopped_first, left, used),
+                          left, dry, damp, used)
+            cached = _shared_refit_cost(shared_key)
+            if cached is not None:
+                return cached
         before = branch_surface(offset, paid_stops, stopped_first, fit_delay)
         current = compounds_by_value[compound]
         critical = critical_on(before, current)
@@ -645,6 +712,8 @@ def _clock_rain_transition(
             best = min(best, recursive_refit(
                 offset, left, dry, damp, used, paid_stops, stopped_first, fit_delay, allowed,
             ))
+        if shared_key is not None:
+            _store_refit_cost(shared_key, best)
         return best
 
     def solve(initial):
@@ -1331,5 +1400,6 @@ register_forecast_helpers(globals(), (
     "project_next_surface", "paid_compound_candidates",
     "_native_green_model_available", "_equivalent_clock_branches",
     "_shared_clock_node", "_shared_refit_cost", "_store_refit_cost",
+    "_budget_clock_branches",
 ))
 register_forecast_helpers(vars(StrategyWeatherClock), ("updates", "validate_horizon"))

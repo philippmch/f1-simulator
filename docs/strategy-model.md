@@ -1162,14 +1162,24 @@ complete remaining before-fit and after-fit update paths agree. Every reachable
 paid count remains represented, including compulsory fits beyond the elective
 allowance. Fresh-fit costs are independent of the removed set's age once its
 eligibility is known, so they are calculated once per matching future state.
-Bounded shared caches can reuse these scalar costs when the entire remaining
-surface graph, physical driver/car/track and fresh tyre parameters, budgets and
-actual-use history agree. Different raw clock times can share only through that
+Bounded shared caches can reuse refit and retained-stint scalar costs when the
+entire remaining surface graph, physical driver/car/track, full retained and
+fresh tyre parameters, retained age, budgets and actual-use history agree.
+Different raw clock times can share only through that
 exact future equivalence; current control, traffic and queue prices are computed
 separately. Cache eviction changes work performed, not the available schedules.
 No models or evaluator closures enter these shared caches. Long horizons retain
 the complete iterative search when recursion capacity is insufficient, and
 cancellation releases each decision's local graph.
+
+If every compound stays noncritical across all reachable surface updates,
+future fits are bounded by the remaining elective allowance. An incomplete
+actual-use history after a running lap can require one extra fit to an unused
+slick or rain set. Shared graphs include both bounds and select the applicable
+one from actual use; an opening fit before any race use is also accounted for.
+This allows equivalent forecasts to share without comparing impossible extra
+stops. Any possible future critical mismatch keeps the complete compulsory-fit
+graph. Neither path shortens the planning distance or drops an eligible fit.
 
 Run `python examples/check_stint_choices.py` for a deterministic synthetic
 comparison of fallback stint choices against actual lap calculations over short,

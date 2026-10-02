@@ -196,7 +196,7 @@ class NoSharedRefits(OrderedDict):
 
 @pytest.mark.parametrize("change", ["equivalent_clock", "boundary", "driver", "car", "track",
                                    "physical_distance", "fresh_tire", "weather", "schedule",
-                                   "budget", "mask", "allowance"])
+                                   "budget", "mask", "allowance", "retained_tire", "age"])
 def test_shared_future_refits_match_native_search_without_shared_hits(monkeypatch, change):
     driver, car, track = models(laps=6)
     weather = Weather(track_wetness=.5, rain_intensity=.5)
@@ -211,6 +211,8 @@ def test_shared_future_refits_match_native_search_without_shared_hits(monkeypatc
                    pit_lane_factor=.5, active_aero_enabled=False,
                    current_traffic_gaps=(.5, 1.8))
     budget = 2
+    retained = TIRE_COMPOUNDS[TireCompound.INTERMEDIATE]
+    age = 5
     plan_rain_transition(driver, car, track, weather, TIRE_COMPOUNDS[TireCompound.INTERMEDIATE],
                          5, 1, budget, **options)
     if change == "equivalent_clock":
@@ -246,13 +248,17 @@ def test_shared_future_refits_match_native_search_without_shared_hits(monkeypatc
         options["used_compounds"] = ()
     elif change == "allowance":
         options["remaining_damp_stops"] = 0
+    elif change == "retained_tire":
+        retained = retained.model_copy(update={"initial_grip": .7, "degradation_rate": .05})
+    elif change == "age":
+        age = 19
     actual = plan_rain_transition(
-        driver, car, track, weather, TIRE_COMPOUNDS[TireCompound.INTERMEDIATE], 5, 1, budget,
+        driver, car, track, weather, retained, age, 1, budget,
         **options,
     )
     monkeypatch.setattr(rain_strategy, "_refit_costs", NoSharedRefits())
     expected = plan_rain_transition(
-        driver, car, track, weather, TIRE_COMPOUNDS[TireCompound.INTERMEDIATE], 5, 1, budget,
+        driver, car, track, weather, retained, age, 1, budget,
         **options,
     )
     assert actual == expected
@@ -308,6 +314,64 @@ def test_shared_clock_ids_are_bounded_and_never_recycled_after_eviction_or_reset
     rain_strategy._reset_green_cache_after_fork()
     assert not rain_strategy._clock_nodes and not rain_strategy._refit_costs
     assert rain_strategy._shared_clock_node(("inherited",)) != inherited
+
+
+@pytest.mark.parametrize("used", [(), (TireCompound.SOFT,), (TireCompound.INTERMEDIATE,),
+                                  (TireCompound.SOFT, TireCompound.HARD)])
+@pytest.mark.parametrize("compound", [TireCompound.SOFT, TireCompound.INTERMEDIATE])
+@pytest.mark.parametrize("budget", [0, 2])
+@pytest.mark.parametrize("prescribed", [False, True])
+def test_noncritical_budget_clock_matches_complete_action_oracle(
+    used, compound, budget, prescribed,
+):
+    driver, car, track = models(laps=6)
+    weather = Weather(track_wetness=.4, rain_intensity=.35)
+    context = (WeatherForecastContext.from_schedule([{"lap": 3, "rain_intensity": .36}])
+               if prescribed else None)
+    clock = StrategyWeatherClock(tuple(index * 90. for index in range(6)),
+                                 10., 90., 8, 97., 7.)
+    expected = exhaustive_safe_actions(
+        driver, car, track, weather, TIRE_COMPOUNDS[compound], 19, 1, budget, context,
+        clock=clock, used=used, dry=0, damp=0, physical=8,
+        lane=.75, queue=2., modifier=1.2, aero=False, gaps=(.6, 1.7),
+    )
+    profile = Profile()
+    actual = profile.runcall(
+        plan_rain_transition, driver, car, track, weather, TIRE_COMPOUNDS[compound], 19, 1,
+        budget, forecast_context=context, weather_clock=clock, used_compounds=used,
+        remaining_dry_stops=0, remaining_damp_stops=0, physical_total_laps=8,
+        pit_lane_factor=.75, additional_current_stop_cost=2., current_lap_time_modifier=1.2,
+        active_aero_enabled=False, current_traffic_gaps=(.6, 1.7),
+    )
+    assert actual.pit_now_cost == pytest.approx(expected[0])
+    assert actual.wait_cost == pytest.approx(expected[1])
+    assert actual.compound == expected[2]
+    budget_code = rain_strategy._budget_clock_branches.__code__
+    assert any(entry.code is budget_code for entry in profile.getstats())
+
+
+def test_later_critical_rain_step_keeps_complete_compulsory_fit_clock():
+    driver, car, track = models(laps=6)
+    weather = Weather(track_wetness=.4, rain_intensity=.35)
+    context = WeatherForecastContext.from_schedule([{"lap": 3, "rain_intensity": 1.}])
+    clock = StrategyWeatherClock(tuple(index * 90. for index in range(6)), 10., 90., 8, 97., 7.)
+    profile = Profile()
+    actual = profile.runcall(
+        plan_rain_transition, driver, car, track, weather, TIRE_COMPOUNDS[TireCompound.SOFT],
+        19, 1, 0, forecast_context=context, weather_clock=clock,
+        used_compounds=(TireCompound.SOFT, TireCompound.HARD),
+    )
+    expected = exhaustive_safe_actions(
+        driver, car, track, weather, TIRE_COMPOUNDS[TireCompound.SOFT], 19, 1, 0, context,
+        clock=clock, used=(TireCompound.SOFT, TireCompound.HARD),
+    )
+    assert actual.pit_now_cost == pytest.approx(expected[0])
+    assert actual.wait_cost == pytest.approx(expected[1])
+    assert actual.compound == expected[2]
+    budget_code = rain_strategy._budget_clock_branches.__code__
+    complete_code = rain_strategy._equivalent_clock_branches.__code__
+    assert not any(entry.code is budget_code for entry in profile.getstats())
+    assert any(entry.code is complete_code for entry in profile.getstats())
 
 
 def models(laps=5, lane=5):
