@@ -1291,6 +1291,20 @@ locking and fork reset. Working memory also includes per-plan completed states,
 active frames and their running-lap rows. The optimization preserves candidate
 order, cost arithmetic and modeled strategy rules.
 
+Same-compound rain forecasts on an external weather clock reuse one projected
+surface path within each decision. Native lap physics prepares the fixed
+driver, car and circuit terms once, then reuses immutable running costs for
+each tyre age, fuel lap and exact weather-update count. Paid stops and fitting
+fees retain their delayed weather cadence; current traffic, control and aero
+adjustments still use the ordinary first-lap calculation. Every allowed future
+stop schedule remains in the search.
+
+Cached green stint rows also prepare those fixed physics terms once when a row
+is first evaluated. Their existing cache keys, size bound, surface isolation and
+arithmetic remain unchanged. Custom physics retains its public evaluator, and
+custom weather clocks keep the existing row-projection path. Forecasting does
+not sample randomness in either path.
+
 Stop eligibility is also computed once per compound and remaining stop-budget
 combination within a transition plan, then reused across its future-lap search.
 These rows stay local to the plan's forecast. Critical-tyre exceptions, dry and

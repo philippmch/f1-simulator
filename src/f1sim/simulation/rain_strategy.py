@@ -72,7 +72,25 @@ def _clock_rain_stop(
         raise ValueError("tire_warmup requires the native StrategyWeatherClock")
     projected = [weather]
     native_clock = type(weather_clock) is StrategyWeatherClock
+    simulator = LapSimulator(np.random.default_rng(0))
+    prepared = (simulator.prepare_deterministic_lap_time(
+        driver, clean, track, physical_total_laps,
+    ) if native_clock and type(weather) is Weather and type(current_tire) is Tire
+                and type(fresh) is Tire else None)
     absolute_updates = {}
+
+    @lru_cache(maxsize=None)
+    def running(retained, lap, age, update_index):
+        """Only immutable costs escape this decision's shared surface path.
+
+        The two complete tyre models and driver/car/track/fuel package are
+        fixed for this call; retained distinguishes their full parameters.
+        Absolute update counts preserve paid-stop and fitting-delay cadence.
+        """
+        while len(projected) <= update_index:
+            projected.append(projected[-1].project_surface())
+        return prepared(current_tire if retained else fresh, projected[update_index],
+                        lap, age)
 
     def schedule(paid, stopped_first, fit_delay=0.0):
         key = (paid, stopped_first, fit_delay)
@@ -94,6 +112,21 @@ def _clock_rain_stop(
             first = clock_updates[offset]
         else:
             first = weather_clock.updates(offset, paid, stopped_first)
+        if prepared is not None:
+            delayed = (schedule(paid, stopped_first, fit_delay + first_fit_fee)
+                       if first_fit_fee else clock_updates)
+            values = []
+            for index in range(offset, horizon):
+                cancellation_checkpoint()
+                values.append(running(
+                    retained, current_lap + index,
+                    (tire_age if retained else 0) + index - offset,
+                    first if index == offset else delayed[index],
+                ))
+            costs = tuple(values)
+            if first_fit_fee and costs:
+                costs = (costs[0] + first_fit_fee, *costs[1:])
+            return costs
         while len(projected) <= first:
             projected.append(projected[-1].project_surface())
         if native_clock:
@@ -159,8 +192,6 @@ def _clock_rain_stop(
                 _child, cost = parent[1][parent[2] - 1]
                 parent[3] = min(parent[3], cost + best)
         return cache[initial]
-
-    simulator = LapSimulator(np.random.default_rng(0))
 
     def first_running(tire, age, paid, stopped_first, gap, fit_fee=0.0):
         first = (schedule(paid, stopped_first)[0] if native_clock
@@ -435,16 +466,21 @@ def _running_row(models, weather_json, tire_json, age, lap, physical, intervals=
     surface = Weather.model_validate_json(weather_json)
     tire = Tire.model_validate_json(tire_json)
     simulator = LapSimulator(np.random.default_rng(0))
+    prepared = simulator.prepare_deterministic_lap_time(driver, car, track, physical)
     row = []
     for offset, surface in enumerate(projected_surfaces(
         surface, track.total_laps - lap + 1, intervals,
     )):
         cancellation_checkpoint()
-        driver.current_tire_laps = age + offset
-        row.append(simulator.calculate_lap_time(
-            driver, car, track, tire, surface, lap + offset, physical,
-            sample_variation=False,
-        ))
+        if prepared is not None:
+            value = prepared(tire, surface, lap + offset, age + offset)
+        else:
+            driver.current_tire_laps = age + offset
+            value = simulator.calculate_lap_time(
+                driver, car, track, tire, surface, lap + offset, physical,
+                sample_variation=False,
+            )
+        row.append(value)
     return tuple(row)
 
 
