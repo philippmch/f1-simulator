@@ -45,7 +45,7 @@ def oracle(models, intervals, mode, budget=2, queue=0, modifier=1, physical=None
             fits.append((False, tire))
         if mode == "same":
             compounds = [old.compound] if left else []
-        elif mode == "weather" and offset:
+        elif mode in ("transition", "weather"):
             compounds = list(TireCompound)
         else:
             rain = surface.fresh_rain_compound()

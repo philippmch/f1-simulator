@@ -159,7 +159,7 @@ def test_running_modifier_and_lane_discount_do_not_scale_queue(
                for age, kwargs in calls)
 
 
-def test_first_stop_cannot_claim_a_compound_execution_would_not_fit(setup):
+def test_first_stop_prices_safe_intermediate_that_execution_fits(setup):
     simulator, state, track = setup
     state.current_tire = TIRE_COMPOUNDS[TireCompound.WET]
     state.tire_laps = 60
@@ -190,7 +190,9 @@ def test_first_stop_cannot_claim_a_compound_execution_would_not_fit(setup):
     state.car.pit_stop_std = 0
     queue = midpoint_gain - track.pit_lane_delta - expected_stationary_time(state.car)
     assert queue >= 0
-    assert not simulator._weather_stop_can_pay(state, track, weather, 30, queue)
+    assert simulator._weather_stop_can_pay(state, track, weather, 30, queue)
+    simulator._execute_pit_stop(state, track, weather, 30, sample_service=False)
+    assert state.current_tire.compound == TireCompound.INTERMEDIATE
 
 
 def test_drying_projection_does_not_freeze_today_slick_eligibility(setup, monkeypatch):

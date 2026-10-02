@@ -5,6 +5,7 @@ from math import isfinite
 from numbers import Integral, Real
 
 from f1sim.models._native import register_forecast_helpers
+from f1sim.models.tire import TireCompound
 from f1sim.models.weather import WeatherCondition
 
 
@@ -128,5 +129,23 @@ def validate_forecast_context(context):
     return context
 
 
-register_forecast_helpers(globals(), ("project_next_surface",))
+def has_prescribed_weather(context):
+    """Empty contexts keep the unscheduled policy as well as its candidate set."""
+    return context is not None and bool(context.schedule)
+
+
+def paid_compound_candidates(weather, context=None):
+    """Price every safe fresh fit, including currently suboptimal alternatives.
+
+    Eligibility uses the observed commitment surface. A paid forecast's rejoin
+    surface determines pace; future critical retention still ends that stint.
+    The optional context keeps shared callers uniform; it never narrows safety.
+    """
+    return tuple(compound for compound in TireCompound
+                 if weather.tire_mismatch(compound) != "critical")
+
+
+register_forecast_helpers(globals(), (
+    "project_next_surface", "has_prescribed_weather", "paid_compound_candidates",
+))
 register_forecast_helpers(vars(WeatherForecastContext), ("project_next", "advanced"))

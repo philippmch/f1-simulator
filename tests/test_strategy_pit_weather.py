@@ -149,8 +149,7 @@ def exhaustive_transition(driver, car, track, weather, tire, age, current_lap,
             current in (TireCompound.INTERMEDIATE, TireCompound.WET)
             or before.track_wetness > .3 or limit is None or limit > 0
         ))
-        candidates = ((before.fresh_rain_compound(),) if before.fresh_rain_compound()
-                      else (TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD))
+        candidates = tuple(TireCompound)
         if not (allowed or not legal(mask)):
             return
         for candidate in candidates:
@@ -242,10 +241,8 @@ def exhaustive_weather_bound(driver, car, track, weather, tire, age, current_lap
         ), default=inf)
 
     first = event_surface(weather, clock, 0, 0, False)
-    pit_candidates = ((first.fresh_rain_compound(),) if first.fresh_rain_compound()
-                      else tuple(compound for compound in (
-                          TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
-                      ) if first.tire_mismatch(compound) != "critical"))
+    pit_candidates = tuple(compound for compound in TireCompound
+                           if first.tire_mismatch(compound) != "critical")
     pit = min((
         track.pit_lane_delta * lane + expected_stationary_time(car) + queue
         + run(0, TIRE_COMPOUNDS[candidate], 0,
@@ -417,7 +414,7 @@ def test_clocked_inventory_free_fit_has_no_physical_weather_shift():
     assert paid.pit_now_cost != free.pit_now_cost
 
 
-def test_clocked_weather_stop_uses_slick_fallback_before_rain_threshold():
+def test_clocked_weather_stop_prices_safe_fits_before_rain_threshold():
     driver, car, track, _ = models(laps=4, lane=5)
     weather = Weather(track_wetness=.19, rain_intensity=.39)
     tire = TIRE_COMPOUNDS[TireCompound.MEDIUM].model_copy()
@@ -431,9 +428,9 @@ def test_clocked_weather_stop_uses_slick_fallback_before_rain_threshold():
         driver, car, track, weather, tire, 3, 1, weather_clock=clock,
     )
 
-    # At the decision surface neither rain compound is required.  A paid
-    # stop must therefore begin with a slick; the delayed post-stop surface
-    # may cross the rain threshold, but cannot retroactively change selection.
+    # The decision surface permits slicks and intermediates. A paid stop
+    # prices all safe alternatives before using the delayed rejoin surface;
+    # the descriptive recommendation cannot narrow that action space.
     assert weather.fresh_rain_compound() is None
     assert actual.pit_now_cost == pytest.approx(expected[0])
     assert actual.stay_cost == pytest.approx(expected[1])

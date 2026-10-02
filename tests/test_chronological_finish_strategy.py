@@ -268,8 +268,16 @@ def test_surface_at_expected_exit_counts_updates_but_excludes_flag(monkeypatch):
     assert engine.weather == initial
 
 
-def test_weather_choice_precedes_stale_dry_proposal(monkeypatch):
+def test_safe_weather_options_exclude_stale_critical_dry_proposal(monkeypatch):
     engine, state, _ = decision_snapshot(monkeypatch)
     engine.weather = Weather(track_wetness=.8, rain_intensity=.8)
     state.current_tire = TIRE_COMPOUNDS[TireCompound.WET]
-    assert engine._finish_replacement_options(state, lap=1)[0].compound == TireCompound.WET
+    before = deepcopy((state.dry_pit_proposal, engine.simulator.rng.bit_generator.state))
+    options = engine._finish_replacement_options(state, lap=1)
+    assert {option.compound for option in options} == {
+        compound for compound in TireCompound
+        if engine.weather.tire_mismatch(compound) != "critical"
+    }
+    assert all(option.compound not in {TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD}
+               for option in options)
+    assert (state.dry_pit_proposal, engine.simulator.rng.bit_generator.state) == before

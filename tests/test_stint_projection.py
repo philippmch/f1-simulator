@@ -125,15 +125,11 @@ def test_damp_fallback_projects_next_stop_not_current_stop(monkeypatch):
         return original(state, track, current_lap, available, **kwargs)
 
     monkeypatch.setattr(sim, "_rank_stint_compounds", record)
-    monkeypatch.setattr(sim, "_plan_pit_lap_options", lambda *args, **kwargs: [[21, 42]])
-    monkeypatch.setattr(
-        sim, "_should_pit", lambda state, states, track, lap, *args, **kwargs: lap in [21, 42]
-    )
-    monkeypatch.setattr(sim.event_manager, "process_lap", lambda **kwargs: [])
-    sim.simulate_race(
-        [state.driver], {"A": state.car}, track,
-        Weather(track_wetness=0.1, rain_intensity=0.1, change_probability=0), ["A"],
-    )
+    state.planned_pit_laps = [21, 42]
+    weather = Weather(track_wetness=.1, rain_intensity=.1, change_probability=0)
+    sim._choose_compound_for_next_stint(state, track, 21, weather)
+    state.pit_stops = 1
+    sim._choose_compound_for_next_stint(state, track, 42, weather)
     assert horizons == [(21, 0, 21), (42, 1, 22)]
 
 

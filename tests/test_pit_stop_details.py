@@ -22,6 +22,7 @@ def inputs():
 @pytest.mark.parametrize("control,factor", [("green", 1), ("safety_car", .55), ("vsc", .75)])
 def test_stop_snapshots_actual_cost_age_weather_and_queue(monkeypatch, control, factor):
     driver, car, track = inputs()
+    track.total_laps = 16  # The observed lap-13 stop belongs within the planning distance.
     state = DriverRaceState(driver, car, 1, tire_laps=12)
     weather = Weather(condition=WeatherCondition.HEAVY_RAIN, rain_intensity=.8,
                       track_wetness=.9)

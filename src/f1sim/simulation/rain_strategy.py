@@ -2,6 +2,7 @@
 
 import json
 import os
+import sys
 from collections import OrderedDict
 from dataclasses import dataclass
 from functools import lru_cache
@@ -34,12 +35,22 @@ from f1sim.simulation.surface_projection import (
     suffix_weather_intervals,
 )
 from f1sim.simulation.warmup import tire_warmup_seconds, validate_tire_warmup
-from f1sim.simulation.weather_schedule import project_next_surface
+from f1sim.simulation.weather_schedule import (
+    paid_compound_candidates,
+    project_next_surface,
+)
 
 # Share only scalar native green costs, never models or prepared evaluators.
 _GREEN_LAP_LIMIT = 65_536
 _green_laps = OrderedDict()
 _green_lap_lock = RLock()
+# Exact future weather graphs and refit costs contain immutable values only.
+_CLOCK_NODE_LIMIT = 65_536
+_REFIT_COST_LIMIT = 65_536
+_clock_nodes = OrderedDict()
+_clock_node_sequence = 0
+_refit_costs = OrderedDict()
+_refit_lock = RLock()
 def _native_green_cache_available(simulator):
     return (shared_forecast_available()
             and simulator._native_deterministic_evaluator_available())
@@ -52,9 +63,15 @@ def _native_green_model_available(model):
 
 
 def _reset_green_cache_after_fork():
-    global _green_laps, _green_lap_lock
+    global _green_laps, _green_lap_lock, _clock_nodes
+    global _refit_costs, _refit_lock
     _green_laps = OrderedDict()
     _green_lap_lock = RLock()
+    _clock_nodes = OrderedDict()
+    # Inherited decision-local IDs can remain alive after a fork. Never reuse
+    # their numbers when rebuilding the caches in the child.
+    _refit_costs = OrderedDict()
+    _refit_lock = RLock()
 
 
 if hasattr(os, "register_at_fork"):
@@ -307,6 +324,86 @@ def _clock_rain_stop(
     return RainStopDecision(pit, wait)
 
 
+def _shared_clock_node(key):
+    """Intern complete immutable suffix signatures, with nonrecycled IDs."""
+    global _clock_node_sequence
+    with _refit_lock:
+        identity = _clock_nodes.get(key)
+        if identity is not None:
+            _clock_nodes.move_to_end(key)
+            return identity
+        _clock_node_sequence += 1
+        identity = _clock_node_sequence
+        _clock_nodes[key] = identity
+        while len(_clock_nodes) > _CLOCK_NODE_LIMIT:
+            _clock_nodes.popitem(last=False)
+        return identity
+
+
+def _shared_refit_cost(key):
+    with _refit_lock:
+        value = _refit_costs.get(key)
+        if value is not None:
+            _refit_costs.move_to_end(key)
+        return value
+
+
+def _store_refit_cost(key, value):
+    with _refit_lock:
+        _refit_costs[key] = value
+        _refit_costs.move_to_end(key)
+        while len(_refit_costs) > _REFIT_COST_LIMIT:
+            _refit_costs.popitem(last=False)
+
+
+def _equivalent_clock_branches(weather_clock, horizon, *, surface_key=None, current_lap=1):
+    """Quotient complete native future clock paths, without fitting delays.
+
+    A node describes the surface before and after a paid fit, and both next
+    nodes. Equal signatures therefore give identical update counts for every
+    remaining fit/retain sequence. All paid counts reachable with at most one
+    fit per lap are included, even after the elective allowance is exhausted.
+    Representatives only live in this decision; current-lap costs stay outside.
+    Optional shared IDs describe full surface values and both child graphs,
+    allowing equal future paths from different raw clocks to share scalar costs.
+    """
+    rows = [None] * horizon
+    shared_ids = [None] * horizon if surface_key is not None else None
+    next_ids = None
+    next_shared = None
+    for offset in range(horizon - 1, 0, -1):
+        representatives = {}
+        ids = {}
+        row = {}
+        shared_row = {}
+        for paid in range(offset + 1):
+            for first in (False, True) if paid else (False,):
+                cancellation_checkpoint()
+                signature = (
+                    weather_clock.updates(offset, paid, first),
+                    weather_clock.updates(offset, paid + 1, first),
+                    next_ids[paid, first] if next_ids is not None else 0,
+                    next_ids[paid + 1, first] if next_ids is not None else 0,
+                )
+                if signature not in representatives:
+                    representatives[signature] = ((paid, first), len(representatives))
+                representative, identity = representatives[signature]
+                row[paid, first] = representative
+                ids[paid, first] = identity
+                if surface_key is not None:
+                    shared_row[paid, first] = _shared_clock_node((
+                        current_lap + offset, surface_key(signature[0]), surface_key(signature[1]),
+                        next_shared[paid, first] if next_shared is not None else 0,
+                        next_shared[paid + 1, first] if next_shared is not None else 0,
+                    ))
+        rows[offset] = row
+        next_ids = ids
+        if shared_ids is not None:
+            shared_ids[offset] = shared_row
+            next_shared = shared_row
+    return rows, shared_ids
+
+
 def _clock_rain_transition(
     driver, car, track, weather, current_tire, tire_age, current_lap, remaining_stops,
     *, pit_lane_factor, additional_current_stop_cost, current_lap_time_modifier,
@@ -327,10 +424,58 @@ def _clock_rain_transition(
         raise ValueError("tire_warmup requires the native StrategyWeatherClock")
     bits = {compound: (1 << index if index < 3 else 8)
             for index, compound in enumerate(TireCompound)}
+    compound_values = {compound: compound.value for compound in TireCompound}
+    compounds_by_value = {value: compound for compound, value in compound_values.items()}
 
     projected = [weather]
     branch_surfaces = {}
     observed_surfaces = {id(weather): weather}
+    native_safety = (type(weather_clock) is StrategyWeatherClock
+                     and shared_forecast_available()
+                     and all(_native_green_model_available(model)
+                             for model in (driver, clean, track, weather, current_tire)))
+    safety_tables = {}
+    prepared = (simulator.prepare_deterministic_lap_time(
+        driver, clean, track, physical_total_laps,
+    ) if native_safety else None)
+    shared_green = prepared is not None and _native_green_cache_available(simulator)
+    if shared_green:
+        projection_driver = driver.model_copy(update={
+            "id": "projection", "name": "projection", "team_id": "projection",
+        })
+        projection_car = clean.model_copy(update={
+            "team_id": "projection", "team_name": "projection",
+        })
+        package = tuple(forecast_json(model) for model in (
+            projection_driver, projection_car, track,
+        )) + (physical_total_laps,)
+        tire_values = {compound.value: forecast_json(tire)
+                       for compound, tire in TIRE_COMPOUNDS.items()}
+        tire_values["retained"] = forecast_json(current_tire)
+        surface_values = {}
+
+    def surface_safety(surface):
+        key = id(surface)
+        if key not in safety_tables:
+            candidates = paid_compound_candidates(surface, forecast_context)
+            safe = frozenset(candidates)
+            safety_tables[key] = (candidates, frozenset(TireCompound) - safe)
+        return safety_tables[key]
+
+    def candidates_for(surface):
+        return (surface_safety(surface)[0] if native_safety else
+                paid_compound_candidates(surface, forecast_context))
+
+    def critical_on(surface, compound):
+        return (compound in surface_safety(surface)[1] if native_safety else
+                surface.tire_mismatch(compound) == "critical")
+
+    def used_after_running(mask, compound):
+        completed = mask | bits[compound]
+        # Once rain tyres have actually run, prior slick identities no longer
+        # affect legality or beyond-budget corrections. Keep every other state
+        # dimension, and preserve extension hook call counts on the slow path.
+        return 8 if native_safety and completed & 8 else completed
 
     def updates(offset, paid_stops, stopped_first, fit_delay=0.0):
         if fit_delay:
@@ -354,8 +499,17 @@ def _clock_rain_transition(
     @lru_cache(maxsize=None)
     def running(offset, tire_key, compound, age, gap_kind, surface_id):
         tire = current_tire if tire_key == "retained" else TIRE_COMPOUNDS[compound]
-        driver.current_tire_laps = age
         branch_surface = observed_surfaces[surface_id]
+        if offset and prepared is not None:
+            if shared_green:
+                if surface_id not in surface_values:
+                    surface_values[surface_id] = forecast_json(branch_surface)
+                key = (package, tire_values[tire_key], surface_values[surface_id],
+                       current_lap + offset, age)
+                return _shared_green_lap(key, prepared, tire, branch_surface,
+                                         current_lap + offset, age)
+            return prepared(tire, branch_surface, current_lap + offset, age)
+        driver.current_tire_laps = age
         value = simulator.calculate_lap_time(
             driver, clean, track, tire, branch_surface,
             current_lap + offset, physical_total_laps,
@@ -386,8 +540,117 @@ def _clock_rain_transition(
 
     solve_cache = {}
 
+    # A cached recursive call consumes interpreter capacity as well as one
+    # Python frame. Keep a conservative allowance and account for callers,
+    # including an application that deliberately lowers its recursion limit.
+    frame = sys._getframe()
+    depth = 0
+    while frame is not None:
+        depth += 1
+        frame = frame.f_back
+    recursive = native_safety and 6 * horizon + depth + 64 < sys.getrecursionlimit()
+
+    def projected_surface_key(update_index):
+        while len(projected) <= update_index:
+            value = project_next_surface(projected[-1], forecast_context, len(projected) - 1)
+            projected.append(value)
+            observed_surfaces[id(value)] = value
+        value = projected[update_index]
+        identity = id(value)
+        if identity not in surface_values:
+            surface_values[identity] = forecast_json(value)
+        return surface_values[identity]
+
+    clock_branches = shared_clock_ids = None
+    if recursive and not warmup:
+        clock_branches, shared_clock_ids = _equivalent_clock_branches(
+            weather_clock, horizon, surface_key=projected_surface_key if shared_green else None,
+            current_lap=current_lap,
+        )
+    if shared_clock_ids is not None:
+        refit_package = (package, tuple(tire_values[compound_values[value]]
+                                       for value in TireCompound))
+
+    def clock_state(state):
+        if clock_branches is None:
+            return state
+        offset = state[0]
+        # No further weather query or paid action follows a terminal state.
+        paid, first = ((0, False) if offset == horizon else
+                       clock_branches[offset][state[8], state[9]])
+        return (*state[:8], paid, first, state[10])
+
+    @lru_cache(maxsize=None)
+    def recursive_refit(offset, left, dry, damp, used, paid_stops, stopped_first,
+                        fit_delay, allowed):
+        """Fresh choices share costs across retained compounds and tyre ages.
+
+        Eligibility has already accounted for the retained set. Once that
+        verdict is fixed, every fresh-fit edge and child is independent of the
+        removed set. Keep all budgets, use history and clock dimensions.
+        """
+        cancellation_checkpoint()
+        shared_key = None
+        if shared_clock_ids is not None:
+            shared_key = (refit_package, shared_clock_ids[offset][paid_stops, stopped_first],
+                          left, dry, damp, used, allowed)
+            cached = _shared_refit_cost(shared_key)
+            if cached is not None:
+                return cached
+        before = branch_surface(offset, paid_stops, stopped_first, fit_delay)
+        compliant = legal(used)
+        best = inf
+        for candidate in candidates_for(before):
+            if not allowed and (compliant or used & bits[candidate]):
+                continue
+            candidate_value = compound_values[candidate]
+            after_paid = paid_stops + 1
+            after = branch_surface(offset, after_paid, stopped_first, fit_delay)
+            fit_cost = tire_warmup_seconds(warmup, candidate) if warmup else 0.0
+            child = (offset + 1, candidate_value, candidate_value, 1,
+                     max(0, left - 1), reduced(dry), reduced(damp),
+                     used_after_running(used, candidate), after_paid, stopped_first,
+                     fit_delay + fit_cost)
+            edge = track.pit_lane_delta + service + run(
+                offset, candidate_value, candidate_value, 0, after, fitted=bool(warmup),
+            )
+            best = min(best, edge + recursive_solve(clock_state(child)))
+        if shared_key is not None:
+            _store_refit_cost(shared_key, best)
+        return best
+
+    @lru_cache(maxsize=None)
+    def recursive_solve(state):
+        cancellation_checkpoint()
+        (offset, tire_key, compound, age, left, dry, damp, used,
+         paid_stops, stopped_first, fit_delay) = state
+        if offset == horizon:
+            return 0.0 if legal(used) else inf
+        before = branch_surface(offset, paid_stops, stopped_first, fit_delay)
+        current = compounds_by_value[compound]
+        critical = critical_on(before, current)
+        best = inf
+        if not critical:
+            edge = run(offset, tire_key, compound, age, before)
+            child = (offset + 1, tire_key, compound, age + 1, left, dry, damp,
+                     used_after_running(used, current), paid_stops, stopped_first, fit_delay)
+            best = min(best, edge + recursive_solve(clock_state(child)))
+        limit = dry if before.track_wetness < .08 and before.rain_intensity < .15 else damp
+        allowed = (critical or (left > 0 and (
+            current in (TireCompound.INTERMEDIATE, TireCompound.WET)
+            or before.track_wetness > .3 or limit is None or limit > 0
+        )))
+        compliant = legal(used)
+        if allowed or not compliant:
+            best = min(best, recursive_refit(
+                offset, left, dry, damp, used, paid_stops, stopped_first, fit_delay, allowed,
+            ))
+        return best
+
     def solve(initial):
         """Evaluate the transition DAG with an explicit stack."""
+        if recursive:
+            return recursive_solve(clock_state(initial))
         if initial in solve_cache:
             return solve_cache[initial]
         frames = [[initial, None, 0, inf]]
@@ -406,19 +669,16 @@ def _clock_rain_transition(
                     frames[-1][1:] = [[], 0, 0.0 if legal(used) else inf]
                     continue
                 before = branch_surface(offset, paid_stops, stopped_first, fit_delay)
-                current = TireCompound(compound)
-                critical = before.tire_mismatch(current) == "critical"
+                current = compounds_by_value[compound]
+                critical = critical_on(before, current)
                 actions = []
                 if not critical:
                     actions.append((
                         (offset + 1, tire_key, compound, age + 1, left, dry, damp,
-                         used | bits[current], paid_stops, stopped_first, fit_delay),
-                        run(offset, tire_key, current, age, before),
+                         used_after_running(used, current), paid_stops, stopped_first, fit_delay),
+                        run(offset, tire_key, compound, age, before),
                     ))
-                rain = before.fresh_rain_compound()
-                candidates = ((rain,) if rain is not None else (
-                    TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
-                ))
+                candidates = candidates_for(before)
                 limit = dry if before.track_wetness < .08 and before.rain_intensity < .15 else damp
                 allowed = (critical or (left > 0 and (
                     current in (TireCompound.INTERMEDIATE, TireCompound.WET)
@@ -428,20 +688,21 @@ def _clock_rain_transition(
                 if allowed or not compliant:
                     for candidate in candidates:
                         cancellation_checkpoint()
-                        if before.tire_mismatch(candidate) == "critical":
+                        if not native_safety and critical_on(before, candidate):
                             continue
                         if not allowed and (compliant or used & bits[candidate]):
                             continue
+                        candidate_value = compound_values[candidate]
                         after_paid = paid_stops + 1
                         after = branch_surface(offset, after_paid, stopped_first, fit_delay)
                         fit_cost = tire_warmup_seconds(warmup, candidate) if warmup else 0.0
                         actions.append((
-                            (offset + 1, candidate.value, candidate.value, 1,
+                            (offset + 1, candidate_value, candidate_value, 1,
                              max(0, left - 1), reduced(dry), reduced(damp),
-                             used | bits[candidate], after_paid, stopped_first,
+                             used_after_running(used, candidate), after_paid, stopped_first,
                              fit_delay + fit_cost),
                             track.pit_lane_delta + service
-                            + run(offset, candidate.value, candidate, 0, after,
+                            + run(offset, candidate_value, candidate_value, 0, after,
                                   fitted=bool(warmup)),
                         ))
                 frames[-1][1:] = [actions, 0, inf]
@@ -462,73 +723,56 @@ def _clock_rain_transition(
                 parent[3] = min(parent[3], edge + solve_cache[state])
         return solve_cache[initial]
 
-    first = branch_surface(0, 0, False, 0.0)
-    wait = inf
-    if first.tire_mismatch(current_tire.compound) != "critical":
-        current_fee = (tire_warmup_seconds(warmup, current_tire.compound)
-                       if current_fit_pending and warmup else 0.0)
-        wait = run(0, "retained", current_tire.compound, tire_age, first, 0,
-                   fitted=bool(current_fee))
-        wait += solve((1, "retained", current_tire.compound.value, tire_age + 1,
-                       remaining_stops, remaining_dry_stops, remaining_damp_stops,
-                       used_mask | bits[current_tire.compound], 0, False, current_fee))
+    try:
+        first = branch_surface(0, 0, False, 0.0)
+        wait = inf
+        if not critical_on(first, current_tire.compound):
+            current_fee = (tire_warmup_seconds(warmup, current_tire.compound)
+                           if current_fit_pending and warmup else 0.0)
+            wait = run(0, "retained", current_tire.compound, tire_age, first, 0,
+                       fitted=bool(current_fee))
+            wait += solve((1, "retained", current_tire.compound.value, tire_age + 1,
+                           remaining_stops, remaining_dry_stops, remaining_damp_stops,
+                           used_after_running(used_mask, current_tire.compound),
+                           0, False, current_fee))
 
-    pit = inf
-    selected = None
-    rain = first.fresh_rain_compound()
-    candidates = ((rain,) if rain is not None else (
-        TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
-    ))
-    critical = first.tire_mismatch(current_tire.compound) == "critical"
-    limit = remaining_dry_stops if first.track_wetness < .08 and first.rain_intensity < .15 \
-        else remaining_damp_stops
-    allowed = critical or (remaining_stops > 0 and (
-        current_tire.compound in (TireCompound.INTERMEDIATE, TireCompound.WET)
-        or first.track_wetness > .3 or limit is None or limit > 0
-    ))
-    compliant = legal(used_mask)
-    if allowed or not compliant:
-        for candidate in candidates:
-            if first.tire_mismatch(candidate) == "critical":
-                continue
-            if not allowed and (compliant or used_mask & bits[candidate]):
-                continue
-            after = branch_surface(0, 1, True, 0.0)
-            fit_cost = tire_warmup_seconds(warmup, candidate) if warmup else 0.0
-            cost = (track.pit_lane_delta * pit_lane_factor + service
-                    + additional_current_stop_cost
-                    + run(0, candidate.value, candidate, 0, after, 1,
-                          fitted=bool(warmup)))
-            cost += solve((1, candidate.value, candidate.value, 1,
-                           max(0, remaining_stops - 1),
-                           reduced(remaining_dry_stops), reduced(remaining_damp_stops),
-                           used_mask | bits[candidate], 1, True, fit_cost))
-            if cost < pit:
-                pit, selected = cost, candidate
-    return RainTransitionDecision(pit, wait, selected)
-
-
-def _clock_same_rain_stint(weather, current_tire, weather_clock, forecast_context=None):
-    """Return whether a transition forecast has no legal compound crossover.
-
-    The transition planner has a much larger state space because every
-    projected surface can introduce a slick or alternate rain candidate.  If
-    the external clock can only reach surfaces that continue to recommend the
-    fitted rain compound, and that compound never becomes critical, its
-    transition state graph is exactly the same-compound stop graph.  Keep this
-    check bounded by the clock's capped update count; a future crossover still
-    uses the full transition solver.
-    """
-    if current_tire.compound not in (TireCompound.INTERMEDIATE, TireCompound.WET):
-        return False
-    surface = weather
-    for update in range(weather_clock.max_updates + 1):
-        cancellation_checkpoint()
-        if (surface.fresh_rain_compound() != current_tire.compound
-                or surface.tire_mismatch(current_tire.compound) == "critical"):
-            return False
-        surface = project_next_surface(surface, forecast_context, update)
-    return True
+        pit = inf
+        selected = None
+        candidates = candidates_for(first)
+        critical = critical_on(first, current_tire.compound)
+        limit = remaining_dry_stops if first.track_wetness < .08 and first.rain_intensity < .15 \
+            else remaining_damp_stops
+        allowed = critical or (remaining_stops > 0 and (
+            current_tire.compound in (TireCompound.INTERMEDIATE, TireCompound.WET)
+            or first.track_wetness > .3 or limit is None or limit > 0
+        ))
+        compliant = legal(used_mask)
+        if allowed or not compliant:
+            for candidate in candidates:
+                if not native_safety and critical_on(first, candidate):
+                    continue
+                if not allowed and (compliant or used_mask & bits[candidate]):
+                    continue
+                candidate_value = compound_values[candidate]
+                after = branch_surface(0, 1, True, 0.0)
+                fit_cost = tire_warmup_seconds(warmup, candidate) if warmup else 0.0
+                cost = (track.pit_lane_delta * pit_lane_factor + service
+                        + additional_current_stop_cost
+                        + run(0, candidate_value, candidate_value, 0, after, 1,
+                              fitted=bool(warmup)))
+                cost += solve((1, candidate_value, candidate_value, 1,
+                               max(0, remaining_stops - 1),
+                               reduced(remaining_dry_stops), reduced(remaining_damp_stops),
+                               used_after_running(used_mask, candidate), 1, True, fit_cost))
+                if cost < pit:
+                    pit, selected = cost, candidate
+        return RainTransitionDecision(pit, wait, selected)
+    finally:
+        # Break closure cycles promptly, including on cancellation.
+        recursive_solve.cache_clear()
+        recursive_refit.cache_clear()
+        recursive_solve = None
+        recursive_refit = None
 
 
 @native_forecast_cache(maxsize=4096)
@@ -813,10 +1057,7 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
     for compound in TireCompound:
         critical[compound] = [s.tire_mismatch(compound) == "critical" for s in surfaces]
     for surface in surfaces:
-        rain = surface.fresh_rain_compound()
-        candidates.append((rain,) if rain is not None else (
-            TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
-        ))
+        candidates.append(paid_compound_candidates(surface, getattr(intervals, "context", None)))
 
     def reduced(limit):
         return None if limit is None else max(0, limit - 1)
@@ -975,14 +1216,16 @@ def plan_rain_transition(
     current_fit_pending: bool = False,
     forecast_context=None,
 ) -> RainTransitionDecision:
-    """Plan bounded paid stops across rain/slick transitions under fixed rainfall.
+    """Plan bounded paid stops on a deterministic rainfall/surface projection.
 
     weather_intervals optionally supplies cumulative surface-update counts for
     each remaining own lap, starting at zero; None uses one update per lap.
 
-    A retained set may run while noncritical. Fresh fits follow the surface's
-    rain-compound recommendation, or consider all slicks when it recommends
-    none. Critical replacements and required compound corrections may exceed
+    A retained set may run while noncritical. Every currently noncritical
+    fresh compound is priced, including suboptimal alternatives, on either
+    fixed rainfall or a prescribed scenario. Eligibility uses the observed
+    commitment surface; an external clock's projected rejoin surface prices
+    running after the stop. Critical replacements and compound corrections may exceed
     the elective stop budget. Explicit used_compounds records actual race use;
     prior tyre wear gives no credit. Two slicks or actual rain-tyre use are
     required at the finish. Slick callers must provide it; omitting it for
@@ -1046,29 +1289,8 @@ def plan_rain_transition(
     horizon = track.total_laps - current_lap + 1
     _validate_weather_clock(weather_clock, horizon)
     if weather_clock is not None:
-        # An unrecorded rain fit can still allow a compound-rule correction
-        # beyond the elective budget. The same-compound solver has no mask,
-        # so leave that case with the general transition solver.
-        compliant = bool(mask & 8) or (mask & 7).bit_count() >= 2
-        if ((remaining_stops > 0 or compliant)
-                and _clock_same_rain_stint(weather, current_tire, weather_clock, forecast_context)):
-            same_compound = _clock_rain_stop(
-                driver, car, track, weather, current_tire, int(tire_age), int(current_lap),
-                min(int(remaining_stops), horizon),
-                pit_lane_factor=float(pit_lane_factor),
-                additional_current_stop_cost=float(additional_current_stop_cost),
-                current_lap_time_modifier=float(current_lap_time_modifier),
-                active_aero_enabled=active_aero_enabled, physical_total_laps=int(physical),
-                current_traffic_gaps=current_traffic_gaps, weather_clock=weather_clock,
-                tire_warmup=tire_warmup, current_fit_pending=current_fit_pending,
-                forecast_context=forecast_context,
-            )
-            return RainTransitionDecision(
-                same_compound.pit_now_cost,
-                same_compound.wait_cost,
-                (current_tire.compound
-                 if same_compound.pit_now_cost < inf else None),
-            )
+        # Alternative safe compounds can improve a steady-rain stint too;
+        # only the explicit plan_rain_stop API keeps same-compound semantics.
         return _clock_rain_transition(
             driver, car, track, weather, current_tire, int(tire_age), int(current_lap),
             min(int(remaining_stops), horizon), pit_lane_factor=float(pit_lane_factor),
@@ -1105,4 +1327,9 @@ def plan_rain_transition(
 
 register_forecast_helpers(globals(), ('_running_row', '_fresh_future', '_surfaces'))
 
-register_forecast_helpers(globals(), ("project_next_surface",))
+register_forecast_helpers(globals(), (
+    "project_next_surface", "paid_compound_candidates",
+    "_native_green_model_available", "_equivalent_clock_branches",
+    "_shared_clock_node", "_shared_refit_cost", "_store_refit_cost",
+))
+register_forecast_helpers(vars(StrategyWeatherClock), ("updates", "validate_horizon"))

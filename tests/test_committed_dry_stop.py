@@ -92,7 +92,7 @@ def test_committed_choice_matches_exhaustive_future_stints(flag, modifier):
 @pytest.mark.parametrize("weather,proposal,expected", [
     (Weather(), None, TireCompound.HARD),
     (Weather(), (20, TireCompound.SOFT), TireCompound.SOFT),
-    (Weather(track_wetness=0.8), (20, TireCompound.SOFT), TireCompound.WET),
+    (Weather(track_wetness=0.8), (20, TireCompound.SOFT), TireCompound.INTERMEDIATE),
     (Weather(track_wetness=0.1), None, TireCompound.SOFT),
 ])
 def test_execution_respects_weather_proposal_and_damp_fallback(

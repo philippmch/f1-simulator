@@ -15,6 +15,8 @@ def test_drying_retention_avoids_losing_paid_wet_stop_in_controlled_race(monkeyp
         def decide(state, states, track, lap, *args, **kwargs):
             # Isolate the decision under review; both alternatives retain
             # their chosen set afterwards so the full cost can be observed.
+            if force_stop and lap == 2:
+                state.weather_pit_proposal = (lap, TireCompound.WET)
             return lap == 2 and (
                 force_stop or should_pit(state, states, track, lap, *args, **kwargs)
             )

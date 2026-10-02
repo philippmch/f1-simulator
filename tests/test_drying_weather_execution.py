@@ -45,6 +45,8 @@ def test_drying_race_skips_redundant_intermediate_stop(monkeypatch, engine):
             current_check = sim._should_pit
 
             def extra_stop(state, states, track, lap, *args, **kwargs):
+                if lap == 17:
+                    state.weather_pit_proposal = (lap, TireCompound.INTERMEDIATE)
                 return lap == 17 or current_check(state, states, track, lap, *args, **kwargs)
 
             sim._should_pit = extra_stop

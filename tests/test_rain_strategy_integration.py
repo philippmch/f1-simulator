@@ -31,9 +31,9 @@ def test_rain_planner_can_act_outside_windows_with_remaining_budget(monkeypatch,
 
     def plan(*args, **kwargs):
         calls.append((args, kwargs))
-        return SimpleNamespace(should_pit=lambda: True)
+        return SimpleNamespace(should_pit=lambda: True, compound=TireCompound.INTERMEDIATE)
 
-    monkeypatch.setattr("f1sim.simulation.race.plan_rain_stop", plan)
+    monkeypatch.setattr("f1sim.simulation.race.plan_rain_transition", plan)
     before = sim.rng.bit_generator.state
     snapshot = StrategyTrafficSnapshot(None, None, 2)
     assert sim._should_pit(state, [state], track, lap, False, weather,
@@ -44,6 +44,8 @@ def test_rain_planner_can_act_outside_windows_with_remaining_budget(monkeypatch,
     multiplier = sim.lap_simulator.weather_pace_multiplier(state.driver, state.car, weather)
     assert kwargs["additional_current_stop_cost"] == pytest.approx(3 + 2 * multiplier)
     assert kwargs["physical_total_laps"] == 70
+    assert state.weather_pit_proposal == (lap, TireCompound.INTERMEDIATE)
+    assert kwargs["used_compounds"] == {TireCompound.INTERMEDIATE}
     assert sim.rng.bit_generator.state == before
 
 

@@ -50,9 +50,14 @@ def schedules(case):
         critical = surface.tire_mismatch(compound) == "critical"
         if not critical:
             yield from visit(lap + 1, compound, budget, stops)
-        if lap > 1 and (budget or critical):
-            required = surface.fresh_rain_compound()
-            for fresh in (required,) if required is not None else SLICKS:
+        clearly_dry = surface.track_wetness < .08 and surface.rain_intensity < .15
+        limit = min(case["stops"], 3 if clearly_dry else 1)
+        if compound not in SLICKS or surface.track_wetness > .3:
+            limit = case["stops"]
+        if lap > 1 and (len(stops) < limit or critical):
+            for fresh in TireCompound:
+                if surface.tire_mismatch(fresh) == "critical":
+                    continue
                 yield from visit(lap + 1, fresh, max(0, budget - 1), stops + ((lap, fresh),))
 
     yield from visit(1, TireCompound(case["compound"]), case["stops"], ())
@@ -89,8 +94,7 @@ def run_race(case, engine, schedule=None):
 
         def forced_stop(state, track, weather, current_lap, **kwargs):
             requested = stops[current_lap]
-            required = weather.fresh_rain_compound()
-            if requested not in ((required,) if required is not None else SLICKS):
+            if weather.tire_mismatch(requested) == "critical":
                 raise AssertionError("Schedule requests an ineligible fresh compound")
             state.weather_pit_proposal = (current_lap, requested)
             loss = execute_stop(state, track, weather, current_lap, **kwargs)

@@ -10,6 +10,7 @@ import numpy as np
 
 from f1sim.cancellation import raise_if_cancelled
 from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather
+from f1sim.models._native import register_forecast_helpers
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.events import EventManager, EventType, RaceEvent
 from f1sim.simulation.execution import validate_starting_tire_ages, validate_starting_tires
@@ -43,6 +44,8 @@ from f1sim.simulation.validation import validate_unique_ids
 from f1sim.simulation.warmup import tire_warmup_seconds, validate_tire_warmup
 from f1sim.simulation.weather_schedule import (
     WeatherForecastContext,
+    has_prescribed_weather,
+    paid_compound_candidates,
     validate_weather_schedule,
 )
 from f1sim.simulation.weather_strategy import weather_stop_costs
@@ -314,13 +317,16 @@ class RaceSimulator(InventoryStrategyMixin):
                     continue
                 self.strategy_profiles[archetype].update(profile)
 
+    def _has_weather_schedule(self):
+        return has_prescribed_weather(self.weather_forecast_context)
+
     def _forecast_options(self):
         context = self.weather_forecast_context
-        return {"forecast_context": context} if context is not None else {}
+        return {"forecast_context": context} if self._has_weather_schedule() else {}
 
     def _advance_race_weather(self, weather):
         context = self.weather_forecast_context
-        if context is None:
+        if not has_prescribed_weather(context):
             return weather.evolve(self.weather_rng)
         projected = context.project_next(weather)
         self.weather_forecast_context = context.advanced()
@@ -1182,6 +1188,11 @@ class RaceSimulator(InventoryStrategyMixin):
             prospective & {TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD}
         ) >= 2
 
+    def _automatic_weather_fit_is_eligible(self, state, weather, compound, lap, track):
+        """A final planned fit must finish with actual compound-use credit."""
+        return (compound in paid_compound_candidates(weather)
+                and (lap < track.total_laps or self._pit_plan_satisfies_rule(state, compound)))
+
     def _prepare_pit_plan_stop(
         self, state: DriverRaceState, track: Track, weather: Weather, lap: int,
     ) -> bool | None:
@@ -1530,11 +1541,8 @@ class RaceSimulator(InventoryStrategyMixin):
                            TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
                        })
         rain_transition = mixed_slick or (
-            weather is not None and lap > 1 and self._has_used_wet_compound(state)
+            weather is not None and lap > 1
             and state.current_tire.compound in {TireCompound.INTERMEDIATE, TireCompound.WET}
-            and not self._rain_stint_can_be_planned(
-                state, track, weather, lap, weather_intervals,
-            )
         )
         # A stop can advance an externally anchored weather clock across a
         # compound transition even when ordinary own-lap intervals do not.
@@ -1543,7 +1551,7 @@ class RaceSimulator(InventoryStrategyMixin):
                     TireCompound.INTERMEDIATE, TireCompound.WET,
                 }):
             rain_transition = True
-        if self.weather_forecast_context is not None and weather is not None and lap > 1:
+        if self._has_weather_schedule() and weather is not None and lap > 1:
             rain_transition = True
             mixed_slick = state.current_tire.compound in {
                 TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
@@ -1599,7 +1607,7 @@ class RaceSimulator(InventoryStrategyMixin):
             TeamStrategyArchetype.CONSERVATIVE: -0.1,
         }[strategy]
 
-        dry_planning = (clearly_dry and self.weather_forecast_context is None
+        dry_planning = (clearly_dry and not self._has_weather_schedule()
                         and state.current_tire.compound in {
                             TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
                         })
@@ -2067,7 +2075,7 @@ class RaceSimulator(InventoryStrategyMixin):
                 )
             except (TypeError, ValueError, OverflowError):
                 return weather, None
-            if self.weather_forecast_context is not None:
+            if self._has_weather_schedule():
                 surface = projected_surfaces(weather, 2, (0, first),
                                              **self._forecast_options())[-1]
                 return surface, normalize_weather_intervals(
@@ -2078,7 +2086,7 @@ class RaceSimulator(InventoryStrategyMixin):
             for _ in range(first):
                 surface = surface.project_surface()
             return surface, counts
-        if self.weather_forecast_context is not None:
+        if self._has_weather_schedule():
             values = (tuple(range(target_stint)) if weather_intervals is None
                       else tuple(weather_intervals[:target_stint]))
             return weather, normalize_weather_intervals(
@@ -2278,27 +2286,22 @@ class RaceSimulator(InventoryStrategyMixin):
             # Explicit instructions bypass automatic profitability and forecast
             # choices after the request has passed the safety checks.
             new_compound = custom_target
-        elif weather_compound is not None:
-            new_compound = weather_compound
-        elif (
-            weather_proposal is not None and weather_proposal[0] == current_lap
-            and weather_proposal[1] in {TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD}
-            and (self._has_used_wet_compound(state) or state.current_tire.compound in {
-                TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
-            })
-        ):
+        elif (weather_proposal is not None and weather_proposal[0] == current_lap
+              and self._automatic_weather_fit_is_eligible(
+                  state, weather, weather_proposal[1], current_lap, track)):
             new_compound = weather_proposal[1]
-        elif (
-            proposal is not None and proposal[0] == current_lap
-            and weather.track_wetness < 0.08 and weather.rain_intensity < 0.15
-        ):
+        elif (proposal is not None and proposal[0] == current_lap
+              and weather.track_wetness < 0.08 and weather.rain_intensity < 0.15):
             new_compound = proposal[1]
-        elif self.weather_forecast_context is not None:
-            new_compound = self._choose_scheduled_paid_compound(
+        elif (self._has_weather_schedule()
+              or weather.track_wetness >= .08 or weather.rain_intensity >= .15):
+            new_compound = self._choose_forecast_paid_compound(
                 state, weather, track, current_lap,
                 physical_total_laps=physical_total_laps,
                 weather_intervals=weather_intervals, weather_clock=weather_clock,
             )
+        elif weather_compound is not None:
+            new_compound = weather_compound
         elif weather.track_wetness < 0.08 and weather.rain_intensity < 0.15:
             new_compound = self._choose_committed_dry_compound(
                 state, track, current_lap, weather,
@@ -2934,7 +2937,7 @@ class RaceSimulator(InventoryStrategyMixin):
             state.dry_pit_proposal = None
             state.weather_pit_proposal = None
 
-    def _choose_scheduled_paid_compound(
+    def _choose_forecast_paid_compound(
         self, state, weather, track, current_lap, *, physical_total_laps=None,
         weather_intervals=None, weather_clock=None,
     ):
@@ -2942,6 +2945,11 @@ class RaceSimulator(InventoryStrategyMixin):
         dry_limit = self._dry_stop_budget(state, track)
         damp_limit = self._ordinary_stop_budget(state, track)
         maximum = max(dry_limit, damp_limit, 4, state.pit_stops + 1)
+        dry_remaining = max(0, dry_limit - state.pit_stops)
+        damp_remaining = max(0, damp_limit - state.pit_stops)
+        if state.force_pit_next_lap:
+            dry_remaining = max(1, dry_remaining)
+            damp_remaining = max(1, damp_remaining)
         decision = plan_rain_transition(
             state.driver, state.car, track, weather, state.current_tire,
             state.tire_laps, current_lap, maximum - state.pit_stops,
@@ -2950,8 +2958,8 @@ class RaceSimulator(InventoryStrategyMixin):
             active_aero_enabled=self.event_manager.is_active_aero_allowed(),
             physical_total_laps=physical_total_laps, weather_intervals=weather_intervals,
             weather_clock=weather_clock,
-            remaining_dry_stops=max(0, dry_limit - state.pit_stops),
-            remaining_damp_stops=max(0, damp_limit - state.pit_stops),
+            remaining_dry_stops=dry_remaining,
+            remaining_damp_stops=damp_remaining,
             used_compounds=self._actually_used_compounds(state),
             **self._forecast_options(),
             **({"tire_warmup": self.tire_warmup,
@@ -2959,8 +2967,10 @@ class RaceSimulator(InventoryStrategyMixin):
         )
         if decision.compound is not None:
             return decision.compound
-        return self._choose_compound_for_next_stint(
-            state, track, current_lap, weather, physical_total_laps=physical_total_laps,
+        return self._rank_stint_compounds(
+            state, track, current_lap,
+            list(paid_compound_candidates(weather, self.weather_forecast_context)),
+            weather=weather, physical_total_laps=physical_total_laps,
             weather_intervals=weather_intervals, weather_clock=weather_clock,
         )
 
@@ -2980,7 +2990,7 @@ class RaceSimulator(InventoryStrategyMixin):
         projected = projected_surfaces(
             weather, remaining_laps, weather_intervals, **self._forecast_options(),
         )
-        transition_forecast = self.weather_forecast_context is not None or any(
+        transition_forecast = self._has_weather_schedule() or any(
             surface.track_wetness >= .08 or surface.rain_intensity >= .15
             for surface in projected
         ) or (weather_clock is not None and weather.rain_intensity >= .08)
@@ -3118,3 +3128,10 @@ class RaceSimulator(InventoryStrategyMixin):
             "critical" - must pit immediately
         """
         return weather.tire_mismatch(tire.compound)
+
+
+register_forecast_helpers(globals(), ("has_prescribed_weather", "paid_compound_candidates"))
+register_forecast_helpers(vars(RaceSimulator), (
+    "_has_weather_schedule", "_choose_forecast_paid_compound",
+    "_automatic_weather_fit_is_eligible", "_pit_plan_satisfies_rule",
+))

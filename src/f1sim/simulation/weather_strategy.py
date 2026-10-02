@@ -26,7 +26,7 @@ from f1sim.simulation.surface_projection import (
     suffix_weather_intervals,
 )
 from f1sim.simulation.warmup import tire_warmup_seconds, validate_tire_warmup
-from f1sim.simulation.weather_schedule import project_next_surface
+from f1sim.simulation.weather_schedule import paid_compound_candidates, project_next_surface
 
 
 @dataclass(frozen=True)
@@ -225,12 +225,7 @@ def _clock_weather_stop_costs(
     first = surface(0, 0, False, 0.0)
     wait = retained((0, "retained", current_tire.compound.value, tire_age, 0, False, 0.0))
     pit = inf
-    required = first.fresh_rain_compound()
-    candidates = ((required,) if required is not None else tuple(
-        compound for compound in (
-            TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
-        ) if first.tire_mismatch(compound) != "critical"
-    ))
+    candidates = paid_compound_candidates(first, forecast_context)
     for candidate in candidates:
         after = surface(0, 1, True, 0.0)
         fit_cost = tire_warmup_seconds(tire_warmup, candidate) if tire_warmup else 0.0
@@ -377,8 +372,10 @@ def weather_stop_costs(
 ) -> WeatherStopCosts:
     """Compare retaining while safe with an optimistic schedule of paid refits.
 
-    Rainfall/condition stay fixed while the shared surface model evolves. Later
-    refits may use any noncritical fresh set without budget or compound-rule
+    The supplied scenario or fixed rainfall drives the shared surface model.
+    Every currently noncritical first fit is priced, including suboptimal
+    alternatives. Later refits may use any noncritical fresh set without
+    budget or compound-rule
     constraints, but pay the full expected stop cost. The waiting alternative
     retains each set until it becomes critical, then pays for an appropriate
     fresh set before running that lap. Only a currently critical set bypasses
@@ -443,10 +440,7 @@ def weather_stop_costs(
             physical_total_laps=physical_total_laps,
         )
         stay += actual_stay_first * current_lap_time_modifier - stay_first
-    required = weather.fresh_rain_compound()
-    candidates = {required} if required is not None else {
-        TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
-    }
+    candidates = paid_compound_candidates(weather, forecast_context)
     pit = inf
     for compound, cost, baseline_first in fresh:
         cancellation_checkpoint()
@@ -464,4 +458,4 @@ def weather_stop_costs(
 
 register_forecast_helpers(globals(), ('_running', '_surface_path'))
 
-register_forecast_helpers(globals(), ("project_next_surface",))
+register_forecast_helpers(globals(), ("project_next_surface", "paid_compound_candidates"))

@@ -61,8 +61,11 @@ def test_unlimited_transition_matches_complete_enumeration(monkeypatch, external
         return explicit_surface(weather, entries, events_before(clock, offset, paid, first))
 
     monkeypatch.setattr(oracle, "event_surface", event_surface)
-    expected = oracle.exhaustive_transition(
-        deepcopy(driver), car, track, weather, tire, 19, 1, budget, clock, used=(compound,),
+    from test_paid_weather_compounds import exhaustive_safe_actions
+
+    expected = exhaustive_safe_actions(
+        driver, car, track, weather, tire, 19, 1, budget, context,
+        clock=clock if external else None, used=(compound,),
     )
     actual = plan_rain_transition(
         driver, car, track, weather, tire, 19, 1, budget, used_compounds=(compound,),

@@ -36,7 +36,9 @@ def test_native_policies_match_independently_executed_schedules(rows):
 def test_engines_agree_and_finite_opening_wear_is_preserved(rows):
     for name in {row["case"] for row in rows}:
         matching = [row for row in rows if row["case"] == name]
-        assert len({round(row["selected"]["total_time"], 8) for row in matching}) == 1
+        for inventory in ("finite", "unlimited"):
+            same_stock = [row for row in matching if row["inventory"] == inventory]
+            assert len({round(row["selected"]["total_time"], 8) for row in same_stock}) == 1
         for row in matching:
             if row["inventory"] != "finite":
                 continue

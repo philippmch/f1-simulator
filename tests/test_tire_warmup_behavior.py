@@ -235,7 +235,25 @@ def test_weather_stop_projection_charges_current_and_new_fits_once():
         current_fit_pending=True,
     )
     assert profiled.stay_cost - baseline.stay_cost == pytest.approx(7.0)
-    assert profiled.pit_now_cost - baseline.pit_now_cost == pytest.approx(5.0)
+    from f1sim.simulation.lap import LapSimulator
+    from f1sim.simulation.pit_strategy import expected_stationary_time
+
+    simulator = LapSimulator(np.random.default_rng(0))
+    costs = {}
+    for compound in TireCompound:
+        if weather.tire_mismatch(compound) == "critical":
+            continue
+        driver.current_tire_laps = 0
+        running = simulator.calculate_lap_time(
+            driver, car, track, TIRE_COMPOUNDS[compound], weather, 1, 1,
+            sample_variation=False,
+        )
+        costs[compound] = 1.2 * running + track.pit_lane_delta + expected_stationary_time(car)
+    assert baseline.pit_now_cost == pytest.approx(min(costs.values()))
+    profile = {TireCompound.INTERMEDIATE: 7., TireCompound.WET: 5.}
+    assert profiled.pit_now_cost == pytest.approx(min(
+        cost + profile.get(compound, 0.) for compound, cost in costs.items()
+    ))
 
 
 def test_rain_stop_projection_charges_fresh_fit_once():

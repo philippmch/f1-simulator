@@ -64,8 +64,7 @@ def schedules(case):
         limit = 3 if clearly_dry else 1
         if weather.track_wetness > .3 or compound not in SLICKS:
             limit = 4
-        rain = weather.fresh_rain_compound()
-        candidates = (rain,) if rain else SLICKS
+        candidates = tuple(TireCompound)
         for candidate in candidates:
             correction = not _legal_compounds(used) and _legal_compounds(used | {candidate})
             if (critical or len(stops) < limit or correction) and (
@@ -101,18 +100,17 @@ def run_race(case, engine, schedule=None):
     simulator._infer_team_strategy = lambda *args: TeamStrategyArchetype.BALANCED
     if schedule is not None:
         stops = {lap: TireCompound(compound) for lap, compound in schedule}
-        selected = None
-
         def should_pit(state, states, track, lap, *args, **kwargs):
-            nonlocal selected
-            selected = stops.get(lap)
-            return selected is not None
+            target = stops.get(lap)
+            if target is None:
+                return False
+            weather = args[1] if len(args) > 1 else kwargs.get("weather")
+            if weather.tire_mismatch(target) == "critical":
+                raise AssertionError("Schedule requests a critically unsuitable fresh fit")
+            state.weather_pit_proposal = (lap, target)
+            return True
 
         simulator._should_pit = should_pit
-        # Override choices, retaining the actual stop accounting and fresh fit.
-        simulator._choose_distinct_dry_compound = lambda *args, **kwargs: selected
-        simulator._choose_committed_dry_compound = lambda *args, **kwargs: selected
-        simulator._choose_compound_for_next_stint = lambda *args, **kwargs: selected
     execute = (simulator.simulate_race if engine == "standard"
                else ChronologicalRace(simulator).run)
     result = execute([driver], {car.team_id: car}, track, initial_weather(case), [driver.id],

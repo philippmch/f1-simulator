@@ -924,9 +924,9 @@ current rainfall persists. The projection consumes no random draws and does
 not predict changes in weather condition or future race interruptions.
 
 The comparison deliberately favours stopping, but every projected refit now pays
-for lane travel and expected service. The first replacement follows the actual
-fresh-weather crossover: a stop that would fit wets cannot claim the pace of
-fresh intermediates. Later refits may use any noncritical compound, with no
+for lane travel and expected service. The first replacement may use any compound
+that is noncritical on the observed commitment surface, matching automatic
+fitting eligibility. Later refits may use any noncritical compound, with no
 inventory, stop-budget or compound-use restriction. Each set must run at least
 one lap, ages normally, and cannot continue into a critical mismatch. This
 expanded set of future options gives an optimistic cost for stopping now.
@@ -962,9 +962,10 @@ SC/VSC running multiplier, before a later stop is allowed. A repeated compound
 is eligible only if the remaining projected schedule can still satisfy the
 dry-use rule. The choice does not sample randomness or alter the race state.
 
-For a damp fallback stop whose compound has not already been selected, the
-simulator compares noise-free lap costs over the next stint for each eligible
-fresh slick. The projection shares the actual lap model's compound pace, wear,
+Automatic paid changes on rain or damp surfaces compare complete remaining
+schedules as described below. The lower-level fallback ranker compares
+noise-free lap costs over the next stint for each eligible fresh slick when
+that fallback is needed. The projection shares the actual lap model's compound pace, wear,
 driver tyre management, circuit stress, car performance and degradation factor,
 including its lap-time floor. Fuel uses the original scheduled race distance
 even when the planning horizon is shorter. Surface conditions evolve from the
@@ -1005,9 +1006,9 @@ model retains the existing coefficients and pre-floor relationship while
 removing that plateau. These coefficients remain model assumptions;
 see [the wear model and executed strategy checks](tyre-wear.md).
 
-When the current rain compound remains the fresh-set choice throughout the
-projected remaining surface conditions, rain strategy compares stopping now
-with waiting at least one lap and making optimal later same-compound stops.
+The direct `plan_rain_stop` API compares stopping now with waiting at least one
+lap and making optimal later same-compound stops. Its caller must ensure that
+the current rain compound remains appropriate throughout the projected horizon.
 The projection uses noise-free lap physics, current tyre age, circuit stress,
 car degradation and the remaining paid-stop budget. Fresh sets run on their
 fitting lap. Only the current stop receives known queue/rejoin costs and the
@@ -1016,23 +1017,41 @@ running lap receives current control and Active Aero restrictions. The original
 fuel distance remains separate from a shortened planning horizon.
 
 This planner can choose a worthwhile stop outside calendar windows, or wait
-when a later stop is cheaper. Ties favor staying out. It assumes current rainfall
-persists and replans after each lap; it does not forecast random weather changes,
+when a later stop is cheaper. Ties favor staying out. Without a prescribed
+schedule it assumes current rainfall persists; it does not forecast random weather changes,
 future incidents, future traffic, or tyre inventory. It compares clean-air pace
 for both actions, with only the immediate rejoin adjustment. This is an optimum
 within the same-compound projection and budget, not a claim of globally optimal
 wet-race strategy.
 
-If the projected fresh compound changes, a car that has actually completed
-running on rain tyres compares compound-changing schedules instead. From lap
-two, slicks on a surface that is not clearly dry use this same search. The search
-can retain its current set while noncritical, fit the appropriate fresh rain
-compound, or choose among soft, medium and hard when the surface allows a fresh
-slick. It compares stopping now with running at least one more lap before any
-stop, including later paid refits and their tyre ageing. It therefore can wait
+Automatic rain-tyre decisions use the compound-changing planner. From lap two,
+slicks on a surface that is not clearly dry use this same search. The search can
+retain its current set while noncritical or fit any fresh noncritical compound,
+including both rain sets and safe slicks. It compares stopping now with running
+at least one more lap before any stop, including later paid refits and their tyre
+ageing. It therefore can wait
 for slicks instead of buying a short intermediate stint, or move to slicks
 before the retained rain set becomes critical. Elective opening-lap stops remain
 disabled; fitting an unused rain set does not itself earn a dry-use exemption.
+
+The current rain-compound recommendation does not exclude a safe alternative.
+For example, an intermediate can cost less than a wet set during projected
+drying, despite being suboptimal on the observed surface. With a nonempty
+prescribed rainfall schedule, the same search can avoid an extra short stint
+before a known rainfall change. Pace is priced at the projected rejoin surface
+after expected service and queue delays;
+future critical mismatches still end retention. The selected automatic proposal
+takes precedence over the current recommendation when the tyres are fitted.
+Explicit safe pit instructions and physical inventory selection retain their
+existing priority. Chronological finish protection uses the selected compound,
+or the same safe candidate set when the choice is still unresolved.
+
+Without a prescribed schedule, these decisions still assume the observed rain
+persists and replan after each lap. They do not forecast random atmosphere
+changes. The unlimited-stock automatic opening policy retains its separate
+selection rules; expanding paid choices does not establish an optimal opening
+or globally optimal wet-race policy. Existing saved runs replay with the current
+strategy implementation, so wet-race tyre choices can differ after this change.
 
 Each projected path carries its actual compound-use history. A finish requires
 two distinct slicks unless a rain compound has run in this race. The current
@@ -1128,6 +1147,29 @@ call. Stints use the corresponding relative suffix, preserving repeated and
 skipped weather updates. The schedules are discarded with that call; they do
 not shorten the horizon, limit the search or cache mutable weather models.
 Custom clock subclasses retain their ordinary query path.
+
+Native timed compound-changing searches reuse safe candidates and criticality
+for each observed surface within a decision. After actual rain-tyre running
+has earned the wet exemption, prior slick identities no longer distinguish
+future legality states; paid-stop counts, tyre ages, compounds, allowances,
+clock flags and fitting delays remain separate. Clean future laps use the same
+guarded deterministic evaluator and scalar lap cache as the direct rain planner.
+Current-lap control and traffic still use their ordinary calculation. Patched
+helpers, model extensions and custom clocks retain the uncached dispatch path.
+
+Without fitting delays, native searches merge clock branches only when their
+complete remaining before-fit and after-fit update paths agree. Every reachable
+paid count remains represented, including compulsory fits beyond the elective
+allowance. Fresh-fit costs are independent of the removed set's age once its
+eligibility is known, so they are calculated once per matching future state.
+Bounded shared caches can reuse these scalar costs when the entire remaining
+surface graph, physical driver/car/track and fresh tyre parameters, budgets and
+actual-use history agree. Different raw clock times can share only through that
+exact future equivalence; current control, traffic and queue prices are computed
+separately. Cache eviction changes work performed, not the available schedules.
+No models or evaluator closures enter these shared caches. Long horizons retain
+the complete iterative search when recursion capacity is insufficient, and
+cancellation releases each decision's local graph.
 
 Run `python examples/check_stint_choices.py` for a deterministic synthetic
 comparison of fallback stint choices against actual lap calculations over short,

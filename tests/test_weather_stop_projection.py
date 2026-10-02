@@ -44,21 +44,24 @@ def test_paid_refit_dp_matches_independent_action_enumeration(modifier, lane):
         ) * (modifier if lap == 0 else 1)
 
     expected = inf
-    # Stop now must fit wets; each subsequent action either stays or pays
-    # another stop. Even a same-compound replacement consumes service time.
-    for actions in product((None, *TireCompound), repeat=3):
-        tire, age = TIRE_COMPOUNDS[TireCompound.WET], 0
-        cost = track.pit_lane_delta * lane + expected_stationary_time(car) + queue
-        for lap, action in enumerate((None, *actions)):
-            if action is not None:
-                tire, age = TIRE_COMPOUNDS[action], 0
-                cost += track.pit_lane_delta + expected_stationary_time(car)
-            if surfaces[lap].tire_mismatch(tire.compound) == "critical":
-                cost = inf
-                break
-            cost += running(tire, age, lap)
-            age += 1
-        expected = min(expected, cost)
+    # Enumerate every safe first fit and every subsequent retain/paid action.
+    # Even a replacement with the same compound consumes service time.
+    for initial in TireCompound:
+        if surfaces[0].tire_mismatch(initial) == "critical":
+            continue
+        for actions in product((None, *TireCompound), repeat=3):
+            tire, age = TIRE_COMPOUNDS[initial], 0
+            cost = track.pit_lane_delta * lane + expected_stationary_time(car) + queue
+            for lap, action in enumerate((None, *actions)):
+                if action is not None:
+                    tire, age = TIRE_COMPOUNDS[action], 0
+                    cost += track.pit_lane_delta + expected_stationary_time(car)
+                if surfaces[lap].tire_mismatch(tire.compound) == "critical":
+                    cost = inf
+                    break
+                cost += running(tire, age, lap)
+                age += 1
+            expected = min(expected, cost)
     assert actual.pit_now_cost == pytest.approx(expected)
     assert actual.stay_cost == pytest.approx(
         sum(running(current, 5 + lap, lap) for lap in range(4))
@@ -142,8 +145,12 @@ def test_cache_config_and_current_adjustments_are_isolated_and_inputs_unchanged(
     assert _fresh_plan_costs.cache_info().maxsize == 4096
     assert adjusted.pit_now_cost == pytest.approx(plain.pit_now_cost + 4)
     assert (driver, car, track, weather, current) == before
-    changed_wet = TIRE_COMPOUNDS[TireCompound.WET].model_copy(update={"degradation_rate": 0.1})
-    monkeypatch.setitem(TIRE_COMPOUNDS, TireCompound.WET, changed_wet)
+    # This drying fixture now selects a fresh intermediate; changing that
+    # winning set must change both cache identity and the resulting minimum.
+    changed_intermediate = TIRE_COMPOUNDS[TireCompound.INTERMEDIATE].model_copy(
+        update={"degradation_rate": 0.1},
+    )
+    monkeypatch.setitem(TIRE_COMPOUNDS, TireCompound.INTERMEDIATE, changed_intermediate)
     changed = weather_stop_costs(driver, car, track, weather, current, 1, 1)
     assert _fresh_plan_costs.cache_info().misses == 2 * track.total_laps
     assert changed.pit_now_cost != plain.pit_now_cost
@@ -202,10 +209,10 @@ def test_no_pace_noise_draws_and_actual_lap_floor_preserved(monkeypatch):
                                   traffic_possible=False, active_aero_enabled=False)
     assert disabled.stay_cost > result.stay_cost
     assert disabled.pit_now_cost > result.pit_now_cost
-    expected_fresh = LapSimulator(NoDraws()).calculate_lap_time(
-        driver, car, track, TIRE_COMPOUNDS[TireCompound.WET], weather, 1, 1,
+    expected_fresh = min(LapSimulator(NoDraws()).calculate_lap_time(
+        driver, car, track, TIRE_COMPOUNDS[compound], weather, 1, 1,
         active_aero_enabled=False, sample_variation=False,
-    )
+    ) for compound in TireCompound if weather.tire_mismatch(compound) != "critical")
     assert disabled.pit_now_cost == pytest.approx(
         expected_fresh + track.pit_lane_delta + expected_stationary_time(car)
     )

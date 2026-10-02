@@ -80,7 +80,7 @@ def test_shorter_planning_distance_keeps_original_fuel():
 
 
 @pytest.mark.parametrize("distinct", [False, True])
-def test_damp_pit_choice_respects_actual_cost_bound_and_preserves_style(monkeypatch, distinct):
+def test_damp_fallback_ranker_respects_actual_cost_bound_and_preserves_style(monkeypatch, distinct):
     driver, car, track = fixture(True)
     state = DriverRaceState(
         driver=driver, car=car, position=1,
@@ -93,11 +93,12 @@ def test_damp_pit_choice_respects_actual_cost_bound_and_preserves_style(monkeypa
     monkeypatch.setattr(sim, "_preferred_stint_compound", lambda *args: TireCompound.SOFT)
     costs = {compound: oracle(driver, car, track, TIRE_COMPOUNDS[compound], weather)
              for compound in SLICKS}
-    sim._execute_pit_stop(state, track, weather, 82, sample_service=False)
+    choose = sim._choose_distinct_dry_compound if distinct else sim._choose_compound_for_next_stint
+    selected = choose(state, track, 82, weather)
     allowed = [TireCompound.SOFT, TireCompound.MEDIUM] if distinct else SLICKS
-    assert costs[state.current_tire.compound] <= min(costs[c] for c in allowed) + 19 * 0.05
+    assert costs[selected] <= min(costs[c] for c in allowed) + 19 * 0.05
     # The small medium advantage is inside the documented style tolerance.
-    assert state.current_tire.compound == TireCompound.SOFT
+    assert selected == TireCompound.SOFT
 
 
 def test_floor_rejects_style_preference_that_exceeds_actual_cost_bound():
@@ -124,7 +125,7 @@ def test_floor_rejects_style_preference_that_exceeds_actual_cost_bound():
     assert state.current_tire.compound == TireCompound.MEDIUM
 
 @pytest.mark.parametrize("distinct", [False, True])
-def test_pit_fallback_forwards_physical_fuel_and_current_control(monkeypatch, distinct):
+def test_fallback_ranker_forwards_physical_fuel_and_current_control(monkeypatch, distinct):
     driver, car, track = fixture(False)
     track.total_laps = 90
     state = DriverRaceState(
@@ -144,9 +145,8 @@ def test_pit_fallback_forwards_physical_fuel_and_current_control(monkeypatch, di
         return original(*args, **kwargs)
 
     monkeypatch.setattr(sim.lap_simulator, "projected_stint_lap_cost", record)
-    sim._execute_pit_stop(
-        state, track, weather, 82, sample_service=False, physical_total_laps=100,
-    )
+    choose = sim._choose_distinct_dry_compound if distinct else sim._choose_compound_for_next_stint
+    choose(state, track, 82, weather, physical_total_laps=100)
     assert len(observed) == (2 if distinct else 3)
     for args, kwargs in observed:
         assert args[4:7] == (9, 82, weather)

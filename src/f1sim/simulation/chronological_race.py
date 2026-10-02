@@ -14,7 +14,7 @@ from math import ceil, floor, isfinite
 from numbers import Real
 
 from f1sim.cancellation import raise_if_cancelled
-from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
+from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.events import EventType, RaceEvent
 from f1sim.simulation.execution import validate_starting_tire_ages, validate_starting_tires
 from f1sim.simulation.finish_strategy import ReplacementOption, evaluate_finish_protection
@@ -37,7 +37,11 @@ from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.surface_projection import projected_surfaces
 from f1sim.simulation.tire_inventory import validate_tire_inventory
 from f1sim.simulation.validation import validate_unique_ids
-from f1sim.simulation.weather_schedule import WeatherForecastContext, validate_weather_schedule
+from f1sim.simulation.weather_schedule import (
+    WeatherForecastContext,
+    paid_compound_candidates,
+    validate_weather_schedule,
+)
 
 
 @dataclass
@@ -573,7 +577,7 @@ class ChronologicalRace:
         # forced stop in steady dry or steady-rain conditions into a new
         # weather-transition branch.
         if (self.weather.track_wetness == self.weather.rain_intensity
-                and self.simulator.weather_forecast_context is None):
+                and not self.simulator._has_weather_schedule()):
             return None
         first_update, leader_pace, available = projection
         horizon = planning.total_laps - state.laps_completed
@@ -646,7 +650,7 @@ class ChronologicalRace:
             return "missing weather forecast"
         return None
 
-    def _finish_replacement_options(self, state, *, lap):
+    def _finish_replacement_options(self, state, *, lap, planning=None):
         """Use a known native replacement, or retain an optimistic option set."""
         inventory = state.tire_inventory
         if inventory is not None:
@@ -660,6 +664,29 @@ class ChronologicalRace:
             return tuple(ReplacementOption(item.compound, item.age, item.id)
                          for item in inventory.replacements())
 
+        if (self.simulator._has_weather_schedule()
+                or self.weather.track_wetness >= .08 or self.weather.rain_intensity >= .15):
+            candidates = paid_compound_candidates(
+                self.weather, self.simulator.weather_forecast_context,
+            )
+            target = state.pit_plan_target
+            if target is not None and target in candidates:
+                return (ReplacementOption(target),)
+            if planning is not None:
+                candidates = tuple(compound for compound in candidates
+                                   if self.simulator._automatic_weather_fit_is_eligible(
+                                       state, self.weather, compound, lap, planning))
+            proposals = [state.weather_pit_proposal]
+            if self.weather.track_wetness < .08 and self.weather.rain_intensity < .15:
+                proposals.append(state.dry_pit_proposal)
+            for proposal in proposals:
+                if proposal is not None and proposal[0] == lap and proposal[1] in candidates:
+                    return (ReplacementOption(proposal[1]),)
+            # The complete paid chooser selects from these observed-safe fits.
+            # An unresolved choice remains an optimistic distance bound, without
+            # another policy search, service sample, or strategy RNG consumption.
+            return tuple(ReplacementOption(compound) for compound in candidates)
+
         # Execution's precedence is weather-required compound, then the
         # weather planner's selected slick, then the dry planner's selected
         # slick.  Calling none of the fallback rankers here avoids policy/DP
@@ -669,14 +696,9 @@ class ChronologicalRace:
             return (ReplacementOption(weather_compound),)
         weather_proposal = state.weather_pit_proposal
         if (weather_proposal is not None and weather_proposal[0] == lap
-                and weather_proposal[1] in {
-                    TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
-                } and (
-                    self.simulator._has_used_wet_compound(state)
-                    or state.current_tire.compound in {
-                        TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
-                    }
-                )):
+                and weather_proposal[1] in paid_compound_candidates(self.weather)
+                and (planning is None or self.simulator._automatic_weather_fit_is_eligible(
+                    state, self.weather, weather_proposal[1], lap, planning))):
             return (ReplacementOption(weather_proposal[1]),)
         dry_proposal = state.dry_pit_proposal
         if (dry_proposal is not None and dry_proposal[0] == lap
@@ -703,7 +725,9 @@ class ChronologicalRace:
         if (not isinstance(max_lap, int) or max_lap < state.laps_completed + 1
                 or not isinstance(physical_total, int) or physical_total < max_lap):
             return False
-        replacements = self._finish_replacement_options(state, lap=state.laps_completed + 1)
+        replacements = self._finish_replacement_options(
+            state, lap=state.laps_completed + 1, planning=planning,
+        )
         # An empty finite pool is decided by native preparation/retirement;
         # there is no optimistic stop path to compare here.
         if replacements is not None and not replacements:

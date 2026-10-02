@@ -36,13 +36,15 @@ def test_each_uncached_suffix_scans_its_running_row_once():
     row_cache = rain_strategy._running_row.cache_info()
     rows = row_cache.hits + row_cache.misses
     # One row per solved suffix, one retained stint, and first-lap physics
-    # adjustments for retaining and the three possible fresh slick choices.
-    assert rows == completed + 5
+    # adjustments for retaining and each independently observed-safe fresh fit.
+    surface = Weather(track_wetness=.1, rain_intensity=.1)
+    candidates = sum(surface.tire_mismatch(compound) != "critical" for compound in TireCompound)
+    assert rows == completed + 2 + candidates
     assert completed <= rain_strategy._TRANSITION_SUFFIX_LIMIT
     transition_code = rain_strategy._transition_plan.__wrapped__.__code__
     invariants = {code.co_name: code for code in transition_code.co_consts
                   if isinstance(code, CodeType) and code.co_name in ("legal", "reduced")}
     # Legality and reduced allowances are stint invariants, independent of
     # the number of future laps and fresh candidates examined by each stint.
-    assert callcount(invariants["legal"]) <= completed + 5
-    assert callcount(invariants["reduced"]) <= 2 * completed + 8
+    assert callcount(invariants["legal"]) <= completed + 2 + candidates
+    assert callcount(invariants["reduced"]) <= 2 * completed + 2 + 2 * candidates

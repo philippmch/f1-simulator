@@ -56,6 +56,15 @@ Chronological projections map future track-entry times, including expected pit
 losses, to the shared weather clock. A dry start cannot use a constant-dry shortcut
 that overlooks a later scheduled rain step.
 
+For automatic paid changes, the conditional forecast search compares every fresh
+compound that is noncritical on the observed surface when the stop is committed.
+This includes both rain compounds, or slicks when they are already safe, even
+when another compound is currently recommended. Expected rejoin weather, tyre
+ageing, later paid stops and actual compound-use history determine the cost.
+The selected compound carries through to fitting and finish protection; explicit
+safe pit instructions retain priority, and finite inventories use their available
+physical sets.
+
 Explicit opening sets retain the existing first-running-lap rule for elective
 stops. Compulsory repair or critical-weather replacements can still precede
 that lap. Known later rain does not turn an opening override into a pit plan.
@@ -89,6 +98,8 @@ run's saved schedule. Changing the controls afterward does not change that
 context. Qualifying retains its fixed initial or separately configured session
 weather and does not consume the race schedule.
 
-Omitting the schedule or passing `[]` retains the existing saved schemas,
-worker behavior and seeded default simulation outputs. Earlier input schemas
-remain replayable and cannot claim the new schedule field.
+Omitting the schedule or passing `[]` retains the existing saved schemas and
+worker behavior, with ordinary evolving or fixed rainfall. Automatic paid tyre
+choices use the same safety-based candidate rules with and without a schedule;
+without one, the forecast assumes the observed rainfall persists. Earlier input
+schemas remain replayable and cannot claim the new schedule field.

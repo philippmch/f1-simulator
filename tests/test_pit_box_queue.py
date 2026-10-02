@@ -105,7 +105,9 @@ def test_weather_and_forced_stops_still_queue(monkeypatch, forced):
     weather = Weather(track_wetness=0.8, rain_intensity=0.8)
     assert len(sim._process_pit_stops([a, b], [replace(a), replace(b)], track(), weather, 2)) == 2
     assert b.total_time == pytest.approx(101 + 22 + 3 + 2)
-    assert all(s.current_tire.compound == TireCompound.WET for s in [a, b])
+    assert all(weather.tire_mismatch(s.current_tire.compound) != "critical" for s in [a, b])
+    assert all(s.pit_stop_details[0]["to_compound"] == s.current_tire.compound.value
+               for s in [a, b])
 
 
 def test_mandatory_distinct_compound_stop_cannot_be_deferred_by_queue(monkeypatch):

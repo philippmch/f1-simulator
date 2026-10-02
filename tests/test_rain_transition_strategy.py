@@ -46,9 +46,7 @@ def exhaustive(args, age, lap, budget, **options):
             or limit is None or stops < limit
         )
         if elective or critical:
-            rain = surface.fresh_rain_compound()
-            compounds = [rain] if rain else [TireCompound.SOFT, TireCompound.MEDIUM,
-                                           TireCompound.HARD]
+            compounds = tuple(TireCompound)
             available += [(True, TIRE_COMPOUNDS[c]) for c in compounds
                           if surface.tire_mismatch(c) != "critical"]
         for stop, next_tire in available:

@@ -44,7 +44,7 @@ def test_both_engines_match_bounded_executed_transition_schedules(diagnostic):
         if row["case"]["name"] == "drying_intermediates":
             assert row["selected"]["pit_laps"] == [3]
         if row["case"]["name"] == "wet_to_intermediate_to_slick":
-            assert row["selected"]["compounds"] == ["wet", "intermediate", "soft"]
+            assert row["selected"]["compounds"] == ["wet", "soft"]
 
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])
@@ -56,12 +56,13 @@ def test_drying_transition_avoids_waiting_until_critical(engine, diagnostic):
 
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])
-def test_intermediate_bridge_recovers_its_extra_paid_stop(engine, diagnostic):
+def test_early_safe_slick_fit_improves_over_waiting_for_recommendation(engine, diagnostic):
     case = diagnostic.CASES[2]
     selected = diagnostic.run_race(case, engine)
     direct = diagnostic.run_race(case, engine, ((19, TireCompound.SOFT),))
-    assert selected["compounds"] == ["wet", "intermediate", "soft"]
-    assert selected["paid_stops"] == 2 and direct["paid_stops"] == 1
+    assert selected["compounds"] == ["wet", "soft"]
+    assert selected["paid_stops"] == direct["paid_stops"] == 1
+    assert selected["pit_laps"] == [17]
     assert direct["total_seconds"] - selected["total_seconds"] > 4
 
 
@@ -108,8 +109,10 @@ def test_stale_or_weather_ineligible_proposal_is_discarded():
     assert state.weather_pit_proposal is None
     state.weather_pit_proposal = (11, TireCompound.HARD)
     weather.track_wetness = .8
+    chosen = simulator._choose_forecast_paid_compound(state, weather, track, 11)
     simulator._execute_pit_stop(state, track, weather, 11, sample_service=False)
-    assert state.current_tire.compound == TireCompound.WET
+    assert state.current_tire.compound == chosen
+    assert weather.tire_mismatch(chosen) != "critical"
     assert state.weather_pit_proposal is None
 
 
@@ -117,9 +120,17 @@ def test_unused_rain_set_cannot_bypass_actual_compound_use(monkeypatch):
     simulator, state, track, weather = fixture()
     state.tire_laps = 0
     state.tire_compound_history = ["medium", "intermediate"]
-    monkeypatch.setattr("f1sim.simulation.race.plan_rain_transition",
-                        lambda *a, **k: pytest.fail("Unused set does not earn wet exemption"))
+    observed = []
+
+    def plan(*args, **kwargs):
+        observed.append(kwargs["used_compounds"])
+        return SimpleNamespace(should_pit=lambda: False)
+
+    monkeypatch.setattr("f1sim.simulation.race.plan_rain_transition", plan)
     simulator._should_pit(state, [state], track, 10, False, weather)
+    assert observed == [{TireCompound.MEDIUM}]
+    assert not simulator._has_used_wet_compound(state)
+    monkeypatch.undo()
     state.weather_pit_proposal = (20, TireCompound.MEDIUM)
     simulator._execute_pit_stop(state, track, weather, 20, sample_service=False)
     assert state.current_tire.compound != TireCompound.MEDIUM

@@ -49,9 +49,7 @@ def exhaustive(args, age, lap, budget, used_compounds, **options):
             or surface.track_wetness > .3 or limit is None or stops < limit
         )
         if elective or critical or not legal:
-            rain = surface.fresh_rain_compound()
-            compounds = [rain] if rain else [TireCompound.SOFT, TireCompound.MEDIUM,
-                                           TireCompound.HARD]
+            compounds = tuple(TireCompound)
             available += [(True, TIRE_COMPOUNDS[c]) for c in compounds
                           if surface.tire_mismatch(c) != "critical"
                           and (elective or critical or c not in used)]

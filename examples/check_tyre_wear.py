@@ -57,7 +57,7 @@ def _run(case, engine, finite, schedule=None):
             if finite:
                 state.inventory_pit_proposal = (lap, target)
             else:
-                state.dry_pit_proposal = (lap, TireCompound(target))
+                state.weather_pit_proposal = (lap, TireCompound(target))
             return True
 
         sim._should_pit = should_pit
@@ -67,6 +67,10 @@ def _run(case, engine, finite, schedule=None):
                          starting_tires={"A": case["compound"]},
                          starting_tire_ages={"A": case["age"]},
                          tire_inventory={"A": records} if finite else None)[0]
+    if schedule is not None:
+        assert result.pit_laps == [lap for lap, _ in schedule]
+        if not finite:
+            assert result.strategy[1:] == [compound for _, compound in schedule]
     return dict(total_time=result.total_time, stops=result.pit_laps,
                 compounds=result.strategy, sets=result.tire_set_history,
                 laps_completed=result.laps_completed, status=result.status.value)
@@ -74,7 +78,12 @@ def _run(case, engine, finite, schedule=None):
 
 def _schedules(case, finite):
     """Enumerate physical identities independently; removed sets can return."""
-    choices = (("opening",) if finite else ()) + case["compounds"]
+    if finite:
+        choices = ("opening",) + case["compounds"]
+    else:
+        weather = Weather(track_wetness=case["wetness"], rain_intensity=case["wetness"])
+        choices = tuple(compound.value for compound in TireCompound
+                        if weather.tire_mismatch(compound) != "critical")
     for count in range(3):
         for laps in itertools.combinations(range(2, LAPS + 1), count):
             for targets in itertools.product(choices, repeat=count):

@@ -152,7 +152,7 @@ def test_shared_drying_projection_changes_executed_transition_decision(monkeypat
     assert stops == {False: [2], True: [4]}
 
 
-@pytest.mark.parametrize("intervals,expected", [(None, "same"), ((0, 5), "transition")])
+@pytest.mark.parametrize("intervals,expected", [(None, "transition"), ((0, 5), "transition")])
 def test_shared_cadence_selects_and_reaches_the_appropriate_rain_planner(
     monkeypatch, intervals, expected,
 ):

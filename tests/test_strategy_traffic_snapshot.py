@@ -178,7 +178,7 @@ def test_native_gaps_reach_candidate_physics_without_scalar_double_charge(
         captured.append((args, kwargs))
         return SimpleNamespace(should_pit=lambda *a: False)
 
-    name = {"dry": "plan_dry_stop", "rain": "plan_rain_stop",
+    name = {"dry": "plan_dry_stop", "rain": "plan_rain_transition",
             "transition": "plan_rain_transition"}[path]
     monkeypatch.setattr(f"f1sim.simulation.race.{name}", plan)
     snapshot = StrategyTrafficSnapshot(.75, 3, 99, (.75, 1.25))

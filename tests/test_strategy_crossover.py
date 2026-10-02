@@ -61,9 +61,10 @@ def test_paid_and_opening_crossovers_leave_free_refits_usable(wetness, rain, exp
     if wetness == 0.73:
         previous = TireCompound.INTERMEDIATE
     state = make_state(previous)
+    chosen = simulator._choose_forecast_paid_compound(state, weather, make_track(), 10)
     simulator._execute_pit_stop(state, make_track(), weather, 10)
-    assert state.current_tire.compound == expected
-    assert simulator._check_tire_weather_mismatch(state.current_tire, weather) == "ok"
+    assert state.current_tire.compound == chosen
+    assert simulator._check_tire_weather_mismatch(state.current_tire, weather) != "critical"
     free = simulator._choose_red_flag_tire(state, weather, make_track(), 10)
     assert weather.tire_mismatch(free) != "critical"
     assert simulator._choose_starting_compound(
@@ -77,10 +78,13 @@ def test_drying_stop_can_fit_slicks_at_crossover(wetness, rain):
     weather = Weather(track_wetness=wetness, rain_intensity=rain)
     state = make_state(TireCompound.WET)
     simulator._execute_pit_stop(state, make_track(), weather, 10)
-    assert state.current_tire.compound in {
+    eligible = {
         TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD,
     }
-    assert simulator._check_tire_weather_mismatch(state.current_tire, weather) == "ok"
+    if rain >= .15:
+        eligible.add(TireCompound.INTERMEDIATE)
+    assert state.current_tire.compound in eligible
+    assert simulator._check_tire_weather_mismatch(state.current_tire, weather) != "critical"
 
 
 def test_existing_rain_tyres_keep_drying_hysteresis_and_emergency_distinction():
