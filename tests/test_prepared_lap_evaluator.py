@@ -1,6 +1,10 @@
 """Exactness and dispatch guards for prepared deterministic lap physics."""
 
+import os
+import subprocess
+import sys
 from copy import deepcopy
+from textwrap import dedent
 
 import numpy as np
 import pytest
@@ -8,6 +12,36 @@ import pytest
 from f1sim.models import ActiveAeroZone, Car, Driver, Sector, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
 from f1sim.simulation.lap import LapSimulator, minimum_lap_time
+
+
+def _run_preimport_hook_script(model_kind, body):
+    """Install a stateful model hook before a fresh interpreter imports lap."""
+    setup = dedent('''
+        import sys
+        from f1sim.models import Car, Track
+
+        assert "f1sim.simulation.lap" not in sys.modules
+        owner = Car if sys.argv[1] == "car" else Track
+        name = "pace_delta_seconds" if owner is Car else "total_active_aero_gain"
+        original = getattr(owner, name)
+        calls = 0
+
+        def stateful(self, *args):
+            global calls
+            calls += 1
+            value = (original.fget(self) if isinstance(original, property)
+                     else original(self, *args))
+            return value + calls * .125
+
+        setattr(owner, name, property(stateful) if owner is Track else stateful)
+        from f1sim.simulation.lap import LapSimulator
+    ''')
+    result = subprocess.run(
+        [sys.executable, "-c", setup + dedent(body), model_kind],
+        env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)},
+        capture_output=True, text=True, timeout=30, check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def _models():
@@ -238,3 +272,24 @@ def test_stateful_fixed_model_helpers_disable_preparation_without_invoking_hook(
     simulator = LapSimulator(np.random.default_rng(3))
     assert simulator.prepare_deterministic_lap_time(driver, car, track, 20) is None
     assert calls == 0
+
+
+@pytest.mark.parametrize("model_kind", ["car", "track"])
+def test_preimport_stateful_model_hooks_keep_public_lap_dispatch(model_kind):
+    _run_preimport_hook_script(model_kind, '''
+        from test_prepared_lap_evaluator import _models
+        from f1sim.models import Weather
+        from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
+
+        driver, car, track = _models()
+        simulator = LapSimulator()
+        assert simulator.prepare_deterministic_lap_time(driver, car, track, 20) is None
+        assert calls == 0
+
+        args = (driver, car, track, TIRE_COMPOUNDS[TireCompound.MEDIUM], Weather(), 3, 20)
+        first = simulator.calculate_lap_time(*args, sample_variation=False)
+        first_calls = calls
+        second = simulator.calculate_lap_time(*args, sample_variation=False)
+        assert first != second
+        assert calls > first_calls > 0
+    ''')

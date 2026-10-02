@@ -108,3 +108,7 @@ class Car(BaseModel):
         max_delta_pct = 0.03
         pace_deficit = 1.0 - self.base_pace
         return reference_lap_time * max_delta_pct * pace_deficit
+
+
+# Capture the implementation at definition time, before consumers can patch Car.
+_NATIVE_PACE_DELTA_SECONDS = Car.pace_delta_seconds

@@ -122,3 +122,7 @@ class Track(BaseModel):
     def active_aero_zone_count(self) -> int:
         """Number of configured straight-mode active-aero sections."""
         return len(self.active_aero_zones)
+
+
+# Keep the descriptor itself so eligibility checks never invoke custom getters.
+_NATIVE_TOTAL_ACTIVE_AERO_GAIN = Track.total_active_aero_gain

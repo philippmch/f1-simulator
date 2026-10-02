@@ -121,3 +121,163 @@ def test_chronological_red_flag_different_inventory_set_pays_one_restart_fee(mon
     assert {item["id"]: item["age"] for item in result.tire_inventory} == {
         "old": 3, "restart": 7,
     }
+
+
+def test_automatic_restart_reuses_worn_set_after_unrun_paid_fit_and_shortened_finish(monkeypatch):
+    monkeypatch.setattr("f1sim.simulation.race_timing.RACING_TIME_LIMIT_SECONDS", 650)
+    simulator = RaceSimulator(
+        np.random.default_rng(19), tire_warmup={"soft": 2, "medium": 14, "hard": 35},
+    )
+    engine = ChronologicalRace(simulator, red_flag_pause_seconds=100)
+    control = simulator.event_manager
+    control.set_forced_red_flag(3)
+    monkeypatch.setattr(control, "_deploy_safety_measure", lambda *a, **k: None)
+    monkeypatch.setattr(control, "_check_mechanical_failure", lambda *a, **k: None)
+    monkeypatch.setattr(control, "_check_random_incident", lambda *a, **k: None)
+    plans, restart_events, warmups, running = {}, [], [], []
+    forecast_inputs, plan_inputs = {}, {}
+    actual_planning = engine._planning_track
+
+    def record_forecast(state, now, *, restart=False):
+        planning = actual_planning(state, now, restart=restart)
+        if restart:
+            restart_events.append(("horizon", state.driver.id))
+            forecast_inputs[state.driver.id] = [planning]
+        return planning
+
+    monkeypatch.setattr(engine, "_planning_track", record_forecast)
+    actual_cadence = engine._weather_intervals
+
+    def record_cadence(state, now, planning, *, restart=False):
+        cadence = actual_cadence(state, now, planning, restart=restart)
+        if restart:
+            restart_events.append(("cadence", state.driver.id))
+            forecast_inputs[state.driver.id].append(cadence)
+        return cadence
+
+    monkeypatch.setattr(engine, "_weather_intervals", record_cadence)
+    actual_clock = engine._strategy_weather_clock
+
+    def record_clock(state, now, planning, queue_delay, *, restart=False):
+        clock = actual_clock(state, now, planning, queue_delay, restart=restart)
+        # Capture the initial free-refit input, including a leader's None clock.
+        # Starting its new running lap may subsequently request a paid-stop clock.
+        if restart and len(forecast_inputs[state.driver.id]) == 2:
+            restart_events.append(("clock", state.driver.id))
+            forecast_inputs[state.driver.id].append(clock)
+        return clock
+
+    monkeypatch.setattr(engine, "_strategy_weather_clock", record_clock)
+    actual_plan = simulator._plan_inventory
+
+    def record_plan(state, track, weather, lap, **kwargs):
+        decision = actual_plan(state, track, weather, lap, **kwargs)
+        if kwargs.get("free_fit"):
+            plan_inputs[state.driver.id] = [
+                track, kwargs["weather_intervals"], kwargs["weather_clock"],
+            ]
+            plans[state.driver.id] = {
+                "planning_laps": track.total_laps,
+                "remaining_laps": track.total_laps - lap + 1,
+                "physical_laps": kwargs["physical_total_laps"],
+                "current_set": state.tire_inventory.current_set_id,
+                "age": state.tire_laps,
+                "fit_pending": state.fit_lap_pending,
+                "paid_stops": state.pit_stops,
+                "pool_ages": {
+                    item["id"]: item["age"]
+                    for item in state.tire_inventory.snapshot(state.tire_laps)
+                },
+                "selected_set": decision.set_id,
+            }
+        return decision
+
+    monkeypatch.setattr(simulator, "_plan_inventory", record_plan)
+    actual_fit = simulator._fit_inventory_tire
+
+    def record_fit(state, set_id, lap, kind):
+        actual_fit(state, set_id, lap, kind)
+        if kind == "red_flag":
+            restart_events.append(("fit", state.driver.id))
+
+    monkeypatch.setattr(simulator, "_fit_inventory_tire", record_fit)
+    actual_consume = simulator._consume_tire_warmup
+
+    def record_warmup(state):
+        fee = actual_consume(state)
+        if fee:
+            warmups.append((state.driver.id, state.current_tire.compound, fee))
+        return fee
+
+    monkeypatch.setattr(simulator, "_consume_tire_warmup", record_warmup)
+    actual_service = simulator.lap_simulator.calculate_pit_stop_time
+    service_count = 0
+
+    def closed_exit_service(car):
+        nonlocal service_count
+        if car.team_id == "B":
+            service_count += 1
+            if service_count == 2:
+                # Hold the paid H fit behind the closed exit before it runs.
+                return 100
+        return actual_service(car)
+
+    monkeypatch.setattr(simulator.lap_simulator, "calculate_pit_stop_time", closed_exit_service)
+    actual_lap = simulator.lap_simulator.calculate_lap_time
+
+    def record_running(driver, car, track, tire, weather, lap, total_laps, *args, **kwargs):
+        pace = actual_lap(driver, car, track, tire, weather, lap, total_laps, *args, **kwargs)
+        running.append((driver.id, lap, tire.compound, driver.current_tire_laps, total_laps))
+        return pace
+
+    monkeypatch.setattr(simulator.lap_simulator, "calculate_lap_time", record_running)
+    drivers = [Driver(id=key, name=key, team_id=key, skill_rating=skill)
+               for key, skill in [("A", 0), ("B", 1)]]
+    cars = {key: Car(team_id=key, team_name=key, base_pace=pace)
+            for key, pace in [("A", 0), ("B", 1)]}
+    track = Track(id="T", name="T", country="T", total_laps=16, base_lap_time=90,
+                  pit_lane_delta=20, safety_car_probability=0, overtake_difficulty=1)
+    records = {key: [{"id": "S", "compound": "soft", "age": 0},
+                     {"id": "M", "compound": "medium", "age": 0},
+                     {"id": "H", "compound": "hard", "age": 0}]
+               for key in "AB"}
+    results = engine.run(
+        drivers, cars, track, Weather(change_probability=0), list("AB"),
+        starting_tires={key: TireCompound.SOFT for key in "AB"}, tire_inventory=records,
+        pit_plans={"B": [{"lap": 2, "compound": "medium"}, {"lap": 3, "compound": "hard"}]},
+    )
+
+    assert plans["B"] == {
+        "planning_laps": 8, "remaining_laps": 6, "physical_laps": 16,
+        "current_set": "H", "age": 0, "fit_pending": True, "paid_stops": 2,
+        "pool_ages": {"S": 1, "M": 1, "H": 0}, "selected_set": "S",
+    }
+    assert (plans["A"]["planning_laps"], plans["A"]["remaining_laps"],
+            plans["A"]["physical_laps"]) == (8, 5, 16)
+    # Horizons, weather cadence and clocks freeze before any free inventory fitting.
+    assert set(restart_events[:6]) == {
+        (kind, driver) for kind in ["horizon", "cadence", "clock"] for driver in "AB"
+    }
+    assert {driver for kind, driver in restart_events[6:] if kind == "fit"} == {"A", "B"}
+    assert len(restart_events) == 8
+    for driver in "AB":
+        assert plan_inputs[driver] == forecast_inputs[driver]
+        assert plan_inputs[driver][0] is forecast_inputs[driver][0]
+    red, restart, survivors = engine.suspensions[0]
+    assert set(survivors) == {"A", "B"}
+    assert red < restart
+    assert ("B", 3, restart) in engine.pit_exits
+    assert running and {row[4] for row in running} == {16}
+    assert [(compound, fee) for driver, compound, fee in warmups if driver == "B"] == [
+        (TireCompound.MEDIUM, 14), (TireCompound.SOFT, 2),
+    ]
+    result = next(result for result in results if result.driver_id == "B")
+    assert result.race_time_limited
+    assert result.pit_stops == 2 and result.pit_laps == [2, 3]
+    assert [(stint["set_id"], stint["age_at_fit"], stint["age_at_end"], stint["laps_used"])
+            for stint in result.tire_set_history] == [
+        ("S", 0, 1, 1), ("M", 0, 1, 1), ("H", 0, 0, 0), ("S", 1, 6, 5),
+    ]
+    assert {item["id"]: item["age"] for item in result.tire_inventory} == {
+        "S": 6, "M": 1, "H": 0,
+    }

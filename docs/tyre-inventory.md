@@ -128,8 +128,9 @@ leading weather clock or the supplied own-lap surface intervals. The prepared
 path keeps tyre age, projected weather, fuel lap, traffic gap and active-aero
 availability as explicit inputs, and shares the final arithmetic composition
 with ordinary lap calculation. Custom simulator methods, overridden car pace or
-track active-aero calculations, and driver, car or track subclasses keep the
-public evaluator. Custom tyre or projected weather
+track active-aero calculations (including hooks replaced before importing the
+lap simulator), and driver, car or track subclasses keep the public evaluator.
+Custom tyre or projected weather
 objects also use its fallback; surface projection retains its existing input
 normalization. The shortcut preserves extension dispatch and seeded race behavior.
 

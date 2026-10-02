@@ -4,7 +4,7 @@ from copy import deepcopy
 from math import inf
 
 import pytest
-from test_prepared_lap_evaluator import _models
+from test_prepared_lap_evaluator import _models, _run_preimport_hook_script
 
 from f1sim.models import ActiveAeroZone, Car, Driver, Tire, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
@@ -270,3 +270,27 @@ def test_inventory_stateful_fixed_model_hooks_match_public_costs_and_set_choices
     expected = plan_inventory_strategy(*inputs, 3, **options)
     assert actual == expected
     assert calls == actual_calls
+
+
+@pytest.mark.parametrize("model_kind", ["car", "track"])
+def test_preimport_stateful_model_hooks_match_public_inventory_dispatch(model_kind):
+    _run_preimport_hook_script(model_kind, '''
+        from test_prepared_inventory_strategy import _inputs
+        from f1sim.simulation.inventory_strategy import plan_inventory_strategy
+
+        inputs = _inputs()
+        assert LapSimulator().prepare_deterministic_lap_time(*inputs[:3], 17) is None
+        assert calls == 0
+        options = dict(tire_age=23, remaining_stops=2, physical_total_laps=17,
+                       used_compounds=("soft", "hard"), current_lap_time_modifier=1.35,
+                       current_traffic_gaps=(.3125, 1.375), current_fit_pending=True)
+        actual = plan_inventory_strategy(*inputs, 3, **options)
+        actual_calls = calls
+        assert actual_calls > 1
+
+        calls = 0
+        LapSimulator.prepare_deterministic_lap_time = lambda *args: None
+        expected = plan_inventory_strategy(*inputs, 3, **options)
+        assert actual == expected
+        assert calls == actual_calls
+    ''')

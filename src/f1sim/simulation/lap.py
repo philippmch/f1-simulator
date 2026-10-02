@@ -6,7 +6,9 @@ from functools import lru_cache
 import numpy as np
 
 from f1sim.models import Car, Driver, Tire, Track, Weather
+from f1sim.models.car import _NATIVE_PACE_DELTA_SECONDS
 from f1sim.models.tire import TireCompound
+from f1sim.models.track import _NATIVE_TOTAL_ACTIVE_AERO_GAIN
 from f1sim.simulation.surface_projection import projected_surfaces
 
 # The execution floor is an absolute fraction of the circuit reference lap.
@@ -687,6 +689,6 @@ _NATIVE_METHODS = {
 }
 
 _NATIVE_FIXED_MODEL_HOOKS = (
-    (Car, "pace_delta_seconds", Car.pace_delta_seconds),
-    (Track, "total_active_aero_gain", Track.total_active_aero_gain),
+    (Car, "pace_delta_seconds", _NATIVE_PACE_DELTA_SECONDS),
+    (Track, "total_active_aero_gain", _NATIVE_TOTAL_ACTIVE_AERO_GAIN),
 )

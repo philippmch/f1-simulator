@@ -10,21 +10,27 @@ from f1sim.simulation.chronological_race import ChronologicalRace
 from f1sim.simulation.race import DriverStatus, RaceSimulator
 
 
-def setup(monkeypatch, *, pit_lane=18, stop=False, queue_delay=0):
-    drivers = [Driver(id=key, name=key, team_id=key) for key in "AB"]
-    cars = {key: Car(team_id=key, team_name=key) for key in "AB"}
-    track = Track(id="t", name="T", country="T", total_laps=10,
+def setup(monkeypatch, *, pit_lane=18, stop=False, queue_delay=0, driver_ids="AB",
+          total_laps=10, lap_times=None, native_strategy=False):
+    drivers = [Driver(id=key, name=key, team_id=key) for key in driver_ids]
+    cars = {key: Car(team_id=key, team_name=key) for key in driver_ids}
+    track = Track(id="t", name="T", country="T", total_laps=total_laps,
                   base_lap_time=90, pit_lane_delta=pit_lane)
     simulator = RaceSimulator(np.random.default_rng(4))
     engine = ChronologicalRace(simulator)
     snapshots, running = {}, {}
+    native_should_pit = simulator._should_pit
 
     def should(state, states, track, lap, *args, **kwargs):
         snapshots[state.driver.id, lap] = kwargs["traffic_snapshot"]
+        if native_strategy:
+            return native_should_pit(state, states, track, lap, *args, **kwargs)
         return stop and state.driver.id == "A" and lap == 2
 
     def physics(driver, car, track, tire, weather, lap, *a, **kwargs):
         running[driver.id, lap] = kwargs["gap_to_car_ahead"]
+        if lap_times is not None:
+            return lap_times[driver.id]
         return 90 if driver.id == "A" else 110
 
     monkeypatch.setattr(simulator, "_should_pit", should)
@@ -47,8 +53,8 @@ def setup(monkeypatch, *, pit_lane=18, stop=False, queue_delay=0):
     monkeypatch.setattr(simulator.event_manager, "process_lap", control)
 
     def run():
-        return engine.run(drivers, cars, track, Weather(track_wetness=.3), list("AB"),
-                          starting_tires={key: TireCompound.INTERMEDIATE for key in "AB"})
+        return engine.run(drivers, cars, track, Weather(track_wetness=.3), list(driver_ids),
+                          starting_tires={key: TireCompound.INTERMEDIATE for key in driver_ids})
 
     return engine, run, snapshots, running
 
@@ -96,6 +102,54 @@ def test_exact_exit_crossing_tie_uses_scheduler_distance_priority(monkeypatch, p
         traffic(running["A", 2]) - traffic(snapshots["A", 2].gap_ahead)
     )
     assert running["A", 2] == 90
+
+
+def test_native_weather_stop_rejoins_behind_lapped_rival_at_two_crossing_ties(monkeypatch):
+    engine, run, snapshots, running = setup(
+        monkeypatch, pit_lane=17.5, driver_ids="ABCD", total_laps=2,
+        lap_times={"A": 90, "B": 110, "C": 110, "D": 130}, native_strategy=True,
+    )
+    monkeypatch.setattr(
+        Weather, "evolve",
+        lambda self, rng: self.model_copy(
+            update={"track_wetness": 0.0, "rain_intensity": 0.0}, deep=True,
+        ),
+    )
+    calculate_lap_time = engine.simulator.lap_simulator.calculate_lap_time
+    entry = {}
+
+    def record_entry(driver, car, track, tire, weather, lap, *args, **kwargs):
+        if driver.id == "A" and lap == 2:
+            entry.update(
+                time=engine.pending["A"].running_start,
+                order=tuple(engine.order),
+                predecessor_lap=engine.pending["D"].lap,
+                compound=tire.compound,
+            )
+        return calculate_lap_time(driver, car, track, tire, weather, lap, *args, **kwargs)
+
+    monkeypatch.setattr(engine.simulator.lap_simulator, "calculate_lap_time", record_entry)
+    run()
+
+    snapshot = snapshots["A", 2]
+    assert snapshot.current_traffic_gaps == pytest.approx((62.3076923, 76.1538462))
+    assert snapshot.current_traffic_gaps[1] == pytest.approx(running["A", 2])
+    assert ("A", 2, 110) in engine.pit_exits
+    assert entry == {
+        "time": 110,
+        "order": ("B", "C", "D", "A"),
+        "predecessor_lap": 1,
+        "compound": TireCompound.SOFT,
+    }
+    assert [crossing for crossing in engine.crossings if crossing[2] == 110] == [
+        ("B", 1, 110), ("C", 1, 110),
+    ]
+    stop = engine.states["A"].pit_stop_details[0]
+    assert (stop["lap"], stop["from_compound"], stop["to_compound"]) == (
+        2, "intermediate", "soft",
+    )
+    assert stop["decision_reason"] == "critical_weather"
+    assert stop["queue_time"] == 0
 
 
 def pending_fixture(monkeypatch):
