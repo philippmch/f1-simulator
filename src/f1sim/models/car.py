@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel, Field
 
+from f1sim.models._native import register_native_model
+
 
 class Car(BaseModel):
     """Represents an F1 car with performance characteristics."""
@@ -112,3 +114,6 @@ class Car(BaseModel):
 
 # Capture the implementation at definition time, before consumers can patch Car.
 _NATIVE_PACE_DELTA_SECONDS = Car.pace_delta_seconds
+
+
+register_native_model(Car)

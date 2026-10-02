@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel, Field
 
+from f1sim.models._native import register_native_model
+
 
 class Driver(BaseModel):
     """Represents an F1 driver with performance characteristics."""
@@ -63,3 +65,6 @@ class Driver(BaseModel):
         """Calculate lap time standard deviation based on consistency."""
         # Higher consistency = lower variation
         return base_std * (2.0 - self.consistency)
+
+
+register_native_model(Driver)

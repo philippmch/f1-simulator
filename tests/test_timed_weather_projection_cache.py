@@ -57,30 +57,22 @@ def test_clocked_stints_reuse_physics_but_include_changed_car_performance(monkey
     driver, car, track, weather = models()
     tire = TIRE_COMPOUNDS[TireCompound.INTERMEDIATE]
     clock = clock_for(track)
-    calls = 0
-    original = LapSimulator.calculate_lap_time
-
-    def counted(self, *args, **kwargs):
-        nonlocal calls
-        calls += 1
-        return original(self, *args, **kwargs)
-
-    monkeypatch.setattr(LapSimulator, "calculate_lap_time", counted)
+    rain_strategy._green_laps.clear()
     first = plan_rain_stop(driver, car, track, weather, tire, 39, 1, 2,
                            weather_clock=clock)
-    initial_calls = calls
+    initial_cache = dict(rain_strategy._green_laps)
     renamed_driver = driver.model_copy(update={"id": "other", "team_id": "other"})
     renamed_car = car.model_copy(update={"team_id": "other", "team_name": "Other"})
     same = plan_rain_stop(renamed_driver, renamed_car, track, weather, tire, 39, 1, 2,
                           weather_clock=clock)
     assert same == first
-    assert calls - initial_calls == 2  # Current traffic/control laps stay outside the cache.
+    assert dict(rain_strategy._green_laps) == initial_cache
 
     changed_car = renamed_car.model_copy(update={"tire_degradation_factor": 1.5})
-    before = calls
+    before = len(rain_strategy._green_laps)
     changed = plan_rain_stop(renamed_driver, changed_car, track, weather, tire, 39, 1, 2,
                              weather_clock=clock)
-    assert calls > before + 2
+    assert len(rain_strategy._green_laps) > before
     expected = exhaustive_same(deepcopy(driver), changed_car, track, weather,
                                tire, 39, 1, 2, clock)
     assert changed.pit_now_cost == pytest.approx(expected[0])

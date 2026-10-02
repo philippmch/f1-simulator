@@ -1315,6 +1315,29 @@ arithmetic remain unchanged. Custom physics retains its public evaluator, and
 custom weather clocks keep the existing row-projection path. Forecasting does
 not sample randomness in either path.
 
+The same native eligibility contract applies to dry pace/floor tables, rain
+stint and transition results, projected surfaces, weather-stop bounds and opening
+policy scores. Model methods and field descriptors are compared with references
+recorded when their defining modules finish loading; lap and forecast helpers
+also retain their defining-module originals. Replacements installed before or
+after a consumer import bypass shared caches. A callable identity alone cannot
+make an external-state-dependent extension safe to cache.
+The outermost decision checks definitions once; nested forecasts reuse its
+class verdicts while checking instance hooks and nested track objects. Static
+class/MRO dictionary comparisons never execute descriptors. Later decisions
+check definitions afresh. Projection calibration, expected-service helpers and
+opening candidate/seed constants also participate in native eligibility.
+
+Each non-native decision owns deep copies of its actual model objects and uses
+public deterministic physics. Its private snapshot references distinguish
+objects with identical serialized values and preserve subclasses and callable
+instance hooks without serializing those hooks. These references are discarded
+on return, cancellation or an exception. Local search memoization remains valid
+within that decision. Untimed surface projection continues to normalize inputs
+to the base Weather schema; clocked fallback laps retain their observed actual
+surface objects. Equilibrium and dry-floor cadence shortcuts require unchanged
+native surface physics.
+
 Stop eligibility is also computed once per compound and remaining stop-budget
 combination within a transition plan, then reused across its future-lap search.
 These rows stay local to the plan's forecast. Critical-tyre exceptions, dry and

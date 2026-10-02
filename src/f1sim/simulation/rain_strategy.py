@@ -13,8 +13,17 @@ import numpy as np
 
 from f1sim.cancellation import cancellation_checkpoint
 from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather
+from f1sim.models._native import (
+    forecast_decision,
+    forecast_dump,
+    forecast_json,
+    native_forecast_cache,
+    register_forecast_helpers,
+    restore_model,
+    shared_forecast_available,
+)
 from f1sim.models.tire import TIRE_COMPOUNDS
-from f1sim.simulation import lap as lap_physics
+from f1sim.simulation import lap as lap_physics  # noqa: F401 - extension compatibility
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.pit_strategy import expected_stationary_time
 from f1sim.simulation.strategy_traffic import normalize_current_traffic_gaps
@@ -30,46 +39,15 @@ from f1sim.simulation.warmup import tire_warmup_seconds, validate_tire_warmup
 _GREEN_LAP_LIMIT = 65_536
 _green_laps = OrderedDict()
 _green_lap_lock = RLock()
-_NATIVE_GREEN_HOOKS = tuple(
-    (owner, name, getattr(owner, name))
-    for owner, names in (
-        (LapSimulator, ("prepare_deterministic_lap_time",
-                        "_native_deterministic_evaluator_available")),
-        (Tire, ("time_penalty_per_lap", "wear_loss_at_lap")),
-        (Weather, ("lap_time_multiplier", "wet_severity")),
-        (Car, ("pace_delta_seconds",)),
-        (Track, ("total_active_aero_gain",)),
-        (lap_physics, ("minimum_lap_time", "_track_profile_from_values",
-                       "_track_car_delta_from_values", "_weather_pace_multiplier_from_values")),
-    ) for name in names
-)
-_NATIVE_GREEN_FACTORS = dict(LapSimulator._COMPOUND_PACE_FACTORS)
-_NATIVE_GREEN_FLOOR = lap_physics.MIN_LAP_TIME_FRACTION
-_GREEN_MODEL_HOOKS = {
-    Driver: (),
-    Car: ("pace_delta_seconds",),
-    Track: ("total_active_aero_gain",),
-    Tire: ("time_penalty_per_lap", "wear_loss_at_lap"),
-    Weather: ("lap_time_multiplier", "wet_severity"),
-}
-
-
 def _native_green_cache_available(simulator):
-    return (simulator._native_deterministic_evaluator_available()
-            and all(getattr(owner, name) is native
-                    for owner, name, native in _NATIVE_GREEN_HOOKS)
-            and type(LapSimulator._COMPOUND_PACE_FACTORS) is dict
-            and LapSimulator._COMPOUND_PACE_FACTORS == _NATIVE_GREEN_FACTORS
-            and lap_physics.MIN_LAP_TIME_FRACTION == _NATIVE_GREEN_FLOOR)
+    return (shared_forecast_available()
+            and simulator._native_deterministic_evaluator_available())
 
 
 def _native_green_model_available(model):
-    """Instance hooks can change physics without changing serialized fields."""
-    names = _GREEN_MODEL_HOOKS.get(type(model))
-    return names is not None and not any(
-        name in model.__dict__ or name in (model.__pydantic_extra__ or {})
-        for name in names
-    )
+    from f1sim.models._native import native_model
+
+    return native_model(model)
 
 
 def _reset_green_cache_after_fork():
@@ -132,10 +110,10 @@ def _clock_rain_stop(
     driver.reset_race_state()
     driver.id = driver.name = driver.team_id = "projection"
     clean = car.model_copy(update={"team_id": "projection", "team_name": "projection"})
-    models = tuple(model.model_dump_json() for model in (driver, clean, track))
-    retained_json = current_tire.model_dump_json()
+    models = tuple(forecast_json(model) for model in (driver, clean, track))
+    retained_json = forecast_json(current_tire)
     fresh = TIRE_COMPOUNDS[current_tire.compound]
-    fresh_json = fresh.model_dump_json()
+    fresh_json = forecast_json(fresh)
     service = expected_stationary_time(clean)
     green_stop = track.pit_lane_delta + service
     warmup = tire_warmup
@@ -156,7 +134,7 @@ def _clock_rain_stop(
         # Each projected surface is serialized once, never on a cache lookup.
         package = models + (physical_total_laps,)
         tire_values = (fresh_json, retained_json)
-        surface_values = [weather.model_dump_json()]
+        surface_values = [forecast_json(weather)]
     absolute_updates = {}
 
     @lru_cache(maxsize=None)
@@ -172,7 +150,7 @@ def _clock_rain_stop(
         if shared_green:
             while len(surface_values) <= update_index:
                 value = projected[len(surface_values)]
-                surface_values.append(value.model_dump_json()
+                surface_values.append(forecast_json(value)
                                       if _native_green_model_available(value) else None)
         tire = current_tire if retained else fresh
         surface = projected[update_index]
@@ -232,10 +210,10 @@ def _clock_rain_stop(
                 for index in range(offset, horizon)
             )
         costs = _running_row(
-            models, projected[first].model_dump_json(),
+            models, forecast_json(projected[first]),
             retained_json if retained else fresh_json,
             tire_age if retained else 0, current_lap + offset,
-            physical_total_laps, intervals,
+            physical_total_laps, intervals, True,
         )
         if first_fit_fee and costs:
             costs = (costs[0] + first_fit_fee, *costs[1:])
@@ -345,7 +323,7 @@ def _clock_rain_transition(
 
     projected = [weather]
     branch_surfaces = {}
-    surface_json = {id(weather): weather.model_dump_json()}
+    observed_surfaces = {id(weather): weather}
 
     def updates(offset, paid_stops, stopped_first, fit_delay=0.0):
         if fit_delay:
@@ -361,16 +339,16 @@ def _clock_rain_transition(
         while len(projected) <= update_index:
             value = projected[-1].project_surface()
             projected.append(value)
-            surface_json[id(value)] = value.model_dump_json()
+            observed_surfaces[id(value)] = value
         value = projected[update_index]
         branch_surfaces[branch] = value
         return value
 
     @lru_cache(maxsize=None)
-    def running(offset, tire_key, compound, age, gap_kind, surface_json):
+    def running(offset, tire_key, compound, age, gap_kind, surface_id):
         tire = current_tire if tire_key == "retained" else TIRE_COMPOUNDS[compound]
         driver.current_tire_laps = age
-        branch_surface = Weather.model_validate_json(surface_json)
+        branch_surface = observed_surfaces[surface_id]
         value = simulator.calculate_lap_time(
             driver, clean, track, tire, branch_surface,
             current_lap + offset, physical_total_laps,
@@ -388,7 +366,7 @@ def _clock_rain_transition(
         elif isinstance(compound, Tire):
             compound = compound.compound.value
         value = running(offset, tire_key, compound, age, gap_kind,
-                        surface_json[id(branch_surface)])
+                        id(branch_surface))
         if fitted and warmup:
             value += tire_warmup_seconds(warmup, compound)
         return value
@@ -546,20 +524,30 @@ def _clock_same_rain_stint(weather, current_tire, weather_clock):
     return True
 
 
-@lru_cache(maxsize=4096)
-def _running_row(models, weather_json, tire_json, age, lap, physical, intervals=None):
+@native_forecast_cache(maxsize=4096)
+def _running_row(models, weather_json, tire_json, age, lap, physical, intervals=None,
+                 observed_surface=False):
     """Green stint beginning here; no stop budget or current-control key."""
-    driver = Driver.model_validate_json(models[0])
-    car = Car.model_construct(**json.loads(models[1]))
-    track = Track.model_validate_json(models[2])
-    surface = Weather.model_validate_json(weather_json)
-    tire = Tire.model_validate_json(tire_json)
+    driver = restore_model(Driver, models[0])
+    car = restore_model(Car, models[1])
+    track = restore_model(Track, models[2])
+    surface = restore_model(Weather, weather_json)
+    tire = restore_model(Tire, tire_json)
     simulator = LapSimulator(np.random.default_rng(0))
     prepared = simulator.prepare_deterministic_lap_time(driver, car, track, physical)
     row = []
-    for offset, surface in enumerate(projected_surfaces(
-        surface, track.total_laps - lap + 1, intervals,
-    )):
+    horizon = track.total_laps - lap + 1
+    if observed_surface:
+        projected = []
+        previous = 0
+        for interval in (range(horizon) if intervals is None else intervals):
+            for _ in range(interval - previous):
+                surface = surface.project_surface()
+            projected.append(surface)
+            previous = interval
+    else:
+        projected = projected_surfaces(surface, horizon, intervals)
+    for offset, surface in enumerate(projected):
         cancellation_checkpoint()
         if prepared is not None:
             value = prepared(tire, surface, lap + offset, age + offset)
@@ -573,25 +561,25 @@ def _running_row(models, weather_json, tire_json, age, lap, physical, intervals=
     return tuple(row)
 
 
-@lru_cache(maxsize=4096)
+@native_forecast_cache(maxsize=4096)
 def _surfaces(weather_json, horizon, intervals=None):
-    return tuple(surface.model_dump_json() for surface in projected_surfaces(
-        Weather.model_validate_json(weather_json), horizon, intervals,
+    return tuple(forecast_json(surface) for surface in projected_surfaces(
+        restore_model(Weather, weather_json), horizon, intervals,
     ))
 
 
-@lru_cache(maxsize=8192)
+@native_forecast_cache(maxsize=8192)
 def _fresh_future(models, weather_json, fresh_json, lap, budget, physical, intervals=None,
                   warmup_profile=()):
     """Best green cost after a fresh set is fitted; its service is excluded."""
     row = _running_row(models, weather_json, fresh_json, 0, lap, physical, intervals)
-    compound = Tire.model_validate_json(fresh_json).compound.value
+    compound = restore_model(Tire, fresh_json).compound.value
     fit_cost = dict(warmup_profile).get(compound, 0.0)
     total = sum(row) + fit_cost
     if budget == 0:
         return total
-    car = Car.model_construct(**json.loads(models[1]))
-    track = Track.model_validate_json(models[2])
+    car = restore_model(Car, models[1])
+    track = restore_model(Track, models[2])
     stop = track.pit_lane_delta + expected_stationary_time(car)
     surfaces = _surfaces(weather_json, len(row), intervals)
     # The first running lap is charged even when this fitted set is replaced
@@ -607,19 +595,19 @@ def _fresh_future(models, weather_json, fresh_json, lap, budget, physical, inter
     return total
 
 
-@lru_cache(maxsize=256)
+@native_forecast_cache(maxsize=256)
 def _plan(snapshots, tire_age, current_lap, budget, lane, queue, modifier, aero, physical,
           intervals=None, gaps=None, warmup_profile=(), current_fit_pending=False):
     models = snapshots[:3]
     weather_json, retained_json, fresh_json = snapshots[3:]
-    car = Car.model_construct(**json.loads(models[1]))
-    track = Track.model_validate_json(models[2])
+    car = restore_model(Car, models[1])
+    track = restore_model(Track, models[2])
     row = _running_row(models, weather_json, retained_json, tire_age, current_lap,
                        physical, intervals)
     fresh_row = _running_row(models, weather_json, fresh_json, 0, current_lap, physical, intervals)
     surfaces = _surfaces(weather_json, len(row), intervals)
     service = expected_stationary_time(car)
-    retained_compound = Tire.model_validate_json(retained_json).compound.value
+    retained_compound = restore_model(Tire, retained_json).compound.value
     current_fee = (dict(warmup_profile).get(retained_compound, 0.0)
                    if current_fit_pending else 0.0)
     wait = sum(row) + current_fee
@@ -643,13 +631,13 @@ def _plan(snapshots, tire_age, current_lap, budget, lane, queue, modifier, aero,
     )
     first_old, first_fresh = row[0], fresh_row[0]
     if not aero or gaps is not None:
-        driver = Driver.model_validate_json(models[0])
+        driver = restore_model(Driver, models[0])
         simulator = LapSimulator(np.random.default_rng(0))
-        weather = Weather.model_validate_json(weather_json)
+        weather = restore_model(Weather, weather_json)
         def first(tire_json, age, gap):
             driver.current_tire_laps = age
             return simulator.calculate_lap_time(
-                driver, car, track, Tire.model_validate_json(tire_json), weather,
+                driver, car, track, restore_model(Tire, tire_json), weather,
                 current_lap, physical, active_aero_enabled=aero, sample_variation=False,
                 gap_to_car_ahead=gap,
             )
@@ -659,6 +647,7 @@ def _plan(snapshots, tire_age, current_lap, budget, lane, queue, modifier, aero,
                             wait + first_old * modifier - row[0])
 
 
+@forecast_decision
 def plan_rain_stop(
     driver: Driver, car: Car, track: Track, weather: Weather, current_tire: Tire,
     tire_age: int, current_lap: int, remaining_stops: int, *, pit_lane_factor: float = 1.0,
@@ -728,7 +717,7 @@ def plan_rain_stop(
     # Keep every performance field, including consistency used to compute std.
     clean.id = clean.name = clean.team_id = "projection"
     clean_car = car.model_copy(update={"team_id": "projection", "team_name": "projection"})
-    snapshots = tuple(model.model_dump_json() for model in (
+    snapshots = tuple(forecast_json(model) for model in (
         clean, clean_car, track, weather, current_tire, TIRE_COMPOUNDS[current_tire.compound],
     ))
     return _plan(snapshots, int(tire_age), int(current_lap),
@@ -789,20 +778,20 @@ def _transition_stop_eligibility_row(surfaces, critical, compound, left, dry, da
     return tuple(row)
 
 
-@lru_cache(maxsize=256)
+@native_forecast_cache(maxsize=256)
 def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
                      modifier, aero, physical, dry_budget, damp_budget, intervals=None, gaps=None,
                      used_mask=8, warmup_profile=(), current_fit_pending=False):
     models = snapshots[:3]
     weather_json, retained_json, tires_json = snapshots[3:]
-    track = Track.model_validate_json(models[2])
-    car = Car.model_construct(**json.loads(models[1]))
-    fresh = {TireCompound(key): Tire.model_validate(value).model_dump_json()
+    track = restore_model(Track, models[2])
+    car = restore_model(Car, models[1])
+    fresh = {TireCompound(key): forecast_json(restore_model(Tire, value))
              for key, value in json.loads(tires_json).items()}
-    retained = Tire.model_validate_json(retained_json)
+    retained = restore_model(Tire, retained_json)
     horizon = track.total_laps - current_lap + 1
     surface_json = _surfaces(weather_json, horizon, intervals)
-    surfaces = [Weather.model_validate_json(value) for value in surface_json]
+    surfaces = [restore_model(Weather, value) for value in surface_json]
     cadence_suffixes = tuple(suffix_weather_intervals(intervals, offset, surface)
                              for offset, surface in enumerate(surfaces))
     service = expected_stationary_time(car)
@@ -893,7 +882,8 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
                 value = finished.value
                 if state is not None:
                     solved[state] = value
-                    _remember_transition(cache_key(state), value)
+                    if shared_forecast_available():
+                        _remember_transition(cache_key(state), value)
                 pending.pop()
                 continue
             if child in solved:
@@ -901,7 +891,8 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
                 continue
             key = cache_key(child)
             with _transition_suffix_lock:
-                value = _transition_suffixes.get(key)
+                value = (_transition_suffixes.get(key)
+                         if shared_forecast_available() else None)
                 if value is not None:
                     _transition_suffixes.move_to_end(key)
             if value is not None:
@@ -922,11 +913,11 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
         row = _running_row(models, weather_json, tire_json, age, current_lap, physical, intervals)
         if aero and gap is None:
             return row[0] * modifier - row[0]
-        driver = Driver.model_validate_json(models[0])
+        driver = restore_model(Driver, models[0])
         driver.current_tire_laps = age
         simulator = LapSimulator(np.random.default_rng(0))
         actual = simulator.calculate_lap_time(
-            driver, car, track, Tire.model_validate_json(tire_json), surfaces[0],
+            driver, car, track, restore_model(Tire, tire_json), surfaces[0],
             current_lap, physical, active_aero_enabled=aero, sample_variation=False,
             gap_to_car_ahead=gap,
         )
@@ -957,6 +948,7 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
     return RainTransitionDecision(pit, wait, compound)
 
 
+@forecast_decision
 def plan_rain_transition(
     driver: Driver, car: Car, track: Track, weather: Weather, current_tire: Tire,
     tire_age: int, current_lap: int, remaining_stops: int, *, pit_lane_factor: float = 1.0,
@@ -1079,9 +1071,9 @@ def plan_rain_transition(
     clean.reset_race_state()
     clean.id = clean.name = clean.team_id = "projection"
     clean_car = car.model_copy(update={"team_id": "projection", "team_name": "projection"})
-    snapshots = tuple(model.model_dump_json() for model in (
+    snapshots = tuple(forecast_json(model) for model in (
         clean, clean_car, track, weather, current_tire,
-    )) + (json.dumps({compound.value: tire.model_dump(mode="json")
+    )) + (json.dumps({compound.value: forecast_dump(tire)
                      for compound, tire in TIRE_COMPOUNDS.items()}, sort_keys=True),)
     return _transition_plan(
         snapshots, int(tire_age), int(current_lap),
@@ -1092,3 +1084,6 @@ def plan_rain_transition(
         None if remaining_damp_stops is None else int(remaining_damp_stops), intervals, gaps, mask,
         tuple(sorted(tire_warmup.items())), current_fit_pending,
     )
+
+
+register_forecast_helpers(globals(), ('_running_row', '_fresh_future', '_surfaces'))

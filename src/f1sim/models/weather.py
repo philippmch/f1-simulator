@@ -5,6 +5,7 @@ from enum import Enum
 import numpy as np
 from pydantic import BaseModel, Field
 
+from f1sim.models._native import register_forecast_values, register_native_model
 from f1sim.models.tire import TireCompound
 
 # Normalized surface response: drainage balances rainfall at the intensity target.
@@ -175,3 +176,8 @@ class Weather(BaseModel):
             # Heavy rain tends to persist
 
         return new_weather
+
+
+register_native_model(Weather)
+
+register_forecast_values(globals(), ("WETNESS_RESPONSE_PER_LAP",))

@@ -134,6 +134,16 @@ Custom tyre or projected weather
 objects also use its fallback; surface projection retains its existing input
 normalization. The shortcut preserves extension dispatch and seeded race behavior.
 
+Fixed field descriptors, custom attribute dispatch and nested sector/active-aero
+zone behavior are checked without executing custom getters. Their references
+come from the model definitions, so pre-import replacements also retain public
+lap dispatch. Unchanged native tyre and weather leaf methods remain dynamically
+invoked by the prepared evaluator. Shared forecast caches require native model
+and helper behavior; custom decisions keep isolated actual models and only local
+memoization. Equal schema values do not merge distinct custom tyre instances.
+Untimed projected surfaces intentionally use the base Weather schema, including
+when the caller supplies a Weather subclass.
+
 Automatic opening selection evaluates one deterministic policy path per distinct
 compound and prior age. Equivalent physical IDs receive the same score in their
 original order. The complete pool remains available throughout each path, and

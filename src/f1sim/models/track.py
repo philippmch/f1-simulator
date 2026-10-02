@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel, Field
 
+from f1sim.models._native import register_native_model
+
 
 class Sector(BaseModel):
     """Represents a track sector."""
@@ -126,3 +128,8 @@ class Track(BaseModel):
 
 # Keep the descriptor itself so eligibility checks never invoke custom getters.
 _NATIVE_TOTAL_ACTIVE_AERO_GAIN = Track.total_active_aero_gain
+
+
+register_native_model(Sector)
+register_native_model(ActiveAeroZone)
+register_native_model(Track)

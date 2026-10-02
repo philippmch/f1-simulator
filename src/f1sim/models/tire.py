@@ -4,6 +4,8 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
+from f1sim.models._native import register_native_model
+
 
 class TireCompound(str, Enum):
     """Available tire compounds."""
@@ -132,3 +134,6 @@ TIRE_COMPOUNDS = {
         cliff_multiplier=2.0,
     ),
 }
+
+
+register_native_model(Tire)

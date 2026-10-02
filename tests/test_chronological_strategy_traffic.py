@@ -7,6 +7,7 @@ import pytest
 
 from f1sim.models import Car, Driver, TireCompound, Track, Weather
 from f1sim.simulation.chronological_race import ChronologicalRace
+from f1sim.simulation.pit_strategy import expected_stationary_time
 from f1sim.simulation.race import DriverStatus, RaceSimulator
 
 
@@ -150,6 +151,119 @@ def test_native_weather_stop_rejoins_behind_lapped_rival_at_two_crossing_ties(mo
     )
     assert stop["decision_reason"] == "critical_weather"
     assert stop["queue_time"] == 0
+
+
+def test_native_weather_stop_forecasts_rival_pending_fit_fee_before_service_exit(monkeypatch):
+    fit_fee = 20
+    simulator = RaceSimulator(np.random.default_rng(23), tire_warmup={"wet": fit_fee})
+    engine = ChronologicalRace(simulator)
+    drivers = [Driver(id=key, name=key, team_id=key) for key in "AB"]
+    cars = {key: Car(team_id=key, team_name=key) for key in "AB"}
+    track = Track(id="t", name="T", country="T", total_laps=2,
+                  base_lap_time=1, pit_lane_delta=.1)
+    monkeypatch.setattr(simulator.lap_simulator, "calculate_lap_time",
+                        lambda *a, **k: track.base_lap_time)
+    # Align actual service with its native mean to isolate the pending fitting fee.
+    monkeypatch.setattr(simulator.lap_simulator, "calculate_pit_stop_time",
+                        expected_stationary_time)
+    monkeypatch.setattr(simulator.event_manager, "process_lap", lambda *a, **k: [])
+    monkeypatch.setattr(simulator.event_manager, "_check_mechanical_failure", lambda *a: None)
+    monkeypatch.setattr(simulator.event_manager, "_check_random_incident", lambda *a, **k: None)
+    monkeypatch.setattr(simulator.overtaking_model, "attempt_overtake",
+                        lambda *a, **k: (True, False))
+    monkeypatch.setattr(
+        Weather, "evolve", lambda self, rng: self.model_copy(
+            update={"track_wetness": 0, "rain_intensity": 0}, deep=True,
+        ),
+    )
+    native_start = engine._start_lap
+
+    def force_rival_service(state, now, **kwargs):
+        if state.driver.id == "B" and state.laps_completed == 0:
+            # Forced execution bypasses the elective finish-distance protection.
+            state.force_pit_next_lap = True
+            state.pit_plan_target = TireCompound.WET
+        return native_start(state, now, **kwargs)
+
+    monkeypatch.setattr(engine, "_start_lap", force_rival_service)
+    native_should_pit = simulator._should_pit
+    decision = {}
+
+    def record_decision(state, states, planning, lap, *args, **kwargs):
+        should_pit = native_should_pit(state, states, planning, lap, *args, **kwargs)
+        if state.driver.id == "A" and lap == 2:
+            rival = engine.pending["B"]
+            decision.update(
+                should_pit=should_pit, snapshot=kwargs["traffic_snapshot"],
+                rival_on_track=rival.on_track,
+                rival_in_service=any(
+                    record.driver_id == "B"
+                    and record.service_start <= state.total_time < record.service_end
+                    for record in engine.pit_service_records
+                ),
+                rival_fit_pending=engine.states["B"].fit_lap_pending,
+                rival_compound=engine.states["B"].current_tire.compound,
+                rival_exit=engine._pending_service_exit("B", rival, state.total_time),
+                candidate_exit=(state.total_time + track.pit_lane_delta
+                                * simulator._pit_lane_factor()
+                                + expected_stationary_time(state.car)),
+            )
+        return should_pit
+
+    monkeypatch.setattr(simulator, "_should_pit", record_decision)
+    native_begin = engine._begin_running
+    entry, rival_run, fees = {}, {}, []
+
+    def record_begin(state, pending, now):
+        native_begin(state, pending, now)
+        if state.driver.id == "B" and pending.lap == 1:
+            rival_run.update(start=now, duration=pending.ready - now,
+                             fit_pending=state.fit_lap_pending)
+        if state.driver.id == "A" and pending.lap == 2:
+            entry.update(time=now, gap=pending.detected_gap, order=tuple(engine.order))
+
+    monkeypatch.setattr(engine, "_begin_running", record_begin)
+    native_consume = simulator._consume_tire_warmup
+
+    def record_fee(state):
+        fee = native_consume(state)
+        if state.driver.id == "B" and fee:
+            fees.append(fee)
+        return fee
+
+    monkeypatch.setattr(simulator, "_consume_tire_warmup", record_fee)
+    engine.run(
+        drivers, cars, track, Weather(track_wetness=.5, rain_intensity=.1), list("AB"),
+        starting_tires={key: TireCompound.INTERMEDIATE for key in "AB"},
+    )
+
+    assert decision["should_pit"] is True
+    assert decision["rival_on_track"] is False and decision["rival_fit_pending"] is True
+    assert decision["rival_in_service"] is True
+    assert decision["rival_compound"] == TireCompound.WET
+    assert decision["rival_exit"] == pytest.approx(
+        track.pit_lane_delta + expected_stationary_time(cars["B"]),
+    )
+    assert decision["candidate_exit"] - decision["rival_exit"] == pytest.approx(
+        track.base_lap_time,
+    )
+    expected_gap = track.base_lap_time ** 2 / (track.base_lap_time + fit_fee)
+    snapshot = decision["snapshot"]
+    assert snapshot.current_traffic_gaps[0] is None
+    assert snapshot.current_traffic_gaps[1] == pytest.approx(expected_gap)
+    assert entry["gap"] == pytest.approx(snapshot.current_traffic_gaps[1])
+    assert entry["time"] == pytest.approx(decision["candidate_exit"])
+    assert entry["order"] == ("B", "A")
+    assert rival_run["start"] == pytest.approx(decision["rival_exit"])
+    assert rival_run["duration"] == pytest.approx(track.base_lap_time + fit_fee)
+    rival_crossing, = [time for driver, lap, time in engine.crossings if driver == "B" and lap == 1]
+    assert rival_crossing - rival_run["start"] == pytest.approx(track.base_lap_time + fit_fee)
+    assert rival_run["fit_pending"] is False
+    assert fees == [fit_fee]
+    stop = engine.states["A"].pit_stop_details[0]
+    assert (stop["from_compound"], stop["to_compound"], stop["decision_reason"]) == (
+        "intermediate", "soft", "critical_weather",
+    )
 
 
 def pending_fixture(monkeypatch):

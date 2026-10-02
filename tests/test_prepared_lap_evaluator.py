@@ -14,6 +14,45 @@ from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
 from f1sim.simulation.lap import LapSimulator, minimum_lap_time
 
 
+@pytest.mark.parametrize("owner,field", [
+    (Driver, "skill_rating"), (Car, "straight_line_speed"),
+    (Track, "base_lap_time"), (Sector, "base_time"), (ActiveAeroZone, "time_gain"),
+])
+def test_preparation_rejects_fixed_field_descriptors_without_getter_calls(
+    monkeypatch, owner, field,
+):
+    driver, car, track = _models()
+    calls = []
+
+    def custom(self):
+        calls.append(1)
+        return self.__dict__[field]
+
+    monkeypatch.setattr(owner, field, property(custom), raising=False)
+    prepared = LapSimulator().prepare_deterministic_lap_time(driver, car, track, track.total_laps)
+    assert prepared is None
+    assert not calls
+
+
+@pytest.mark.parametrize("name", ["minimum_lap_time", "_track_profile_from_values",
+                                  "_track_car_delta_from_values",
+                                  "_weather_pace_multiplier_from_values"])
+def test_preparation_rejects_replaced_module_helpers(monkeypatch, name):
+    from f1sim.simulation import lap
+
+    driver, car, track = _models()
+    calls = []
+
+    def custom(*args):
+        calls.append(1)
+        raise AssertionError("Eligibility must not execute replacement helpers")
+
+    monkeypatch.setattr(lap, name, custom)
+    prepared = LapSimulator().prepare_deterministic_lap_time(driver, car, track, track.total_laps)
+    assert prepared is None
+    assert not calls
+
+
 def _run_preimport_hook_script(model_kind, body):
     """Install a stateful model hook before a fresh interpreter imports lap."""
     setup = dedent('''

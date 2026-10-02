@@ -6,7 +6,6 @@ lap uses supplied traffic gaps; future traffic, weather and tyre inventory
 are deliberately outside this projection.
 """
 
-import json
 from dataclasses import dataclass
 from functools import lru_cache
 from math import erf, exp, inf, pi, sqrt
@@ -16,6 +15,15 @@ import numpy as np
 
 from f1sim.cancellation import cancellation_checkpoint
 from f1sim.models import Car, Driver, Tire, Track, Weather
+from f1sim.models._native import (
+    forecast_decision,
+    forecast_json,
+    native_forecast_cache,
+    register_forecast_helpers,
+    register_forecast_values,
+    restore_model,
+    shared_forecast_available,
+)
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.strategy_traffic import normalize_current_traffic_gaps
@@ -51,12 +59,12 @@ def _full_row(driver, car, track, tire, age, lap, physical, scale, aero=True, ga
     return result
 
 
-@lru_cache(maxsize=32)
+@native_forecast_cache(maxsize=32)
 def _floor_tables(models, fresh, physical, scale, warmup_profile=()):
     """Absolute clean-air costs for suffixes with lap-dependent fuel and clipping."""
-    driver = Driver.model_validate_json(models[0])
-    car = Car.model_construct(**json.loads(models[1]))
-    track = Track.model_validate_json(models[2])
+    driver = restore_model(Driver, models[0])
+    car = restore_model(Car, models[1])
+    track = restore_model(Track, models[2])
     end = track.total_laps
     prefixes = {}
     warmup = dict(warmup_profile)
@@ -64,7 +72,7 @@ def _floor_tables(models, fresh, physical, scale, warmup_profile=()):
         cancellation_checkpoint()
         for c, tire_json in enumerate(fresh):
             prefixes[lap, c] = np.cumsum(_full_row(
-                driver, car, track, Tire.model_validate_json(tire_json),
+                driver, car, track, restore_model(Tire, tire_json),
                 0, lap, physical, scale,
                 first_fit_cost=warmup.get(SLICKS[c].value, 0.0),
             ))
@@ -99,8 +107,8 @@ def _floor_plan(driver, car, track, tire, age, lap, budget, mask,
     projection.id = projection.name = projection.team_id = "projection"
     package = car.model_copy(deep=True)
     package.team_id = package.team_name = "projection"
-    models = (projection.model_dump_json(), package.model_dump_json(), track.model_dump_json())
-    fresh = tuple(TIRE_COMPOUNDS[c].model_dump_json() for c in SLICKS)
+    models = (forecast_json(projection), forecast_json(package), forecast_json(track))
+    fresh = tuple(forecast_json(TIRE_COMPOUNDS[c]) for c in SLICKS)
     costs, prefixes = _floor_tables(models, fresh, physical, scale, warmup_profile)
     wait_mask = mask | (1 << SLICKS.index(tire.compound)) if tire.compound in SLICKS else mask
     warmup = dict(warmup_profile)
@@ -171,7 +179,7 @@ def _tire_key(tire: Tire) -> tuple:
             tire.cliff_threshold, tire.cliff_multiplier)
 
 
-@lru_cache(maxsize=512)
+@native_forecast_cache(maxsize=512)
 def _pace_curve(base: float, management: float, degradation: float, stress: float,
                 tire_key: tuple, horizon: int) -> tuple[float, ...]:
     compound, grip, rate, cliff, multiplier = tire_key
@@ -184,7 +192,7 @@ def _pace_curve(base: float, management: float, degradation: float, stress: floa
                  for age in range(horizon))
 
 
-@lru_cache(maxsize=64)
+@native_forecast_cache(maxsize=64)
 def _fresh_tables(physics: tuple, tire_keys: tuple, horizon: int,
                   green_cost: float, warmup_profile=()) -> tuple[np.ndarray, np.ndarray]:
     """Cost/compound when buying a fresh set now, indexed stops, used mask, laps.
@@ -240,6 +248,7 @@ class DryPitDecision:
         )
 
 
+@forecast_decision
 def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
                   tire_age: int, remaining_laps: int, remaining_stops: int,
                   used_compounds: set[TireCompound], wet_exemption: bool = False,
@@ -276,7 +285,7 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
     # If even it stays above the floor, common full-lap terms still cancel.
     fastest = _full_row(driver, car, track, TIRE_COMPOUNDS[TireCompound.SOFT],
                         0, track.total_laps, physical, tire_pace_multiplier)[0]
-    if fastest <= track.base_lap_time * 0.95:
+    if not shared_forecast_available() or fastest <= track.base_lap_time * 0.95:
         return _floor_plan(driver, car, track, current_tire, tire_age, lap,
                            remaining_stops, mask, physical, tire_pace_multiplier,
                            active_aero_enabled, current_lap_time_modifier,
@@ -347,3 +356,9 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
     # A committed teammate affects only this stop, never cached future plans.
     pit_now_cost += track.pit_lane_delta * (pit_lane_factor - 1) + additional_current_stop_cost
     return DryPitDecision(pit_now_cost, wait_cost, SLICKS[c] if c >= 0 else None)
+
+
+register_forecast_helpers(globals(), ('_full_row', 'expected_stationary_time', '_expected_service',
+                                      '_pace_curve', '_tire_key'))
+
+register_forecast_values(globals(), ("SLICKS",))

@@ -6,9 +6,8 @@ from functools import lru_cache
 import numpy as np
 
 from f1sim.models import Car, Driver, Tire, Track, Weather
-from f1sim.models.car import _NATIVE_PACE_DELTA_SECONDS
+from f1sim.models._native import native_model
 from f1sim.models.tire import TireCompound
-from f1sim.models.track import _NATIVE_TOTAL_ACTIVE_AERO_GAIN
 from f1sim.simulation.surface_projection import projected_surfaces
 
 # The execution floor is an absolute fraction of the circuit reference lap.
@@ -278,16 +277,8 @@ class LapSimulator:
         """
         if not self._native_deterministic_evaluator_available():
             return None
-        if (type(driver) is not Driver or type(car) is not Car
-                or type(track) is not Track):
+        if not all(native_model(model) for model in (driver, car, track)):
             return None
-        # These model helpers are evaluated once and captured below. Custom
-        # helpers may depend on state outside serialized fields, so retain
-        # their public per-lap dispatch instead of treating them as constants.
-        for model, (owner, name, native) in zip((car, track), _NATIVE_FIXED_MODEL_HOOKS):
-            if (getattr(owner, name) is not native or name in model.__dict__
-                    or name in (model.__pydantic_extra__ or {})):
-                return None
         if type(total_laps) is not int or total_laps <= 0:
             raise ValueError("total_laps must be a positive integer")
 
@@ -382,7 +373,7 @@ class LapSimulator:
         # The method references are populated after class creation below.  A
         # small helper keeps the guard readable and also handles instance-level
         # monkeypatches of ``calculate_lap_time``.
-        if type(self) is not LapSimulator:
+        if type(self) is not LapSimulator or not native_lap_helpers():
             return False
         if any(name in self.__dict__ for name in _NATIVE_METHODS):
             return False
@@ -688,7 +679,28 @@ _NATIVE_METHODS = {
     )
 }
 
-_NATIVE_FIXED_MODEL_HOOKS = (
-    (Car, "pace_delta_seconds", _NATIVE_PACE_DELTA_SECONDS),
-    (Track, "total_active_aero_gain", _NATIVE_TOTAL_ACTIVE_AERO_GAIN),
-)
+_NATIVE_MODULE_HELPERS = {
+    name: globals()[name] for name in (
+        "minimum_lap_time", "_track_profile_from_values", "_track_car_delta_from_values",
+        "_weather_pace_multiplier_from_values",
+    )
+}
+_NATIVE_FACTORS = dict(LapSimulator._COMPOUND_PACE_FACTORS)
+_NATIVE_FLOOR = MIN_LAP_TIME_FRACTION
+_NATIVE_PREPARATION = LapSimulator.prepare_deterministic_lap_time
+_NATIVE_AVAILABILITY = LapSimulator._native_deterministic_evaluator_available
+
+
+def native_lap_helpers():
+    return (all(globals()[name] is value for name, value in _NATIVE_MODULE_HELPERS.items())
+            and type(LapSimulator._COMPOUND_PACE_FACTORS) is dict
+            and LapSimulator._COMPOUND_PACE_FACTORS == _NATIVE_FACTORS
+            and MIN_LAP_TIME_FRACTION == _NATIVE_FLOOR)
+
+
+def native_lap_physics():
+    return (native_lap_helpers()
+            and LapSimulator.prepare_deterministic_lap_time is _NATIVE_PREPARATION
+            and LapSimulator._native_deterministic_evaluator_available is _NATIVE_AVAILABILITY
+            and all(_method_function(getattr(LapSimulator, name)) is value
+                    for name, value in _NATIVE_METHODS.items()))

@@ -248,11 +248,9 @@ def test_current_queue_changes_reuse_green_physics(monkeypatch):
     args = inputs(laps=10, wetness=.19)
     initial = plan_rain_transition(*args, 1, 2, 3)
 
-    def unexpected(*args, **kwargs):
-        pytest.fail("A queue-only change must reuse the existing green stint physics")
-
-    monkeypatch.setattr(LapSimulator, "calculate_lap_time", unexpected)
+    before = rain_strategy._running_row.cache_info().hits
     changed = plan_rain_transition(*args, 1, 2, 3, additional_current_stop_cost=7)
+    assert rain_strategy._running_row.cache_info().hits > before
     assert changed.wait_cost == initial.wait_cost
     assert changed.pit_now_cost == pytest.approx(initial.pit_now_cost + 7)
 

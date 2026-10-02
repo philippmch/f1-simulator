@@ -103,13 +103,6 @@ def test_clipped_fresh_pace_does_not_justify_a_losing_stop():
 def test_full_tables_reuse_physics_and_invalidate_changed_inputs(monkeypatch):
     driver, car, track = models(6)
     pit_strategy._floor_tables.cache_clear()
-    calculate = LapSimulator.calculate_lap_time
-
-    def deterministic(self, *args, **kwargs):
-        assert kwargs["sample_variation"] is False
-        return calculate(self, *args, **kwargs)
-
-    monkeypatch.setattr(LapSimulator, "calculate_lap_time", deterministic)
     def decide():
         return plan_dry_stop(driver, car, track, TIRE_COMPOUNDS[TireCompound.SOFT],
                              25, 4, 2, {TireCompound.SOFT, TireCompound.MEDIUM})
