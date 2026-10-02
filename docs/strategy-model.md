@@ -372,10 +372,14 @@ apply to later paid changes; the opening set is already ready to run.
 This is an approximate comparison of the current policy under sustained
 conditions, not a global wet-strategy optimizer or a forecast of changing rain,
 traffic, or incidents. Close choices can depend on the sampled reaction paths.
-The isolated runs follow the default automatic later pit policy. Custom paid-stop
-plans alter subsequent execution and are not optimized by this comparison.
+The isolated runs follow the default automatic later pit policy, or this driver's
+supplied [custom pit plan](custom-pit-plans.md). An explicit empty plan suppresses
+elective stops; unsafe or unavailable requests and mandatory corrections use the
+same decisions as actual execution. The supplied schedule is retained, rather
+than searching for a different one. Dry, wet and finite-pool opening comparisons
+all account for it. Explicit opening compounds and ages keep priority.
 Results are cached with a bounded capacity, including the driver, car, circuit,
-weather, tyre configuration, strategy settings and race time limit. Dry,
+weather, tyre configuration, strategy settings, supplied pit plan and race time limit. Dry,
 precautionary and finite-pool scores share the same input normalization: driver
 and team names and previous race state do not create new physics. Changing the
 deadline recomputes the completed-distance ranking before a new opening is
@@ -392,6 +396,17 @@ sooner than the threshold-recommended full wets. All fourteen engine/case
 comparisons match the fastest safe executed opening policy. This checks the
 existing later pit policy under fixed rainfall, not every possible schedule or
 real-world tyre performance. `--engine` selects either engine or both.
+
+Add `--custom-plans` to check twelve custom-policy cases in both engines:
+empty, early, late and repeated-compound plans; unsafe requests; prescribed
+weather; finite pools with used and equivalent physical sets; fitting costs;
+and instructions beyond a timed finish. All twenty-four comparisons must match
+the best safe executed opening, comparing completed distance before elapsed time.
+Finite alternatives preserve both compound and prior wear. In the synthetic
+60-lap, high-wear case with no elective stops, starting on hard tyres saves about
+107 model seconds against the former automatic medium opening. These checks
+validate the conditional implementation, without calibrating real tyre pace
+or establishing an optimal custom pit schedule.
 
 Run `python examples/check_opening_policy_execution.py` to compare the isolated
 opening-policy path with actual execution. The default diagnostic runs seven

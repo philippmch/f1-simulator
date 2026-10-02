@@ -21,7 +21,6 @@ from f1sim.simulation.finish_strategy import ReplacementOption, evaluate_finish_
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.neutralization import safety_car_running_time
 from f1sim.simulation.pit_plans import (
-    current_pit_plan_instruction,
     finalize_pit_plan,
     initialize_pit_plan_state,
     override_pit_plan_instruction,
@@ -138,17 +137,22 @@ class ChronologicalRace:
                 continue
             car = cars[driver.team_id]
             style = self.simulator._infer_team_strategy(car, track)
+            pit_plan = normalized_pit_plans.get(driver_id)
             inventory = selected_set = None
             if driver_id in inventories:
                 inventory, selected_set = self.simulator._inventory_opening_set(
                     driver, car, track, self.weather, style, inventories[driver_id],
                     starting_tires.get(driver_id), ages.get(driver_id, 0),
+                    **({"pit_plan": pit_plan} if pit_plan is not None else {}),
                 )
                 compound = selected_set.compound
+            elif driver_id in starting_tires:
+                compound = starting_tires[driver_id]
             else:
-                compound = ((starting_tires or {}).get(driver_id)
-                            or self.simulator._choose_starting_compound(style, track, self.weather,
-                                                                       driver, car))
+                compound = self.simulator._choose_starting_compound(
+                    style, track, self.weather, driver, car,
+                    **({"pit_plan": pit_plan} if pit_plan is not None else {}),
+                )
             driver.current_tire_laps = ages.get(driver_id, 0)
             plans = self.simulator._plan_pit_lap_options(style, track)
             self.states[driver_id] = DriverRaceState(
@@ -157,10 +161,7 @@ class ChronologicalRace:
                 tire_laps=ages.get(driver_id, 0), prior_tire_laps=ages.get(driver_id, 0),
                 strategy_archetype=style, planned_pit_laps=plans[0], pit_plan_options=plans,
             )
-            initialize_pit_plan_state(
-                self.states[driver_id], normalized_pit_plans.get(driver_id)
-                if driver_id in normalized_pit_plans else None,
-            )
+            initialize_pit_plan_state(self.states[driver_id], pit_plan)
             if inventory is not None:
                 self.simulator._initialize_inventory(
                     self.states[driver_id], inventory, selected_set,
@@ -805,20 +806,12 @@ class ChronologicalRace:
             # Forced execution bypasses policy; stale elective context must
             # not survive to the forced record.
             state.pit_decision_context = None
-        custom_stop = self.simulator._prepare_pit_plan_stop(
+        custom_stop = self.simulator._custom_pit_plan_decision(
             state, planning, self.weather, lap,
-        )
-        explicit_plan_suppresses = (
-            state.pit_plan is not None
-            and current_pit_plan_instruction(state, lap) is None
-            and not control.red_flag_active
-            and self.simulator._pit_plan_compulsory_reason(
-                state, planning, self.weather, lap,
-            ) is None
         )
         if custom_stop is True:
             stop = True
-        elif custom_stop is False or explicit_plan_suppresses:
+        elif custom_stop is False:
             stop = False
         else:
             stop = forced_repair or self.simulator._should_pit(

@@ -12,7 +12,10 @@ from f1sim.simulation.race import RaceSimulator, TeamStrategyArchetype
 
 
 @pytest.mark.parametrize("wetness,rain", [(0., 0.), (.18, .35), (.3, 0.)])
-def test_equivalent_scores_match_independent_per_identity_paths(monkeypatch, wetness, rain):
+@pytest.mark.parametrize("pit_plan", [None, [], [{"lap": 4, "compound": "hard"}]])
+def test_equivalent_scores_match_independent_per_identity_paths(
+    monkeypatch, wetness, rain, pit_plan,
+):
     driver = Driver(id="projection", name="projection", team_id="projection")
     car = Car(team_id="projection", team_name="projection")
     track = Track(id="t", name="T", country="T", total_laps=6, base_lap_time=90)
@@ -33,7 +36,7 @@ def test_equivalent_scores_match_independent_per_identity_paths(monkeypatch, wet
     expected = []
     for item in eligible:
         laps, time = original(*args, TireCompound(item["compound"]), 0,
-                              tire_inventory=records, opening_set_id=item["id"])
+                              tire_inventory=records, opening_set_id=item["id"], pit_plan=pit_plan)
         expected.append((item["id"], opening_strategy.OpeningPolicyScore(
             -laps if time != inf else inf, time)))
     calls = []
@@ -45,7 +48,7 @@ def test_equivalent_scores_match_independent_per_identity_paths(monkeypatch, wet
 
     opening_strategy._cached_inventory_policy_costs.cache_clear()
     monkeypatch.setattr(opening_strategy, "_policy_path_outcome", observe)
-    result = opening_strategy.inventory_opening_policy_costs(*args, records)
+    result = opening_strategy.inventory_opening_policy_costs(*args, records, pit_plan=pit_plan)
     assert result == tuple(expected)
     assert len(calls) == len({(item["compound"], item["age"]) for item in eligible})
     assert len(calls) < len(eligible)

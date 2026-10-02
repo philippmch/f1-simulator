@@ -439,6 +439,7 @@ class RaceSimulator(InventoryStrategyMixin):
                 continue
 
             strategy = self._infer_team_strategy(car, track)
+            pit_plan = normalized_pit_plans.get(driver_id)
 
             # Starting tyres are a strategy decision, not a hidden grid-
             # position rule.  Explicit caller overrides remain authoritative;
@@ -449,6 +450,7 @@ class RaceSimulator(InventoryStrategyMixin):
                 inventory, selected_set = self._inventory_opening_set(
                     driver, car, track, current_weather, strategy, inventories[driver_id],
                     starting_tires.get(driver_id), ages.get(driver_id, 0),
+                    **({"pit_plan": pit_plan} if pit_plan is not None else {}),
                 )
                 tire_compound = selected_set.compound
             elif starting_tires and driver_id in starting_tires:
@@ -460,6 +462,7 @@ class RaceSimulator(InventoryStrategyMixin):
                     current_weather,
                     driver,
                     car,
+                    **({"pit_plan": pit_plan} if pit_plan is not None else {}),
                 )
 
             driver.current_tire_laps = ages.get(driver_id, 0)
@@ -478,10 +481,7 @@ class RaceSimulator(InventoryStrategyMixin):
                     active_pit_plan_index=0,
                 )
             )
-            initialize_pit_plan_state(
-                states[-1], normalized_pit_plans.get(driver_id)
-                if driver_id in normalized_pit_plans else None,
-            )
+            initialize_pit_plan_state(states[-1], pit_plan)
             if inventory is not None:
                 self._initialize_inventory(states[-1], inventory, selected_set)
 
@@ -961,6 +961,7 @@ class RaceSimulator(InventoryStrategyMixin):
         weather: Weather,
         driver: Driver | None = None,
         car: Car | None = None,
+        *, pit_plan: list[dict] | None = None,
     ) -> TireCompound:
         """Choose a plausible opening tyre set for the current conditions.
 
@@ -971,6 +972,8 @@ class RaceSimulator(InventoryStrategyMixin):
         Dry starts use seeded probabilities shaped by team strategy, tyre
         stress, race length and overtaking difficulty. With driver/car context,
         complete-race costs restrict those probabilities to optimal opening sets.
+        A supplied custom pit plan replaces elective automatic stops in those
+        comparisons; its compulsory safety and compound corrections remain.
         """
         if (self.weather_forecast_context is not None and self.weather_forecast_context.schedule
                 and driver is not None and car is not None):
@@ -979,6 +982,7 @@ class RaceSimulator(InventoryStrategyMixin):
                 self.strategy_tuning, self.strategy_profiles,
                 **({"tire_warmup": self.tire_warmup} if self.tire_warmup else {}),
                 **self._forecast_options(),
+                **({"pit_plan": pit_plan} if pit_plan is not None else {}),
             )
             return min(costs, key=lambda candidate: candidate[1])[0]
         weather_compound = self._choose_weather_compound(weather)
@@ -994,6 +998,7 @@ class RaceSimulator(InventoryStrategyMixin):
                     self.strategy_tuning, self.strategy_profiles,
                     **({"tire_warmup": self.tire_warmup} if self.tire_warmup else {}),
                     **self._forecast_options(),
+                    **({"pit_plan": pit_plan} if pit_plan is not None else {}),
                 )
                 if costs:
                     return min(costs, key=lambda candidate: candidate[1])[0]
@@ -1035,6 +1040,7 @@ class RaceSimulator(InventoryStrategyMixin):
                 self.strategy_tuning, self.strategy_profiles,
                 **({"tire_warmup": self.tire_warmup} if self.tire_warmup else {}),
                 **self._forecast_options(),
+                **({"pit_plan": pit_plan} if pit_plan is not None else {}),
             )
             best = min(score for _, score in scores)
             if np.isfinite(best.mean_time):
@@ -1239,6 +1245,18 @@ class RaceSimulator(InventoryStrategyMixin):
         }
         return True
 
+    def _custom_pit_plan_decision(self, state, track, weather, lap):
+        """Share requested stops and elective suppression with opening projections."""
+        requested = self._prepare_pit_plan_stop(state, track, weather, lap)
+        if requested is not None:
+            return requested
+        if (state.pit_plan is not None
+                and current_pit_plan_instruction(state, lap) is None
+                and not self.event_manager.red_flag_active
+                and self._pit_plan_compulsory_reason(state, track, weather, lap) is None):
+            return False
+        return None
+
     @staticmethod
     def _commit_pit_plan_if_due(state: DriverRaceState, *, overridden=False):
         """Commit the due request after a caller has completed service."""
@@ -1304,16 +1322,10 @@ class RaceSimulator(InventoryStrategyMixin):
                 # A forced stop bypasses policy evaluation.  Any proposal
                 # left by an earlier veto must not label this execution.
                 state.pit_decision_context = None
-            custom_stop = self._prepare_pit_plan_stop(state, track, weather, lap)
-            explicit_plan_suppresses = (
-                state.pit_plan is not None
-                and current_pit_plan_instruction(state, lap) is None
-                and not self.event_manager.red_flag_active
-                and self._pit_plan_compulsory_reason(state, track, weather, lap) is None
-            )
+            custom_stop = self._custom_pit_plan_decision(state, track, weather, lap)
             if custom_stop is True:
                 should_pit = True
-            elif custom_stop is False or explicit_plan_suppresses:
+            elif custom_stop is False:
                 should_pit = False
             else:
                 should_pit = forced_repair or self._should_pit(
@@ -3130,8 +3142,13 @@ class RaceSimulator(InventoryStrategyMixin):
         return weather.tire_mismatch(tire.compound)
 
 
-register_forecast_helpers(globals(), ("has_prescribed_weather", "paid_compound_candidates"))
+register_forecast_helpers(globals(), (
+    "has_prescribed_weather", "paid_compound_candidates", "current_pit_plan_instruction",
+    "skip_pit_plan_instruction", "override_pit_plan_instruction", "commit_pit_plan_service",
+))
 register_forecast_helpers(vars(RaceSimulator), (
     "_has_weather_schedule", "_choose_forecast_paid_compound",
     "_automatic_weather_fit_is_eligible", "_pit_plan_satisfies_rule",
+    "_custom_pit_plan_decision", "_prepare_pit_plan_stop", "_pit_plan_compulsory_reason",
+    "_pit_plan_replacement", "_commit_pit_plan_if_due",
 ))

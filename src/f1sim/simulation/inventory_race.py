@@ -28,7 +28,7 @@ class InventoryStrategyMixin:
     """Finite-set execution shares the race's clocks, physics and stop limits."""
 
     def _inventory_opening_set(self, driver, car, track, weather, strategy, records,
-                               compound=None, age=0):
+                               compound=None, age=0, *, pit_plan=None):
         from f1sim.simulation.opening_strategy import inventory_opening_policy_costs
 
         inventory = TireInventory.from_sets(records)
@@ -41,6 +41,7 @@ class InventoryStrategyMixin:
                 self.strategy_profiles, records,
                 **({"tire_warmup": self.tire_warmup} if self.tire_warmup else {}),
                 **self._forecast_options(),
+                **({"pit_plan": pit_plan} if pit_plan is not None else {}),
             )
             selected = inventory.sets[min(scores, key=lambda item: item[1])[0]]
         return inventory, selected

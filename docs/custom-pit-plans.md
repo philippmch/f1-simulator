@@ -48,9 +48,15 @@ pool when one is supplied. Validation does not guarantee that the set will
 remain available after incidents or earlier use.
 
 Opening tyres remain a separate input. Without an opening override, the
-existing automatic opening policy is used; it does not optimize against the
-custom future schedule. Supply an opening explicitly when testing a complete
-tyre sequence.
+automatic selector compares opening choices while executing this driver's
+custom plan in its isolated projections. An empty plan suppresses elective
+stops in those comparisons too. Compulsory corrections, actual compound use,
+finite-set wear and the timed race finish remain active. The selector compares
+completed distance before elapsed time, using mean pace and expected service;
+it does not search for a different pit schedule or predict traffic and incidents.
+Unlisted drivers retain the automatic later policy. Supply an opening
+explicitly when testing a complete tyre sequence; its compound and age remain
+authoritative.
 
 ## Requested stops and actual execution
 
