@@ -145,6 +145,8 @@ def build_fixture():
                 {"T": Car(team_id="T", team_name="Team")},
                 Track(id="t", name="Test", country="Test", total_laps=5, base_lap_time=90),
                 Weather(change_probability=0), seed=41, starting_tires={"A": compound},
+                qualifying_weather={"Q1": {"condition": "heavy_rain",
+                    "rain_intensity": 0.8, "track_wetness": 0.8}},
             ).run(3, parallel=False)
             for compound in ("soft", "hard")
         }

@@ -16,6 +16,7 @@ Examples:
 """
 
 import argparse
+import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,6 +40,7 @@ from f1sim.simulation.execution import (
     validate_starting_tire_ages,
     validate_starting_tires,
 )
+from f1sim.simulation.qualifying_weather import validate_qualifying_weather
 
 MAX_SIMULATIONS = 1000
 MAX_WORKERS = 16
@@ -132,6 +134,13 @@ def _starting_tires(value: str) -> tuple[dict[str, str], dict[str, int]]:
         raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
+def _qualifying_weather(value: str) -> dict[str, dict]:
+    try:
+        return validate_qualifying_weather(json.loads(value))
+    except (ValueError, TypeError) as exc:
+        raise argparse.ArgumentTypeError(f"qualifying weather: {exc}") from exc
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Simulate F1 race with Monte Carlo")
     parser.add_argument(
@@ -222,6 +231,11 @@ def main() -> int:
         "--tire-warmup", type=_tire_warmup,
         help="Assumed first-lap cost after fitting, e.g. soft=0.5,medium=1 (seconds, 0-60). "
              "Disabled by default; opening and qualifying tyres are ready. Not calibrated.",
+    )
+    parser.add_argument(
+        "--qualifying-weather", type=_qualifying_weather,
+        help='Optional JSON object with Q1/Q2/Q3 Weather fields; each session is fixed. '
+             'Omitted sessions use each race scenario weather.',
     )
     args = parser.parse_args()
     from f1sim.simulation.tire_inventory import validate_tire_inventory
@@ -365,6 +379,7 @@ def main() -> int:
             **({"starting_tire_ages": starting_tire_ages} if starting_tire_ages else {}),
             **({"pit_plans": pit_plans} if pit_plans else {}),
             **({"tire_warmup": args.tire_warmup} if args.tire_warmup else {}),
+            **({"qualifying_weather": args.qualifying_weather} if args.qualifying_weather else {}),
         )
 
         scenario_result = runner.run(

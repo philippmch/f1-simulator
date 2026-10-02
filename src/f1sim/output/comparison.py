@@ -15,6 +15,7 @@ from f1sim.output.paired_context import (
     paired_coverage_text,
     paired_exclusion_detail,
 )
+from f1sim.output.qualifying_context import qualifying_weather_context
 from f1sim.output.timing import format_seconds, suspension_statistics
 from f1sim.output.warmup_context import warmup_context
 
@@ -513,7 +514,8 @@ def _weather(result: SimulationResults) -> str:
             f'surface wetness {percent("track_wetness")}; '
             f'weather change {percent("change_probability")}/lap; '
             f'weather draws {randomness}'
-            + (f"; {context}" if (context := warmup_context(snapshot)) else ""))
+            + (f"; {context}" if (context := warmup_context(snapshot)) else "")
+            + (f"; {context}" if (context := qualifying_weather_context(snapshot)) else ""))
 
 
 def _paired_driver_table(driver_id: str, paired: dict | None) -> str:
@@ -1353,6 +1355,9 @@ def render_rival_strategy_selection_report(manifest: dict) -> str:
     report_context = report_context if isinstance(report_context, dict) else {}
     track_name = report_context.get("track_name", "Not recorded")
     race_engine = report_context.get("race_engine", "Not recorded")
+    qualifying_context = report_context.get("qualifying_weather_context")
+    qualifying_html = (f"<p>{_text(qualifying_context)}</p>"
+                       if isinstance(qualifying_context, str) and qualifying_context else "")
     members = selection.get("target_member_ids", [])
     members_text = ", ".join(str(member) for member in members) if members else "Not recorded"
     target_plans = manifest.get("target_plans", {})
@@ -1568,6 +1573,7 @@ code {{ white-space: pre-wrap; overflow-wrap: anywhere; color: #d7dcff; }}
 separate held-out seed cohort. Supplied rival-scenario weights are analysis assumptions,
 not probabilities learned from race data. Held-out results do not feed back into selection.</p>
 <p>Track: {_text(track_name)}. Race engine: {_text(race_engine)}.</p>
+{qualifying_html}
 <p class="scroll-hint">Scroll tables sideways to see every column.</p>
 <h2>Frozen target plans</h2>
 <p>Target: {_text(target_mode)} {_text(target_id)}. Member driver IDs: {_text(members_text)}.

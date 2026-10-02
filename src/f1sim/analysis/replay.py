@@ -11,6 +11,7 @@ from f1sim.analysis.montecarlo import MonteCarloRunner, SimulationResults
 from f1sim.analysis.saved_validation import validate_saved_model as _validate_saved_model
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.simulation.execution import validate_race_engine
+from f1sim.simulation.qualifying_weather import validate_qualifying_weather
 from f1sim.simulation.warmup import validate_tire_warmup
 
 
@@ -93,15 +94,26 @@ def _load_saved_runner(
     if not isinstance(inputs, dict):
         raise ValueError("simulation_inputs must be an object")
     version = inputs.get("schema_version")
-    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6):
-        raise ValueError("Unsupported simulation input schema_version; expected 1, 2, 3, 4, 5 or 6")
+    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6, 7):
+        raise ValueError(
+            "Unsupported simulation input schema_version; expected 1, 2, 3, 4, 5, 6 or 7",
+        )
+    qualifying_weather = {}
+    if version == 7:
+        qualifying_weather = validate_qualifying_weather(inputs.get("qualifying_weather"))
+        if not qualifying_weather:
+            raise ValueError("Schema 7 requires nonempty qualifying_weather")
+    elif "qualifying_weather" in inputs:
+        raise ValueError("Schemas 1-6 cannot contain qualifying_weather")
     tire_warmup = {}
-    if version == 6:
+    if version == 6 or (version == 7 and (
+        "tire_warmup" in inputs or "tire_warmup_policy" in inputs
+    )):
         if inputs.get("tire_warmup_policy") != "post_fit_first_lap_v1":
-            raise ValueError("Schema 6 requires the supported tire_warmup_policy")
+            raise ValueError(f"Schema {version} requires the supported tire_warmup_policy")
         tire_warmup = validate_tire_warmup(inputs.get("tire_warmup"))
         if not tire_warmup:
-            raise ValueError("Schema 6 requires a nonzero tire_warmup profile")
+            raise ValueError(f"Schema {version} requires a nonzero tire_warmup profile")
     elif "tire_warmup" in inputs or "tire_warmup_policy" in inputs:
         raise ValueError("Schemas 1-5 cannot contain tire_warmup settings")
     if version == 4 and not isinstance(inputs.get("tire_inventory"), dict):
@@ -157,4 +169,5 @@ def _load_saved_runner(
         tire_warmup=tire_warmup,
         rng_policy=inputs.get("rng_policy", "shared_v1" if version == 1 else None),
         pit_plans=pit_plans,
+        **({"qualifying_weather": qualifying_weather} if qualifying_weather else {}),
     ), count

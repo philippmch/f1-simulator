@@ -17,6 +17,7 @@ from f1sim.analysis.paired_comparison import paired_comparison_statistics
 from f1sim.analysis.provenance import format_saved_runtime_status, saved_runtime_status
 from f1sim.analysis.rival_strategy_selection import evaluate_saved_rival_pit_plan_selection
 from f1sim.output import Exporter
+from f1sim.output.qualifying_context import qualifying_weather_context
 from f1sim.simulation.randomness import RNG_POLICIES
 
 
@@ -375,6 +376,8 @@ def main() -> int:
                 },
                 "selection_report_html": report_name,
             }
+            if context := qualifying_weather_context(first.input_snapshot):
+                manifest["report_context"]["qualifying_weather_context"] = context
             report_path = exporter.export_rival_strategy_selection_html(
                 manifest, filename=report_name, manifest_filename=manifest_path.name,
             )

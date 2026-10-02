@@ -52,6 +52,8 @@ def _runner_variant(runner: MonteCarloRunner, **overrides) -> MonteCarloRunner:
         "pit_plans": deepcopy(getattr(runner, "pit_plans", None)),
         "tire_warmup": deepcopy(runner.tire_warmup),
     }
+    if getattr(runner, "qualifying_weather", None):
+        values["qualifying_weather"] = deepcopy(runner.qualifying_weather)
     values.update(overrides)
     return MonteCarloRunner(
         [driver.model_copy(deep=True) for driver in runner.drivers],
@@ -130,6 +132,8 @@ def compare_saved_race_engines(
             tire_inventory=deepcopy(runner.tire_inventory),
             pit_plans=deepcopy(getattr(runner, "pit_plans", None)),
             tire_warmup=deepcopy(runner.tire_warmup),
+            **({"qualifying_weather": deepcopy(runner.qualifying_weather)}
+               if getattr(runner, "qualifying_weather", None) else {}),
         )
         results[label] = variant.run(
             int(num_simulations), parallel=parallel,
@@ -207,6 +211,8 @@ def compare_saved_starting_tires(
             tire_inventory=deepcopy(runner.tire_inventory),
             pit_plans=deepcopy(getattr(runner, "pit_plans", None)),
             tire_warmup=deepcopy(runner.tire_warmup),
+            **({"qualifying_weather": deepcopy(runner.qualifying_weather)}
+               if getattr(runner, "qualifying_weather", None) else {}),
         )
         variant_runners[label] = variant
 

@@ -10,6 +10,10 @@ from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.analysis.saved_validation import validate_saved_model
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.simulation.execution import validate_starting_tire_ages
+from f1sim.simulation.qualifying_weather import (
+    effective_qualifying_weather,
+    validate_qualifying_weather,
+)
 from f1sim.simulation.race_points import POINTS_SYSTEM, points_for_result
 from f1sim.simulation.randomness import RNG_POLICIES
 from f1sim.simulation.tire_inventory import validate_tire_inventory
@@ -25,7 +29,7 @@ def _snapshot(result):
     if not isinstance(snapshot, dict):
         return None
     version = snapshot.get("schema_version")
-    if not _integer(version, 1) or version not in (1, 2, 3, 4, 5, 6):
+    if not _integer(version, 1) or version not in (1, 2, 3, 4, 5, 6, 7):
         return None
     policy = snapshot.get("rng_policy", "shared_v1" if version == 1 else None)
     if policy not in RNG_POLICIES:
@@ -54,8 +58,18 @@ def _snapshot(result):
             if not isinstance(snapshot.get(key), dict) or not snapshot[key]:
                 return None
             validate_saved_model(model, snapshot[key])
+        qualifying_weather = {}
+        if version == 7:
+            qualifying_weather = validate_qualifying_weather(snapshot.get("qualifying_weather"))
+            if not qualifying_weather:
+                return None
+        elif "qualifying_weather" in snapshot:
+            return None
+        effective_weather = effective_qualifying_weather(snapshot["weather"], qualifying_weather)
         tire_warmup = {}
-        if version == 6:
+        if version == 6 or (version == 7 and (
+            "tire_warmup" in snapshot or "tire_warmup_policy" in snapshot
+        )):
             if snapshot.get("tire_warmup_policy") != "post_fit_first_lap_v1":
                 return None
             tire_warmup = validate_tire_warmup(snapshot.get("tire_warmup"))
@@ -108,7 +122,7 @@ def _snapshot(result):
     }
     return ({key: snapshot[key] for key in ("drivers", "cars", "track", "weather", "runtime")}
             | {"rng_policy": policy, "tire_inventory": inventory,
-               "tire_warmup": tire_warmup}, ids,
+               "tire_warmup": tire_warmup, "qualifying_weather": effective_weather}, ids,
             [driver.id for driver in roster if driver.team_id in cars], teams)
 
 

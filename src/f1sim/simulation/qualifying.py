@@ -8,6 +8,7 @@ from f1sim.cancellation import cancellation_checkpoint
 from f1sim.models import Car, Driver, TireCompound, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.lap import LapSimulator
+from f1sim.simulation.qualifying_weather import validate_qualifying_weather
 from f1sim.simulation.validation import validate_unique_ids
 
 
@@ -45,6 +46,8 @@ class QualifyingSimulator:
         cars: dict[str, Car],
         track: Track,
         weather: Weather,
+        *,
+        qualifying_weather=None,
     ) -> list[QualifyingResult]:
         """Simulate full qualifying session (Q1, Q2, Q3).
 
@@ -53,10 +56,14 @@ class QualifyingSimulator:
             cars: Dictionary of cars by team_id
             track: Circuit being raced
             weather: Weather conditions
+            qualifying_weather: Fixed session overrides; omitted phases use weather
 
         Returns:
             List of QualifyingResult sorted by position
         """
+        overrides = validate_qualifying_weather(qualifying_weather)
+        session_weather = {phase: Weather.model_validate(fields)
+                           for phase, fields in overrides.items()}
         validate_unique_ids((driver.id for driver in drivers), "drivers")
         results: dict[str, QualifyingResult] = {}
 
@@ -87,7 +94,9 @@ class QualifyingSimulator:
         field_size = len(drivers)
         q1_elimination_count = self._elimination_count(field_size)
         q2_target_count = max(field_size - q1_elimination_count, 0)
-        q1_times = self._simulate_session(drivers, cars, track, weather, attempts=2)
+        q1_times = self._simulate_session(
+            drivers, cars, track, session_weather.get("Q1", weather), attempts=2,
+        )
         for driver_id, time in q1_times.items():
             results[driver_id].q1_time = time
             results[driver_id].best_time = min(results[driver_id].best_time, time)
@@ -103,7 +112,9 @@ class QualifyingSimulator:
 
         # Q2: Top 15, eliminate bottom 5
         q2_drivers = [d for d in drivers if d.id in q1_qualifiers]
-        q2_times = self._simulate_session(q2_drivers, cars, track, weather, attempts=2)
+        q2_times = self._simulate_session(
+            q2_drivers, cars, track, session_weather.get("Q2", weather), attempts=2,
+        )
         for driver_id, time in q2_times.items():
             results[driver_id].q2_time = time
             results[driver_id].best_time = min(results[driver_id].best_time, time)
@@ -121,7 +132,9 @@ class QualifyingSimulator:
 
         # Q3: Top 10, fight for pole
         q3_drivers = [d for d in drivers if d.id in q2_qualifiers]
-        q3_times = self._simulate_session(q3_drivers, cars, track, weather, attempts=2)
+        q3_times = self._simulate_session(
+            q3_drivers, cars, track, session_weather.get("Q3", weather), attempts=2,
+        )
         for driver_id, time in q3_times.items():
             results[driver_id].q3_time = time
             results[driver_id].best_time = min(results[driver_id].best_time, time)

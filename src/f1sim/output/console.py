@@ -10,6 +10,7 @@ from f1sim.output.paired_context import (
     paired_coverage_text,
     paired_exclusion_detail,
 )
+from f1sim.output.qualifying_context import qualifying_weather_context
 from f1sim.output.timing import (
     finite_time,
     format_lap_deficit,
@@ -237,6 +238,8 @@ class ConsoleOutput:
             print(f"{label}:")
             if context := warmup_context(results[label].input_snapshot):
                 print(f"  {context}")
+            if context := qualifying_weather_context(results[label].input_snapshot):
+                print(f"  {context}")
             if comparison["status"] == "unavailable":
                 print(f"  Unavailable: {comparison['reason']}")
                 continue
@@ -395,6 +398,8 @@ class ConsoleOutput:
         print(f"MONTE CARLO SIMULATION RESULTS - {results.track_name}")
         print(f"({results.num_simulations} simulations)")
         if context := warmup_context(results.input_snapshot):
+            print(context)
+        if context := qualifying_weather_context(results.input_snapshot):
             print(context)
         if results.seed is not None:
             print(
@@ -638,6 +643,9 @@ class ConsoleOutput:
         print("\n" + "=" * 80)
         print("SCENARIO COMPARISON (WIN PROBABILITIES)")
         print("All scenario entrants; -- means no recorded results for that driver.")
+        for label, result in scenario_results.items():
+            if context := qualifying_weather_context(result.input_snapshot):
+                print(f"{label}: {context}")
         print("=" * 80)
 
         scenario_names = list(scenario_results.keys())

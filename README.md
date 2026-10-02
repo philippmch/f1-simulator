@@ -18,6 +18,11 @@ The race engine models circuit-dependent car performance, tyre stress and degrad
 Configured aero gains are simplified lap-time inputs; see the
 [Active Aero assumptions and limits](docs/strategy-model.md#active-aero-modeling-limits).
 
+Optional [qualifying-session weather](docs/qualifying-weather.md) lets Q1, Q2
+and Q3 differ from the race, including wet qualifying followed by a dry race.
+Each session uses fixed conditions for compound selection and flying laps;
+exports, replay and strategy comparisons preserve those settings.
+
 Pit strategy compares remaining tyre and pit costs, including slick starts on
 damp tracks and transitions between slicks and rain tyres as the surface changes;
 see [the strategy model and its limits](docs/strategy-model.md)

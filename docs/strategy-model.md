@@ -197,6 +197,8 @@ schema 3 when opening ages are specified, or schema 4 for nonempty finite race
 pools, and require an explicit policy. Custom pit plans use schema 5; enabling
 [post-fit cost sensitivity](tyre-wear.md#optional-post-fit-cost-sensitivity)
 uses schema 6 and preserves any configured ages, inventory, and plans.
+Explicit [qualifying-session weather](qualifying-weather.md) uses schema 7,
+preserving the race weather and any of those optional settings.
 Schema 4 records the initial inventory.
 Schema 3 also requires the age mapping, so older installations reject used-set
 runs instead of replaying them fresh. Replay and comparison still accept
@@ -507,8 +509,12 @@ Straight Mode gain shared by race laps and strategy forecasts, subtracting it
 before the weather multiplier and applying its existing qualifying time floor.
 Compound comparisons and sampled attempts both assume that gain is available.
 Each attempt assumes a fresh set;
-weather remains fixed across Q1, Q2 and Q3. Qualifying does not model tyre
-inventory, track evolution, traffic or a changing-weather session strategy.
+By default, weather remains fixed across Q1, Q2 and Q3 using the initial race
+weather. Optional [qualifying-session weather](qualifying-weather.md) overrides
+each named session independently, with omitted sessions retaining race weather.
+Compound selection and attempts use the same fixed session conditions; race
+weather is unchanged. Qualifying does not model tyre inventory, track evolution,
+traffic or changing conditions within a session.
 
 During a red-flag suspension, tyre selection compares usable fresh sets over
 the remaining race, including any later paid stops that the stop budget permits.

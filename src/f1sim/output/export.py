@@ -10,6 +10,7 @@ from urllib.parse import quote
 from uuid import uuid4
 
 from f1sim.analysis.montecarlo import SimulationResults
+from f1sim.output.qualifying_context import qualifying_weather_context
 from f1sim.output.timing import (
     csv_time,
     format_seconds,
@@ -597,6 +598,8 @@ class Exporter:
 
         warmup_text = escape(warmup_context(results.input_snapshot))
         warmup_html = f"<p>{warmup_text}</p>" if warmup_text else ""
+        qualifying_text = escape(qualifying_weather_context(results.input_snapshot))
+        qualifying_html = f"<p>{qualifying_text}</p>" if qualifying_text else ""
         pit_plan_text = escape(_pit_plans(results))
         pit_plan_statistics = _pit_plan_statistics_html(results, "run")
         pit_plan_history = _pit_plan_history_html(results, "run")
@@ -682,6 +685,7 @@ class Exporter:
     · Starting tyres: {starting_text}
     · Custom pit plans: {pit_plan_text}
     {warmup_html}
+    {qualifying_html}
     Input race set pools:
     {escape(json.dumps((results.input_snapshot or {}).get('tire_inventory', {})))}
   </div>

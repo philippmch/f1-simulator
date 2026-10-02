@@ -2031,6 +2031,46 @@ input:focus-visible {
           <option value="fixed_rainfall">Fixed rainfall</option>
         </select>
       </div>
+      <div class="control-group control-group-scenarios" role="group" aria-labelledby="qualifyingWeatherLabel">
+        <span class="control-label" id="qualifyingWeatherLabel">Qualifying session weather (optional)</span>
+        <p class="pit-plan-help" id="qualifyingWeatherHelp">Weather stays fixed within each session. Unchanged sessions use each race scenario weather; explicit sessions apply across the whole scenario set.</p>
+        <div class="control-group">
+          <label class="control-label" for="qualifyingQ1Condition">Q1 condition</label>
+          <select id="qualifyingQ1Condition" aria-describedby="qualifyingWeatherHelp" onchange="updateQualifyingWeatherControls('Q1')">
+            <option value="inherit">Use race weather</option>
+            <option value="dry">Dry</option><option value="cloudy">Cloudy</option>
+            <option value="light_rain">Light rain</option><option value="heavy_rain">Heavy rain</option>
+          </select>
+          <label class="control-label" for="qualifyingQ1Rain">Q1 rain intensity (0–1)</label>
+          <input type="number" id="qualifyingQ1Rain" min="0" max="1" step="any" value="0" disabled>
+          <label class="control-label" for="qualifyingQ1Wetness">Q1 surface water (0–1)</label>
+          <input type="number" id="qualifyingQ1Wetness" min="0" max="1" step="any" value="0" disabled>
+        </div>
+        <div class="control-group">
+          <label class="control-label" for="qualifyingQ2Condition">Q2 condition</label>
+          <select id="qualifyingQ2Condition" aria-describedby="qualifyingWeatherHelp" onchange="updateQualifyingWeatherControls('Q2')">
+            <option value="inherit">Use race weather</option>
+            <option value="dry">Dry</option><option value="cloudy">Cloudy</option>
+            <option value="light_rain">Light rain</option><option value="heavy_rain">Heavy rain</option>
+          </select>
+          <label class="control-label" for="qualifyingQ2Rain">Q2 rain intensity (0–1)</label>
+          <input type="number" id="qualifyingQ2Rain" min="0" max="1" step="any" value="0" disabled>
+          <label class="control-label" for="qualifyingQ2Wetness">Q2 surface water (0–1)</label>
+          <input type="number" id="qualifyingQ2Wetness" min="0" max="1" step="any" value="0" disabled>
+        </div>
+        <div class="control-group">
+          <label class="control-label" for="qualifyingQ3Condition">Q3 condition</label>
+          <select id="qualifyingQ3Condition" aria-describedby="qualifyingWeatherHelp" onchange="updateQualifyingWeatherControls('Q3')">
+            <option value="inherit">Use race weather</option>
+            <option value="dry">Dry</option><option value="cloudy">Cloudy</option>
+            <option value="light_rain">Light rain</option><option value="heavy_rain">Heavy rain</option>
+          </select>
+          <label class="control-label" for="qualifyingQ3Rain">Q3 rain intensity (0–1)</label>
+          <input type="number" id="qualifyingQ3Rain" min="0" max="1" step="any" value="0" disabled>
+          <label class="control-label" for="qualifyingQ3Wetness">Q3 surface water (0–1)</label>
+          <input type="number" id="qualifyingQ3Wetness" min="0" max="1" step="any" value="0" disabled>
+        </div>
+      </div>
       <div class="control-group">
         <label class="control-label" for="startingTiresInput">Starting tyres (optional)</label>
         <input type="text" id="startingTiresInput" maxlength="512"
@@ -4406,6 +4446,39 @@ function initTyreEditor() {
   });
 }
 
+function updateQualifyingWeatherControls(phase) {
+  const condition = document.getElementById(`qualifying${phase}Condition`).value;
+  const preset = {dry: [0, 0], cloudy: [0, 0], light_rain: [0.3, 0.3], heavy_rain: [0.8, 0.8]}[condition];
+  ['Rain', 'Wetness'].forEach((field, index) => {
+    const input = document.getElementById(`qualifying${phase}${field}`);
+    input.disabled = condition === 'inherit';
+    if (preset) input.value = preset[index];
+  });
+}
+
+function parseQualifyingWeatherInputs() {
+  const profile = {};
+  for (const phase of ['Q1', 'Q2', 'Q3']) {
+    const conditionInput = document.getElementById(`qualifying${phase}Condition`);
+    const condition = conditionInput.value;
+    if (condition === 'inherit') continue;
+    if (!['dry', 'cloudy', 'light_rain', 'heavy_rain'].includes(condition)) {
+      return {ok: false, input: conditionInput, message: `Choose a valid ${phase} condition.`};
+    }
+    const values = {};
+    for (const [field, key] of [['Rain', 'rain_intensity'], ['Wetness', 'track_wetness']]) {
+      const input = document.getElementById(`qualifying${phase}${field}`);
+      const value = Number(input.value);
+      if (input.value.trim() === '' || !input.checkValidity() || !Number.isFinite(value) || value < 0 || value > 1) {
+        return {ok: false, input, message: `${phase} ${field === 'Rain' ? 'rain intensity' : 'surface water'} must be a number from 0 to 1.`};
+      }
+      values[key] = value;
+    }
+    profile[phase] = {condition, ...values};
+  }
+  return {ok: true, profile};
+}
+
 function buildRunPayload() {
   const selectedRace = document.getElementById('trackSelect').value;
   const simulationsInput = document.getElementById('simCount');
@@ -4463,6 +4536,12 @@ function buildRunPayload() {
     tyreSetup.input?.focus();
     return null;
   }
+  const qualifyingWeatherSetup = parseQualifyingWeatherInputs();
+  if (!qualifyingWeatherSetup.ok) {
+    setStatusMessage(qualifyingWeatherSetup.message, 'error');
+    qualifyingWeatherSetup.input.focus();
+    return null;
+  }
   const warmupSetup = parseTireWarmupInput();
   if (!warmupSetup.ok) {
     setStatusMessage(warmupSetup.message, 'error');
@@ -4504,6 +4583,7 @@ function buildRunPayload() {
     max_workers: workersValue ? Number(workersValue) : null,
     compare_automatic: compareAutomatic,
   };
+  if (Object.keys(qualifyingWeatherSetup.profile).length) payload.qualifying_weather = qualifyingWeatherSetup.profile;
   if (Object.keys(warmupSetup.profile).length) payload.tire_warmup = warmupSetup.profile;
   if (pitPlanSetup.pitPlans !== null) payload.pit_plans = pitPlanSetup.pitPlans;
   if (pitSelectionSetup.selection) payload.pit_plan_selection = pitSelectionSetup.selection;
@@ -4649,6 +4729,12 @@ function savedWeatherBehavior(scenario) {
   if (probability === 0) return 'Fixed rainfall; surface wetness still evolves';
   if (typeof probability === 'number' && probability > 0) return 'Evolving weather';
   return 'Weather behavior not recorded';
+}
+
+function renderQualifyingWeatherSnapshot(scenario) {
+  const saved = scenario?.qualifying_weather_context;
+  if (typeof saved === 'string' && saved) return `<div class="race-meta">${escapeHtml(saved)}</div>`;
+  return '';
 }
 
 function savedRngPolicy(scenario) {
@@ -5220,6 +5306,7 @@ function renderRace() {
         <div class="race-meta">${savedWeatherBehavior(scenario)}</div>
         ${renderRngPolicySnapshot(scenario)}
         ${renderWarmupSnapshot(scenario)}
+        ${renderQualifyingWeatherSnapshot(scenario)}
         <div class="race-meta">Completed race suspension: ${formatSuspensionSeconds(sampleSuspension)}</div>
         <div class="race-meta">Race-wide collection + restart pause; already in finish clocks, not an individual driver's stopped or driving time.</div>
         <div class="race-meta">${escapeHtml(track.country || 'Unknown country')} &middot; Scenario ${escapeHtml(titleFromKey(name))}${topTeam ? ` &middot; Top constructor ${escapeHtml(topTeam[0])}` : ''}</div>

@@ -1703,6 +1703,35 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       const elapsedRow = page.locator('#strategyComparisonPanel tr').filter({hasText: 'Elapsed time (same-distance finishes)'}).first();
       assert((await elapsedRow.innerText()).includes('-2.500 s'));
       assert((await elapsedRow.innerText()).includes('Valid pairs: 2 / 10'));
+      for (const phase of ['Q1', 'Q2', 'Q3']) {
+        assert.equal(await page.getByLabel(`${phase} condition`, {exact: true}).inputValue(), 'inherit');
+        assert(await page.getByLabel(`${phase} rain intensity (0–1)`, {exact: true}).isDisabled());
+      }
+      const qualifyingChecks = await page.evaluate(() => {
+        const defaults = buildRunPayload();
+        document.getElementById('qualifyingQ1Condition').value = 'heavy_rain';
+        updateQualifyingWeatherControls('Q1');
+        const valid = buildRunPayload();
+        document.getElementById('qualifyingQ1Rain').value = '1.1';
+        const outOfRange = buildRunPayload();
+        document.getElementById('qualifyingQ1Rain').value = '';
+        const blank = buildRunPayload();
+        document.getElementById('qualifyingQ1Condition').value = 'inherit';
+        updateQualifyingWeatherControls('Q1');
+        const saved = renderQualifyingWeatherSnapshot({qualifying_weather_context:
+          'Qualifying weather (fixed within each session): Q1: Heavy rain; Q2: Dry; Q3: Dry'});
+        const hostile = renderQualifyingWeatherSnapshot({qualifying_weather_context:
+          '<img src=x onerror=alert(1)>'});
+        return {defaults, valid, outOfRange, blank, saved, hostile};
+      });
+      assert.equal(Object.hasOwn(qualifyingChecks.defaults, 'qualifying_weather'), false);
+      assert.deepEqual(qualifyingChecks.valid.qualifying_weather, {
+        Q1: {condition: 'heavy_rain', rain_intensity: 0.8, track_wetness: 0.8},
+      });
+      assert.equal(qualifyingChecks.outOfRange, null);
+      assert.equal(qualifyingChecks.blank, null);
+      assert(qualifyingChecks.saved.includes('Q2: Dry'));
+      assert(!qualifyingChecks.hostile.includes('<img'));
       const warmupChecks = await page.evaluate(() => {
         const input = document.getElementById('tireWarmupInput');
         input.value = 'soft=0.5,medium=1';

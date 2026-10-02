@@ -44,6 +44,7 @@ from f1sim.output.comparison import (
     render_comparison_report,
     render_rival_strategy_selection_report,
 )
+from f1sim.output.qualifying_context import qualifying_weather_context
 from f1sim.output.timing import finite_time, suspension_statistics
 from f1sim.simulation.execution import (
     DEFAULT_RACE_ENGINE,
@@ -51,6 +52,7 @@ from f1sim.simulation.execution import (
     validate_starting_tire_ages,
     validate_starting_tires,
 )
+from f1sim.simulation.qualifying_weather import validate_qualifying_weather
 from f1sim.simulation.race import get_race_suspension_seconds, result_is_classified
 from f1sim.simulation.race_points import points_for_result
 from f1sim.simulation.randomness import DEFAULT_RNG_POLICY, validate_rng_policy
@@ -145,6 +147,7 @@ class DashboardRunRequest:
     rng_policy: StrictStr = DEFAULT_RNG_POLICY
     tire_warmup: Any = None
     pit_plan_selection: DashboardPitPlanSelectionRequest | None = None
+    qualifying_weather: Any = None
 
 
 def _pit_plan_selection_request(
@@ -161,6 +164,7 @@ def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
     """Validate resource bounds and return all scenarios before live I/O."""
 
     validate_weather_mode(request.weather_mode)
+    validate_qualifying_weather(request.qualifying_weather)
     validate_race_engine(request.race_engine)
     validate_rng_policy(request.rng_policy)
     validate_tire_warmup(request.tire_warmup)
@@ -548,6 +552,9 @@ def _summarize_scenario_results(
             ) or {},
             "suspension_statistics": suspension_statistics(results),
             "simulation_inputs": getattr(results, "input_snapshot", None),
+            **({"qualifying_weather_context": context} if (context := qualifying_weather_context(
+                getattr(results, "input_snapshot", None)
+            )) else {}),
             "team_projection": _safe_call(
                 results,
                 "get_team_championship_projection",
@@ -638,6 +645,9 @@ def _dashboard_runner(
         "race_engine": request.race_engine,
         "rng_policy": request.rng_policy,
     }
+    qualifying_weather = validate_qualifying_weather(request.qualifying_weather)
+    if qualifying_weather:
+        kwargs["qualifying_weather"] = qualifying_weather
     tire_warmup = validate_tire_warmup(request.tire_warmup)
     if tire_warmup:
         kwargs["tire_warmup"] = tire_warmup
@@ -685,6 +695,8 @@ def _dashboard_request_metadata(
         "requested_max_workers": request.max_workers,
         "compare_automatic": compare_automatic,
     }
+    if qualifying_weather := validate_qualifying_weather(request.qualifying_weather):
+        metadata["qualifying_weather"] = qualifying_weather
     if selection := _pit_plan_selection_request(request.pit_plan_selection):
         selection_metadata = selection.model_dump(mode="json")
         if selection.rival_scenarios is None:
@@ -936,6 +948,8 @@ def run_dashboard_simulation(
                         "report_context": {
                             "track_name": track.name,
                             "race_engine": runner.race_engine,
+                            **({"qualifying_weather_context": context} if (context :=
+                               qualifying_weather_context(result.input_snapshot)) else {}),
                         },
                     }),
                 }
