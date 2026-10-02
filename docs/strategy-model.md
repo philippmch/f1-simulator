@@ -1405,6 +1405,15 @@ finite or unlimited pools. These modes and the weather change probability are
 recorded in benchmark version 3 JSON alongside the initial pools and overrides. See the
 [finite-pool search and benchmark notes](tyre-inventory.md#search-and-benchmark).
 
+Finite inventory forecasts prune replacement branches with an optimistic
+completion cost that retains the current set's actual wear until its next
+service, includes that pit entry, then relaxes later running and service choices.
+The same bound supports own-lap and externally timed forecasts; timed branches
+also retain their delayed weather path before that first future service.
+Downward rounding protects nearly tied alternatives, and the calculation makes
+no assumption that older tyres are slower. It changes search work rather than
+physical-set availability, stop allowances or the strategy objective.
+
 JSON output includes individual trial times, the first trial, the mean of later
 trials, and their total. In a fresh command-line process, the first trial starts
 with cold strategy caches; later trials can reuse them. Output serialization

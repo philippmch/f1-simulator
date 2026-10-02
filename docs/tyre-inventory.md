@@ -118,12 +118,21 @@ Arithmetic rounds the bound down to protect nearly tied branches. Unchanged
 final stints also share a cost within each decision. These calculations remain
 local to the forecast and preserve its weather, fuel and race-control context.
 
+A second bound keeps the fitted set's actual age until its first future service.
+It compares retaining that set to the finish, when compliant, with paying a green
+pit entry and then using the optimistic running-cost bound above. This avoids
+expanding branches whose apparent gain would require an unpaid replacement.
+It ignores replacement availability, eligibility and subsequent service or
+warm-up charges, so it remains a lower bound rather than an executable plan.
+Own-lap forecasts reuse these costs only within the same decision, for the same
+compound, age trajectory and compound-rule completion status. The full search
+still enforces physical sets, stop allowances and actual compound use.
+
 For externally timed chronological weather, each paid stop also advances the
 candidate's weather clock. The running-cost bound considers the reachable
 delayed surfaces, including compulsory stops after the elective allowance is
-exhausted. A second bound retains the current set's exact wear and surface
-timeline until its first future stop, charges that pit entry, then relaxes the
-remaining running costs as above. Taking the stronger bound avoids expanding
+exhausted. The first-service bound additionally retains the current set's exact
+delayed surface timeline until that stop. Taking the stronger bound avoids expanding
 unnecessary full-distance stint combinations without approximating tyre ages,
 weather timing or the selected strategy. Free restart fits add no elapsed pit
 time; future paid stops still advance their weather forecast. Native callers
@@ -235,6 +244,14 @@ seconds (about 8%); the second-trial median fell from 3.388 to 3.173 seconds
 (`30397bd0a312`). A smaller Standard finite-pool case also retained its exact
 outputs. These measurements describe that synthetic workload; they do not
 establish a full-grid runtime bound or empirical strategy accuracy.
+
+A 2026-10-03 check compared the own-lap first-service bound against `eccf38f`.
+Three alternating fresh-process pairs used chronological wetting weather,
+finite pools, automatic openings, two drivers, 53 laps and seed 42. Median
+simulation time fell from 17.560 to 5.511 seconds (about 69%); all six complete
+outcome hashes matched (`96dd3580b5f3`). The benchmark includes own-lap forecasts
+while comparing opening sets. These are local synthetic-workload measurements,
+not a full-grid speed guarantee or evidence of real-world strategy accuracy.
 
 ## Saved inputs and audit records
 

@@ -639,6 +639,33 @@ def plan_inventory_strategy(
             total = run(number, compound, age + number - offset) + total
         return total
 
+    completion_rows = {}
+
+    def completion_bound(offset, compound, age, used):
+        """Retain actual wear until the first future service, then relax stock.
+
+        A completion either keeps this set through the finish, when legal, or
+        pays a green pit entry before switching. After that first service the
+        conserved-wear bound ignores eligibility, availability and later pit
+        charges. This remains optimistic without assuming monotone tyre pace.
+        """
+        compliant = legal(used)
+        if offset >= horizon:
+            return 0.0 if compliant else inf
+        base_age = age - offset
+        key = compound, base_age, compliant
+        if key not in completion_rows:
+            completion_rows[key] = [horizon, [None] * horizon + [0.0 if compliant else inf]]
+        first, row = completion_rows[key]
+        for index in range(first - 1, offset - 1, -1):
+            cancellation_checkpoint()
+            best = green_stop + lower_bounds()[index]
+            if not critical[compound][index]:
+                best = min(best, run(index, compound, base_age + index) + row[index + 1])
+            row[index] = nextafter(best, -inf)
+        completion_rows[key][0] = min(first, offset)
+        return max(lower_bounds()[offset], row[offset])
+
     def frame(state):
         offset, compound, age, pool, left, dry, damp, used = state
         if offset == horizon:
@@ -664,7 +691,9 @@ def plan_inventory_strategy(
                 continue
             cost = green_stop + run(offset, target, target_age,
                                     fitted=bool(tire_warmup))
-            if nextafter(cost + lower_bounds()[offset + 1], -inf) < best:
+            if nextafter(cost + completion_bound(
+                offset + 1, target, target_age + 1, used | bits[target],
+            ), -inf) < best:
                 # Sorting a replacement pool is only needed for admitted branches.
                 child = (offset + 1, target, target_age + 1,
                          exchange(pool, index, (compound, age)), max(0, left - 1),
