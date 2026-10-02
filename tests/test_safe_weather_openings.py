@@ -1,5 +1,6 @@
 """Weather openings compare every safe set against executed later policies."""
 
+import importlib.util
 import json
 import subprocess
 import sys
@@ -21,6 +22,17 @@ def models():
     return (Driver(id="D", name="Driver", team_id="T"), Car(team_id="T", team_name="Team"),
             Track(id="opening", name="Opening", country="Synthetic", total_laps=12,
                   base_lap_time=90., pit_lane_delta=22.))
+
+
+@pytest.fixture(scope="module")
+def opening_harness():
+    # Examples are executable scripts, not part of the installed package.
+    # Loading by file works under both pytest and python -m pytest.
+    path = Path(__file__).resolve().parents[1] / "examples" / "check_weather_openings.py"
+    specification = importlib.util.spec_from_file_location("weather_opening_harness", path)
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    return module
 
 
 @pytest.mark.parametrize("water,rain,eligible", [
@@ -84,7 +96,9 @@ def test_drying_wet_start_prefers_faster_safe_intermediates_without_race_rng(sty
     assert simulator._choose_starting_compound(style, track, weather) == TireCompound.WET
 
 
-def test_safe_full_wet_can_win_when_live_tyre_physics_changes_after_cache_warming(monkeypatch):
+def test_safe_full_wet_can_win_when_live_tyre_physics_changes_after_cache_warming(
+    monkeypatch, opening_harness,
+):
     driver, car, track = models()
     weather = Weather(track_wetness=.45, rain_intensity=.35, change_probability=0)
     simulator = RaceSimulator(np.random.default_rng(42))
@@ -106,10 +120,8 @@ def test_safe_full_wet_can_win_when_live_tyre_physics_changes_after_cache_warmin
         TireCompound.WET
     )
     assert simulator.rng.bit_generator.state == before
-    from examples.check_weather_openings import compare_openings
-
     case = dict(name="changed_physics", water=.45, rain=.35, laps=12, base=90., lane=22.)
-    for row in compare_openings(cases=(case,)):
+    for row in opening_harness.compare_openings(cases=(case,)):
         assert row["selected"]["compounds"][0] == row["best_opening"] == "wet"
         assert row["mean_distance_gap"] == 0
         assert row["mean_time_gap_seconds"] == pytest.approx(0., abs=1.e-8)
@@ -117,13 +129,11 @@ def test_safe_full_wet_can_win_when_live_tyre_physics_changes_after_cache_warmin
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])
 @pytest.mark.parametrize("warmup", [None, {"intermediate": 8., "wet": 35., "soft": 2.}])
-def test_automatic_wet_opening_matches_every_safe_executed_policy(engine, warmup):
-    from examples.check_weather_openings import compare_openings
-
+def test_automatic_wet_opening_matches_every_safe_executed_policy(engine, warmup, opening_harness):
     case = dict(name="drying", water=.75, rain=0., laps=12, base=90., lane=22.)
     if warmup:
         case["warmup"] = warmup
-    row, = compare_openings(cases=(case,), engines=(engine,))
+    row, = opening_harness.compare_openings(cases=(case,), engines=(engine,))
     assert row["reaction_seeds"] == list(range(8))
     assert set(row["alternatives"]) == {"intermediate", "wet"}
     assert row["selected"]["compounds"][0] == row["best_opening"] == "intermediate"
@@ -134,11 +144,11 @@ def test_automatic_wet_opening_matches_every_safe_executed_policy(engine, warmup
 
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])
-def test_timed_weather_opening_scores_match_completed_distance_in_execution(engine):
-    from examples.check_weather_openings import compare_openings
-
+def test_timed_weather_opening_scores_match_completed_distance_in_execution(
+    engine, opening_harness,
+):
     case = dict(name="timed", water=.45, rain=.35, laps=10, base=1800., lane=22.)
-    row, = compare_openings(cases=(case,), engines=(engine,))
+    row, = opening_harness.compare_openings(cases=(case,), engines=(engine,))
     assert row["selected"]["race_time_limited"]
     assert row["selected"]["laps_completed"] < case["laps"]
     assert row["mean_distance_gap"] == 0
