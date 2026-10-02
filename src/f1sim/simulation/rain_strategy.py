@@ -14,6 +14,7 @@ import numpy as np
 from f1sim.cancellation import cancellation_checkpoint
 from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS
+from f1sim.simulation import lap as lap_physics
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.pit_strategy import expected_stationary_time
 from f1sim.simulation.strategy_traffic import normalize_current_traffic_gaps
@@ -24,6 +25,76 @@ from f1sim.simulation.surface_projection import (
     suffix_weather_intervals,
 )
 from f1sim.simulation.warmup import tire_warmup_seconds, validate_tire_warmup
+
+# Share only scalar native green costs, never models or prepared evaluators.
+_GREEN_LAP_LIMIT = 65_536
+_green_laps = OrderedDict()
+_green_lap_lock = RLock()
+_NATIVE_GREEN_HOOKS = tuple(
+    (owner, name, getattr(owner, name))
+    for owner, names in (
+        (LapSimulator, ("prepare_deterministic_lap_time",
+                        "_native_deterministic_evaluator_available")),
+        (Tire, ("time_penalty_per_lap", "wear_loss_at_lap")),
+        (Weather, ("lap_time_multiplier", "wet_severity")),
+        (Car, ("pace_delta_seconds",)),
+        (Track, ("total_active_aero_gain",)),
+        (lap_physics, ("minimum_lap_time", "_track_profile_from_values",
+                       "_track_car_delta_from_values", "_weather_pace_multiplier_from_values")),
+    ) for name in names
+)
+_NATIVE_GREEN_FACTORS = dict(LapSimulator._COMPOUND_PACE_FACTORS)
+_NATIVE_GREEN_FLOOR = lap_physics.MIN_LAP_TIME_FRACTION
+_GREEN_MODEL_HOOKS = {
+    Driver: (),
+    Car: ("pace_delta_seconds",),
+    Track: ("total_active_aero_gain",),
+    Tire: ("time_penalty_per_lap", "wear_loss_at_lap"),
+    Weather: ("lap_time_multiplier", "wet_severity"),
+}
+
+
+def _native_green_cache_available(simulator):
+    return (simulator._native_deterministic_evaluator_available()
+            and all(getattr(owner, name) is native
+                    for owner, name, native in _NATIVE_GREEN_HOOKS)
+            and type(LapSimulator._COMPOUND_PACE_FACTORS) is dict
+            and LapSimulator._COMPOUND_PACE_FACTORS == _NATIVE_GREEN_FACTORS
+            and lap_physics.MIN_LAP_TIME_FRACTION == _NATIVE_GREEN_FLOOR)
+
+
+def _native_green_model_available(model):
+    """Instance hooks can change physics without changing serialized fields."""
+    names = _GREEN_MODEL_HOOKS.get(type(model))
+    return names is not None and not any(
+        name in model.__dict__ or name in (model.__pydantic_extra__ or {})
+        for name in names
+    )
+
+
+def _reset_green_cache_after_fork():
+    global _green_laps, _green_lap_lock
+    _green_laps = OrderedDict()
+    _green_lap_lock = RLock()
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_reset_green_cache_after_fork)
+
+
+def _shared_green_lap(key, evaluate, tire, surface, lap, age):
+    with _green_lap_lock:
+        value = _green_laps.get(key)
+        if value is not None:
+            _green_laps.move_to_end(key)
+            return value
+    value = evaluate(tire, surface, lap, age)
+    with _green_lap_lock:
+        _green_laps[key] = value
+        _green_laps.move_to_end(key)
+        while len(_green_laps) > _GREEN_LAP_LIMIT:
+            _green_laps.popitem(last=False)
+    return value
 
 
 @dataclass(frozen=True)
@@ -77,6 +148,15 @@ def _clock_rain_stop(
         driver, clean, track, physical_total_laps,
     ) if native_clock and type(weather) is Weather and type(current_tire) is Tire
                 and type(fresh) is Tire else None)
+    shared_green = (prepared is not None and _native_green_cache_available(simulator)
+                    and all(_native_green_model_available(model)
+                            for model in (driver, clean, track, current_tire, fresh, weather)))
+    if shared_green:
+        # Reuse existing exact snapshots; string hashes are cached by Python.
+        # Each projected surface is serialized once, never on a cache lookup.
+        package = models + (physical_total_laps,)
+        tire_values = (fresh_json, retained_json)
+        surface_values = [weather.model_dump_json()]
     absolute_updates = {}
 
     @lru_cache(maxsize=None)
@@ -89,8 +169,17 @@ def _clock_rain_stop(
         """
         while len(projected) <= update_index:
             projected.append(projected[-1].project_surface())
-        return prepared(current_tire if retained else fresh, projected[update_index],
-                        lap, age)
+        if shared_green:
+            while len(surface_values) <= update_index:
+                value = projected[len(surface_values)]
+                surface_values.append(value.model_dump_json()
+                                      if _native_green_model_available(value) else None)
+        tire = current_tire if retained else fresh
+        surface = projected[update_index]
+        if shared_green and surface_values[update_index] is not None:
+            key = (package, tire_values[retained], surface_values[update_index], lap, age)
+            return _shared_green_lap(key, prepared, tire, surface, lap, age)
+        return prepared(tire, surface, lap, age)
 
     def schedule(paid, stopped_first, fit_delay=0.0):
         key = (paid, stopped_first, fit_delay)

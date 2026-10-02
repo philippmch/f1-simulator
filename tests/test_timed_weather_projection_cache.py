@@ -8,8 +8,9 @@ import pytest
 from test_strategy_pit_weather import clock_for, exhaustive_same, models
 
 from f1sim.cancellation import SimulationCancelled, cancellation_scope
-from f1sim.models import TireCompound, Weather
+from f1sim.models import Car, Tire, TireCompound, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS
+from f1sim.models.weather import WeatherCondition
 from f1sim.simulation import rain_strategy
 from f1sim.simulation.inventory_strategy import plan_inventory_strategy
 from f1sim.simulation.lap import LapSimulator
@@ -180,12 +181,14 @@ def test_native_clock_shares_surface_path_and_never_reconstructs_rows(monkeypatc
 
 
 @pytest.mark.parametrize("custom", ["physics", "clock"])
-def test_native_shortcut_keeps_custom_dispatch(monkeypatch, request, custom):
+def test_native_shortcut_keeps_custom_dispatch(monkeypatch, request, custom, green_cache):
     _running_row.cache_clear()
     request.addfinalizer(_running_row.cache_clear)
     driver, car, track, weather = models()
     tire = TIRE_COMPOUNDS[TireCompound.INTERMEDIATE]
     clock = clock_for(track)
+    plan_rain_stop(driver, car, track, weather, tire, 12, 1, 2, weather_clock=clock)
+    shared_before = dict(green_cache)
     calls = 0
     original = rain_strategy._running_row
 
@@ -210,6 +213,7 @@ def test_native_shortcut_keeps_custom_dispatch(monkeypatch, request, custom):
     monkeypatch.setattr(LapSimulator, "prepare_deterministic_lap_time", lambda *args: None)
     assert actual == plan_rain_stop(driver, car, track, weather, tire, 12, 1, 2,
                                    weather_clock=clock)
+    assert dict(green_cache) == shared_before
 
 
 def test_native_clock_planning_does_not_sample_randomness(monkeypatch):
@@ -330,3 +334,316 @@ def test_native_row_cost_cache_hits_still_poll_cancellation(monkeypatch):
         plan_rain_stop(driver, car, track, weather, TIRE_COMPOUNDS[TireCompound.INTERMEDIATE],
                        12, 1, 3, weather_clock=clock)
     assert hits > 0
+
+
+@pytest.fixture
+def green_cache():
+    rain_strategy._reset_green_cache_after_fork()
+    yield rain_strategy._green_laps
+    rain_strategy._reset_green_cache_after_fork()
+
+
+def _green_decision(*, tire=None, weather=None, **options):
+    driver, car, track, default_weather = models(laps=options.pop("laps", 7))
+    return plan_rain_stop(
+        driver, car, track, weather or default_weather,
+        tire or TIRE_COMPOUNDS[TireCompound.INTERMEDIATE], 13, 1,
+        options.pop("budget", 3), weather_clock=clock_for(track), **options,
+    )
+
+
+def test_shared_green_costs_reuse_only_immutable_values(monkeypatch, green_cache):
+    calls = 0
+    original = rain_strategy._shared_green_lap
+
+    def observed(key, evaluate, *args):
+        def counted(*values):
+            nonlocal calls
+            calls += 1
+            return evaluate(*values)
+        return original(key, counted, *args)
+
+    monkeypatch.setattr(rain_strategy, "_shared_green_lap", observed)
+    first = _green_decision()
+    initial = calls
+    assert initial > 0
+    assert _green_decision() == first
+    assert calls == initial
+    assert green_cache and all(type(cost) is float for cost in green_cache.values())
+
+    def immutable(value):
+        assert isinstance(value, (tuple, str, int, float, bool, type(None)))
+        if isinstance(value, tuple):
+            for item in value:
+                immutable(item)
+    for key in green_cache:
+        immutable(key)
+
+
+@pytest.mark.parametrize("target,field,value", [
+    (target, field, value)
+    for target in ("retained", "fresh")
+    for field, value in (("initial_grip", .913), ("degradation_rate", .081),
+                         ("cliff_threshold", 12), ("cliff_multiplier", 4.2),
+                         ("optimal_temp_range", (79., 99.)))
+] + [("weather", field, value) for field, value in (
+    ("condition", WeatherCondition.LIGHT_RAIN), ("track_temperature", 34.),
+    ("air_temperature", 24.), ("humidity", .6), ("rain_intensity", .421),
+    ("track_wetness", .30000000000000004), ("change_probability", .2),
+)])
+def test_shared_green_keys_include_complete_tire_and_weather(
+    monkeypatch, green_cache, target, field, value,
+):
+    tire = TIRE_COMPOUNDS[TireCompound.INTERMEDIATE].model_copy(deep=True)
+    _, _, _, weather = models(laps=7)
+    _green_decision(tire=tire, weather=weather)
+    before = set(green_cache)
+    if target == "fresh":
+        monkeypatch.setitem(TIRE_COMPOUNDS, TireCompound.INTERMEDIATE,
+                            tire.model_copy(update={field: value}))
+    elif target == "retained":
+        tire = tire.model_copy(update={field: value})
+    else:
+        weather = weather.model_copy(update={field: value})
+    actual = _green_decision(tire=tire, weather=weather)
+    assert set(green_cache) - before
+    monkeypatch.setattr(rain_strategy, "_native_green_cache_available", lambda _: False)
+    assert _green_decision(tire=tire, weather=weather) == actual
+
+
+def test_shared_green_eviction_preserves_exact_decision_and_tie(monkeypatch, green_cache):
+    expected = _green_decision()
+    monkeypatch.setattr(rain_strategy, "_GREEN_LAP_LIMIT", 2)
+    green_cache.clear()
+    actual = _green_decision()
+    assert actual == expected
+    assert actual.should_pit() == expected.should_pit()
+    assert len(green_cache) == 2
+    assert _green_decision() == expected
+    assert len(green_cache) == 2
+
+
+@pytest.mark.parametrize("target", ["driver", "car", "track", "physical", "lap", "age"])
+def test_shared_green_package_lap_and_age_sensitivity(monkeypatch, green_cache, target):
+    driver, car, track, weather = models(laps=7)
+    tire = TIRE_COMPOUNDS[TireCompound.INTERMEDIATE]
+    age, lap, physical = 13, 1, 17
+    def decide():
+        clock_track = track.model_copy(update={"total_laps": track.total_laps - lap + 1})
+        return plan_rain_stop(driver, car, track, weather, tire, age, lap, 3,
+                              weather_clock=clock_for(clock_track), physical_total_laps=physical)
+    decide()
+    before = set(green_cache)
+    if target == "driver":
+        driver.skill_rating = .9123
+    elif target == "car":
+        car.tire_degradation_factor = 1.237
+    elif target == "track":
+        track.base_lap_time += .137
+    elif target == "physical":
+        physical += 3
+    elif target == "lap":
+        lap += 1
+    else:
+        age += 1
+    actual = decide()
+    assert set(green_cache) - before
+    monkeypatch.setattr(rain_strategy, "_native_green_cache_available", lambda _: False)
+    assert decide() == actual
+
+
+def test_shared_green_hits_still_poll_row_cancellation(monkeypatch, green_cache):
+    _green_decision(budget=0, laps=40)
+    assert green_cache
+    original = rain_strategy.cancellation_checkpoint
+    polls = 0
+
+    def row_checkpoint():
+        if _getframe(1).f_code.co_name == "row":
+            original()
+
+    def cancel():
+        nonlocal polls
+        polls += 1
+        return polls == 3
+
+    monkeypatch.setattr(rain_strategy, "cancellation_checkpoint", row_checkpoint)
+    with cancellation_scope(cancel), pytest.raises(SimulationCancelled):
+        _green_decision(budget=0, laps=40)
+    assert polls == 3
+
+
+@pytest.mark.parametrize("owner,name", [
+    (Tire, "time_penalty_per_lap"), (Tire, "wear_loss_at_lap"),
+    (Weather, "lap_time_multiplier"), (Weather, "wet_severity"),
+    (Car, "pace_delta_seconds"), (Track, "total_active_aero_gain"),
+])
+def test_shared_green_bypasses_stateful_model_hooks(monkeypatch, green_cache, owner, name):
+    _green_decision()
+    before = dict(green_cache)
+    hook = getattr(owner, name)
+    delta = .125
+    calls = 0
+
+    def changed(self, *args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return (hook.fget(self) if isinstance(hook, property)
+                else hook(self, *args, **kwargs)) + delta
+
+    monkeypatch.setattr(owner, name, property(changed) if isinstance(hook, property) else changed)
+    first = _green_decision()
+    initial = calls
+    delta = .25
+    second = _green_decision()
+    assert first != second
+    assert calls > initial > 0
+    assert dict(green_cache) == before
+
+
+def test_shared_green_bypasses_custom_prepared_evaluator(monkeypatch, green_cache):
+    _green_decision()
+    before = dict(green_cache)
+    prepare = LapSimulator.prepare_deterministic_lap_time
+    calls = 0
+
+    def custom(self, *args):
+        evaluate = prepare(self, *args)
+        def stateful(*values):
+            nonlocal calls
+            calls += 1
+            return evaluate(*values) + calls * .001
+        return stateful
+
+    monkeypatch.setattr(LapSimulator, "prepare_deterministic_lap_time", custom)
+    assert _green_decision() != _green_decision()
+    assert calls > 0
+    assert dict(green_cache) == before
+
+
+def test_shared_green_compound_factor_mutations_remain_visible(monkeypatch, green_cache):
+    first = _green_decision()
+    before = dict(green_cache)
+    monkeypatch.setitem(LapSimulator._COMPOUND_PACE_FACTORS, TireCompound.INTERMEDIATE, .017)
+    changed = _green_decision()
+    assert changed != first
+    assert dict(green_cache) == before
+    monkeypatch.setattr(rain_strategy, "_native_green_cache_available", lambda _: False)
+    assert _green_decision() == changed
+
+
+@pytest.mark.parametrize("name", ["minimum_lap_time", "_track_car_delta_from_values",
+                                  "_weather_pace_multiplier_from_values"])
+def test_shared_green_bypasses_scalar_physics_hooks_and_resumes_native_hits(
+    monkeypatch, green_cache, name,
+):
+    first = _green_decision()
+    before = dict(green_cache)
+    physics = rain_strategy.lap_physics
+    hook = getattr(physics, name)
+    calls = 0
+
+    def changed(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return hook(*args, **kwargs) + .125
+
+    with monkeypatch.context() as patch:
+        patch.setattr(physics, name, changed)
+        _green_decision()
+        initial = calls
+        _green_decision()
+        assert calls > initial > 0
+        assert dict(green_cache) == before
+    # Restoring native dispatch can safely reuse the original entries.
+    def no_miss(*args):
+        pytest.fail("Restored native physics should hit the existing shared cache")
+    original = rain_strategy._shared_green_lap
+    monkeypatch.setattr(rain_strategy, "_shared_green_lap",
+                        lambda key, evaluate, *args: original(key, no_miss, *args))
+    assert _green_decision() == first
+
+
+def test_shared_green_after_fork_replaces_storage_and_lock(green_cache):
+    _green_decision()
+    old_lock = rain_strategy._green_lap_lock
+    assert green_cache
+    rain_strategy._reset_green_cache_after_fork()
+    assert rain_strategy._green_laps is not green_cache
+    assert not rain_strategy._green_laps
+    assert rain_strategy._green_lap_lock is not old_lock
+
+
+@pytest.mark.parametrize("target,name,budget", [
+    (target, name, budget)
+    for target in ("retained", "fresh")
+    for name in ("time_penalty_per_lap", "wear_loss_at_lap")
+    for budget in ([3] if target == "fresh" else [0, 3])
+] + [(target, name, budget)
+     for target in ("weather", "projected")
+     for name in ("lap_time_multiplier", "wet_severity")
+     for budget in (0, 3)
+] + [("car", "pace_delta_seconds", budget) for budget in (0, 3)])
+def test_shared_green_bypasses_nonserialized_instance_hooks(
+    monkeypatch, green_cache, target, name, budget,
+):
+    driver, car, track, weather = models(laps=7)
+    tire = TIRE_COMPOUNDS[TireCompound.INTERMEDIATE].model_copy(deep=True)
+    clock = clock_for(track)
+
+    def decide():
+        return plan_rain_stop(driver, car, track, weather, tire, 13, 1, budget,
+                              weather_clock=clock)
+
+    native = decide()
+    before = dict(green_cache)
+    delta = .125
+    calls = 0
+
+    def attach(model):
+        original = getattr(model, name)
+
+        def changed(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            return original(*args, **kwargs) + delta
+
+        changed_model = model.model_copy(update={name: changed})
+        assert changed_model.model_dump_json() == model.model_dump_json()
+        return changed_model
+
+    if target == "retained":
+        tire = attach(tire)
+    elif target == "fresh":
+        monkeypatch.setitem(TIRE_COMPOUNDS, TireCompound.INTERMEDIATE, attach(tire))
+    elif target == "weather":
+        weather = attach(weather)
+    elif target == "car":
+        car = attach(car)
+    else:
+        project = Weather.project_surface
+        monkeypatch.setattr(Weather, "project_surface", lambda self: attach(project(self)))
+
+    first = decide()
+    initial = calls
+    delta = .25
+    second = decide()
+    assert first != native
+    assert second != first
+    assert calls > initial > 0
+    assert dict(green_cache) == before
+    monkeypatch.setattr(rain_strategy, "_native_green_cache_available", lambda _: False)
+    assert decide() == second
+
+
+def test_shared_green_bypasses_instance_shadow_of_track_property(monkeypatch, green_cache):
+    driver, car, track, weather = models(laps=7)
+    tire = TIRE_COMPOUNDS[TireCompound.INTERMEDIATE]
+    clock = clock_for(track)
+    track = track.model_copy(update={"total_active_aero_gain": lambda: .125})
+    assert not rain_strategy._native_green_model_available(track)
+    actual = plan_rain_stop(driver, car, track, weather, tire, 13, 1, 0, weather_clock=clock)
+    assert not green_cache
+    monkeypatch.setattr(rain_strategy, "_native_green_cache_available", lambda _: False)
+    assert plan_rain_stop(driver, car, track, weather, tire, 13, 1, 0,
+                          weather_clock=clock) == actual

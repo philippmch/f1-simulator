@@ -46,6 +46,12 @@ Raw ordinal position distributions retain every car, including unclassified
 retirements. Legacy result objects without classification metadata treat only
 finished cars as eligible.
 
+Both engines report `gap_to_leader = 0` for a retired car, including a classified
+retirement. Its `total_time` still records its last completed crossing; that
+partial race clock is not a finishing time gap. Finished cars retain their
+elapsed gap to the winner, and displays use known lap deficits where available.
+API responses and CSV exports preserve these same result fields.
+
 The CLI race table also shows completed laps and `NC`, and labels classified
 retirements explicitly. Race CSV exports append `laps_completed` and `classified`
 after the existing columns. The latter uses `true` or `false`; unknown legacy lap

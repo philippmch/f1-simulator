@@ -1299,6 +1299,16 @@ fees retain their delayed weather cadence; current traffic, control and aero
 adjustments still use the ordinary first-lap calculation. Every allowed future
 stop schedule remains in the search.
 
+Native future green-lap costs also share a process-local 65,536-entry LRU across
+decisions. Its keys contain the complete normalized driver, car and circuit
+snapshots, original physical fuel distance, complete tyre and projected weather
+values, lap number and tyre age. Values are immutable floats; the cache retains
+no live models or evaluators. Current traffic, control, aero and fitting costs
+remain outside this lookup. Cancellation is checked before cached laps too.
+Access is synchronized, and a fork starts with independent empty storage and
+a new lock. Custom evaluators or changed native physics helpers bypass this
+shared cache, so cached native results cannot hide their behavior.
+
 Cached green stint rows also prepare those fixed physics terms once when a row
 is first evaluated. Their existing cache keys, size bound, surface isolation and
 arithmetic remain unchanged. Custom physics retains its public evaluator, and

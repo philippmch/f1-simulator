@@ -1250,7 +1250,9 @@ class ChronologicalRace:
             )
             results.append(RaceResult(
                 state.driver.id, state.driver.name, state.car.team_name, position,
-                state.total_time, state.total_time - winner.total_time if winner else 0,
+                state.total_time,
+                state.total_time - winner.total_time
+                if winner and state.status == DriverStatus.FINISHED else 0,
                 state.pit_stops, self.fastest.get(state.driver.id, 0), state.status,
                 dnf_reason=state.dnf_reason, strategy=list(state.tire_compound_history),
                 laps_completed=state.laps_completed, classified=classified,

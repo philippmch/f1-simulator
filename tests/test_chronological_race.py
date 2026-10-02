@@ -58,6 +58,7 @@ def test_lapped_finish_executes_actual_nine_laps_for_slower_car(monkeypatch):
     assert [(r.driver_id, r.total_time, r.laps_completed) for r in results] == [
         ("Fast", 900, 10), ("Slow", 990, 9),
     ]
+    assert [r.gap_to_leader for r in results] == [0, 90]
     assert sorted(calls) == sorted(
         (driver, lap, 10, lap - 1) for driver, lap, _ in engine.crossings
     )
@@ -91,7 +92,7 @@ def test_failed_same_lap_pass_cannot_sort_through_physical_predecessor(monkeypat
                for driver, lap, time in engine.crossings)
 
 
-@pytest.mark.parametrize("failure_lap", [8, 9])
+@pytest.mark.parametrize("failure_lap", [1, 8, 9])
 def test_retirement_can_occur_before_or_after_winner_flag(monkeypatch, failure_lap):
     engine, args, calls, _, _, _ = fixture(monkeypatch)
 
@@ -108,6 +109,7 @@ def test_retirement_can_occur_before_or_after_winner_flag(monkeypatch, failure_l
     assert slow.status == DriverStatus.DNF
     assert slow.laps_completed == failure_lap - 1
     assert slow.total_time == 110 * (failure_lap - 1)
+    assert slow.gap_to_leader == 0
     assert max(lap for driver, lap, _, _ in calls if driver == "Slow") == failure_lap
     assert engine.timeline.states["Slow"].retirement_time == failure_lap * 110
 
@@ -142,6 +144,8 @@ def test_retired_longer_distance_car_ranks_above_shorter_finisher(monkeypatch):
         ("Retired", 9, DriverStatus.DNF),
         ("Slow", 7, DriverStatus.FINISHED),
     ]
+    assert results[1].classified
+    assert results[1].gap_to_leader == 0
 
 
 def test_own_random_spin_delays_crossing_without_extra_exposure(monkeypatch):
@@ -175,6 +179,7 @@ def test_random_retirement_does_not_credit_failed_lap_or_fastest(monkeypatch):
     (result,) = run(engine, args)
     assert result.laps_completed == 1 and result.total_time == 90
     assert result.fastest_lap == 90 and result.points_awarded == 0
+    assert result.gap_to_leader == 0
     assert engine.timeline.winner_id is None
 
 

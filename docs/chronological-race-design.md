@@ -1,14 +1,14 @@
 # Chronological race crossings
 
-The current production race loop advances every surviving driver once per
-leader lap. This gives surviving cars equal completed distances. A controlled
-ten-lap race with constant 90-second and 110-second cars currently ends at
-900/1100 seconds and 10/10 laps. With chronological crossings, the slower car
-should take the flag at its next crossing after the winner: 990 seconds, lap 9.
-Its tenth lap must never start.
+The default standard race loop advances every surviving driver once per leader
+lap. This gives surviving cars equal completed distances. A controlled ten-lap
+race with constant 90-second and 110-second cars ends at 900/1100 seconds and
+10/10 laps in that engine. The opt-in chronological engine instead gives the
+slower car the flag at its next crossing after the winner: 990 seconds, lap 9.
+Its tenth lap never starts.
 
-This document tracks the engine change needed to remove that limitation.
-It is not a claim that the production engine already supports lapping.
+This document describes the implemented chronological engine and the remaining
+requirements for making it the default.
 
 ## Experimental execution
 
@@ -37,6 +37,10 @@ ten-lap race, free-running results are 900/990/900/1000 seconds over 10/9/6/5 la
 Those tests also count actual lap calls, original fuel denominators and tyre age.
 The display adapters render known lap deficits as `+1 lap` or `+2 laps`; unknown
 legacy distances retain time gaps.
+Retired cars report a zero time gap, consistent with standard execution. Their
+last completed crossing time and distance remain available independently;
+subtracting that partial clock from the winner's finish would produce a
+misleading negative gap. This also applies to classified retirements.
 
 Pit planning estimates the flag time from the leading pending crossing, stored
 free-running pace and the time-limit deadline, then maps that time to the car's
@@ -318,16 +322,17 @@ Previously its reservation had already expired and the planner priced zero
 queue delay. Actual waiting still uses the sampled completion time; the
 forecast does not know whether that stop will finish at eight seconds or later.
 
-Race-control countdowns and surface evolution cannot advance once per car.
-They need a shared race timeline, while mechanical exposure, tyre age, fuel and
-lap completion follow each individual car. Define the resolution of control
-transitions during pending laps explicitly and apply it consistently to pace,
-passing and event probabilities.
+Race-control countdowns and surface evolution use shared leading intervals,
+while mechanical exposure, tyre age, fuel and lap completion follow each
+individual car. Pending laps retain their starting conditions until the
+documented control transitions reconcile them. Pace, passing and incident
+exposure share those boundaries.
 
-Classification must order cars by actual completed distance and crossing order.
-API, CSV, console and dashboard output then need lap deficits alongside time
-gaps. The existing classification threshold and reduced points still use the
-winner's actual distance and the original scheduled distance respectively.
+Classification orders cars by actual completed distance and crossing order,
+with the timed flag recipient first. API and CSV expose completed distance;
+console, HTML and dashboard displays show known lap deficits alongside time
+gaps. The classification threshold and reduced points use the winner's actual
+distance and the original scheduled distance respectively.
 
 ## Acceptance scenarios for the scheduler
 
