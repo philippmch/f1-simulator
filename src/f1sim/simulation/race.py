@@ -966,7 +966,8 @@ class RaceSimulator(InventoryStrategyMixin):
 
         Current regulations allow drivers to choose their starting compound;
         qualifying position no longer determines a hidden medium/soft split.
-        Wet starts are deterministic because using the wrong tyre is unsafe.
+        Wet starts compare the actual policies of all currently safe sets when
+        driver and car inputs are available, without consuming the race RNG.
         Dry starts use seeded probabilities shaped by team strategy, tyre
         stress, race length and overtaking difficulty. With driver/car context,
         complete-race costs restrict those probabilities to optimal opening sets.
@@ -981,12 +982,10 @@ class RaceSimulator(InventoryStrategyMixin):
             )
             return min(costs, key=lambda candidate: candidate[1])[0]
         weather_compound = self._choose_weather_compound(weather)
-        if weather_compound is not None:
-            return weather_compound
-        # Compare precautionary intermediates whenever the numeric surface
-        # permits them. A descriptive label must not change the candidate
+        # Compare complete opening policies whenever the numeric surface
+        # permits rain sets. A descriptive label must not change the candidate
         # set, or whether the opening choice consumes the actual race RNG.
-        if self._check_tire_weather_mismatch(
+        if weather_compound is not None or self._check_tire_weather_mismatch(
             TIRE_COMPOUNDS[TireCompound.INTERMEDIATE], weather,
         ) != "critical":
             if driver is not None and car is not None:
@@ -996,8 +995,9 @@ class RaceSimulator(InventoryStrategyMixin):
                     **({"tire_warmup": self.tire_warmup} if self.tire_warmup else {}),
                     **self._forecast_options(),
                 )
-                return min(costs, key=lambda candidate: candidate[1])[0]
-            return TireCompound.INTERMEDIATE
+                if costs:
+                    return min(costs, key=lambda candidate: candidate[1])[0]
+            return weather_compound or TireCompound.INTERMEDIATE
 
         # A condition label alone must not fit a set that our own mismatch
         # rule would immediately replace at a paid stop before lap one.

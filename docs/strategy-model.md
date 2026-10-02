@@ -355,26 +355,43 @@ the race. A rainy condition label with a sufficiently dry surface and low
 rainfall does not fit intermediates that would immediately require a paid
 replacement before lap one. Explicit starting-tyre overrides remain available.
 
-When intermediates are only a precaution, the selector compares them with all
-three slick compounds using isolated, traffic-free runs of the existing pit
-policy. These runs cover the full race, use mean lap pace and expected service
+With driver and car inputs, wet and transitional openings compare every
+currently noncritical compound, including full wets and safe slicks, using
+isolated, traffic-free runs of the existing pit policy. A numeric weather
+recommendation does not exclude a faster safe alternative. These runs cover
+the full race, use mean lap pace and expected service
 time, and advance surface wetness after each lap under constant rainfall and
 weather condition. They include later paid stops and the compound-use rule.
 Each candidate uses the same eight fixed private reaction seeds; the selector
 compares their average completed distance first and average total time second,
 so a slower, shorter time-limited race cannot win merely by ending sooner.
-It favours the existing intermediate choice in a tie. The real race's random generator and input objects are untouched.
+Ordinary comparisons favour intermediates in a tie. The real race's random
+generator and input objects are untouched. Positive fitting warm-up costs
+apply to later paid changes; the opening set is already ready to run.
 
 This is an approximate comparison of the current policy under sustained
 conditions, not a global wet-strategy optimizer or a forecast of changing rain,
 traffic, or incidents. Close choices can depend on the sampled reaction paths.
+The isolated runs follow the default automatic later pit policy. Custom paid-stop
+plans alter subsequent execution and are not optimized by this comparison.
 Results are cached with a bounded capacity, including the driver, car, circuit,
 weather, tyre configuration, strategy settings and race time limit. Dry,
 precautionary and finite-pool scores share the same input normalization: driver
 and team names and previous race state do not create new physics. Changing the
 deadline recomputes the completed-distance ranking before a new opening is
 selected. Direct selector calls
-without driver/car context retain the original precautionary choice.
+without driver/car context retain the numeric weather fallback.
+
+Run `python examples/check_weather_openings.py` to compare automatic openings
+with every safe explicit opening executed by both engines. Seven synthetic
+wet, drying, damp, warm-up and timed cases use all eight private reaction seeds.
+The JSON report compares mean completed distance before mean elapsed time;
+the command exits with status 1 for a mismatch. In its 12-lap drying case,
+starting on intermediates completes the same distance about 3.67 model seconds
+sooner than the threshold-recommended full wets. All fourteen engine/case
+comparisons match the fastest safe executed opening policy. This checks the
+existing later pit policy under fixed rainfall, not every possible schedule or
+real-world tyre performance. `--engine` selects either engine or both.
 
 Run `python examples/check_opening_policy_execution.py` to compare the isolated
 opening-policy path with actual execution. The default diagnostic runs seven
@@ -496,16 +513,17 @@ means and queue share are null. Dashboard and comparison reports retain this
 observation count; these descriptive costs do not establish a strategy's causal
 effect on race results and exclude later on-track traffic and free fittings.
 
-Fresh weather tyre selection shares the slick-mismatch crossover: above 0.2
-surface wetness or 0.4 rain intensity, a stop fits intermediates; above 0.7
-surface wetness, it fits full wets. These values are normalized model parameters,
-not measured millimetres of water. Automatic openings use these thresholds;
+The numeric weather recommendation prefers intermediates above 0.2 surface
+wetness or 0.4 rain intensity, and full wets above 0.7 surface wetness.
+These values are normalized model parameters,
+not measured millimetres of water. Direct opening calls without driver/car
+inputs retain this numeric fallback. Native automatic openings and paid
+strategy decisions compare every currently noncritical set using its projected
+cost, including safe alternatives to the weather recommendation;
 free red-flag refits compare usable sets over the remaining projected weather
-as described below. Below those fresh-selection thresholds, automatic openings compare
-intermediates with slick policies whenever intermediates are not critically
-mismatched (surface water at least 0.08 or rainfall at least 0.15), using numeric
-conditions consistently across labels. Without driver/car projection context,
-the fallback retains the precautionary intermediate choice.
+as described below. Precautionary intermediates remain available at surface
+water of at least 0.08 or rainfall of at least 0.15, using numeric conditions
+consistently across labels.
 Already-fitted rain tyres have wider drying windows before they trigger another
 stop, which avoids repeatedly switching sets near the crossover.
 
@@ -1048,9 +1066,9 @@ or the same safe candidate set when the choice is still unresolved.
 
 Without a prescribed schedule, these decisions still assume the observed rain
 persists and replan after each lap. They do not forecast random atmosphere
-changes. The unlimited-stock automatic opening policy retains its separate
-selection rules; expanding paid choices does not establish an optimal opening
-or globally optimal wet-race policy. Existing saved runs replay with the current
+changes. Unlimited-stock opening selection compares the complete existing
+policies for every safe opening; it does not establish a globally optimal
+wet-race policy. Existing saved runs replay with the current
 strategy implementation, so wet-race tyre choices can differ after this change.
 
 Each projected path carries its actual compound-use history. A finish requires

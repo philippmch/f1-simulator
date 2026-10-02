@@ -19,11 +19,11 @@ from f1sim.models._native import (
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
 from f1sim.simulation.race_timing import RaceFinishClock, forecast_final_lap
 from f1sim.simulation.warmup import validate_tire_warmup
-from f1sim.simulation.weather_schedule import validate_forecast_context
+from f1sim.simulation.weather_schedule import paid_compound_candidates, validate_forecast_context
 
 REACTION_SEEDS = tuple(range(8))
 OPENING_CANDIDATES = (TireCompound.INTERMEDIATE, TireCompound.SOFT,
-                      TireCompound.MEDIUM, TireCompound.HARD)
+                      TireCompound.MEDIUM, TireCompound.HARD, TireCompound.WET)
 SLICKS = (TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD)
 
 
@@ -102,7 +102,12 @@ def _cached_dry_policy_costs(driver_json, car_json, track_json, weather_json,
 @forecast_decision
 def opening_policy_costs(driver, car, track, weather, strategy, tuning, profiles,
                          *, tire_warmup=None, forecast_context=None):
-    """Return immutable distance/time scores; normalize transient state for caching."""
+    """Score every currently noncritical opening through the actual pit policy.
+
+    Compare completed distance before elapsed time. The conditional projection
+    holds observed rainfall fixed unless a prescribed scenario supplies later
+    changes; it does not sample future weather or consume the actual race RNG.
+    """
     from f1sim.simulation import race_timing
 
     validate_forecast_context(forecast_context)
@@ -132,10 +137,10 @@ def _cached_policy_costs(driver_json, car_json, track_json, weather_json,
     tuning, profiles = json.loads(tuning_json), json.loads(profiles_json)
     tire_warmup = json.loads(warmup_json)
     scores = []
-    candidates = (tuple(compound for compound in TireCompound
-                        if weather.tire_mismatch(compound) != "critical")
-                  if forecast_context is not None and forecast_context.schedule
-                  else OPENING_CANDIDATES)
+    safe = frozenset(paid_compound_candidates(weather, forecast_context))
+    order = (tuple(TireCompound) if forecast_context is not None and forecast_context.schedule
+             else OPENING_CANDIDATES)
+    candidates = tuple(compound for compound in order if compound in safe)
     for compound in candidates:
         cancellation_checkpoint()
         outcomes = [_policy_path_outcome(
@@ -296,6 +301,6 @@ def _policy_path_outcome(driver, car, track, weather, strategy, tuning, profiles
     return state.laps_completed, state.total_time
 
 
-register_forecast_helpers(globals(), ('_policy_path_outcome',))
+register_forecast_helpers(globals(), ('_policy_path_outcome', 'paid_compound_candidates'))
 
 register_forecast_values(globals(), ("REACTION_SEEDS", "OPENING_CANDIDATES", "SLICKS"))

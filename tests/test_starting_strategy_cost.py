@@ -82,18 +82,18 @@ def test_no_finite_schedule_retains_original_seeded_prior():
         assert with_context == legacy
 
 
-def test_weather_selection_skips_dry_projection(monkeypatch):
+def test_weather_selection_uses_weather_policy_without_dry_opening_selector(monkeypatch):
     import f1sim.simulation.race as race_module
 
     driver, car, track = fixture()
-    monkeypatch.setattr(race_module, "plan_dry_stop",
-                        lambda *args, **kwargs: pytest.fail("Wet start projected dry stints"))
+    monkeypatch.setattr(race_module, "dry_opening_policy_costs",
+                        lambda *args, **kwargs: pytest.fail("Wet start used dry opening selector"))
     simulator = RaceSimulator(np.random.default_rng(42))
     before = copy.deepcopy(simulator.rng.bit_generator.state)
     assert simulator._choose_starting_compound(TeamStrategyArchetype.BALANCED, track,
-                                               Weather(track_wetness=0.9), driver, car) == (
-        TireCompound.WET
-    )
+                                               Weather(track_wetness=0.9), driver, car) in {
+        TireCompound.INTERMEDIATE, TireCompound.WET,
+    }
     assert simulator.rng.bit_generator.state == before
 
 

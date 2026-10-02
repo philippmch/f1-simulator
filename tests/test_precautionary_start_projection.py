@@ -67,7 +67,8 @@ def test_average_costs_and_cache_preserve_state_and_actual_rng(monkeypatch):
     assert costs == tuple((compound, OpeningPolicyScore(-track.total_laps, sum(_policy_path_cost(
         driver, car, track, weather, style, simulator.strategy_tuning, simulator.strategy_profiles,
         compound, seed,
-    ) for seed in REACTION_SEEDS) / 8)) for compound in OPENING_CANDIDATES)
+    ) for seed in REACTION_SEEDS) / 8)) for compound in OPENING_CANDIDATES
+                          if weather.tire_mismatch(compound) != "critical")
     assert opening_policy_costs(*args) is costs
     assert _cached_policy_costs.cache_info().hits == 1
     driver.current_tire_laps = 99
@@ -208,5 +209,6 @@ def test_opening_score_averages_both_distance_and_time_over_all_reaction_seeds(m
     scores = opening_policy_costs(driver, car, track, weather, TeamStrategyArchetype.BALANCED,
                                   simulator.strategy_tuning, simulator.strategy_profiles)
     assert all(score == OpeningPolicyScore(-5.5, 8035) for _, score in scores)
-    assert calls == [(compound, seed) for compound in OPENING_CANDIDATES for seed in REACTION_SEEDS]
+    assert calls == [(compound, seed) for compound in OPENING_CANDIDATES
+                     if weather.tire_mismatch(compound) != "critical" for seed in REACTION_SEEDS]
     _cached_policy_costs.cache_clear()
