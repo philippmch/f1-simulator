@@ -232,6 +232,13 @@ blue-flag yielding, including encounters between cars that started under green.
 Already completed passes retain their physical order. A lap started under
 neutralization keeps its passing restriction through that crossing even if the
 signal clears meanwhile; sector-level restart timing is not modeled.
+Electrical Overtake Mode also waits for the continuing field's accepted
+on-track crossings after SC return, including unfinished paid laps. Pit-lane
+Control Line geometry is not modeled: a pit exit does not clear this wait, so
+recovery can be conservative for a pitting car. Deployment and both pit and
+finish-distance forecasts share that permission. New neutralization cancels an
+earlier activation without rewriting its already sampled lap or refunding spent
+energy.
 An unrun paid lap held at a closed pit exit waits for the shared red-flag restart.
 Its free restart tyre fitting and current running conditions are applied before
 its first physics call; paid service is not repeated. Forecasts for cars still

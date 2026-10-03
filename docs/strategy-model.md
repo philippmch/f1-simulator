@@ -1802,6 +1802,22 @@ the saved observation grants a burst without energy and control permission.
 Paid laps clear the earlier deployment snapshot; completing an own lap clears it
 before the next detection. Strategy forecasts leave this execution state unchanged.
 
+After an SC return, chronological execution also waits for each racing car's next
+accepted on-track crossing, including cars still in paid service or on a lower
+own lap. This approximates the field-wide recovery condition in
+[FIA sporting regulation B7.2.2](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_b_sporting_-_iss_09_-_2026-10-01.pdf).
+The actual Control Line also extends through the pit lane; its location relative
+to each team's box is not modeled. Using the next on-track crossing is a
+conservative proxy that can prolong the wait for a pitting car. Retirement
+removes a car from the waiting field. Pit decisions and finish-distance
+protection use the same permission. A subsequent SC return starts a new wait;
+red-flag collection and a new run clear it.
+
+New SC, VSC and red-flag signals cancel active bursts on unfinished laps. Those
+laps retain their sampled clocks and spent energy; later passing receives no
+boost from the cancelled activation. A fresh running entry must qualify again.
+The existing lap-start approximation remains; sector timing is not modeled.
+
 Direct `OvertakingModel.attempt_overtake` calls can supply `detected_gap` separately
 from the current `gap`. For example, a captured gap of 0.8 seconds can retain an
 active burst during a maneuver at 1.2 seconds. Without a captured observation,

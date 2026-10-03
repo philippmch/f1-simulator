@@ -46,8 +46,16 @@ def test_running_conditions_refresh_after_service(monkeypatch, flag, deploy):
         assert pending.safety_car is (deploy and flag == "safety_car_active")
         assert pending.lap_time_modifier == modifier
         assert pending.restart_boost == control.is_restart_lap(engine.control_intervals + 1)
-        assert pending.mode_allowed == control.is_overtake_mode_allowed(
-            engine.control_intervals + 1, engine.weather)
+        if not deploy and flag == "safety_car_active":
+            # The shared green signal arrived while B was in service. B has
+            # not supplied the on-track crossing used by this lap-level gate.
+            assert engine.states["B"].laps_completed == 1
+            assert control.is_overtake_mode_allowed(engine.control_intervals + 1,
+                                                   engine.weather)
+            assert pending.mode_allowed is False
+        else:
+            assert pending.mode_allowed == control.is_overtake_mode_allowed(
+                engine.control_intervals + 1, engine.weather)
         assert pending.mode_active is False
         assert pending.tire.model_dump() == fitted
         if not pending.safety_car:

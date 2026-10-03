@@ -126,6 +126,7 @@ class ChronologicalRace:
         self.pit_exits: list[tuple[str, int, float]] = []
         self.suspensions: list[tuple[float, float, tuple[str, ...]]] = []
         self.order: list[str] = []
+        self._overtake_restart_waiting: set[str] = set()
 
     def run(self, drivers, cars, track, weather, starting_grid, *, starting_tires=None,
             starting_tire_ages=None, tire_inventory=None, pit_plans=None, weather_schedule=None):
@@ -207,6 +208,7 @@ class ChronologicalRace:
         self.leader_id = None
         self.incidents = 0
         self.control_intervals = 0
+        self._overtake_restart_waiting.clear()
         self.green_streak = 0
         self.has_two_green = False
         self.crossings.clear()
@@ -890,7 +892,8 @@ class ChronologicalRace:
             tire_warmup=self.simulator.tire_warmup, current_fit_pending=state.fit_lap_pending,
             current_overtake_mode_active=self.simulator._strategy_overtake_mode_active(
                 state, self.track, self.control_intervals + 1, self.weather,
-                traffic.gap_ahead if traffic is not None else None),
+                traffic.gap_ahead if traffic is not None else None,
+                mode_allowed=self._overtake_mode_allowed(self.weather)),
         )
         return result.veto
 
@@ -993,6 +996,7 @@ class ChronologicalRace:
             observed_gap=gap,
             current_overtake_mode_active=self.simulator._strategy_overtake_mode_active(
                 state, self.track, self.control_intervals + 1, self.weather, gap,
+                mode_allowed=self._overtake_mode_allowed(self.weather),
             ),
             replacements=replacements,
             projected_surface_at=lambda absolute: self._projected_surface_at(
@@ -1086,9 +1090,7 @@ class ChronologicalRace:
                 traffic_snapshot=traffic,
                 weather_intervals=cadence,
                 weather_clock=weather_clock,
-                current_overtake_mode_allowed=control.is_overtake_mode_allowed(
-                    self.control_intervals + 1, self.weather,
-                ),
+                current_overtake_mode_allowed=self._overtake_mode_allowed(self.weather),
             )
         if (
             stop
@@ -1158,7 +1160,7 @@ class ChronologicalRace:
             on_track=not stop, paid_stop=stop,
             lap_time_modifier=control.get_lap_time_modifier(),
             active_aero_enabled=control.is_active_aero_allowed(),
-            mode_allowed=control.is_overtake_mode_allowed(interval, snapshot),
+            mode_allowed=self._overtake_mode_allowed(snapshot),
             restart_boost=control.is_restart_lap(interval),
             safety_car=control.safety_car_active,
             expected_exit=expected_exit,
@@ -1355,6 +1357,12 @@ class ChronologicalRace:
                 self.running_paces.get(driver_id, self.track.base_lap_time) * modifier)
         return progress * pace if isfinite(pace) and pace > 0 else None
 
+    def _overtake_mode_allowed(self, weather):
+        """A shared restart lap cannot replace an unfinished car's line crossing."""
+        return (not self._overtake_restart_waiting
+                and self.simulator.event_manager.is_overtake_mode_allowed(
+                    self.control_intervals + 1, weather))
+
     def _capture_running_conditions(self, pending):
         """Freeze running conditions at track entry, after any paid service."""
         control = self.simulator.event_manager
@@ -1363,7 +1371,7 @@ class ChronologicalRace:
         pending.lap_time_modifier = control.get_lap_time_modifier()
         pending.active_aero_enabled = control.is_active_aero_allowed()
         interval = self.control_intervals + 1
-        pending.mode_allowed = control.is_overtake_mode_allowed(interval, pending.weather)
+        pending.mode_allowed = self._overtake_mode_allowed(pending.weather)
         pending.restart_boost = control.is_restart_lap(interval)
         pending.safety_car = control.safety_car_active
         pending.sc_queue_pace = None
@@ -1417,6 +1425,7 @@ class ChronologicalRace:
         state.driver.dnf = True
         state.driver.dnf_reason = reason
         self.pending.pop(driver_id, None)
+        self._overtake_restart_waiting.discard(driver_id)
         self.free_refits.discard(driver_id)
         self.red_waiting.discard(driver_id)
         if driver_id in self.order:
@@ -1522,6 +1531,10 @@ class ChronologicalRace:
                               if other.status == DriverStatus.RACING)
         leading = (self.timeline.chequered_time is None
                    and pending.lap > active_distance)
+        # This lap-level model uses accepted on-track crossings; pit-lane
+        # Control Line geometry is not resolved. Clear the previous barrier
+        # before control processing can arm a new one at this crossing.
+        self._overtake_restart_waiting.discard(driver_id)
         red = self._leader_interval(pending) if leading else False
         crossing = self.timeline.observe_crossing(driver_id, pending.lap, now, is_leader=leading)
         state.laps_completed = pending.lap
@@ -1539,6 +1552,7 @@ class ChronologicalRace:
         self.order.remove(driver_id)
         if crossing.finish_time is not None:
             state.status = DriverStatus.FINISHED
+            self._overtake_restart_waiting.discard(driver_id)
         else:
             self.order.append(driver_id)
         self._positions()
@@ -1556,11 +1570,29 @@ class ChronologicalRace:
 
     def _leader_interval(self, pending):
         control = self.simulator.event_manager
+        was_safety_car = control.safety_car_active
         # Leadership can pass to a lapped survivor. Race-control cadence still
         # advances once per leading interval rather than replaying its old laps.
         self.control_intervals += 1
         events = control.process_lap(self.control_intervals, [], {}, self.track, pending.weather,
                                      incidents_this_lap=self.incidents)
+        if control.safety_car_active or control.vsc_active or control.red_flag_active:
+            # Disable activation immediately even on a green lap still running
+            # when the signal changes. Its sampled crossing and already spent
+            # energy remain committed; a later pass cannot reuse this burst.
+            for driver_id, running in self.pending.items():
+                running.mode_active = False
+                self.states[driver_id].overtake_mode_active_lap = False
+        if control.safety_car_active or control.red_flag_active:
+            self._overtake_restart_waiting.clear()
+        elif was_safety_car:
+            # SC return is observed at this shared crossing. Every continuing
+            # car must supply a subsequent crossing, including cars in service
+            # and cars on a lower own lap. A red-flag collection supersedes it.
+            self._overtake_restart_waiting = {
+                driver_id for driver_id, state in self.states.items()
+                if state.status == DriverStatus.RACING
+            }
         self.incidents = 0
         neutral = pending.neutralized or any(event.event_type in (
             EventType.SAFETY_CAR, EventType.VIRTUAL_SAFETY_CAR, EventType.RED_FLAG,
