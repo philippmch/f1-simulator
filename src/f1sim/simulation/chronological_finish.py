@@ -155,22 +155,34 @@ def _copy_timeline(timeline):
     # Native driver observations are frozen records of scalar values. Share
     # those values while copying every mutable ledger/clock container. Any
     # non-native records or additional attributes retain ordinary deep copying.
+    if native_finish_timeline(timeline):
+        return _copy_native_timeline(timeline)
     immutable = {id(row): row for row in timeline.states.values()
                  if type(row) is DriverFinishState and vars(row).keys() == _FINISH_FIELDS
                  and all(type(value) in _SCALAR_TYPES for value in vars(row).values())}
+    return deepcopy(timeline, immutable)
+
+
+def _copy_native_timeline(timeline):
+    """Fork a ledger whose closed native shape was established by its owner."""
+    branch = copy(timeline)
+    branch._clock = copy(timeline._clock)
+    branch._states = dict(timeline.states)
+    return branch
+
+
+def native_finish_timeline(timeline):
+    """Recognize the closed ledger shape used by native field projections."""
     clock = timeline._clock
-    if (type(timeline) is RaceFinishTimeline and type(clock) is RaceFinishClock
+    return (type(timeline) is RaceFinishTimeline and type(clock) is RaceFinishClock
             and vars(timeline).keys() == _TIMELINE_FIELDS
             and vars(clock).keys() == _CLOCK_FIELDS
-            and len(immutable) == len(timeline.states)
+            and all(type(row) is DriverFinishState and vars(row).keys() == _FINISH_FIELDS
+                    and all(type(value) in _SCALAR_TYPES for value in vars(row).values())
+                    for row in timeline.states.values())
             and all(type(value) in _SCALAR_TYPES for value in vars(clock).values())
             and all(type(value) in _SCALAR_TYPES for name, value in vars(timeline).items()
-                    if name not in ("_clock", "_states"))):
-        branch = copy(timeline)
-        branch._clock = copy(clock)
-        branch._states = dict(timeline.states)
-        return branch
-    return deepcopy(timeline, immutable)
+                    if name not in ("_clock", "_states")))
 
 
 class ObservedChronologicalField:
@@ -212,14 +224,21 @@ class ObservedChronologicalField:
                       for row in context.rivals]
         heapq.heapify(self.queue)
         self.entered = False
+        self._native_crossings = False
+        self._running_leader = None
+        self._record_events = True
 
     def fork(self):
         """Copy only mutable projection state; no engine or model is retained."""
         branch = copy(self)
-        branch.timeline = _copy_timeline(self.timeline)
+        branch.timeline = (_copy_native_timeline(self.timeline) if self._native_crossings else
+                           _copy_timeline(self.timeline))
         branch.order = self.order.copy()
         branch.free_paces = self.free_paces.copy()
-        branch.pending = {key: replace(row) for key, row in self.pending.items()}
+        # The closed native strategy projection replaces a lap record before
+        # changing it. Siblings may therefore share untouched rival records.
+        branch.pending = (self.pending.copy() if self._native_crossings else
+                          {key: replace(row) for key, row in self.pending.items()})
         branch.queue = self.queue.copy()
         branch.events = self.events.copy()
         return branch
@@ -263,22 +282,33 @@ class ObservedChronologicalField:
 
     def _begin(self, identifier, entry, free_running, fitting_cost=0.):
         row = self.pending[identifier]
-        row.free_running = free_running
-        row.neutralized = self.controlled
-        row.running_start = entry
+        if not self._native_crossings:
+            row.free_running = free_running
+            row.neutralized = self.controlled
+            row.running_start = entry
         running = free_running * self.running_modifier
         self.free_paces[identifier] = free_running
         if self.controlled and self.safety_car:
             ledger = self.timeline.states
-            leader = min(self.order, key=lambda key: -ledger[key].completed_laps)
+            if self._native_crossings:
+                if self._running_leader is None:
+                    self._running_leader = min(
+                        self.order, key=lambda key: -ledger[key].completed_laps)
+                leader = self._running_leader
+            else:
+                leader = min(self.order, key=lambda key: -ledger[key].completed_laps)
             if identifier != leader:
                 nominal = max(free_running, self.pending[leader].free_running * self.modifier)
                 running = safety_car_running_time(
                     free_running, nominal, self._gap_ahead(identifier, entry, nominal))
-        row.ready = entry + running + fitting_cost
-        row.fitting_cost = 0.
-        if not isfinite(row.ready) or row.ready <= entry:
+        ready = entry + running + fitting_cost
+        if not isfinite(ready) or ready <= entry:
             raise ValueError("invalid projected running crossing")
+        if self._native_crossings:
+            self.pending[identifier] = _ProjectedLap(
+                row.lap, ready, entry, free_running, self.controlled, 0., row.generation)
+        else:
+            row.ready, row.fitting_cost = ready, 0.
         self._enqueue(identifier, "cross")
 
     def _advance(self, target):
@@ -290,6 +320,10 @@ class ObservedChronologicalField:
                 continue
             if kind == "exit":
                 self.order.append(identifier)
+                if (self._native_crossings and self._running_leader is not None
+                        and self.timeline.states[identifier].completed_laps
+                        > self.timeline.states[self._running_leader].completed_laps):
+                    self._running_leader = identifier
                 if identifier == self.identifier:
                     self.now = time
                     return
@@ -304,7 +338,12 @@ class ObservedChronologicalField:
                 ready = max(row.ready, ahead.ready + 1.e-9)
                 if not isfinite(ready) or ready <= time:
                     raise ValueError("invalid projected no-passing crossing")
-                row.ready, row.generation = ready, row.generation + 1
+                if self._native_crossings:
+                    self.pending[identifier] = _ProjectedLap(
+                        row.lap, ready, row.running_start, row.free_running, row.neutralized,
+                        row.fitting_cost, row.generation + 1)
+                else:
+                    row.ready, row.generation = ready, row.generation + 1
                 self._enqueue(identifier, "cross")
                 break
             else:
@@ -315,17 +354,33 @@ class ObservedChronologicalField:
                     # flag, only a leading crossing can increase its distance.
                     self.active_distance = row.lap
                     self.intervals_left = max(0, self.intervals_left - 1)
-                crossing = self.timeline.observe_crossing(identifier, row.lap, time,
-                                                         is_leader=leading)
-                event = ObservedFieldCrossing(identifier, time, leading,
-                                             self.timeline.chequered_time)
-                self.events.append(event)
-                if leading and self.timeline.chequered_time is None:
+                if self._native_crossings:
+                    crossing = self.timeline._commit_crossing(
+                        self.timeline.states[identifier], identifier, row.lap, time, leading,
+                        native=True)
+                else:
+                    crossing = self.timeline.observe_crossing(identifier, row.lap, time,
+                                                             is_leader=leading)
+                flag = self.timeline.chequered_time
+                event = (ObservedFieldCrossing(identifier, time, leading, flag)
+                         if self._record_events or identifier == target else None)
+                if self._record_events:
+                    self.events.append(event)
+                if leading and flag is None:
                     self.updates += 1
                 del self.pending[identifier]
                 self.order.remove(identifier)
                 if crossing.finish_time is None:
                     self.order.append(identifier)
+                if self._native_crossings and self._running_leader is not None:
+                    if crossing.finish_time is not None and self._running_leader == identifier:
+                        self._running_leader = None
+                    elif (crossing.finish_time is None and crossing.completed_laps
+                          > self.timeline.states[self._running_leader].completed_laps):
+                        # Crossed cars rejoin the tail. A tied car cannot
+                        # precede the cached on-track leader; only a greater
+                        # completed distance changes that first maximum.
+                        self._running_leader = identifier
                 if identifier == target:
                     self.now = time
                     return event
@@ -354,6 +409,8 @@ class ObservedChronologicalField:
         self.pending[self.identifier] = _ProjectedLap(lap, ready, None, 0., True)
         if stopped:
             self.order.remove(self.identifier)
+            if self._running_leader == self.identifier:
+                self._running_leader = None
             self._enqueue(self.identifier, "exit")
             self._advance(self.identifier)
         self.entered = True
@@ -564,7 +621,8 @@ register_forecast_helpers(globals(), (
     "replacement_options", "safety_car_running_time", "minimum_lap_time",
     "project_observed_chronological_clock", "ObservedChronologicalClock", "_ObservedRunningPace",
     "ObservedChronologicalField", "ObservedFieldCrossing", "_copy_timeline", "DriverFinishState",
-    "RaceFinishTimeline", "RaceFinishClock",
+    "RaceFinishTimeline", "RaceFinishClock", "native_finish_timeline", "_copy_native_timeline",
+    "_ProjectedLap",
 ))
 register_forecast_values(globals(), (
     "_FINISH_FIELDS", "_TIMELINE_FIELDS", "_CLOCK_FIELDS", "_SCALAR_TYPES",
@@ -574,3 +632,12 @@ register_forecast_helpers(vars(ObservedChronologicalField), (
     "__init__", "fork", "controlled", "running_modifier", "projection_required", "finished",
     "_enqueue", "_gap_ahead", "gap_ahead", "_begin", "_advance", "enter", "cross",
 ))
+register_forecast_helpers(vars(RaceFinishTimeline), (
+    "observe_crossing", "_commit_crossing", "_active_state", "states", "chequered_time",
+))
+register_forecast_helpers(vars(RaceFinishClock), (
+    "observe_leader_crossing", "time_limit_seconds", "total_suspension_seconds",
+))
+register_forecast_helpers(vars(DriverFinishState), ("__init__",))
+register_forecast_helpers(vars(_ProjectedLap), ("__init__",))
+register_forecast_helpers(vars(ObservedFieldCrossing), ("__init__",))

@@ -35,8 +35,9 @@ from f1sim.simulation.weather_strategy import weather_stop_costs
 @pytest.mark.parametrize("relative_laps", [-1, 1])
 @pytest.mark.parametrize("off_track", [False, True])
 @pytest.mark.parametrize("horizon", [2, 18])
+@pytest.mark.parametrize("native_clock", [False, True])
 def test_green_weather_clock_rebases_native_entries_and_excludes_the_flag(
-    monkeypatch, control, relative_laps, off_track, horizon,
+    monkeypatch, control, relative_laps, off_track, horizon, native_clock,
 ):
     models = field(control=control, intervals=2, relative_laps=relative_laps,
                    off_track=off_track, remaining=120., neutralized=True,
@@ -66,7 +67,7 @@ def test_green_weather_clock_rebases_native_entries_and_excludes_the_flag(
         prefix += 1
     assert not projected.finished
     before = signature(projected)
-    intervals, clock = green_weather_forecast(projected, horizon, 200.)
+    intervals, clock = green_weather_forecast(projected, horizon, 200., native=native_clock)
     assert signature(projected) == before
     native_entries = entries[prefix:prefix + horizon]
     origin = native_entries[0][0]
@@ -293,6 +294,8 @@ def all_schedules(models, control, intervals, budget, *, finite, pending=False,
     (True, 2, True, False, False),
     (True, 0, False, True, False),
     (True, 0, False, False, True),
+    (False, 9, False, False, False),
+    (True, 9, False, False, False),
 ])
 def test_known_weather_control_matches_complete_schedules(
     engine, control, wetness, rain, prescribed, finite, budget, pending, force, damaged,

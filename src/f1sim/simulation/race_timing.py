@@ -300,6 +300,16 @@ class RaceFinishTimeline:
                 raise ValueError(
                     "a leader cannot trail another active car's completed distance or tie it"
                 )
+        return self._commit_crossing(state, driver_id, completed_lap, time, is_leader)
+
+    def _commit_crossing(self, state, driver_id, completed_lap, time, is_leader, *, native=False):
+        """Commit validated live observations or a closed native projection.
+
+        The observed field owns its chronological queue and active distance,
+        has no future retirements, and admits this path only for unmodified
+        native ledgers. Its crossings need no repeated full-grid validation.
+        Leading crossings still use the authoritative finish clock.
+        """
         leadership_reset = (self._leader_id is not None
                             and self._states[self._leader_id].retired)
         # The clock validates before mutation. No validation can fail after
@@ -312,8 +322,10 @@ class RaceFinishTimeline:
             if self.chequered_time is not None:
                 self.winner_id = driver_id
         finished = self.chequered_time is not None
-        updated = replace(state, completed_laps=completed_lap, last_crossing_time=time,
-                          finish_time=time if finished else None)
+        updated = (DriverFinishState(completed_lap, time, time if finished else None,
+                                     state.retired, state.retirement_time) if native else
+                   replace(state, completed_laps=completed_lap, last_crossing_time=time,
+                           finish_time=time if finished else None))
         self._states[driver_id] = updated
         self._last_observation_time = time
         return updated

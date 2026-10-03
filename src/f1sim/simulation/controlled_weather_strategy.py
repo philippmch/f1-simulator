@@ -1,5 +1,7 @@
 """Weather and physical tyre choices through an observed SC/VSC field."""
 
+from bisect import bisect_right
+from copy import copy
 from dataclasses import dataclass
 from functools import lru_cache
 from math import inf, isfinite, nextafter
@@ -9,6 +11,7 @@ import numpy as np
 from f1sim.cancellation import cancellation_checkpoint
 from f1sim.models._native import native_physics, register_forecast_helpers
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
+from f1sim.simulation.chronological_finish import native_finish_timeline
 from f1sim.simulation.lap import LapSimulator, minimum_lap_time
 from f1sim.simulation.pit_strategy import expected_stationary_time
 from f1sim.simulation.strategy_control_clock import (
@@ -43,7 +46,62 @@ def usable_weather_control(context, weather_clock):
             and (weather_clock is None or type(weather_clock) is StrategyWeatherClock))
 
 
-def green_weather_forecast(field, horizon, stop_delay):
+def _green_weather_crossings(field, horizon):
+    """Hold independent green crossings without rebuilding follower ledgers.
+
+    The caller has verified native dispatch and cleared every neutralized lap.
+    Each car's next committed crossing is retained, including a pending service
+    exit and fitting fee. Subsequent crossings use repeated addition, matching
+    the event scheduler's rounding. Only a new leading distance can update the
+    weather or finish clock; follower crossings cannot change these signals.
+    """
+    clock = copy(field.timeline._clock)
+    identifier, origin = field.identifier, field.now
+    pace = field.free_paces[identifier]
+    streams = [(field.timeline.states[identifier].completed_laps + 1,
+                origin + pace, pace)]
+    for key, row in field.pending.items():
+        if key == identifier:
+            continue
+        ready = row.ready
+        if row.running_start is None:
+            ready = (ready + row.free_running) + row.fitting_cost
+        streams.append((row.lap, ready, row.free_running))
+    reset = (field.timeline._leader_id is not None
+             and field.timeline.states[field.timeline._leader_id].retired)
+    times = []
+    distance = field.active_distance
+    while clock.winner_time is None:
+        cancellation_checkpoint()
+        distance += 1
+        candidates = []
+        for lap, ready, free in streams:
+            while lap < distance:
+                crossing = ready + free
+                if not isfinite(crossing) or crossing <= ready:
+                    raise ValueError("invalid projected running crossing")
+                lap, ready = lap + 1, crossing
+            candidates.append((lap, ready, free))
+        streams = candidates
+        crossing = min(ready for _, ready, _ in streams)
+        clock.observe_leader_crossing(distance, crossing, allow_leadership_reset=reset)
+        reset = False
+        if clock.winner_time is None:
+            times.append(crossing)
+    starts, counts = [], []
+    now = origin
+    for _ in range(horizon):
+        cancellation_checkpoint()
+        starts.append(now - origin)
+        counts.append(bisect_right(times, now))
+        crossing = now + pace
+        if not isfinite(crossing) or crossing <= now:
+            raise ValueError("invalid projected running crossing")
+        now = crossing
+    return starts, counts, tuple(time - origin for time in times)
+
+
+def green_weather_forecast(field, horizon, stop_delay, *, native=False):
     """Rebase a held green field onto its actual post-control observations.
 
     A projected external leader supplies paid-stop-aware update events. When
@@ -52,8 +110,21 @@ def green_weather_forecast(field, horizon, stop_delay):
     """
     if type(field) is ObservedStandardField:
         return None, None
+    if (native and not field.entered and not field.projection_required
+            and (field._native_crossings or native_finish_timeline(field.timeline))):
+        starts, counts, times = _green_weather_crossings(field, horizon)
+        identifier = field.identifier
+        leader = min(field.order,
+                     key=lambda key: -field.timeline.states[key].completed_laps)
+        if leader == identifier:
+            return tuple(counts), None
+        return None, StrategyWeatherClock(
+            tuple(starts), times[0] if times else 0., field.free_paces[leader], len(times),
+            stop_delay, stop_delay, update_offsets=times,
+        )
     origin, updates = field.now, field.updates
     projected = field.fork()
+    projected._record_events = True
     first_event = len(projected.events)
     identifier = field.identifier
     leader = min(field.order,
@@ -88,6 +159,26 @@ def green_weather_forecast(field, horizon, stop_delay):
     return None, clock
 
 
+def _green_weather_clock_key(clock, warmup):
+    """Collapse equivalent short native suffixes by every reachable update.
+
+    With no fitting delays, a suffix has at most one paid visit per own lap.
+    Green planners only observe these update counts and the total update cap.
+    Preserve the actual clock for long horizons and all other clock shapes.
+    """
+    if (clock is None or warmup or len(clock.lap_start_offsets) > 12
+            or clock.update_offsets is None or clock.current_running_times is not None
+            or clock.current_stop_delay != clock.future_stop_delay):
+        return clock
+    tolerance = clock.update_interval * 1.e-12
+    counts = tuple(tuple(
+        0 if offset == paid == 0 else bisect_right(
+            clock.update_offsets, start + paid * clock.future_stop_delay + tolerance)
+        for paid in range(offset + 2)
+    ) for offset, start in enumerate(clock.lap_start_offsets))
+    return clock.max_updates, counts
+
+
 @control_lap_scope
 def plan_controlled_weather(
     driver, car, track, weather, current_tire, tire_age, current_lap, remaining_stops,
@@ -115,8 +206,15 @@ def plan_controlled_weather(
     driver, car, track = (model.model_copy(deep=True) for model in (driver, car, track))
     simulator = LapSimulator(np.random.default_rng(0))
     native = native_physics(driver, car, track, weather, current_tire)
+    if type(root) is not ObservedStandardField:
+        native = native and native_finish_timeline(root.timeline)
     if native:
         driver.reset_race_state()
+        if type(root) is not ObservedStandardField:
+            root._native_crossings = True
+            # Costs consume the ledger and cumulative updates. The compact
+            # green clock needs no history of earlier follower crossings.
+            root._record_events = False
     prepared = (simulator.prepare_deterministic_lap_time(driver, car, track, physical_total_laps)
                 if native else None)
     service = expected_stationary_time(car)
@@ -211,6 +309,18 @@ def plan_controlled_weather(
         result = mask | bits[compound]
         return 8 if native and result & 8 else result
 
+    def state_key(state):
+        offset, compound, age, available, left, dry, damp, mask, retained = state
+        room = horizon - offset
+        # Only one fit can precede each remaining own lap. Surplus allowances
+        # and already satisfied rule histories cannot change any suffix edge.
+        credit = (0 if not require_compound_rule else
+                  8 if mask & 8 else 7 if legal(mask) else mask)
+        return (offset, compound, age, available, min(left, room),
+                None if dry is None else min(dry, room),
+                None if damp is None else min(damp, room),
+                credit, retained)
+
     def allowed(state, before, target):
         _, compound, _, _, left, dry, damp, mask, _ = state
         if same_compound:
@@ -276,9 +386,11 @@ def plan_controlled_weather(
             intervals, clock = None, None
         else:
             intervals, clock = green_weather_forecast(field, horizon - offset,
-                                                     track.pit_lane_delta + service)
+                                                     track.pit_lane_delta + service,
+                                                     native=native)
         context = None if forecast_context is None else forecast_context.advanced(field.updates)
-        key = (state, field.updates, intervals, clock, retention)
+        key = (state_key(state) if native else state, field.updates, intervals,
+               _green_weather_clock_key(clock, tire_warmup) if native else clock, retention)
         if native and key in suffixes:
             return suffixes[key]
         used_compounds = {value for value in TireCompound if mask & bits[value.value]}
@@ -349,7 +461,7 @@ def plan_controlled_weather(
         if not field.projection_required and (not retention or
                 surface(field.updates).tire_mismatch(TireCompound(compound)) != "critical"):
             return green(field, state, retention)
-        key = observed_control_key(field), state, retention
+        key = observed_control_key(field), state_key(state) if native else state, retention
         if native and key in memo:
             return memo[key]
         before = surface(field.updates)
@@ -401,11 +513,14 @@ def plan_controlled_weather(
 
 
 register_forecast_helpers(globals(), (
-    "ControlledWeatherDecision", "green_weather_forecast", "plan_controlled_weather",
+    "ControlledWeatherDecision", "green_weather_forecast", "_green_weather_crossings",
+    "_green_weather_clock_key",
+    "plan_controlled_weather",
     "usable_weather_control",
     "native_physics", "project_next_surface", "paid_compound_candidates",
     "ObservedStandardField", "ProjectedControlCost", "StrategyControlContext",
     "observed_control_key", "StrategyWeatherClock",
     "isolated_strategy_lap", "control_lap_scope",
     "install_control_wear_bound", "minimum_lap_time",
+    "native_finish_timeline",
 ))

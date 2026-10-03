@@ -116,6 +116,28 @@ each removed set's age and multiplicity and return to the physical-pool green
 search after control ends. See the
 [strategy model](strategy-model.md) for scope and a completed-race example.
 
+Native weather searches establish the private ledger's closed shape once.
+Their branches copy ledger containers and replace pending lap records before
+changing them, so untouched rival records can be shared safely. Projected
+crossings reuse the queue's established order and distance; leading crossings
+still use the authoritative finish clock. Live race crossings retain complete
+validation. After every neutralized lap clears, held green running has
+independent crossing streams. The weather clock advances those streams with
+the same repeated-addition rounding, preserving committed service exits,
+fitting costs and the conditional flag without rebuilding each follower's
+ledger. Changed ledger dispatch or additional mutable state keeps the full
+projection path.
+Private native cost searches retain the ledger and cumulative weather count
+without allocating unused follower-event history. A recorded field forecast
+still exposes its complete crossing events. Native searches also reuse the
+on-track leader while SC order is fixed, updating it at crossings and pit exits.
+Short native green suffixes without fitting delays also share costs when every
+possible paid-entry weather update and the final update cap agree. Longer
+horizons and fitting delays retain their complete clocks as cache keys. All
+candidate schedules remain available in either path.
+Stop budgets above the remaining own-lap count and satisfied compound-rule
+histories share cache entries, since they admit the same remaining actions.
+
 When the projected leader is another car, weather-cost planning also advances
 that clock through the candidate's own planned pit delays. A stop's compound is
 chosen using the pre-service surface, but its outlap and subsequent running use

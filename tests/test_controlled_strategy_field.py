@@ -29,8 +29,10 @@ def signature(projection):
 @pytest.mark.parametrize("off_track", [False, True])
 @pytest.mark.parametrize("service", [0., 200.])
 @pytest.mark.parametrize("first_stop", [False, True])
+@pytest.mark.parametrize("native_projection", [False, True])
 def test_repeated_paid_entries_and_fitting_laps_match_native_scheduler(
     monkeypatch, control, intervals, relative_laps, off_track, service, first_stop,
+    native_projection,
 ):
     inputs = field(control=control, intervals=intervals, relative_laps=relative_laps,
                    remaining=120., neutralized=True, off_track=off_track,
@@ -88,6 +90,7 @@ def test_repeated_paid_entries_and_fitting_laps_match_native_scheduler(
 
     before = ledger_signature(context.timeline), context.rivals
     projection = ObservedChronologicalField(context, now)
+    projection._native_crossings = native_projection
     projected_entries, projected_crossings = [], []
     compound = TireCompound.SOFT if first_stop else TireCompound.MEDIUM
     offset = 0
@@ -117,10 +120,14 @@ def test_repeated_paid_entries_and_fitting_laps_match_native_scheduler(
 
 @pytest.mark.parametrize("control", ["vsc", "sc"])
 @pytest.mark.parametrize("off_track", [False, True])
-def test_projection_branches_share_no_mutable_ledger_or_pending_events(control, off_track):
+@pytest.mark.parametrize("native_projection", [False, True])
+def test_projection_branches_share_no_mutable_ledger_or_pending_events(
+    control, off_track, native_projection,
+):
     *_, context, now = field(control=control, intervals=4, off_track=off_track,
                             remaining=5., neutralized=True, fee=7. if off_track else 0.)
     root = ObservedChronologicalField(context, now)
+    root._native_crossings = native_projection
     before = signature(root)
     retained, stopped = root.fork(), root.fork()
     for branch, delay in ((retained, None), (stopped, 200.)):
