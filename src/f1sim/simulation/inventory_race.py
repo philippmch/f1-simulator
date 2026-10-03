@@ -4,8 +4,10 @@ from copy import deepcopy
 
 import numpy as np
 
+from f1sim.models._native import register_forecast_helpers
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.lap import LapSimulator
+from f1sim.simulation.strategy_traffic import normalize_current_traffic_gaps
 from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.surface_projection import projected_surfaces
 from f1sim.simulation.tire_inventory import TireInventory
@@ -164,12 +166,16 @@ class InventoryStrategyMixin:
 
     def _inventory_immediate_set(self, state, track, weather, lap, *, free_fit=False,
                                  physical_total_laps=None,
-                                 weather_clock: StrategyWeatherClock | None = None):
+                                 weather_clock: StrategyWeatherClock | None = None,
+                                 current_traffic_gaps=None):
         """Survive the next lap if no complete forecast is feasible.
 
         Later weather or finish changes can invalidate today's complete plan.
         A mandatory final correction still requires a genuinely unused compound.
         """
+        car = state.car.model_copy(deep=True)
+        track = track.model_copy(deep=True)
+        weather = weather.model_copy(deep=True)
         inventory = state.tire_inventory
         candidates = list(inventory.replacements())
         if free_fit and inventory.current_set_id not in inventory.unavailable_ids:
@@ -183,6 +189,7 @@ class InventoryStrategyMixin:
                           or len(used | {item.compound}) >= 2]
         if not candidates:
             return None
+        gaps = normalize_current_traffic_gaps(current_traffic_gaps)
         driver = state.driver.model_copy(deep=True)
         simulator = LapSimulator(np.random.default_rng(0))
         ranking_weather = weather
@@ -192,12 +199,18 @@ class InventoryStrategyMixin:
             )
 
         def cost(item):
-            driver.current_tire_laps = (state.tire_laps if item.id == inventory.current_set_id
-                                       else item.age)
+            running_driver = driver.model_copy(deep=True)
+            running_driver.current_tire_laps = (
+                state.tire_laps if item.id == inventory.current_set_id else item.age
+            )
             value = simulator.calculate_lap_time(
-                driver, state.car, track, TIRE_COMPOUNDS[item.compound], ranking_weather,
+                running_driver, car.model_copy(deep=True), track.model_copy(deep=True),
+                TIRE_COMPOUNDS[item.compound].model_copy(deep=True),
+                ranking_weather.model_copy(deep=True),
                 lap, physical_total_laps or track.total_laps, sample_variation=False,
                 active_aero_enabled=self.event_manager.is_active_aero_allowed(),
+                **({"gap_to_car_ahead": gaps[0 if free_fit else 1]}
+                   if gaps is not None else {}),
             )
             if self.tire_warmup and (
                 item.id != inventory.current_set_id or state.fit_lap_pending
@@ -303,6 +316,7 @@ class InventoryStrategyMixin:
             selected = decision.set_id or self._inventory_immediate_set(
                 state, track, weather, lap, physical_total_laps=physical_total_laps,
                 weather_clock=weather_clock,
+                current_traffic_gaps=current_traffic_gaps,
             )
         if selected is None:
             self._retire_without_inventory_tire(state)
@@ -332,3 +346,6 @@ class InventoryStrategyMixin:
         state.dry_pit_proposal = None
         state.weather_pit_proposal = None
         return True
+
+
+register_forecast_helpers(globals(), ("normalize_current_traffic_gaps",))

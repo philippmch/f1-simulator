@@ -461,19 +461,25 @@ class LapSimulator:
         current_lap: int, weather: Weather, *, physical_total_laps: int | None = None,
         current_lap_time_modifier: float = 1.0, active_aero_enabled: bool = True,
         weather_intervals: tuple[int, ...] | None = None,
+        gap_to_car_ahead: float | None = None,
     ) -> float:
         """Fresh-set running time, including the lap floor and projected surface.
 
         Fuel follows the physical race distance even when strategy plans to an
         earlier finish. Only the upcoming lap uses current race control; later
-        laps assume green running. No future incidents or traffic are forecast.
+        laps assume green running. An observed gap applies only to the first
+        running lap. No future incidents or traffic are forecast.
         ``weather_intervals`` optionally supplies cumulative deterministic
         surface-update counts for each projected lap, starting at zero.
         """
         projected_driver = driver.model_copy(deep=True)
+        car = car.model_copy(deep=True)
+        track = track.model_copy(deep=True)
+        tire = tire.model_copy(deep=True)
+        weather = weather.model_copy(deep=True)
         surfaces = (projected_surfaces(weather, laps, weather_intervals)
                     if weather_intervals is not None else None)
-        surface = weather.model_copy(deep=True)
+        surface = weather
         total = 0.0
         for age in range(laps):
             if surfaces is not None:
@@ -484,6 +490,8 @@ class LapSimulator:
                 physical_total_laps if physical_total_laps is not None else track.total_laps,
                 active_aero_enabled=active_aero_enabled if age == 0 else True,
                 sample_variation=False,
+                **({"gap_to_car_ahead": gap_to_car_ahead}
+                   if age == 0 and gap_to_car_ahead is not None else {}),
             ) * (current_lap_time_modifier if age == 0 else 1.0)
             if surfaces is None:
                 surface = surface.project_surface()

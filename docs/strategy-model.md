@@ -863,16 +863,26 @@ only a scalar rejoin cost retain their additive behavior. The remaining reactive
 fallback uses the separate optimistic cost veto described below; it does not
 claim to optimize the observed rejoin gap.
 
-Custom-plan compulsory replacements also retain these observed gaps and the
-expected queue delay supplied at commitment. Their first paid outlap uses the
-rejoin gap in full lap physics; a free-fit projection uses the stay gap until
-a paid request or compulsory correction occurs on that same lap. Later laps
-assume clean air. Expected queue loss enters only that current paid service,
-including its conditional finish clock, and remains independent of actual
-sampled service. The standard engine keeps each car's commitment snapshot
-through the service batch; the chronological engine passes its observed
-traffic and remaining expected box wait directly to the replacement forecast.
-This does not change an executable requested compound or forecast future queues.
+Paid replacement selection retains these observed gaps and the expected queue
+delay supplied at commitment, for automatic choices and custom-plan compulsory
+replacements. The first paid outlap uses the rejoin gap in full lap physics,
+before the lap floor and current control multiplier. A compulsory dry choice
+prices this first running lap before any further service; a finite-inventory
+survival fallback keeps the physical set's actual wear and pending fitting
+cost. Fresh-stint fallback comparisons also use the observed rejoin gap.
+A free-fit projection uses the stay gap until a paid request or compulsory
+correction occurs on that same lap. Later laps assume clean air.
+
+Expected queue loss enters only the current paid service, including its
+weather and conditional finish clocks, and remains independent of actual
+sampled service. Common current lane and service losses cancel when comparing
+fresh sets over a fixed dry continuation. The standard engine keeps each car's
+commitment snapshot through the service batch; the chronological engine passes
+its observed traffic and remaining expected box wait directly to replacement
+selection. Executable requested compounds remain authoritative, and these
+forecasts do not predict future queues. Fallback lap and surface hooks operate
+on copied driver, car, track, tyre and weather models so evaluating candidates
+cannot change the live race inputs or shared tyre coefficients.
 
 ### Safety-car queues and elapsed time
 

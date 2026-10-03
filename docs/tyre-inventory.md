@@ -82,6 +82,10 @@ time, matching the main planner's outlap calculation. Eligibility remains based
 on observed conditions at commitment. Free red-flag refits have no paid-stop
 delay. The fallback does not claim that the chosen set can finish the race;
 later decisions use updated conditions and the remaining physical inventory.
+Its next-lap comparison retains each set's actual wear, pending fitting cost,
+current control conditions and supplied traffic observation: the rejoin gap
+for a paid stop, or the stay gap for a free fit. Candidate physics uses copied
+models, keeping the live race and shared tyre coefficients unchanged.
 
 Red-flag fittings are free changes and can retain the current physical set.
 They consume no paid stop. The physical-set ledger includes opening and later
