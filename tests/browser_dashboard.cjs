@@ -5,13 +5,21 @@ const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
 const { readFileSync } = require('node:fs');
 const path = require('node:path');
+const { performance } = require('node:perf_hooks');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 
 (async () => {
   const offline = process.env.F1SIM_OFFLINE === '1';
+  const fixtureStarted = performance.now();
+  // The complete 90-race fixture runs exact wet/control strategy searches.
+  // Give setup its own budget; page interactions retain their timeout below.
   const fixture = offline ? JSON.parse(execFileSync(process.env.PYTHON || 'python',
     [path.join(__dirname, 'browser_fixture.py')], {encoding: 'utf8', maxBuffer: 8 * 1024 * 1024,
-      timeout: 120000})) : null;
+      timeout: 300000})) : null;
+  if (offline) {
+    console.log(`SYNTHETIC offline fixture generated in ${
+      ((performance.now() - fixtureStarted) / 1000).toFixed(1)} seconds.`);
+  }
   const browser = await chromium.launch({
     headless: true,
     channel: process.env.BROWSER_CHANNEL || undefined,

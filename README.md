@@ -568,6 +568,9 @@ access. It generates deterministic synthetic results using the real simulation
 and serializer, and intercepts all browser requests. `PYTHON` selects the Python
 executable when it is not available as `python`. CI runs this offline check in
 Chromium and runs the Python suite on Linux (3.11 and 3.12) and Windows (3.12).
+Offline fixture generation includes 90 complete races and has a five-minute
+setup budget. The check logs its elapsed time; browser interactions have a
+separate two-minute timeout.
 The browser job uses the official Playwright container with preinstalled browser
 and OS dependencies. Keep its image version and the job's npm Playwright version
 aligned when upgrading. Browser setup therefore does not update unrelated apt
