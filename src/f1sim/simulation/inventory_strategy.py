@@ -50,12 +50,32 @@ class InventoryDecision:
     compound: TireCompound | None
     pit_now_laps: int | None = None
     wait_laps: int | None = None
+    pit_now_partial_time: float = inf
+    wait_partial_time: float = inf
+
+    @classmethod
+    def from_continuations(cls, pit, wait, set_id, compound):
+        return cls(pit.cost, wait.cost, set_id, compound, pit.laps, wait.laps,
+                   pit.seconds if not pit.finished else inf,
+                   wait.seconds if not wait.finished else inf)
+
+    def continuation(self, stopped):
+        """Recover the full ranking when a controlled prefix delegates to green."""
+        cost = self.pit_now_cost if stopped else self.wait_cost
+        laps = self.pit_now_laps if stopped else self.wait_laps
+        elapsed = self.pit_now_partial_time if stopped else self.wait_partial_time
+        return ProjectedControlCost(-1 if laps is None else laps,
+                                    cost if isfinite(cost) else elapsed, isfinite(cost))
 
     def should_pit(self, timing_bias=0.0):
+        if isfinite(self.pit_now_cost) != isfinite(self.wait_cost):
+            return isfinite(self.pit_now_cost)
         if (self.pit_now_laps is not None and self.wait_laps is not None
                 and self.pit_now_laps != self.wait_laps):
             return self.pit_now_laps > self.wait_laps
-        return self.pit_now_cost < self.wait_cost + max(-.1, min(.1, timing_bias))
+        pit = self.pit_now_cost if isfinite(self.pit_now_cost) else self.pit_now_partial_time
+        wait = self.wait_cost if isfinite(self.wait_cost) else self.wait_partial_time
+        return pit < wait + max(-.1, min(.1, timing_bias))
 
 
 def _validate_weather_clock(weather_clock, horizon):
@@ -93,6 +113,8 @@ def _clock_inventory_strategy(
             for index, compound in enumerate(TireCompound)}
 
     warmup = tire_warmup
+    invalid = ProjectedControlCost(-1, inf)
+    retired = ProjectedControlCost(0, 0., False)
 
     @lru_cache(maxsize=None)
     def updates(offset, paid_stops, stopped_first, fit_delay=0.0):
@@ -229,7 +251,8 @@ def _clock_inventory_strategy(
         current = TireCompound(compound)
         actions = []
         update_index = updates(offset, paid_stops, stopped_first, fit_delay)
-        if tire_slot_usable(age, expiry) and not critical_at(update_index, current.value):
+        if (tire_slot_usable(age, expiry) and not critical_at(update_index, current.value)
+                and (offset + 1 < horizon or legal(used | bits[current.value]))):
             next_paid, next_stopped, next_delay = canonical_clock_state(
                 offset + 1, paid_stops, stopped_first, fit_delay,
             )
@@ -249,6 +272,8 @@ def _clock_inventory_strategy(
             previous = candidate
             target, target_age, target_expiry = candidate
             if not tire_slot_usable(target_age, target_expiry) or critical_at(update_index, target):
+                continue
+            if offset + 1 == horizon and not legal(used | bits[target]):
                 continue
             if not allowed(offset, compound, left, dry, damp, used, target,
                            before, update_index, age, expiry):
@@ -286,7 +311,7 @@ def _clock_inventory_strategy(
         """Evaluate the finite-pool strategy DAG without recursion."""
         if initial in solve_cache:
             return solve_cache[initial]
-        frames = [[initial, None, 0, inf]]
+        frames = [[initial, None, 0, retired]]
         while frames:
             cancellation_checkpoint()
             state, actions, index, best = frames[-1]
@@ -299,31 +324,37 @@ def _clock_inventory_strategy(
                 if offset >= horizon:
                     # Keep the terminal value in the frame so the common
                     # completion path can add its incoming edge.
-                    frames[-1][1:] = [[], 0, 0.0 if legal(used) else inf]
+                    frames[-1][1:] = [[], 0,
+                                     ProjectedControlCost(0, 0.) if legal(used) else retired]
                     continue
                 if (left == 0 and legal(used) and (expiry < 0 or expiry - age >= horizon - offset)
                         and retainable(offset, compound, paid_stops, stopped_first,
                                        fit_delay)):
-                    frames[-1][1:] = [[], 0, retained_tail(
-                        offset, compound, age, paid_stops, stopped_first, fit_delay)]
+                    frames[-1][1:] = [[], 0, ProjectedControlCost(
+                        horizon - offset, retained_tail(
+                            offset, compound, age, paid_stops, stopped_first, fit_delay))]
                     continue
                 actions = make_actions(state)
-                frames[-1][1:] = [actions, 0, inf]
+                frames[-1][1:] = [actions, 0, retired]
                 continue
             if index < len(actions):
                 child, edge, bound = actions[index]
                 frames[-1][2] += 1
                 if child in solve_cache:
-                    frames[-1][3] = min(frames[-1][3], edge + solve_cache[child])
-                elif nextafter(edge + bound, -inf) < frames[-1][3]:
-                    frames.append([child, None, 0, inf])
+                    option = solve_cache[child].prepend_lap(edge)
+                    if option.rank > frames[-1][3].rank:
+                        frames[-1][3] = option
+                elif not best.finished or nextafter(edge + bound, -inf) < best.seconds:
+                    frames.append([child, None, 0, retired])
                 continue
             solve_cache[state] = best
             frames.pop()
             if frames:
                 parent = frames[-1]
                 child, edge, _bound = parent[1][parent[2] - 1]
-                parent[3] = min(parent[3], edge + solve_cache[state])
+                option = solve_cache[state].prepend_lap(edge)
+                if option.rank > parent[3].rank:
+                    parent[3] = option
         return solve_cache[initial]
 
     current_id = inventory.current_set_id
@@ -440,8 +471,9 @@ def _clock_inventory_strategy(
                      stopped_first, age_override=None, fitted=False):
         compound = item.compound.value
         age = item.age if age_override is None else age_override
-        if critical_at(updates(0, paid_stops, stopped_first), compound):
-            return inf
+        if (critical_at(updates(0, paid_stops, stopped_first), compound)
+                or horizon == 1 and not legal(used_mask | bits[compound])):
+            return invalid
         after_updates = updates(0, paid_stops, stopped_first)
         if consume:
             after_updates = updates(0, paid_stops + 1, True)
@@ -456,20 +488,15 @@ def _clock_inventory_strategy(
                  reduced(remaining_damp_stops) if consume else remaining_damp_stops,
                  canonical_used(used_mask | bits[compound]), next_paid, next_stopped,
                  next_delay, tire_set_slot(item)[2])
-        return (charge + run(
-                    0, compound, age,
-                    after_updates,
-                    first_kind,
-                    fitted=fitted,
-                )
-                + solve(state))
+        return solve(state).prepend_lap(charge + run(
+            0, compound, age, after_updates, first_kind, fitted=fitted))
 
-    wait = inf
+    wait = invalid
     if usable_current and (free_fit or not force_stop):
         wait = initial_cost(current, pool, 0.0, 0, 0, 0, False, tire_age,
                             fitted=current_fit_pending)
 
-    best, selected = inf, None
+    best, selected = invalid, None
     choices = ((current,) if free_fit and usable_current else ()) + stock
     for item in choices:
         cancellation_checkpoint()
@@ -496,10 +523,10 @@ def _clock_inventory_strategy(
             cost = initial_cost(item, tuple(available), charge, consume,
                                 1 if not free_fit else 0, 0, False,
                                 fitted=(item.id != current_id))
-        if cost < best:
+        if cost.rank > best.rank:
             best, selected = cost, item
-    return InventoryDecision(best, wait, selected.id if selected else None,
-                             selected.compound if selected else None)
+    return InventoryDecision.from_continuations(
+        best, wait, selected.id if selected else None, selected.compound if selected else None)
 
 
 def _conserved_wear_lower_bounds(horizon, initial_ages, critical, running):
@@ -546,7 +573,7 @@ def plan_inventory_strategy(
     require_compound_rule=True, weather_clock=None, tire_warmup=None,
     current_fit_pending=False, forecast_context=None, safety_car=None, control_context=None,
 ):
-    """Minimize deterministic total time without inventing or freshening sets.
+    """Rank legal finishes, accepted distance, then deterministic elapsed time.
 
     The anonymous future pool retains compound, age, usage expiry and multiplicity. Only
     interchangeable IDs are merged. Local memoization is confined to this
@@ -554,6 +581,8 @@ def plan_inventory_strategy(
     A usable control field prices the known neutralized prefix on a stable
     dry surface, then returns to this same physical-pool green search. Other
     surface and free-fit paths retain their existing weather-clock costs.
+    Incomplete continuations keep infinite finishing costs and separately
+    retain their accepted laps and time through the last legal crossing.
     """
     for name, value in (("current_lap", current_lap), ("tire_age", tire_age),
                         ("remaining_stops", remaining_stops),
@@ -620,8 +649,8 @@ def plan_inventory_strategy(
             force_stop=force_stop, require_compound_rule=require_compound_rule,
             tire_warmup=tire_warmup, current_fit_pending=current_fit_pending,
             forecast_context=forecast_context)
-        return InventoryDecision(result.pit.seconds, result.wait.seconds, result.set_id,
-                                 result.compound, result.pit.laps, result.wait.laps)
+        return InventoryDecision.from_continuations(
+            result.pit, result.wait, result.set_id, result.compound)
     if weather_clock is not None and not controlled:
         return _clock_inventory_strategy(
             driver, car, track, weather, inventory, current_lap,
@@ -645,6 +674,8 @@ def plan_inventory_strategy(
     green_stop = track.pit_lane_delta + service
     current_stop = (track.pit_lane_delta * pit_lane_factor + expected_stationary_time(car)
                     + additional_current_stop_cost)
+    invalid = ProjectedControlCost(-1, inf)
+    retired = ProjectedControlCost(0, 0., False)
 
     def legal(used):
         return not require_compound_rule or bool(used & 8) or (used & 7).bit_count() >= 2
@@ -745,16 +776,17 @@ def plan_inventory_strategy(
     def frame(state):
         offset, compound, age, pool, left, dry, damp, used, expiry = state
         if offset == horizon:
-            return 0.0 if legal(used) else inf
+            return ProjectedControlCost(0, 0.) if legal(used) else retired
         if (left == 0 and legal(used) and not any(critical[compound][offset:])
                 and (expiry < 0 or expiry - age >= horizon - offset)):
-            return retained_tail(offset, compound, age)
-        best = inf
-        if tire_slot_usable(age, expiry) and not critical[compound][offset]:
+            return ProjectedControlCost(horizon - offset, retained_tail(offset, compound, age))
+        best = retired
+        if (tire_slot_usable(age, expiry) and not critical[compound][offset]
+                and (offset + 1 < horizon or legal(used | bits[compound]))):
             cost = run(offset, compound, age)
             child = (offset + 1, compound, age + 1, pool, left, dry, damp,
                      used | bits[compound], expiry)
-            best = cost + (yield child)
+            best = (yield child).prepend_lap(cost)
         previous = None
         for index, candidate in enumerate(pool):
             cancellation_checkpoint()
@@ -766,20 +798,28 @@ def plan_inventory_strategy(
                     or not allowed(offset, compound, left, dry, damp, used,
                                    target, age, expiry)):
                 continue
+            if offset + 1 == horizon and not legal(used | bits[target]):
+                continue
             cost = green_stop + run(offset, target, target_age,
                                     fitted=bool(tire_warmup))
-            bound = completion_bound(
-                offset + 1, target, target_age + 1, used | bits[target],
-            )
-            if controlled and native:
-                bound = max(bound, unlimited_dry_bound(
-                    offset + 1, target, target_age + 1, max(0, left - 1), used | bits[target]))
-            if nextafter(cost + bound, -inf) < best:
-                # Sorting a replacement pool is only needed for admitted branches.
-                child = (offset + 1, target, target_age + 1,
-                         exchange(pool, index, (compound, age, expiry)), max(0, left - 1),
-                         reduced(dry), reduced(damp), used | bits[target], target_expiry)
-                best = min(best, cost + (yield child))
+            if best.finished:
+                bound = completion_bound(
+                    offset + 1, target, target_age + 1, used | bits[target],
+                )
+                if controlled and native:
+                    bound = max(bound, unlimited_dry_bound(
+                        offset + 1, target, target_age + 1, max(0, left - 1),
+                        used | bits[target]))
+                if nextafter(cost + bound, -inf) >= best.seconds:
+                    continue
+            # A full-distance time bound cannot discard a longer retirement.
+            # Sorting a replacement pool is only needed for admitted branches.
+            child = (offset + 1, target, target_age + 1,
+                     exchange(pool, index, (compound, age, expiry)), max(0, left - 1),
+                     reduced(dry), reduced(damp), used | bits[target], target_expiry)
+            option = (yield child).prepend_lap(cost)
+            if option.rank > best.rank:
+                best = option
         return best
 
     def solve(initial):
@@ -826,7 +866,6 @@ def plan_inventory_strategy(
         native = prepared_lap_time is not None and native_physics(driver, car, track, weather)
         memo, lap_costs, control_bound_rows, unlimited_bounds, retained_rows = {}, {}, {}, {}, {}
         unlimited_tables = None
-        invalid = ProjectedControlCost(-1, inf)
         uniform_prefix = (len(root.rows) == 1 or not root.safety_car
                           if type(root) is ObservedStandardField else len(root.free_paces) == 1)
 
@@ -971,11 +1010,13 @@ def plan_inventory_strategy(
             fee = (tire_warmup_seconds(tire_warmup, compound) if tire_warmup
                    and (fitted or first and current_fit_pending) else 0.)
             branch.cross(controlled_running(branch, offset, compound, age), fee)
+            if (offset + 1 == horizon or branch.finished) and not legal(used | bits[compound]):
+                return retired
             child = (offset + 1, compound, age + 1, available,
                      max(0, left - int(fitted)), reduced(dry) if fitted else dry,
                      reduced(damp) if fitted else damp, used | bits[compound], expiry)
             if (native and root.running_modifier >= 1. and cutoff is not None
-                    and cutoff.laps == horizon - offset):
+                    and cutoff.finished and cutoff.laps == horizon - offset):
                 # Native dirty air and disabled aero cannot beat clean-air
                 # green running; SC catch-up never runs below free pace.
                 # Relaxed stock/stop bounds remain optimistic over every
@@ -988,24 +1029,20 @@ def plan_inventory_strategy(
                 if optimistic > cutoff.seconds + rounding:
                     return invalid
             suffix = controlled_future(branch, child)
-            return (ProjectedControlCost(1 + suffix.laps,
-                                         branch.now - field.now + suffix.seconds)
-                    if suffix.laps >= 0 else invalid)
+            return suffix.prepend_lap(branch.now - field.now)
 
         def controlled_future(field, state):
             cancellation_checkpoint()
             offset, compound, age, available, left, dry, damp, used, expiry = state
             if offset == horizon or field.finished:
-                return ProjectedControlCost(0, 0.) if legal(used) else invalid
+                return ProjectedControlCost(0, 0.) if legal(used) else retired
             if not field.projection_required:
-                value = solve(state)
-                return (ProjectedControlCost(horizon - offset, value)
-                        if isfinite(value) else invalid)
+                return solve(state)
             key = (observed_control_key(field), state) if native else None
             if native and key in memo:
                 return memo[key]
             best = (controlled_action(field, state) if tire_slot_usable(age, expiry)
-                    and not critical[compound][offset] else invalid)
+                    and not critical[compound][offset] else retired)
             previous = None
             for index, candidate in enumerate(available):
                 cancellation_checkpoint()
@@ -1050,28 +1087,27 @@ def plan_inventory_strategy(
                        remaining_dry_stops, remaining_damp_stops, mask, candidate[2]),
                 fitted=True, first=True,
                 cutoff=best)
-            if value.rank > best.rank:
+            if value.laps > 0 and value.rank > best.rank:
                 best, selected = value, item
-        return InventoryDecision(best.seconds, wait.seconds, selected.id if selected else None,
-                                 selected.compound if selected else None, best.laps, wait.laps)
+        return InventoryDecision.from_continuations(
+            best, wait, selected.id if selected else None, selected.compound if selected else None)
 
     def initial_cost(item, age, available, charge, consume, kind, fitted=False):
         compound = item.compound.value
-        if critical[compound][0]:
-            return inf
+        if critical[compound][0] or horizon == 1 and not legal(mask | bits[compound]):
+            return invalid
         state = (1, compound, age + 1, available,
                  max(0, remaining_stops - consume),
                  reduced(remaining_dry_stops) if consume else remaining_dry_stops,
                  reduced(remaining_damp_stops) if consume else remaining_damp_stops,
                  mask | bits[compound], tire_set_slot(item)[2])
-        return (charge + run(0, compound, age, kind, fitted=fitted)
-                + solve(state))
+        return solve(state).prepend_lap(charge + run(0, compound, age, kind, fitted=fitted))
 
-    wait = inf
+    wait = invalid
     if usable_current and (free_fit or not force_stop):
         wait = initial_cost(current, tire_age, pool, 0., 0, 0,
                             fitted=current_fit_pending)
-    best, selected = inf, None
+    best, selected = invalid, None
     choices = ((current,) if free_fit and usable_current else ()) + stock
     for item in choices:
         cancellation_checkpoint()
@@ -1092,10 +1128,10 @@ def plan_inventory_strategy(
             cost = initial_cost(item, item.age, available, 0. if free_fit else current_stop,
                                 0 if free_fit else 1, 0 if free_fit else 1,
                                 fitted=(item.id != current_id))
-        if cost < best:
+        if cost.rank > best.rank:
             best, selected = cost, item
-    return InventoryDecision(best, wait, selected.id if selected else None,
-                             selected.compound if selected else None)
+    return InventoryDecision.from_continuations(
+        best, wait, selected.id if selected else None, selected.compound if selected else None)
 
 register_forecast_helpers(globals(), ("project_next_surface",))
 register_forecast_helpers(globals(), ("current_running_time", "current_fitted_time"))

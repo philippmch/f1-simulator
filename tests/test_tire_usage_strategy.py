@@ -139,7 +139,9 @@ def test_expired_active_set_and_insufficient_stock_cannot_run_phantom_laps():
     result = plan_inventory_strategy(*models, stock, 1, tire_age=1,
                                      remaining_stops=0, require_compound_rule=False)
     assert result.wait_cost == result.pit_now_cost == inf
-    assert result.set_id is None
+    assert result.set_id == "set-2"
+    assert result.pit_now_laps == 3 and result.wait_laps == -1
+    assert result.pit_now_partial_time < inf and result.should_pit()
 
 
 @pytest.mark.parametrize("free", [False, True])

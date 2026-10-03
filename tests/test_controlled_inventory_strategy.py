@@ -258,4 +258,14 @@ def test_more_sets_of_the_same_compound_do_not_create_compliance():
         control_context=single_car_context(track, car, "sc", 4))
     assert result.set_id is None
     assert result.pit_now_cost == result.wait_cost == inf
-    assert result.pit_now_laps == result.wait_laps == -1
+    assert result.pit_now_laps == -1
+    assert result.wait_laps == 3  # The illegal final dry crossing earns no distance.
+    running = 0.
+    driver = driver.model_copy(deep=True)
+    for lap in range(1, 4):
+        driver.current_tire_laps = lap - 1
+        running += LapSimulator().calculate_lap_time(
+            driver, car, track, TIRE_COMPOUNDS[TireCompound.HARD], weather,
+            lap, 4, sample_variation=False, active_aero_enabled=False) * 1.4
+    assert result.wait_partial_time == pytest.approx(running, abs=1.e-8)
+    assert not result.should_pit()

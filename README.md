@@ -557,6 +557,10 @@ replacement and free red-flag choices when finite pools cannot finish. It
 compares accepted distance and time with separately executed alternatives,
 including empty plans and later requested stops, in both engines.
 
+Add `--elective` to check an early paid switch that preserves a wet set's
+weather window and refits the same intermediates afterward. The controlled
+drying case completes five laps instead of four; both paths still retire.
+
 Run `python examples/check_opening_policy_execution.py` to compare opening-policy
 forecasts with actual execution in both engines, including used finite tyre
 sets and timed finishes. It reports distance, time, fuel and wear mismatches as

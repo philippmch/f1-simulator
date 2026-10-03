@@ -2,7 +2,7 @@
 
 from copy import copy
 from dataclasses import dataclass, replace
-from math import isclose, isfinite
+from math import inf, isclose, isfinite
 
 from f1sim.models._native import register_forecast_helpers
 from f1sim.simulation.chronological_finish import (
@@ -230,14 +230,26 @@ class StrategyControlContext:
 
 @dataclass(frozen=True, slots=True)
 class ProjectedControlCost:
-    """A feasible continuation ranks completed distance before elapsed time."""
+    """Legal finishes precede retirements, then distance and elapsed time rank."""
 
     laps: int
     seconds: float
+    finished: bool = True
+
+    @property
+    def cost(self):
+        """A retirement never supplies a finite completion cost."""
+        return self.seconds if self.finished else inf
 
     @property
     def rank(self):
-        return self.laps, -self.seconds
+        return self.finished and self.laps >= 0, self.laps, -self.seconds
+
+    def prepend_lap(self, seconds):
+        """Keep an accepted incoming crossing when its suffix cannot finish."""
+        if self.laps < 0:
+            return self
+        return ProjectedControlCost(self.laps + 1, seconds + self.seconds, self.finished)
 
 
 def observed_control_key(field):
@@ -269,4 +281,4 @@ register_forecast_helpers(vars(ObservedStandardField), (
     "enter", "gap_ahead", "cross",
 ))
 register_forecast_helpers(vars(StrategyControlContext), ("new_field", "for_paid_fit", "__eq__"))
-register_forecast_helpers(vars(ProjectedControlCost), ("rank",))
+register_forecast_helpers(vars(ProjectedControlCost), ("cost", "rank", "prepend_lap"))

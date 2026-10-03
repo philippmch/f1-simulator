@@ -232,6 +232,7 @@ def plan_controlled_weather(
     memo, lap_costs, suffixes = {}, {}, {}
     invalid = ProjectedControlCost(-1, inf)
     physical = inventory is not None
+    retired = ProjectedControlCost(0, 0., False) if physical else invalid
     current_expiry = -1
     if physical and inventory.current_set_id in inventory.sets:
         current_set = inventory.sets[inventory.current_set_id]
@@ -360,7 +361,8 @@ def plan_controlled_weather(
         if physical:
             previous, result = None, []
             for index, item in enumerate(available):
-                if item != previous and TireCompound(item[0]) in candidates:
+                if (item != previous and tire_slot_usable(item[1], item[2])
+                        and TireCompound(item[0]) in candidates):
                     result.append((item[0], item[1], index, item[2]))
                 previous = item
             return result
@@ -430,7 +432,8 @@ def plan_controlled_weather(
                 tire_age=age, remaining_stops=left, remaining_dry_stops=dry,
                 remaining_damp_stops=damp, used_compounds=used_compounds,
                 require_compound_rule=require_compound_rule, **common)
-            value = min(result.pit_now_cost, result.wait_cost)
+            result = max((result.continuation(True), result.continuation(False)),
+                         key=lambda value: value.rank)
         elif retention:
             rivals = (len(field.rows) > 1 if type(field) is ObservedStandardField
                       else len(field.free_paces) > 1)
@@ -449,7 +452,9 @@ def plan_controlled_weather(
                 used_compounds=used_compounds if require_compound_rule else {TireCompound.WET},
                 **common)
             value = min(result.pit_now_cost, result.wait_cost)
-        result = (ProjectedControlCost(horizon - offset, value) if isfinite(value) else invalid)
+        if not physical:
+            result = (ProjectedControlCost(horizon - offset, value)
+                      if isfinite(value) else invalid)
         if native:
             suffixes[key] = result
         return result
@@ -465,18 +470,20 @@ def plan_controlled_weather(
         fee = (tire_warmup_seconds(tire_warmup, compound) if tire_warmup
                and (fitted or first and current_fit_pending) else 0.)
         branch.cross(running(branch, state), fee)
+        if physical and (offset + 1 == horizon or branch.finished) \
+                and not legal(completed(mask, compound)):
+            return retired
         child = (offset + 1, compound, age + 1, available, max(0, left - int(fitted)),
                  reduced(dry) if fitted else dry, reduced(damp) if fitted else damp,
                  completed(mask, compound), retained, expiry)
         suffix = future(branch, child, retention)
-        return (ProjectedControlCost(1 + suffix.laps, branch.now - field.now + suffix.seconds)
-                if suffix.laps >= 0 else invalid)
+        return suffix.prepend_lap(branch.now - field.now)
 
     def future(field, state, retention):
         cancellation_checkpoint()
         offset, compound, age, available, _, _, _, mask, _, expiry = state
         if offset == horizon or field.finished:
-            return ProjectedControlCost(0, 0.) if legal(mask) else invalid
+            return ProjectedControlCost(0, 0.) if legal(mask) else retired
         if not field.projection_required and (not retention or
                 surface(field.updates).tire_mismatch(TireCompound(compound)) != "critical"):
             return green(field, state, retention)
@@ -487,7 +494,7 @@ def plan_controlled_weather(
         best = (action(field, state, retention=retention)
                 if tire_slot_usable(age, expiry) and (same_compound or
                     before.tire_mismatch(TireCompound(compound)) != "critical")
-                else invalid)
+                else retired)
         for target, wear, index, target_expiry in choices(state, before, retention):
             if not retention and not allowed(state, before, target):
                 continue
@@ -530,7 +537,7 @@ def plan_controlled_weather(
         state = (0, target, age, available, remaining_stops,
                  remaining_dry_stops, remaining_damp_stops, used, False, expiry)
         option = action(root, state, fitted=True, first=True)
-        if option.rank > best.rank:
+        if option.laps > 0 and option.rank > best.rank:
             best, selected, set_id = option, TireCompound(target), identity if physical else None
     return ControlledWeatherDecision(best, wait, selected, set_id)
 

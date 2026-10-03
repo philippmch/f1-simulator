@@ -162,9 +162,30 @@ It records finite last-crossing times and DNF status. These conditional checks
 use mean physics, expected service and no incidents; they do not establish a
 globally optimal survival schedule or forecast an actual retirement.
 
-When the full planner cannot finish, required stops and free red-flag fits
-compare compulsory continuations through retirement. Legal projected finishes
-take priority; failed paths compare accepted distance, then elapsed time at the
+Automatic finite-pool decisions retain partial continuations throughout the
+elective search as well. A legal projected finish takes priority; if every
+continuation retires, the planner prefers more accepted laps, then less elapsed
+time at the last crossing. This can require an early paid switch to use a set
+while the weather still permits it. Removed sets retain their actual wear and
+remaining allowance, and ordinary stop budgets still govern elective visits.
+An illegal final dry crossing earns no distance. Failed completion costs remain
+infinite, with partial elapsed time stored separately; a survival decision does
+not produce a claimed finishing-time saving.
+
+Run `python examples/check_inventory_continuations.py --elective` for an
+eight-lap drying race starting at surface water `0.24`, with four permitted
+laps on an explicit intermediate opening and one on wets. Switching to wets
+before lap two, then refitting the removed intermediates before lap three,
+completes five laps. Deferring the wet window retires after four. Both engines
+compare independently committed alternatives using mean physics, expected
+service and no incidents. These are conditional forecast and execution checks;
+later weather, traffic and control observations still trigger replanning.
+An empty custom plan intentionally keeps the four-lap path, while an executable
+wet request at lap two permits five laps.
+
+When no usable automatic continuation is available, required stops and free
+red-flag fits compare compulsory continuations through retirement. Legal
+projected finishes take priority; failed paths compare accepted distance, then elapsed time at the
 last crossing, without custom-request ranking credit. For automatic strategy,
 this fallback inserts only required weather, usage-limit and compound
 corrections. A custom plan keeps its remaining executable requests. Neither
@@ -211,12 +232,14 @@ Keeping the fitted set preserves both its age and any pending first-lap cost.
 
 ## Search and benchmark
 
-Future planning groups interchangeable physical IDs by compound and age while
-retaining their number. Each set accumulates wear when it runs, including after
-removal and reuse. Search skips a replacement branch only when an optimistic
-remaining-time bound cannot improve the best cost already found.
+Future planning groups interchangeable physical IDs by compound, age and usage
+expiry while retaining their number. Each set accumulates wear when it runs,
+including after removal and reuse. Search skips a replacement branch with an optimistic
+remaining-time bound only after finding a legal completion that the branch
+cannot improve. A bound on full-distance time cannot discard a longer partial
+continuation while all explored paths still retire.
 The native search builds and sorts a replacement's inventory state only after
-that bound admits the branch. Rejected candidates incur no pool-rebuild cost;
+admitting the branch. Rejected candidates incur no pool-rebuild cost;
 admitted candidates retain the same state, evaluation order and forecast cost.
 
 That bound starts with the cheapest reachable running cost on each future lap.

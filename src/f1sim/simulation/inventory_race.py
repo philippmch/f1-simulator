@@ -306,7 +306,8 @@ class InventoryStrategyMixin:
             gaps[0] if gaps is not None else None, physical_total_laps,
         )
         if mode_gain:
-            decision = replace(decision, wait_cost=decision.wait_cost - mode_gain)
+            decision = replace(decision, wait_cost=decision.wait_cost - mode_gain,
+                               wait_partial_time=decision.wait_partial_time - mode_gain)
         bias = ({TeamStrategyArchetype.AGGRESSIVE: .1, TeamStrategyArchetype.BALANCED: 0,
                  TeamStrategyArchetype.CONSERVATIVE: -.1}[state.strategy_archetype]
                 if weather.track_wetness < .08 and weather.rain_intensity < .15 else 0)

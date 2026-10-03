@@ -1642,12 +1642,22 @@ finite or unlimited pools. These modes and the weather change probability are
 recorded in benchmark version 3 JSON alongside the initial pools and overrides. See the
 [finite-pool search and benchmark notes](tyre-inventory.md#search-and-benchmark).
 
+Finite inventory forecasts rank legal finishes before incomplete continuations.
+When no allowed schedule can finish, the search retains accepted legal laps and
+elapsed time through retirement, including elective switches before a set loses
+weather eligibility. Completion costs remain infinite for those paths; separate
+partial times support distance and time comparisons. Physical wear, usage
+allowances and ordinary stop budgets still govern every future fit. Custom pit
+plans retain their requested elective visits and compulsory-only fallback.
+
 Finite inventory forecasts prune replacement branches with an optimistic
 completion cost that retains the current set's actual wear until its next
 service, includes that pit entry, then relaxes later running and service choices.
 The same bound supports own-lap and externally timed forecasts; timed branches
 also retain their delayed weather path before that first future service.
-Downward rounding protects nearly tied alternatives, and the calculation makes
+Pruning requires a legal completion already found; a full-distance time bound
+cannot exclude a longer retirement path. Downward rounding protects nearly
+tied alternatives, and the calculation makes
 no assumption that older tyres are slower. It changes search work rather than
 physical-set availability, stop allowances or the strategy objective.
 

@@ -13,14 +13,19 @@ import pytest
 
 def test_model_comparison_is_reproducible_machine_readable_and_labeled():
     path = Path(__file__).resolve().parents[1] / "examples" / "check_weather_calibration.py"
-    command = [sys.executable, str(path), "--simulations", "1", "--seed", "17",
-               "--race-engine", "both"]
+    command = [sys.executable, "-X", "faulthandler", str(path), "--simulations", "1",
+               "--seed", "17", "--race-engine", "both"]
     # Each invocation runs eight complete 22-car races, including a high rate
     # of control deployments. This checks reproducibility, not runner speed.
-    first = subprocess.run(command, capture_output=True, text=True, check=True, timeout=120)
-    second = subprocess.run(command, capture_output=True, text=True, check=True, timeout=120)
-    summaries = json.loads(first.stdout)
-    assert summaries == json.loads(second.stdout)
+    outputs = []
+    for _ in range(2):
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=120)
+        assert completed.returncode == 0, (
+            f"Weather diagnostic exited {completed.returncode}:\n{completed.stderr}"
+        )
+        outputs.append(completed.stdout)
+    summaries = json.loads(outputs[0])
+    assert summaries == json.loads(outputs[1])
     assert len(summaries) == 8
     assert {row["race_engine"] for row in summaries} == {"standard", "chronological"}
     for row in summaries:

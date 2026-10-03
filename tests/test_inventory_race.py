@@ -191,6 +191,8 @@ def clocked_inventory_fallback(records=None, wetness=.31):
 
 
 def test_clocked_inventory_fallback_preserves_retirement_distance_without_mutation():
+    from test_inventory_partial_strategies import independent_schedules
+
     sim, state, track, weather, clock = clocked_inventory_fallback()
     before_models = deepcopy((state.driver, state.car, track, weather))
     before_inventory = deepcopy(state.tire_inventory.__dict__)
@@ -201,10 +203,20 @@ def test_clocked_inventory_fallback_preserves_retirement_distance_without_mutati
     )
     assert decision.pit_now_cost == inf
     assert decision.wait_cost == inf
-    assert decision.set_id is None
+    expected, costs = independent_schedules((state.driver, state.car, track, weather,
+                                            state.tire_inventory), dict(
+        current_lap=2, tire_age=state.tire_laps, force_stop=True, weather_clock=clock,
+        remaining_stops=4, remaining_dry_stops=sim._dry_stop_budget(state, track),
+        remaining_damp_stops=sim._ordinary_stop_budget(state, track),
+    ))
+    assert decision.set_id == "I"
+    assert decision.pit_now_laps == expected[True][1] == 7
+    assert costs["I"] == pytest.approx(expected[True], abs=1.e-8)
+    assert decision.pit_now_partial_time == pytest.approx(-expected[True][2], abs=1.e-8)
+    assert decision.wait_laps == -1
 
-    # Both starts retire after eight further laps, but retaining intermediates
-    # avoids another paid service and beats the faster first wet lap.
+    # The external clock leaves seven accepted laps instead of the untimed
+    # eight. Retaining intermediates avoids another paid service in either case.
     assert sim._inventory_immediate_set(state, track, weather, 2) == "I"
     post_stop_weather, _ = sim._projected_stint_weather(weather, clock, None, 1)
     assert post_stop_weather.track_wetness == pytest.approx(.28)
