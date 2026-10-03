@@ -436,7 +436,9 @@ def plan_controlled_weather(
                 tire_age=age, remaining_stops=left, remaining_dry_stops=dry,
                 remaining_damp_stops=damp, used_compounds=used_compounds,
                 require_compound_rule=require_compound_rule, **common)
-            result = max((result.continuation(True), result.continuation(False)),
+            # No admissible next action ends this suffix before another lap;
+            # it must not invalidate crossings already accepted under control.
+            result = max((result.continuation(True), result.continuation(False), retired),
                          key=lambda value: value.rank)
         elif retention:
             rivals = (len(field.rows) > 1 if type(field) is ObservedStandardField

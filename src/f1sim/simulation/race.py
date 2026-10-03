@@ -48,7 +48,7 @@ from f1sim.simulation.pit_plans import (
 from f1sim.simulation.pit_strategy import expected_stationary_time, plan_dry_stop
 from f1sim.simulation.race_points import points_for_classification
 from f1sim.simulation.race_timing import RaceFinishClock, forecast_final_lap
-from f1sim.simulation.rain_strategy import plan_rain_stop, plan_rain_transition
+from f1sim.simulation.rain_strategy import RainStopDecision, plan_rain_stop, plan_rain_transition
 from f1sim.simulation.randomness import MechanicalRngFactory
 from f1sim.simulation.strategy_control_clock import StandardControlContext, StrategyControlContext
 from f1sim.simulation.strategy_neutralization import (
@@ -375,7 +375,11 @@ class RaceSimulator(InventoryStrategyMixin):
 
     @staticmethod
     def _decision_forecast_saving(decision) -> float | None:
-        """Return a finite planner saving when the decision exposes both costs."""
+        """Compare finite costs only when known projected distances agree."""
+        pit_laps = getattr(decision, "pit_now_laps", None)
+        wait_laps = getattr(decision, "wait_laps", None)
+        if type(pit_laps) is int and type(wait_laps) is int and pit_laps != wait_laps:
+            return None
         wait_cost = getattr(decision, "wait_cost", None)
         pit_cost = getattr(decision, "pit_now_cost", None)
         if (isinstance(wait_cost, bool) or not isinstance(wait_cost, Real)
@@ -396,6 +400,15 @@ class RaceSimulator(InventoryStrategyMixin):
             "decision_reason": reason,
             "forecast_saving_seconds": self._decision_forecast_saving(decision),
         }
+        compound = getattr(decision, "compound", None)
+        if type(decision) is RainStopDecision:
+            # This planner prices a fresh set of the currently fitted compound.
+            compound = state.current_tire.compound
+        if isinstance(compound, TireCompound):
+            state.pit_decision_context["forecast_compound"] = compound.value
+        set_id = getattr(decision, "set_id", None)
+        if isinstance(set_id, str):
+            state.pit_decision_context["forecast_set_id"] = set_id
 
     def simulate_race(
         self,
@@ -2777,6 +2790,7 @@ class RaceSimulator(InventoryStrategyMixin):
         state.pit_decision_context = None
         decision_reason = "forced_repair" if forced_repair else None
         forecast_saving = None
+        forecast_compound = forecast_set_id = None
         if not forced_repair and isinstance(decision_context, dict):
             if decision_context.get("lap") == int(current_lap):
                 candidate_reason = decision_context.get("decision_reason")
@@ -2787,6 +2801,10 @@ class RaceSimulator(InventoryStrategyMixin):
                     "user_plan",
                 }:
                     decision_reason = candidate_reason
+                    if isinstance(decision_context.get("forecast_compound"), str):
+                        forecast_compound = decision_context["forecast_compound"]
+                    if isinstance(decision_context.get("forecast_set_id"), str):
+                        forecast_set_id = decision_context["forecast_set_id"]
                     candidate_saving = decision_context.get("forecast_saving_seconds")
                     if (isinstance(candidate_saving, Real)
                             and not isinstance(candidate_saving, bool)):
@@ -2899,6 +2917,12 @@ class RaceSimulator(InventoryStrategyMixin):
                 **({"current_traffic_gaps": current_traffic_gaps}
                    if current_traffic_gaps is not None else {}),
             )
+
+        if ((forecast_compound is not None and forecast_compound != new_compound.value)
+                or (forecast_set_id is not None and forecast_set_id != selected_set)):
+            # Preparation may replace a no-longer-eligible proposal. Its old
+            # price does not describe the different physical fit executed here.
+            forecast_saving = None
 
         total_loss = pit_lane_time + stationary_time + queue_time
         state.pit_stop_details.append({

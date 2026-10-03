@@ -172,6 +172,15 @@ An illegal final dry crossing earns no distance. Failed completion costs remain
 infinite, with partial elapsed time stored separately; a survival decision does
 not produce a claimed finishing-time saving.
 
+The transition from observed SC/VSC running to a green forecast preserves
+every crossing already accepted in the controlled prefix. If there is no safe,
+usable or legal next action, retirement starts at that boundary; an unavailable
+green action cannot erase the last completed lap. For example, a one-lap hard
+opening followed by five controlled laps across finite medium and intermediate
+sets still records all six laps when the stock runs out at the restart.
+Its finishing cost remains infinite, while its last-crossing time stays available
+for comparing incomplete strategies.
+
 Run `python examples/check_inventory_continuations.py --elective` for an
 eight-lap drying race starting at surface water `0.24`, with four permitted
 laps on an explicit intermediate opening and one on wets. Switching to wets

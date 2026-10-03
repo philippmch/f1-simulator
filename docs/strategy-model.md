@@ -105,6 +105,10 @@ while the field remains neutralized. Once control and pending restrictions
 clear, the existing green policy resumes from the projected surface and a
 rebased weather clock. Missing observations retain the simpler forecast.
 
+Finite-pool continuations retain all accepted prefix crossings when that green
+suffix has no admissible next action. Retirement at the control boundary has
+zero additional laps and time; it cannot invalidate a lap already completed.
+
 The external leading clock remains fixed under these comparisons. A candidate
 that is itself the projected leader, including a single-car race, retains the
 own-lap projection so its stationary pit time cannot invent weather updates.
@@ -650,6 +654,10 @@ minus the cost of stopping, including the planner's remaining strategy and curre
 Overtake Mode adjustment. It is not a measured gain or a causal comparison of race
 results. A slightly negative value can be accepted by the strategy's timing bias.
 Compulsory/reactive decisions and nonfinite comparisons have no reported saving.
+Known unequal projected distances also have no time saving: more completed laps
+can take longer while still being the preferred strategy. If preparation replaces
+the proposed compound or physical set, its original saving is discarded rather
+than attributed to the different fit. The accepted decision reason is retained.
 Missing context is null in JSON, blank in CSV, and “Not recorded” in the dashboard.
 Free refits and vetoed pit proposals produce no paid-stop decision record.
 

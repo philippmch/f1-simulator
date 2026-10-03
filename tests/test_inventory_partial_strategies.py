@@ -15,7 +15,7 @@ from f1sim.simulation.inventory_strategy import plan_inventory_strategy
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.pit_strategy import expected_stationary_time
 from f1sim.simulation.race_timing import RaceFinishTimeline
-from f1sim.simulation.strategy_control_clock import StrategyControlContext
+from f1sim.simulation.strategy_control_clock import ObservedStandardField, StrategyControlContext
 from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.tire_inventory import TireInventory
 from f1sim.simulation.weather_schedule import WeatherForecastContext
@@ -142,8 +142,6 @@ def independent_schedules(models, options):
             after_delay = delay
             if paid and clock is not None:
                 after_delay += clock.current_stop_delay if offset == 0 else clock.future_stop_delay
-            running_surface = (before if branch is not None else
-                               weather_at(offset, after_delay, None))
             fee = (options.get("tire_warmup", {}).get(compound.value, 0.)
                    if changing or offset == 0 and options.get("current_fit_pending", False)
                    else 0.)
@@ -154,11 +152,14 @@ def independent_schedules(models, options):
                 stop = (observed.current_stop_delay if offset == 0 else
                         track.pit_lane_delta * factor + expected_stationary_time(car))
                 branch.enter(stop if paid else None)
-                gap, aero = branch.gap_ahead(1.), not branch.controlled
+                reference = (1. if type(branch) is ObservedStandardField else
+                             branch.free_paces[branch.identifier] * branch.running_modifier)
+                gap, aero = branch.gap_ahead(reference), not branch.controlled
             else:
                 gaps = options.get("current_traffic_gaps")
                 gap = gaps[int(paid)] if gaps is not None and offset == 0 else None
                 aero = options.get("active_aero_enabled", True) if offset == 0 else True
+            running_surface = weather_at(offset, after_delay, branch)
             running = physics.calculate_lap_time(
                 driver, car, track, TIRE_COMPOUNDS[compound], running_surface,
                 current_lap + offset, options.get("physical_total_laps", track.total_laps),
