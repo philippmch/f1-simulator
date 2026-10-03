@@ -46,27 +46,44 @@ class OpeningPolicyScore:
 
     The first two constructor arguments retain their distance/time meaning.
     Automatic policies have no custom instructions and keep their old order.
+    Failed paths keep separate comparison data; they never become finishers
+    or earn custom-plan credit merely by racing farther before retirement.
     """
 
     negative_mean_laps: float
     mean_time: float
     negative_mean_instructions: float = 0.
+    incomplete_fraction: float = inf
+    negative_partial_mean_laps: float = inf
+    partial_mean_time: float = inf
 
     def __lt__(self, other):
         if type(self) is not type(other):
             return NotImplemented
-        return (self.negative_mean_laps, self.negative_mean_instructions, self.mean_time) < (
-            other.negative_mean_laps, other.negative_mean_instructions, other.mean_time)
+        return (self.negative_mean_laps, self.negative_mean_instructions, self.mean_time,
+                self.incomplete_fraction, self.negative_partial_mean_laps,
+                self.partial_mean_time) < (
+            other.negative_mean_laps, other.negative_mean_instructions, other.mean_time,
+            other.incomplete_fraction, other.negative_partial_mean_laps, other.partial_mean_time)
 
 
 def _mean_policy_score(outcomes):
-    """Aggregate executed paths; an infeasible path cannot earn plan credit."""
+    """Prefer finishable paths, then preserve useful evidence among failures."""
     mean_time = sum(outcome[1] for outcome in outcomes) / len(outcomes)
     if mean_time == inf:
-        return OpeningPolicyScore(inf, inf)
+        if any(len(outcome) < 4 for outcome in outcomes):
+            # Legacy/custom projections may omit elapsed retirement time.
+            # Keep their unknown failure evidence separate from native traces.
+            return OpeningPolicyScore(inf, inf)
+        return OpeningPolicyScore(
+            inf, inf,
+            incomplete_fraction=sum(outcome[1] == inf for outcome in outcomes) / len(outcomes),
+            negative_partial_mean_laps=-sum(outcome[0] for outcome in outcomes) / len(outcomes),
+            partial_mean_time=sum(outcome[3] for outcome in outcomes) / len(outcomes),
+        )
     return OpeningPolicyScore(
         -sum(outcome[0] for outcome in outcomes) / len(outcomes), mean_time,
-        -sum(outcome[2] for outcome in outcomes if len(outcome) == 3) / len(outcomes),
+        -sum(outcome[2] for outcome in outcomes if len(outcome) >= 3) / len(outcomes),
     )
 
 
@@ -276,6 +293,7 @@ def _cached_inventory_policy_costs(driver_json, car_json, track_json, weather_js
                 json.loads(tuning_json), json.loads(profiles_json),
                 TireCompound(item["compound"]), 0, tire_warmup=tire_warmup,
                 tire_inventory=records, opening_set_id=item["id"],
+                include_incomplete_time=True,
                 **({"forecast_context": forecast_context} if forecast_context is not None else {}),
                 **({"pit_plan": pit_plan, "include_instructions": True}
                    if pit_plan is not None else {}),
@@ -286,12 +304,15 @@ def _cached_inventory_policy_costs(driver_json, car_json, track_json, weather_js
 
 def _policy_path_outcome(driver, car, track, weather, strategy, tuning, profiles, compound, seed,
                          *, tire_inventory=None, opening_set_id=None, tire_warmup=None,
-                         forecast_context=None, pit_plan=None, include_instructions=False):
+                         forecast_context=None, pit_plan=None, include_instructions=False,
+                         include_incomplete_time=False):
     """Run the existing policy with mean pace/service and optional plan credit.
 
     Direct comparisons keep the (laps, time) result. Opening selectors can also
     request the number of instructions actually executed before this finish.
     Skipped, overridden and unreached instructions never count as fulfillment.
+    Opening selectors can retain elapsed time at the last accepted crossing
+    as a fourth value, while the ordinary time remains infinite after failure.
     """
     from f1sim.simulation.race import DriverRaceState, DriverStatus, RaceSimulator
 
@@ -308,9 +329,11 @@ def _policy_path_outcome(driver, car, track, weather, strategy, tuning, profiles
     initialize_pit_plan_state(state, pit_plan)
 
     def outcome(elapsed):
+        executed = (sum(item["status"] == "executed"
+                        for item in state.pit_plan_history or ()) if include_instructions else 0)
+        if include_incomplete_time:
+            return state.laps_completed, elapsed, executed, state.total_time
         if include_instructions:
-            executed = sum(item["status"] == "executed"
-                           for item in state.pit_plan_history or ())
             return state.laps_completed, elapsed, executed
         return state.laps_completed, elapsed
 

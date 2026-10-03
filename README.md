@@ -547,6 +547,11 @@ both engines, reports the best executed alternative and needs no network.
 See [strategy diagnostics](docs/strategy-model.md) for the search bounds and
 model assumptions.
 
+Run `python examples/check_weather_openings.py --incomplete` to check finite-pool
+opening choices when every policy predicts retirement. The offline diagnostic
+compares accepted laps and elapsed time in both engines, while preserving DNF
+status and keeping legal projected finishes ahead of incomplete policies.
+
 Run `python examples/check_opening_policy_execution.py` to compare opening-policy
 forecasts with actual execution in both engines, including used finite tyre
 sets and timed finishes. It reports distance, time, fuel and wear mismatches as

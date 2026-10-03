@@ -92,7 +92,8 @@ A free red-flag tyre change does not consume a scheduled paid-stop instruction.
 Earlier repairs and weather stops likewise do not consume future instructions.
 Automatic compulsory replacements and free restart fits are priced against the
 remaining custom instructions, including an empty plan. The forecast inserts
-only critical-weather repairs and required compound corrections. It preserves
+only critical-weather repairs, physical-set usage-limit replacements and
+required compound corrections. It preserves
 physical-set wear and availability, including sets removed and reused later,
 and accounts for skipped requests and optional fitting costs. It does not add
 profitable elective stops or change an executable requested compound.
@@ -115,6 +116,12 @@ so a future request beyond that finish need not reserve a fresh physical set.
 Other cars retain the engine's estimated own-lap finish horizon and shared
 weather cadence. Original scheduled fuel distance remains unchanged. Future
 incidents, traffic, leader changes and unprescribed weather remain unknown.
+
+When every eligible finite-pool opening predicts retirement, opening selection
+compares accepted distance and last-crossing time without giving failed paths
+custom-request ranking credit. A forecasted legal finish retains priority.
+See the [incomplete-opening diagnostic](tyre-inventory.md) for controlled
+comparisons with actual execution.
 
 At a chronological red-flag restart, free fits use the collected field's
 frozen finish horizons, weather clocks and projected-leader identity. Every

@@ -489,6 +489,13 @@ elective stops; unsafe or unavailable requests and mandatory corrections use the
 same decisions as actual execution. The supplied schedule is retained, rather
 than searching for a different one. Dry, wet and finite-pool opening comparisons
 all account for it. Explicit opening compounds and ages keep priority.
+Finite-pool opening scores retain accepted distance and last-crossing time
+when all eligible policies predict retirement. A projected legal finish still
+wins; among incomplete paths, more completed laps precede elapsed time, with
+no ranking credit for custom requests. Their completion cost remains infinite
+and their execution status remains DNF. The
+[`--incomplete` opening diagnostic](tyre-inventory.md) compares these cases
+against independently executed explicit openings in both engines.
 Compulsory replacements and free red-flag choices under a supplied plan use a
 separate continuation over the remaining requested services. It follows the
 same skip, availability and actual-use rules, with compulsory weather and final

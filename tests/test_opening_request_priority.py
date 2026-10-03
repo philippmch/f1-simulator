@@ -163,7 +163,8 @@ def test_executed_requests_do_not_make_an_infeasible_opening_win(harness, engine
     context = WeatherForecastContext.from_schedule(schedule)
     scores = opening.inventory_opening_policy_costs(*args, records, pit_plan=plan,
                                                    forecast_context=context)
-    assert all(score == Score(inf, inf) for _, score in scores)
+    assert all(score.mean_time == score.negative_mean_laps == inf for _, score in scores)
+    assert all(score.negative_mean_instructions == 0 for _, score in scores)
     laps, elapsed, instructions = opening._policy_path_outcome(
         *args, TireCompound.SOFT, 0, tire_inventory=records, opening_set_id="S", pit_plan=plan,
         forecast_context=context, include_instructions=True,
@@ -189,3 +190,7 @@ def test_executed_requests_do_not_make_an_infeasible_opening_win(harness, engine
     assert instructions == executed == 1
     assert elapsed == inf
     assert laps == result.laps_completed < case["laps"]
+    score = dict(scores)["S"]
+    assert score.incomplete_fraction == 1
+    assert score.negative_partial_mean_laps == -laps
+    assert score.partial_mean_time == pytest.approx(result.total_time, abs=1.e-8)

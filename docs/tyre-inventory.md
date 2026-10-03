@@ -143,6 +143,25 @@ wet set by starting on intermediates. Two equivalent wet sets can instead allow
 a wet opening followed by the requested wet refit. Explicit openings remain
 authoritative, including plans whose later requests must be skipped.
 
+A forecasted legal finish takes priority over an incomplete opening policy.
+When every eligible opening predicts retirement, the selector compares the
+accepted race laps before retirement, then elapsed time at the last crossing.
+It no longer treats all those choices as an input-order tie. Failed paths keep
+infinite completion cost and earn no custom-request ranking credit; the finite
+retirement time is separate comparison evidence, not a finishing time.
+For example, an eight-lap drying scenario with normalized surface water `0.2`,
+no rain, four permitted laps on intermediates and one on wets reaches five laps
+by using the wet set first, versus four by starting on intermediates. Both
+policies still retire when no safe permitted set remains.
+
+Run `python examples/check_weather_openings.py --incomplete` to compare each
+automatic opening with separately executed alternatives in both engines.
+The diagnostic includes that drying case and an equal-distance dry retirement
+where the fresher soft set is faster, with automatic and empty custom plans.
+It records finite last-crossing times and DNF status. These conditional checks
+use mean physics, expected service and no incidents; they do not establish a
+globally optimal survival schedule or forecast an actual retirement.
+
 If no complete forecast is feasible, a required stop can still choose the
 available set with the lowest predicted next-lap time. For a timed paid stop,
 that fallback uses the projected surface after expected lane, service and queue

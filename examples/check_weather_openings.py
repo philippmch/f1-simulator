@@ -96,6 +96,21 @@ CUSTOM_PLAN_CASES = (
          pit_plan=[dict(lap=3, compound="wet"), dict(lap=8, compound="intermediate")]),
 )
 
+INCOMPLETE_CASES = tuple(
+    {**case, "name": case["name"] + ("_custom" if custom else "_automatic"),
+     **({"pit_plan": []} if custom else {})}
+    for case in (
+        dict(name="drying_limited_pool", water=.2, rain=0., laps=8, base=90., lane=20.,
+             inventory=[dict(id="inter", compound="intermediate", remaining_laps=4),
+                        dict(id="wet", compound="wet", remaining_laps=1),
+                        dict(id="expired", compound="soft", remaining_laps=0)]),
+        dict(name="dry_single_compound", water=0., rain=0., laps=8, base=90., lane=20.,
+             inventory=[dict(id="worn", compound="soft", age=40),
+                        dict(id="fresh", compound="soft", age=0)]),
+    )
+    for custom in (False, True)
+)
+
 
 def weather_for(case):
     condition = (WeatherCondition.CLOUDY if not case["rain"] else
@@ -104,7 +119,7 @@ def weather_for(case):
                    rain_intensity=case["rain"], change_probability=0)
 
 
-def run_race(case, engine, compound=None, seed=0, age=0):
+def run_race(case, engine, compound=None, seed=0, age=0, *, allow_incomplete=False):
     if engine not in ENGINES:
         raise ValueError(f"engine must be drawn from {ENGINES}")
     driver = Driver(id="A", name="Synthetic", team_id="A")
@@ -154,13 +169,15 @@ def run_race(case, engine, compound=None, seed=0, age=0):
     if "schedule" in case:
         options["weather_schedule"] = case["schedule"]
     result, = execute([driver], {"A": car}, track, weather_for(case), ["A"], **options)
-    if result.status != DriverStatus.FINISHED:
+    if result.status != DriverStatus.FINISHED and not allow_incomplete:
         raise AssertionError("Opening policy did not finish legally")
     if set(fuel_distances) != {track.total_laps}:
         raise AssertionError("Opening comparison changed the physical fuel distance")
     row = dict(total_seconds=result.total_time, laps_completed=result.laps_completed,
                pit_laps=result.pit_laps, compounds=result.strategy,
                race_time_limited=result.race_time_limited, warmup_laps=warmup_laps)
+    if allow_incomplete:
+        row.update(status=result.status.value, dnf_reason=result.dnf_reason)
     if "pit_plan" in case:
         row["pit_plan_history"] = result.pit_plan_history
     if "inventory" in case:
@@ -170,7 +187,7 @@ def run_race(case, engine, compound=None, seed=0, age=0):
     return row
 
 
-def compare_openings(cases=CASES, engines=ENGINES):
+def compare_openings(cases=CASES, engines=ENGINES, *, allow_incomplete=False):
     rows = []
     for case in cases:
         weather = weather_for(case)
@@ -178,16 +195,19 @@ def compare_openings(cases=CASES, engines=ENGINES):
             candidates = tuple(dict.fromkeys(
                 (f"{item['compound']}@{item.get('age', 0)}", TireCompound(item["compound"]),
                  item.get("age", 0)) for item in case["inventory"]
-                if weather.tire_mismatch(TireCompound(item["compound"])) != "critical"
+                if item.get("remaining_laps") != 0
+                and weather.tire_mismatch(TireCompound(item["compound"])) != "critical"
             ))
         else:
             candidates = tuple((compound.value, compound, 0) for compound in TireCompound
                                if weather.tire_mismatch(compound) != "critical")
         for engine in engines:
-            selected = run_race(case, engine)
+            options = {"allow_incomplete": True} if allow_incomplete else {}
+            selected = run_race(case, engine, **options)
             scores = {}
             for label, compound, age in candidates:
-                outcomes = [run_race(case, engine, compound, seed, age) for seed in SEEDS]
+                outcomes = [run_race(case, engine, compound, seed, age, **options)
+                            for seed in SEEDS]
                 scores[label] = dict(
                     mean_laps=sum(row["laps_completed"] for row in outcomes) / len(outcomes),
                     mean_executed_instructions=sum(
@@ -196,9 +216,18 @@ def compare_openings(cases=CASES, engines=ENGINES):
                         for row in outcomes) / len(outcomes),
                     mean_seconds=sum(row["total_seconds"] for row in outcomes) / len(outcomes),
                 )
-            best = min(scores, key=lambda compound: (-scores[compound]["mean_laps"],
-                                                    -scores[compound]["mean_executed_instructions"],
-                                                    scores[compound]["mean_seconds"]))
+                if allow_incomplete:
+                    scores[label]["finish_fraction"] = sum(
+                        row["status"] == DriverStatus.FINISHED.value for row in outcomes
+                    ) / len(outcomes)
+
+            def rank(label):
+                score = scores[label]
+                finish_fraction = score.get("finish_fraction", 1.)
+                requests = score["mean_executed_instructions"] if finish_fraction == 1 else 0.
+                return -finish_fraction, -score["mean_laps"], -requests, score["mean_seconds"]
+
+            best = min(scores, key=rank)
             chosen = selected.get("opening", selected["compounds"][0])
             if chosen not in scores:
                 raise AssertionError("Automatic opening was not currently noncritical")
@@ -210,21 +239,30 @@ def compare_openings(cases=CASES, engines=ENGINES):
                                       - scores[best]["mean_executed_instructions"]),
                 mean_time_gap_seconds=scores[chosen]["mean_seconds"] - scores[best]["mean_seconds"],
             ))
+            if allow_incomplete:
+                rows[-1]["mean_finish_fraction_gap"] = (scores[chosen]["finish_fraction"]
+                                                       - scores[best]["finish_fraction"])
     return rows
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--engine", choices=(*ENGINES, "both"), default="both")
-    parser.add_argument("--custom-plans", action="store_true",
-                        help="Check custom stop policies and finite opening sets")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--custom-plans", action="store_true",
+                       help="Check custom stop policies and finite opening sets")
+    modes.add_argument("--incomplete", action="store_true",
+                       help="Compare accepted distance and time when finite pools cannot finish")
     args = parser.parse_args()
     engines = ENGINES if args.engine == "both" else (args.engine,)
     rows = compare_openings(
-        cases=CUSTOM_PLAN_CASES if args.custom_plans else CASES, engines=engines,
+        cases=(INCOMPLETE_CASES if args.incomplete else
+               CUSTOM_PLAN_CASES if args.custom_plans else CASES),
+        engines=engines, allow_incomplete=args.incomplete,
     )
     print(json.dumps(rows, indent=2, allow_nan=False))
-    return 1 if any(row["mean_distance_gap"] != 0 or row["mean_instruction_gap"] != 0 or
+    return 1 if any(row.get("mean_finish_fraction_gap", 0) != 0 or
+                    row["mean_distance_gap"] != 0 or row["mean_instruction_gap"] != 0 or
                     abs(row["mean_time_gap_seconds"]) > 1.e-7 for row in rows) else 0
 
 
