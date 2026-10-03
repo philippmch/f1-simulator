@@ -1198,6 +1198,13 @@ models. Field branches and control-prefix caches belong to one decision and
 never retain the live engine or consume simulation random draws. Existing
 native green cost tables retain their bounded process-local cache.
 
+Chronological branches reuse frozen scalar finish observations and copy their
+mutable ledger, clock, queue and pending events. Additional mutable ledger
+attributes retain deep copying. Decision-local memoization ignores stale events
+and absolute scheduler counters while preserving the priority order of valid
+crossings, including exact-time ties. This lets equivalent physical histories
+reuse their future cost without shortening the search or changing pit choices.
+
 In a controlled four-lap illustration, a fresh soft runs at 99.55 seconds versus
 100 seconds on medium, but pays a two-second fitting fee. After three known
 VSC laps and one green lap, the soft finishes 0.16 seconds sooner; under SC it

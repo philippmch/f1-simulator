@@ -1,5 +1,6 @@
 """Reusable control forecasts agree with native service and crossing events."""
 
+import heapq
 from copy import deepcopy
 
 import numpy as np
@@ -10,6 +11,7 @@ from f1sim.models import Car, Driver, TireCompound, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.chronological_finish import ObservedChronologicalField
 from f1sim.simulation.chronological_race import ChronologicalRace, _PendingLap
+from f1sim.simulation.controlled_dry_strategy import _field_key
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.race import RaceSimulator
 from f1sim.simulation.strategy_control_clock import StrategyControlContext
@@ -163,6 +165,50 @@ def test_copied_context_compares_observations_and_detects_ledger_changes():
     assert copied.field.timeline is not original.field.timeline
     copied.field.timeline._clock.final_lap -= 1
     assert original != copied
+
+
+@pytest.mark.parametrize("control", ["vsc", "sc"])
+@pytest.mark.parametrize("stopped", [False, True])
+def test_equivalent_event_counters_and_stale_events_preserve_complete_crossings(control, stopped):
+    *_, context, now = field(control=control, intervals=4, relative_laps=-1,
+                            remaining=120., neutralized=True, now=6850.)
+    original = ObservedChronologicalField(context, now)
+    shifted = original.fork()
+    shifted.serial += 1000
+    for row in shifted.pending.values():
+        row.generation += 10
+    shifted.queue = [(time, lap, serial + 1000, kind, key, generation + 10)
+                     for time, lap, serial, kind, key, generation in shifted.queue]
+    shifted.queue.append((0., -1, 0, "cross", "B", -1))
+    heapq.heapify(shifted.queue)
+    assert _field_key(original) == _field_key(shifted)
+    changed = original.fork()
+    changed.pending["B"].ready += .5
+    assert _field_key(original) != _field_key(changed)
+    for offset in range(3):
+        for branch in (original, shifted):
+            branch.enter(200. if stopped and offset in {0, 2} else None)
+            branch.cross(99., 3. if offset in {0, 2} else 0.)
+        assert ledger_signature(original.timeline) == ledger_signature(shifted.timeline)
+        assert original.events == shifted.events
+        assert original.order == shifted.order and original.now == shifted.now
+        assert _field_key(original) == _field_key(shifted)
+        if original.finished:
+            break
+
+
+def test_extra_mutable_ledger_attributes_are_copied_between_branches():
+    *_, context, now = field(intervals=4)
+    context.timeline.notes = ["original"]
+    context.timeline._clock.notes = ["original"]
+    observation = context.timeline.states["B"]
+    object.__setattr__(observation, "notes", ["original"])
+    original = ObservedChronologicalField(context, now)
+    copied = original.fork()
+    for owner in (copied.timeline, copied.timeline._clock, copied.timeline.states["B"]):
+        owner.notes.append("copied")
+    for ledger in (original.timeline, context.timeline):
+        assert ledger.notes == ledger._clock.notes == ledger.states["B"].notes == ["original"]
 
 
 @pytest.mark.parametrize("control", ["vsc", "sc"])

@@ -38,10 +38,18 @@ def _field_key(field):
         return (field.lap, field.intervals_left,
                 field.now if len(field.rows) > 1 else None, tuple(field.rows),
                 field.pre_stop_order, field.pitting)
-    return (field.now, field.intervals_left, field.updates, tuple(field.order), field.serial,
+    # Absolute scheduler counters and stale events cannot change subsequent
+    # crossings. Preserve the relative priority of valid events, including
+    # exact-time ties, so physically equivalent histories share one suffix.
+    queue = tuple((time, distance, kind, identifier)
+                  for time, distance, _, kind, identifier, generation in sorted(field.queue)
+                  if identifier in field.pending
+                  and field.pending[identifier].generation == generation)
+    pending = tuple((key, tuple(value for name, value in vars(row).items()
+                               if name != "generation")) for key, row in field.pending.items())
+    return (field.now, field.intervals_left, field.updates, tuple(field.order),
             tuple(vars(field.timeline._clock).items()), tuple(field.timeline.states.items()),
-            tuple((key, tuple(vars(row).items())) for key, row in field.pending.items()),
-            tuple(sorted(field.queue)), tuple(field.free_paces.items()))
+            pending, queue, tuple(field.free_paces.items()))
 
 
 def plan_controlled_dry_stop(

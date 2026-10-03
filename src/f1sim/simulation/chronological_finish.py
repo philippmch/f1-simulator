@@ -15,7 +15,7 @@ from math import isfinite
 
 from f1sim.cancellation import cancellation_checkpoint
 from f1sim.models import Car, Driver, TireCompound, Track, Weather
-from f1sim.models._native import register_forecast_helpers
+from f1sim.models._native import register_forecast_helpers, register_forecast_values
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.finish_strategy import (
     FinishProtectionResult,
@@ -28,7 +28,7 @@ from f1sim.simulation.finish_strategy import (
 )
 from f1sim.simulation.lap import LapSimulator, minimum_lap_time
 from f1sim.simulation.neutralization import safety_car_running_time
-from f1sim.simulation.race_timing import DriverFinishState, RaceFinishTimeline
+from f1sim.simulation.race_timing import DriverFinishState, RaceFinishClock, RaceFinishTimeline
 from f1sim.simulation.warmup import tire_warmup_seconds, validate_tire_warmup
 from f1sim.simulation.weather_schedule import WeatherForecastContext
 
@@ -139,12 +139,37 @@ class ObservedFieldCrossing:
     flag_time: float | None
 
 
+_FINISH_FIELDS = frozenset(DriverFinishState.__dataclass_fields__)
+_TIMELINE_FIELDS = frozenset((
+    "_clock", "_states", "_last_observation_time", "_leader_id", "winner_id",
+))
+_CLOCK_FIELDS = frozenset((
+    "scheduled_laps", "final_lap", "completed_laps", "last_crossing_time", "winner_time",
+    "_time_limit_announced", "_last_observation_time", "_suspension_start",
+    "_total_suspension_seconds",
+))
+_SCALAR_TYPES = (int, float, str, bool, type(None))
+
+
 def _copy_timeline(timeline):
     # Native driver observations are frozen records of scalar values. Share
     # those values while copying every mutable ledger/clock container. Any
     # non-native records or additional attributes retain ordinary deep copying.
     immutable = {id(row): row for row in timeline.states.values()
-                 if type(row) is DriverFinishState}
+                 if type(row) is DriverFinishState and vars(row).keys() == _FINISH_FIELDS
+                 and all(type(value) in _SCALAR_TYPES for value in vars(row).values())}
+    clock = timeline._clock
+    if (type(timeline) is RaceFinishTimeline and type(clock) is RaceFinishClock
+            and vars(timeline).keys() == _TIMELINE_FIELDS
+            and vars(clock).keys() == _CLOCK_FIELDS
+            and len(immutable) == len(timeline.states)
+            and all(type(value) in _SCALAR_TYPES for value in vars(clock).values())
+            and all(type(value) in _SCALAR_TYPES for name, value in vars(timeline).items()
+                    if name not in ("_clock", "_states"))):
+        branch = copy(timeline)
+        branch._clock = copy(clock)
+        branch._states = dict(timeline.states)
+        return branch
     return deepcopy(timeline, immutable)
 
 
@@ -539,6 +564,10 @@ register_forecast_helpers(globals(), (
     "replacement_options", "safety_car_running_time", "minimum_lap_time",
     "project_observed_chronological_clock", "ObservedChronologicalClock", "_ObservedRunningPace",
     "ObservedChronologicalField", "ObservedFieldCrossing", "_copy_timeline", "DriverFinishState",
+    "RaceFinishTimeline", "RaceFinishClock",
+))
+register_forecast_values(globals(), (
+    "_FINISH_FIELDS", "_TIMELINE_FIELDS", "_CLOCK_FIELDS", "_SCALAR_TYPES",
 ))
 register_forecast_helpers(vars(_ObservedRunningPace), ("calculate_lap_time",))
 register_forecast_helpers(vars(ObservedChronologicalField), (
