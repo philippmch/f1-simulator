@@ -231,13 +231,13 @@ def test_neutralized_finish_guard_uses_control_only_with_a_supported_field(
             states, states[0], engine.running_paces, RaceFinishClock(90),
         )
         result = simulator._protect_leading_finish_distance(
-            states[0], track, Weather(), 72, context, active_states=states,
+            states[0], track, Weather(), 72, context, active_states=states, frozen_states=states,
         )
     else:
         monkeypatch.setattr(chronological_module, "evaluate_finish_protection", compare)
         result = engine._protect_elective_finish_distance(states[0], track, 7100., 0., None)
     supported = control_mode != "red_flag" and (
-        field_size == 1 or engine_name == "standard" and control_mode == "vsc")
+        field_size == 1 or engine_name == "standard")
     assert result is supported
     assert len(calls) == int(supported)
     if calls:
@@ -246,4 +246,6 @@ def test_neutralized_finish_guard_uses_control_only_with_a_supported_field(
         assert calls[0]["active_aero_enabled"] is False
         assert calls[0]["expected_lane_loss"] == track.pit_lane_delta * (
             .75 if control_mode == "vsc" else .55)
+        if control_mode == "safety_car" and field_size > 1:
+            assert calls[0]["leading_finish_context"].safety_car_field is not None
     assert before == [snapshot(state, simulator) for state in states]

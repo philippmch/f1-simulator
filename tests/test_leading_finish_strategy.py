@@ -50,10 +50,11 @@ def history(now, rivals, maximum):
     return timeline
 
 
-def execute(timeline, now, rivals, maximum, fee, pace, lockstep, *, modifier=1.):
+def execute(timeline, now, rivals, maximum, fee, pace, lockstep, *, modifier=1.,
+            first_crossing=None):
     """Execute all future mean crossings through the real finish controller."""
-    candidate = {lap: now + fee + (modifier + lap - 72) * pace
-                 for lap in range(72, maximum + 1)}
+    first = now + fee + modifier * pace if first_crossing is None else first_crossing
+    candidate = {lap: first + (lap - 72) * pace for lap in range(72, maximum + 1)}
     if lockstep:
         # Standard execution advances everyone once per leading lap and feeds
         # that lap's earliest free crossing to its authoritative shared clock.

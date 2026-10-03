@@ -2,6 +2,8 @@
 
 from math import isfinite
 
+from f1sim.models._native import register_forecast_helpers
+
 
 def safety_car_running_time(
     free_running: float,
@@ -28,3 +30,30 @@ def safety_car_running_time(
         raise ValueError("ahead gap must be finite and nonnegative")
     recoverable = nominal_running - free_running
     return nominal_running - min(recoverable, max(0.0, gap_to_ahead - target_gap))
+
+
+def safety_car_running_times(observations, modifier):
+    """Resolve an ordered queue of (identifier, entry clock, free running).
+
+    Entry clocks already include physical pit loss. Fitting sensitivity and
+    later incident/position reconciliation remain outside this running step.
+    The same arithmetic serves actual shared laps and immutable finish fields.
+    """
+    observations = tuple(observations)
+    if not observations:
+        return {}
+    queue_pace = observations[0][2] * modifier
+    result, ahead_crossing = {}, None
+    for identifier, entry, free in observations:
+        nominal = max(free, queue_pace)
+        gap = (None if ahead_crossing is None else
+               max(0.0, entry + nominal - ahead_crossing))
+        running = safety_car_running_time(free, nominal, gap)
+        if ahead_crossing is not None:
+            running = max(running, ahead_crossing - entry)
+        result[identifier] = running
+        ahead_crossing = entry + running
+    return result
+
+
+register_forecast_helpers(globals(), ("safety_car_running_time",))

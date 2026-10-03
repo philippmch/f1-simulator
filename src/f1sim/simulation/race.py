@@ -23,6 +23,9 @@ from f1sim.simulation.finish_strategy import (
     LeadingFinishContext,
     ReplacementOption,
     RivalFinishForecast,
+    SafetyCarFinishBranch,
+    SafetyCarFinishCar,
+    SafetyCarFinishField,
     evaluate_finish_protection,
 )
 from f1sim.simulation.inventory_race import (
@@ -30,7 +33,7 @@ from f1sim.simulation.inventory_race import (
     _timed_stop_budget_envelope,
 )
 from f1sim.simulation.lap import LapSimulator
-from f1sim.simulation.neutralization import safety_car_running_time
+from f1sim.simulation.neutralization import safety_car_running_times
 from f1sim.simulation.opening_strategy import dry_opening_policy_costs, opening_policy_costs
 from f1sim.simulation.overtaking import OvertakingModel
 from f1sim.simulation.pit_plans import (
@@ -1408,6 +1411,7 @@ class RaceSimulator(InventoryStrategyMixin):
         self, state, track, weather, lap, context, *, physical_total_laps=None,
         additional_current_stop_cost=0., traffic_snapshot=None,
         committed_losses=None, active_states=None,
+        frozen_states=None,
     ):
         """Cancel an elective leading stop only when its distance bound loses."""
         control = self.event_manager
@@ -1448,9 +1452,15 @@ class RaceSimulator(InventoryStrategyMixin):
                 rivals.append(rival)
             context = replace(context, rivals=tuple(rivals))
         if control.safety_car_active and context.rivals:
-            # A full SC queue can change both the candidate and rival leading
-            # crossings. The free-pace streams do not bound that interaction.
-            return False
+            if frozen_states is None or active_states is None:
+                return False
+            field = self._standard_safety_car_finish_field(
+                state, frozen_states, active_states, track, weather, lap,
+                additional_current_stop_cost, committed_losses or {}, physical_total_laps,
+            )
+            if field is None:
+                return False
+            context = replace(context, safety_car_field=field)
         physical = physical_total_laps or track.total_laps
         physical_track = (track if physical == track.total_laps
                           else track.model_copy(update={"total_laps": physical}, deep=True))
@@ -1548,7 +1558,9 @@ class RaceSimulator(InventoryStrategyMixin):
                         state, track, weather, lap, state.strategy_leading_finish_context,
                         physical_total_laps=physical_total_laps,
                         additional_current_stop_cost=delay, traffic_snapshot=traffic_snapshot,
-                        committed_losses=expected_losses, active_states=states)):
+                        committed_losses=expected_losses, active_states=states,
+                        **({"frozen_states": lap_start_states}
+                           if self.event_manager.safety_car_active else {}))):
                 self._clear_one_lap_pit_proposals(state)
                 should_pit = False
             if not should_pit and state.pit_plan_override_reason is not None:
@@ -1690,6 +1702,88 @@ class RaceSimulator(InventoryStrategyMixin):
                 or self.event_manager.red_flag_active):
             return {}
         return {"safety_car": snapshot.for_paid_fit() if paid_fit else snapshot}
+
+    def _standard_safety_car_finish_field(
+        self, state, frozen_states, states, track, weather, lap, queue_delay,
+        committed_losses, physical_total_laps=None,
+    ):
+        """Freeze both complete first-lap queues for a leading finish check.
+
+        Rival sets are retained unless a resolved earlier stop is committed.
+        Candidate free pace and fitting cost are supplied separately for each
+        replacement. Future service samples and undecided policies are unused.
+        """
+        if (getattr(self._get_gap_to_car_ahead, "__func__", None)
+                is not RaceSimulator._NATIVE_PIT_TRAFFIC_GAP_AHEAD
+                or getattr(self._handle_pit_batch_position_changes, "__func__", None)
+                is not RaceSimulator._NATIVE_PIT_BATCH_POSITION_CHANGES):
+            return None
+        active = {other.driver.id: other for other in states
+                  if other.status == DriverStatus.RACING}
+        frozen = [other for other in frozen_states if other.driver.id in active]
+        if state.driver.id not in active or {row.driver.id for row in frozen} != set(active):
+            return None
+        for identifier, rival in active.items():
+            if identifier == state.driver.id or identifier in committed_losses:
+                continue
+            if (rival.force_pit_next_lap
+                    or weather.tire_mismatch(rival.current_tire.compound) == "critical"
+                    or current_pit_plan_instruction(rival, lap) is not None):
+                # A known repair, weather emergency or due instruction must
+                # change the field; its entry/replacement is not resolved yet.
+                return None
+        replacements = {}
+        for identifier in committed_losses:
+            if identifier not in active:
+                continue
+            options = self._finish_replacement_options(active[identifier], weather,
+                                                       lap=lap, planning=track)
+            if options is None or len(options) != 1:
+                return None
+            replacements[identifier] = options[0]
+        physics = LapSimulator()
+
+        def branch(stopped):
+            rows = deepcopy(frozen)
+            for position, row in enumerate(sorted(rows, key=lambda item: item.position), 1):
+                row.position = position
+            pitting = []
+            for row in rows:
+                loss = committed_losses.get(row.driver.id)
+                if row.driver.id == state.driver.id and stopped:
+                    row.total_time = (row.total_time
+                                      + track.pit_lane_delta * self._pit_lane_factor()
+                                      + expected_stationary_time(state.car.model_copy(deep=True))
+                                      + queue_delay)
+                    pitting.append(row)
+                elif loss is not None:
+                    row.total_time += loss
+                    pitting.append(row)
+            self._handle_pit_batch_position_changes(pitting, rows)
+            observations = []
+            for row in sorted(rows, key=lambda item: item.position):
+                if row.driver.id == state.driver.id:
+                    observations.append(None)
+                    continue
+                option = replacements.get(row.driver.id)
+                tire = row.current_tire if option is None else TIRE_COMPOUNDS[option.compound]
+                row.driver.current_tire_laps = row.tire_laps if option is None else option.age
+                free = physics.calculate_lap_time(
+                    row.driver, row.car, track.model_copy(deep=True), tire.model_copy(deep=True),
+                    weather.model_copy(deep=True), lap, physical_total_laps or track.total_laps,
+                    active_aero_enabled=False,
+                    gap_to_car_ahead=self._get_gap_to_car_ahead(row, rows),
+                    sample_variation=False, overtake_mode_active=False,
+                )
+                fitted = option is not None or row.fit_lap_pending
+                fee = self.tire_warmup.get(tire.compound.value, 0.) if fitted else 0.
+                observations.append(SafetyCarFinishCar(row.driver.id, row.total_time, free, fee))
+            return SafetyCarFinishBranch(tuple(observations))
+
+        try:
+            return SafetyCarFinishField(branch(False), branch(True))
+        except (KeyError, ValueError, TypeError, OverflowError, AttributeError):
+            return None
 
     def _standard_pit_traffic_snapshot(
         self,
@@ -3118,22 +3212,11 @@ class RaceSimulator(InventoryStrategyMixin):
             (state for state in running_start_states if state.driver.id in free_lap_times),
             key=lambda state: state.position,
         )
-        if not queue:
-            return {}
-        queue_pace = free_lap_times[queue[0].driver.id] * modifier
-        result = {}
-        ahead_crossing = None
-        for state in queue:
-            free = free_lap_times[state.driver.id]
-            nominal = max(free, queue_pace)
-            gap = (None if ahead_crossing is None else
-                   max(0.0, state.total_time + nominal - ahead_crossing))
-            running = safety_car_running_time(free, nominal, gap)
-            if ahead_crossing is not None:
-                running = max(running, ahead_crossing - state.total_time)
-            result[state.driver.id] = running
-            ahead_crossing = state.total_time + running
-        return result
+        return safety_car_running_times(
+            ((state.driver.id, state.total_time, free_lap_times[state.driver.id])
+             for state in queue),
+            modifier,
+        )
 
     def _normalize_positions(
         self,
@@ -3572,6 +3655,8 @@ register_forecast_helpers(globals(), (
     "choose_custom_pit_replacement", "CustomPitFinishContext",
     "normalize_current_traffic_gaps",
     "LeadingFinishContext", "RivalFinishForecast", "evaluate_finish_protection",
+    "SafetyCarFinishBranch", "SafetyCarFinishCar", "SafetyCarFinishField",
+    "safety_car_running_times",
 ))
 register_forecast_helpers(vars(RaceSimulator), (
     "_has_weather_schedule", "_choose_forecast_paid_compound",
@@ -3581,5 +3666,6 @@ register_forecast_helpers(vars(RaceSimulator), (
     "_custom_plan_replacement_choice", "_execute_pit_stop", "_choose_red_flag_tire",
     "_standard_leading_finish_context", "_finish_replacement_options",
     "_protect_leading_finish_distance", "_clear_one_lap_pit_proposals",
+    "_standard_safety_car_finish_field",
 ))
 register_forecast_helpers(vars(InventoryStrategyMixin), ("_plan_inventory",))

@@ -133,15 +133,28 @@ the same guard when executing their isolated policy paths.
 Forced repairs, critical tyre mismatch, unavailable fitted sets and unresolved
 compound-use requirements remain under the existing compulsory-stop rules.
 Explicit executable pit instructions retain their requested stop. The check
-also covers VSC in the standard engine, and SC/VSC with a single racing car in
-either engine. Its first retained lap and mean outlap use the current running
-modifier with Active Aero disabled. Reduced lane loss, stationary service and
-optional fitting cost keep their execution semantics; the fitting cost is
-added once after the running modifier. Later laps retain the green forecast.
-The check remains inactive during a red flag, for a full SC field, and for a
-chronological VSC field with multiple racing cars. Their physical no-passing or
-queue constraints can change the leading clock; the frozen free-pace streams
-do not establish the two branches' distances in those cases.
+also covers SC and VSC fields in the standard engine, and SC/VSC with a single
+racing car in either engine. Its first retained lap and mean outlap use the
+current running modifier with Active Aero disabled. Reduced lane loss,
+stationary service and optional fitting cost keep their execution semantics;
+the fitting cost is added once after running. Later laps retain the green
+forecast.
+
+For a standard SC field, staying out and stopping have separate first-lap
+queues. Each freezes the complete pit-exit order, mean rival tyre pace and
+expected earlier committed stops. Pitting the original leader can change the
+car setting the queue's running pace. The forecast applies the actual shared
+running rule, then fitting delays and the no-passing barrier, to the entire
+field. Each branch supplies its own candidate and rival first crossings to
+the timed clock. Subsequent rival laps still hold observed green pace; future
+elective stops and interruptions remain unknown. A known but unresolved rival
+repair, critical mismatch, due pit instruction or replacement keeps this SC
+comparison inactive, as do unavailable mean inputs or custom merge rules.
+
+The check remains inactive during a red flag and for chronological SC/VSC
+fields with multiple racing cars. Their physical no-passing constraints can
+change crossings beyond the first lap; frozen free-pace streams do not
+establish the two branches' distances in those cases.
 It also remains inactive without a usable forecast, including copied inputs
 unavailable to a custom physics hook or an unresolved committed rival fit with
 differing possible fitting costs.

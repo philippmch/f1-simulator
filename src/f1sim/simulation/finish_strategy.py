@@ -21,7 +21,7 @@ fit, reservation or future random draw is made, and no global optimum is claimed
 """
 
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import isfinite
 from numbers import Integral, Real
 
@@ -30,6 +30,7 @@ from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather
 from f1sim.models._native import register_forecast_helpers
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.lap import LapSimulator, minimum_lap_time
+from f1sim.simulation.neutralization import safety_car_running_times
 from f1sim.simulation.warmup import tire_warmup_seconds, validate_tire_warmup
 from f1sim.simulation.weather_schedule import WeatherForecastContext
 
@@ -45,6 +46,76 @@ class RivalFinishForecast:
     fitting_cost: float = 0.
 
 
+@dataclass(frozen=True, slots=True)
+class SafetyCarFinishCar:
+    """One rival's mean first running lap after its expected pit entry."""
+
+    identifier: str
+    entry_time: float
+    free_running: float
+    fitting_cost: float = 0.
+
+    def __post_init__(self):
+        if (not isinstance(self.identifier, str) or not self.identifier
+                or _valid_nonnegative(self.entry_time) is None
+                or _valid_positive(self.free_running) is None
+                or _valid_nonnegative(self.fitting_cost) is None):
+            raise ValueError("invalid safety-car finish rival")
+
+
+@dataclass(frozen=True, slots=True)
+class SafetyCarFinishBranch:
+    """Frozen pit-exit order; ``None`` marks the candidate's own position."""
+
+    rows: tuple[SafetyCarFinishCar | None, ...]
+
+    def __post_init__(self):
+        if (type(self.rows) is not tuple or sum(row is None for row in self.rows) != 1
+                or any(row is not None and type(row) is not SafetyCarFinishCar
+                       for row in self.rows)):
+            raise ValueError("invalid safety-car finish order")
+        identifiers = [row.identifier for row in self.rows if row is not None]
+        if len(set(identifiers)) != len(identifiers):
+            raise ValueError("duplicate safety-car finish rival")
+
+    def gap_at(self, entry_time):
+        index = self.rows.index(None)
+        return None if index == 0 else max(0., entry_time - self.rows[index - 1].entry_time)
+
+    def project(self, entry_time, free_running, fitting_cost, modifier):
+        """Return candidate and rival crossings after running and fit barriers."""
+        observations = [(None, entry_time, free_running) if row is None else
+                        (row.identifier, row.entry_time, row.free_running) for row in self.rows]
+        running = safety_car_running_times(observations, modifier)
+        crossings, previous = {}, None
+        for row, (identifier, entry, _) in zip(self.rows, observations):
+            cancellation_checkpoint()
+            fee = fitting_cost if row is None else row.fitting_cost
+            crossing = entry + running[identifier] + fee
+            crossing = max(crossing, previous) if previous is not None else crossing
+            if not isfinite(crossing):
+                raise ValueError("invalid safety-car finish crossing")
+            crossings[identifier], previous = crossing, crossing
+        return crossings.pop(None), crossings
+
+
+@dataclass(frozen=True, slots=True)
+class SafetyCarFinishField:
+    """Independent first-lap field observations for retention and paid service."""
+
+    retained: SafetyCarFinishBranch
+    stopped: SafetyCarFinishBranch
+
+    def __post_init__(self):
+        if (type(self.retained) is not SafetyCarFinishBranch
+                or type(self.stopped) is not SafetyCarFinishBranch):
+            raise ValueError("invalid safety-car finish field")
+        def identifiers(branch):
+            return {row.identifier for row in branch.rows if row is not None}
+        if identifiers(self.retained) != identifiers(self.stopped):
+            raise ValueError("safety-car finish branches have different rivals")
+
+
 @dataclass(frozen=True)
 class LeadingFinishContext:
     """Observed timed signal and rival crossings for a leading candidate.
@@ -52,6 +123,8 @@ class LeadingFinishContext:
     The candidate supplies its own counterfactual crossings. Each rival keeps
     its observed recurring pace after the first expected crossing. ``lockstep``
     retains the standard engine's shared distance and one-update-per-lap weather.
+    An optional safety-car field resolves separate first-lap queues for staying
+    out and stopping, before those recurring rival streams begin.
     """
 
     time_limit_seconds: float
@@ -59,6 +132,7 @@ class LeadingFinishContext:
     rivals: tuple[RivalFinishForecast, ...] = ()
     forecast_context: WeatherForecastContext | None = None
     lockstep: bool = False
+    safety_car_field: SafetyCarFinishField | None = None
 
 
 class _LeadingProjection:
@@ -234,8 +308,9 @@ def evaluate_finish_protection(
     The first retained lap and mean outlap use the supplied current control
     modifier and Active Aero state. Service and fitting costs remain outside
     the running modifier; subsequent laps retain the green forecast. Callers
-    must exclude neutralized fields whose no-passing/queue constraints can
-    change these conditional crossing streams.
+    can supply complete standard safety-car fields to resolve each branch's
+    first-lap running and fitting barriers. Other neutralized fields whose
+    constraints change the conditional crossing streams must be excluded.
     """
     if not isinstance(current_lap, Integral) or isinstance(current_lap, bool):
         return _invalid_result("invalid current lap")
@@ -258,6 +333,9 @@ def evaluate_finish_protection(
                 or _valid_nonnegative(context.time_limit_seconds) is None
                 or type(context.announced) is not bool or type(context.lockstep) is not bool
                 or type(context.rivals) is not tuple
+                or (context.safety_car_field is not None
+                    and (type(context.safety_car_field) is not SafetyCarFinishField
+                         or not context.lockstep))
                 or (context.forecast_context is not None
                     and type(context.forecast_context) is not WeatherForecastContext)):
             return _invalid_result("invalid leading finish context")
@@ -270,6 +348,12 @@ def evaluate_finish_protection(
                     or _valid_nonnegative(rival.fitting_cost) is None
                     or _valid_positive(rival.running_pace) is None):
                 return _invalid_result("invalid rival finish forecast")
+        if context.safety_car_field is not None and (
+                any(not isinstance(rival.identifier, str) for rival in context.rivals)
+                or {row.identifier for row in context.safety_car_field.retained.rows
+                 if row is not None} != {rival.identifier for rival in context.rivals}
+                or len({rival.identifier for rival in context.rivals}) != len(context.rivals)):
+            return _invalid_result("invalid safety-car finish rivals")
     modifier = _valid_positive(current_lap_time_modifier)
     if modifier is None:
         return _invalid_result("invalid current lap modifier")
@@ -324,6 +408,9 @@ def evaluate_finish_protection(
         projected_age = int(age)
         leading = (_LeadingProjection(leading_finish_context, current_lap, max_scheduled_lap)
                    if leading_finish_context is not None else None)
+        field = (leading_finish_context.safety_car_field
+                 if leading_finish_context is not None else None)
+        branch = (field.stopped if future_green_floor else field.retained) if field else None
         surface = _surface_copy(base_surface)
         surface_updates = 0
         for lap_number in range(current_lap, max_scheduled_lap + 1):
@@ -338,7 +425,8 @@ def evaluate_finish_protection(
                 if leading is None:
                     surface = surface_at(entry)
                 else:
-                    leading.observe_until(entry)
+                    if branch is None or lap_number > current_lap:
+                        leading.observe_until(entry)
                     updates = (lap_number - current_lap if leading.context.lockstep
                                else leading.updates)
                     try:
@@ -363,7 +451,9 @@ def evaluate_finish_protection(
                         surface,
                         lap_number,
                         int(physical),
-                        gap_to_car_ahead=(first_gap if lap_number == current_lap else None),
+                        gap_to_car_ahead=(branch.gap_at(entry) if branch is not None
+                                         and not future_green_floor and lap_number == current_lap
+                                         else first_gap if lap_number == current_lap else None),
                         active_aero_enabled=(active_aero_enabled
                                              if lap_number == current_lap else True),
                         overtake_mode_active=(current_overtake_mode_active
@@ -380,9 +470,21 @@ def evaluate_finish_protection(
                     return None
                 lap_time = float(lap_time)
             if lap_number == current_lap:
-                lap_time *= modifier
-                if tire_warmup and (fitted or current_fit_pending):
-                    lap_time += tire_warmup_seconds(tire_warmup, tire.compound)
+                fitting = (tire_warmup_seconds(tire_warmup, tire.compound)
+                           if tire_warmup and (fitted or current_fit_pending) else 0.)
+                if branch is not None:
+                    try:
+                        first, rivals = branch.project(entry, lap_time, fitting, modifier)
+                    except (TypeError, ValueError, OverflowError):
+                        return None
+                    lap_time = first - entry
+                    context = replace(leading_finish_context, rivals=tuple(
+                        replace(rival, next_crossing_time=rivals[rival.identifier])
+                        for rival in leading_finish_context.rivals))
+                    leading = _LeadingProjection(context, current_lap, max_scheduled_lap)
+                else:
+                    lap_time *= modifier
+                    lap_time += fitting
             crossing = entry + lap_time
             if not isfinite(crossing) or crossing < entry:
                 return None
@@ -488,6 +590,7 @@ def evaluate_finish_protection(
 register_forecast_helpers(globals(), (
     "LeadingFinishContext", "RivalFinishForecast", "_LeadingProjection", "replacement_options",
     "evaluate_finish_protection", "_copy_driver", "_copy_tire", "_valid_nonnegative",
-    "_valid_positive", "_surface_copy",
+    "_valid_positive", "_surface_copy", "safety_car_running_times",
 ))
 register_forecast_helpers(vars(_LeadingProjection), ("__init__", "observe_until"))
+register_forecast_helpers(vars(SafetyCarFinishBranch), ("gap_at", "project"))

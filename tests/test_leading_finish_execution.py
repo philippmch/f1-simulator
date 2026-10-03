@@ -40,7 +40,7 @@ def inputs(lap, age, stress, lane, warmup, *, modifier=1.):
 
 
 def run(monkeypatch, engine_name, finite, case, warmup, *, guarded, neutralization=None,
-        rival=False):
+        rival=False, rival_skills=None, passing=True):
     lap, age, stress, lane = case
     modifier = {None: 1., "vsc": 1.2, "safety_car": 1.4}[neutralization]
     driver, car, track = inputs(lap, age, stress, lane, warmup, modifier=modifier)
@@ -51,8 +51,10 @@ def run(monkeypatch, engine_name, finite, case, warmup, *, guarded, neutralizati
     observations = {}
     drivers, cars = [driver], {"A": car}
     if rival:
-        drivers.append(Driver(id="B", name="B", team_id="B", skill_rating=.5))
-        cars["B"] = car.model_copy(update={"team_id": "B", "team_name": "B"}, deep=True)
+        for index, skill in enumerate((.5,) if rival_skills is None else rival_skills):
+            key = chr(ord("B") + index)
+            drivers.append(Driver(id=key, name=key, team_id=key, skill_rating=skill))
+            cars[key] = car.model_copy(update={"team_id": key, "team_name": key}, deep=True)
     with monkeypatch.context() as patch:
         patch.setattr(simulator, "_infer_team_strategy",
                       lambda *args: TeamStrategyArchetype.BALANCED)
@@ -67,6 +69,11 @@ def run(monkeypatch, engine_name, finite, case, warmup, *, guarded, neutralizati
         patch.setattr(simulator.event_manager, "_check_mechanical_failure", lambda *args: None)
         patch.setattr(simulator.event_manager, "_check_random_incident",
                       lambda *args, **kwargs: None)
+        if not passing:
+            patch.setattr(simulator.overtaking_model, "should_attempt_overtake",
+                          lambda *args, **kwargs: False)
+            patch.setattr(simulator.overtaking_model, "attempt_overtake",
+                          lambda *args, **kwargs: (False, False))
         patch.setattr(simulator.lap_simulator, "calculate_pit_stop_time",
                       lambda car: expected_stationary_time(car))
 
@@ -125,9 +132,10 @@ def run(monkeypatch, engine_name, finite, case, warmup, *, guarded, neutralizati
                      for identifier, compound in (("H", "hard"), ("S", "soft"),
                                                    ("S2", "soft"), ("M", "medium"))]
         execute = simulator.simulate_race if engine_name == "standard" else engine.run
-        result = execute(drivers, cars, track, Weather(change_probability=0.), list(cars),
-                         starting_tires={key: TireCompound.HARD for key in cars},
-                         tire_inventory={key: inventory for key in cars} if finite else None)[0]
+        results = execute(drivers, cars, track, Weather(change_probability=0.), list(cars),
+                          starting_tires={key: TireCompound.HARD for key in cars},
+                          tire_inventory={key: inventory for key in cars} if finite else None)
+        result = next(row for row in results if row.driver_id == "A")
     return result, observations
 
 
@@ -190,4 +198,36 @@ def test_neutralized_native_stop_keeps_the_additional_executed_lap(
     assert decision["veto"] and not original["veto"]
     assert lap not in guarded.pit_laps and lap in baseline.pit_laps
     assert guarded.laps_completed == baseline.laps_completed + 1 == lap + 2
+    assert guarded.race_time_limited and baseline.race_time_limited
+
+
+@pytest.mark.parametrize("finite", [False, True])
+@pytest.mark.parametrize("case", [(45, 20, .4, 8.), (65, 30, 1., 20.)])
+@pytest.mark.parametrize("warmup", [{}, {"soft": 2., "medium": 1., "hard": 1.}])
+@pytest.mark.parametrize("field_size", [2, 3, 22])
+@pytest.mark.parametrize("rival_skill", [.5, .8, .9])
+def test_safety_car_field_preserves_distance_and_equal_distance_choices(
+    monkeypatch, finite, case, warmup, field_size, rival_skill,
+):
+    options = dict(neutralization="safety_car", rival=True, passing=False,
+                   rival_skills=(rival_skill,) * (field_size - 1))
+    guarded, decision = run(monkeypatch, "standard", finite, case, warmup,
+                            guarded=True, **options)
+    baseline, original = run(monkeypatch, "standard", finite, case, warmup,
+                             guarded=False, **options)
+    lap = case[0]
+    assert decision["native_stop"] and original["native_stop"]
+    assert decision["retained_first"] == pytest.approx(7199.5, abs=1.e-8)
+    assert guarded.laps_completed == lap + 2
+    if rival_skill <= .8:
+        assert decision["veto"] is True
+        assert guarded.laps_completed == baseline.laps_completed + 1
+        assert guarded.pit_laps == [lap - case[1]]
+        assert baseline.pit_laps == [lap - case[1], lap]
+    else:
+        # The faster rival anchors the stopped field before expiry. Both
+        # continuations retain the extra lap, so the native choice survives.
+        assert decision["veto"] is False
+        assert guarded.laps_completed == baseline.laps_completed
+        assert guarded.pit_laps == baseline.pit_laps == [lap - case[1], lap]
     assert guarded.race_time_limited and baseline.race_time_limited
