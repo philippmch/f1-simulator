@@ -9,9 +9,8 @@ policy, atmosphere, incident, service or passing draw is consumed.
 """
 
 import heapq
-from copy import deepcopy
+from copy import copy, deepcopy
 from dataclasses import dataclass, replace
-from itertools import count
 from math import isfinite
 
 from f1sim.cancellation import cancellation_checkpoint
@@ -29,7 +28,7 @@ from f1sim.simulation.finish_strategy import (
 )
 from f1sim.simulation.lap import LapSimulator, minimum_lap_time
 from f1sim.simulation.neutralization import safety_car_running_time
-from f1sim.simulation.race_timing import RaceFinishTimeline
+from f1sim.simulation.race_timing import DriverFinishState, RaceFinishTimeline
 from f1sim.simulation.warmup import tire_warmup_seconds, validate_tire_warmup
 from f1sim.simulation.weather_schedule import WeatherForecastContext
 
@@ -130,6 +129,224 @@ def _validate_context(context, now, scheduled_laps):
     return ledger[context.identifier].completed_laps < scheduled_laps
 
 
+@dataclass(frozen=True, slots=True)
+class ObservedFieldCrossing:
+    """One private crossing, including the timed flag and leading update."""
+
+    identifier: str
+    time: float
+    leading: bool
+    flag_time: float | None
+
+
+def _copy_timeline(timeline):
+    # Native driver observations are frozen records of scalar values. Share
+    # those values while copying every mutable ledger/clock container. Any
+    # non-native records or additional attributes retain ordinary deep copying.
+    immutable = {id(row): row for row in timeline.states.values()
+                 if type(row) is DriverFinishState}
+    return deepcopy(timeline, immutable)
+
+
+class ObservedChronologicalField:
+    """Branchable observed field at the candidate's own lap boundary.
+
+    Rivals keep their observed free pace after committed running or expected
+    service. The caller supplies candidate mean pace at each actual track
+    entry. Leading crossings consume known control intervals; neutralized
+    pending laps retain their no-passing restriction after control ends.
+    Fitting penalties follow running, so later SC laps can recover that gap.
+    Every branch owns its ledger, pending events and physical order.
+    """
+
+    def __init__(self, context, now):
+        scheduled = context.timeline._clock.scheduled_laps
+        if (_valid_nonnegative(now) is None
+                or not _validate_context(context, now, scheduled)):
+            raise ValueError("invalid chronological field context")
+        self.identifier = context.identifier
+        self.timeline = _copy_timeline(context.timeline)
+        self.active_distance = max(row.completed_laps for row in self.timeline.states.values()
+                                   if not row.retired and row.finish_time is None)
+        self.order = list(context.order)
+        self.modifier = context.modifier
+        self.safety_car = context.safety_car
+        self.intervals_left = context.control_intervals
+        self.now = now
+        self.updates = 0
+        self.events = []
+        self.free_paces = {context.identifier: context.own_pace,
+                           **{row.identifier: row.free_running for row in context.rivals}}
+        self.pending = {row.identifier: _ProjectedLap(
+            row.completed_laps + 1, row.ready, row.running_start, row.free_running,
+            row.neutralized, row.fitting_cost,
+        ) for row in context.rivals}
+        self.serial = max((row.event_order for row in context.rivals), default=-1) + 1
+        self.queue = [(row.ready, -row.completed_laps - 1, row.event_order,
+                       "cross" if row.running_start is not None else "exit", row.identifier, 0)
+                      for row in context.rivals]
+        heapq.heapify(self.queue)
+        self.entered = False
+
+    def fork(self):
+        """Copy only mutable projection state; no engine or model is retained."""
+        branch = copy(self)
+        branch.timeline = _copy_timeline(self.timeline)
+        branch.order = self.order.copy()
+        branch.free_paces = self.free_paces.copy()
+        branch.pending = {key: replace(row) for key, row in self.pending.items()}
+        branch.queue = self.queue.copy()
+        branch.events = self.events.copy()
+        return branch
+
+    @property
+    def controlled(self):
+        return self.intervals_left > 0
+
+    @property
+    def running_modifier(self):
+        return self.modifier if self.controlled else 1.
+
+    @property
+    def projection_required(self):
+        return self.controlled or any(row.neutralized for row in self.pending.values())
+
+    @property
+    def finished(self):
+        return self.timeline.states[self.identifier].finish_time is not None
+
+    def _enqueue(self, identifier, kind):
+        row = self.pending[identifier]
+        heapq.heappush(self.queue, (row.ready, -row.lap, self.serial, kind,
+                                   identifier, row.generation))
+        self.serial += 1
+
+    def _gap_ahead(self, identifier, entry, reference):
+        index = self.order.index(identifier)
+        if index == 0:
+            return None
+        ahead = self.pending[self.order[index - 1]]
+        duration = ahead.ready - ahead.running_start
+        if duration <= 0 or ahead.running_start > entry:
+            raise ValueError("invalid chronological predecessor")
+        return min(1., (entry - ahead.running_start) / duration) * reference
+
+    def gap_ahead(self, reference):
+        if not self.entered:
+            raise ValueError("candidate must enter before observing its predecessor")
+        return self._gap_ahead(self.identifier, self.now, reference)
+
+    def _begin(self, identifier, entry, free_running, fitting_cost=0.):
+        row = self.pending[identifier]
+        row.free_running = free_running
+        row.neutralized = self.controlled
+        row.running_start = entry
+        running = free_running * self.running_modifier
+        self.free_paces[identifier] = free_running
+        if self.controlled and self.safety_car:
+            ledger = self.timeline.states
+            leader = min(self.order, key=lambda key: -ledger[key].completed_laps)
+            if identifier != leader:
+                nominal = max(free_running, self.pending[leader].free_running * self.modifier)
+                running = safety_car_running_time(
+                    free_running, nominal, self._gap_ahead(identifier, entry, nominal))
+        row.ready = entry + running + fitting_cost
+        row.fitting_cost = 0.
+        if not isfinite(row.ready) or row.ready <= entry:
+            raise ValueError("invalid projected running crossing")
+        self._enqueue(identifier, "cross")
+
+    def _advance(self, target):
+        while self.queue:
+            cancellation_checkpoint()
+            time, _, _, kind, identifier, generation = heapq.heappop(self.queue)
+            row = self.pending.get(identifier)
+            if row is None or row.generation != generation:
+                continue
+            if kind == "exit":
+                self.order.append(identifier)
+                if identifier == self.identifier:
+                    self.now = time
+                    return
+                self._begin(identifier, time, self.free_paces[identifier], row.fitting_cost)
+                continue
+            while self.order[0] != identifier:
+                index = self.order.index(identifier)
+                ahead = self.pending[self.order[index - 1]]
+                if not (self.controlled or row.neutralized or ahead.neutralized):
+                    self.order[index - 1], self.order[index] = identifier, self.order[index - 1]
+                    continue
+                ready = max(row.ready, ahead.ready + 1.e-9)
+                if not isfinite(ready) or ready <= time:
+                    raise ValueError("invalid projected no-passing crossing")
+                row.ready, row.generation = ready, row.generation + 1
+                self._enqueue(identifier, "cross")
+                break
+            else:
+                leading = (self.timeline.chequered_time is None
+                           and row.lap > self.active_distance)
+                if leading:
+                    # This held field has no future retirement. Before the
+                    # flag, only a leading crossing can increase its distance.
+                    self.active_distance = row.lap
+                    self.intervals_left = max(0, self.intervals_left - 1)
+                crossing = self.timeline.observe_crossing(identifier, row.lap, time,
+                                                         is_leader=leading)
+                event = ObservedFieldCrossing(identifier, time, leading,
+                                             self.timeline.chequered_time)
+                self.events.append(event)
+                if leading and self.timeline.chequered_time is None:
+                    self.updates += 1
+                del self.pending[identifier]
+                self.order.remove(identifier)
+                if crossing.finish_time is None:
+                    self.order.append(identifier)
+                if identifier == target:
+                    self.now = time
+                    return event
+                if crossing.finish_time is None:
+                    self.pending[identifier] = _ProjectedLap(row.lap + 1, time, None,
+                                                             row.free_running, False)
+                    self._begin(identifier, time, row.free_running)
+        raise ValueError("candidate has no projected event")
+
+    def enter(self, stop_delay=None):
+        """Advance expected service, then expose conditions at actual entry.
+
+        A zero-delay paid stop still removes and rejoins the candidate when
+        ``stop_delay`` is explicitly supplied. ``None`` retains its position.
+        No fitting penalty is consumed before track entry.
+        """
+        if self.entered or self.finished:
+            raise ValueError("candidate cannot enter this projected lap")
+        stopped = stop_delay is not None
+        if stopped and _valid_nonnegative(stop_delay) is None:
+            raise ValueError("invalid expected stop delay")
+        ready = self.now + (stop_delay if stopped else 0.)
+        if not isfinite(ready):
+            raise ValueError("invalid expected stop exit")
+        lap = self.timeline.states[self.identifier].completed_laps + 1
+        self.pending[self.identifier] = _ProjectedLap(lap, ready, None, 0., True)
+        if stopped:
+            self.order.remove(self.identifier)
+            self._enqueue(self.identifier, "exit")
+            self._advance(self.identifier)
+        self.entered = True
+        return self.now
+
+    def cross(self, free_running, fitting_cost=0.):
+        """Run and resolve the candidate's next crossing on this branch."""
+        if not self.entered:
+            raise ValueError("candidate must enter before running")
+        if (_valid_positive(free_running) is None
+                or _valid_nonnegative(fitting_cost) is None):
+            raise ValueError("invalid candidate running pace or fitting cost")
+        self._begin(self.identifier, self.now, free_running, fitting_cost)
+        crossing = self._advance(self.identifier)
+        self.entered = False
+        return crossing
+
+
 def evaluate_chronological_finish_protection(
     driver, car, track, current_tire, tire_age, weather, now, context, *,
     expected_lane_loss=0., expected_service_time=0., expected_queue_delay=0.,
@@ -168,151 +385,54 @@ def evaluate_chronological_finish_protection(
     current_lap = context.timeline.states[context.identifier].completed_laps + 1
 
     def path(tire, age, *, stopped):
-        candidate = context.identifier
-        timeline = deepcopy(context.timeline)
-        order = list(context.order)
+        field = ObservedChronologicalField(context, now)
         surface = weather.model_copy(deep=True)
         projection_driver = _copy_driver(driver)
         projection_car = car.model_copy(deep=True)
         projection_track = track.model_copy(deep=True)
         tire = _copy_tire(tire)
-        free_paces = {context.identifier: context.own_pace,
-                      **{row.identifier: row.free_running for row in context.rivals}}
-        pending = {row.identifier: _ProjectedLap(
-            row.completed_laps + 1, row.ready, row.running_start, row.free_running,
-            row.neutralized, row.fitting_cost,
-        ) for row in context.rivals}
-        serial = count(max((row.event_order for row in context.rivals), default=-1) + 1)
-        queue = []
-        intervals_left, updates = context.control_intervals, 0
-        controlled = intervals_left > 0
-        projected_age = age
+        updates, observed = 0, 0
 
-        def enqueue(identifier, kind):
-            row = pending[identifier]
-            heapq.heappush(queue, (row.ready, -row.lap, next(serial), kind,
-                                   identifier, row.generation))
+        def observe():
+            nonlocal observed
+            if _clock_observer is not None and not stopped:
+                for event in field.events[observed:]:
+                    _clock_observer(event.identifier, event.time, event.leading, event.flag_time)
+            observed = len(field.events)
 
-        for row in context.rivals:
-            heapq.heappush(queue, (row.ready, -row.completed_laps - 1, row.event_order,
-                                   "cross" if row.running_start is not None else "exit",
-                                   row.identifier, 0))
-
-        def gap_ahead(identifier, entry, reference):
-            index = order.index(identifier)
-            if index == 0:
-                return None
-            ahead = pending[order[index - 1]]
-            duration = ahead.ready - ahead.running_start
-            if duration <= 0 or ahead.running_start > entry:
-                raise ValueError("invalid chronological predecessor")
-            return min(1., (entry - ahead.running_start) / duration) * reference
-
-        def begin(identifier, entry):
-            row = pending[identifier]
-            modifier = context.modifier if controlled else 1.
-            if identifier == candidate:
-                if stopped and row.lap > current_lap:
-                    free = minimum_lap_time(projection_track)
-                else:
-                    if surface.tire_mismatch(tire.compound) == "critical":
-                        return False
-                    projection_driver.current_tire_laps = projected_age
-                    # A paid outlap is priced in clean air for its upper bound;
-                    # retained traffic is observable at each simulated entry.
-                    reference = free_paces[candidate] * modifier
-                    gap = None if stopped else gap_ahead(identifier, entry, reference)
-                    free = physics.calculate_lap_time(
-                        projection_driver, projection_car, projection_track, tire, surface,
-                        row.lap, track.total_laps, gap_to_car_ahead=gap,
-                        active_aero_enabled=not controlled,
-                        overtake_mode_active=(current_overtake_mode_active and not stopped
-                                              and row.lap == current_lap),
-                        sample_variation=False,
-                    )
-                if _valid_positive(free) is None:
-                    return False
-                free_paces[candidate] = free
-            else:
-                free = free_paces[identifier]
-            running = free * modifier
-            row.free_running = free
-            row.neutralized = controlled
-            row.running_start = entry
-            if controlled and context.safety_car:
-                leader = min(order, key=lambda key: -timeline.states[key].completed_laps)
-                if identifier != leader:
-                    anchor = pending[leader].free_running
-                    nominal = max(free, anchor * modifier)
-                    running = safety_car_running_time(
-                        free, nominal, gap_ahead(identifier, entry, nominal))
-            row.ready = entry + running + row.fitting_cost
-            row.fitting_cost = 0.
-            if not isfinite(row.ready) or row.ready <= entry:
-                return False
-            enqueue(identifier, "cross")
-            return True
-
-        fit_cost = (tire_warmup_seconds(tire_warmup, tire.compound)
-                    if stopped or current_fit_pending else 0.)
-        pending[candidate] = _ProjectedLap(current_lap, stop_entry if stopped else now,
-                                            None, 0., True, fit_cost)
-        if stopped:
-            order.remove(candidate)
-            enqueue(candidate, "exit")
-        elif not begin(candidate, now):
-            return None
-        while queue:
+        while not field.finished:
             cancellation_checkpoint()
-            time, _, _, kind, identifier, generation = heapq.heappop(queue)
-            row = pending.get(identifier)
-            if row is None or row.generation != generation:
-                continue
-            if kind == "exit":
-                order.append(identifier)
-                if not begin(identifier, time):
-                    return None
-                continue
-            while order[0] != identifier:
-                index = order.index(identifier)
-                ahead = pending[order[index - 1]]
-                if not (controlled or row.neutralized or ahead.neutralized):
-                    order[index - 1], order[index] = identifier, order[index - 1]
-                    continue
-                ready = max(row.ready, ahead.ready + 1.e-9)
-                if not isfinite(ready) or ready <= time:
-                    return None
-                row.ready, row.generation = ready, row.generation + 1
-                enqueue(identifier, "cross")
-                break
+            lap = field.timeline.states[field.identifier].completed_laps + 1
+            first = lap == current_lap
+            field.enter(stop_entry - now if stopped and first else None)
+            observe()
+            while updates < field.updates:
+                forecast = context.forecast_context
+                surface = (surface.project_surface() if forecast is None else
+                           forecast.advanced(updates).project_next(surface))
+                updates += 1
+            if stopped and not first:
+                free = minimum_lap_time(projection_track)
             else:
-                active_distance = max(value.completed_laps for value in timeline.states.values()
-                                      if not value.retired and value.finish_time is None)
-                leading = timeline.chequered_time is None and row.lap > active_distance
-                if leading:
-                    intervals_left = max(0, intervals_left - 1)
-                    controlled = intervals_left > 0
-                crossing = timeline.observe_crossing(identifier, row.lap, time, is_leader=leading)
-                if _clock_observer is not None and not stopped:
-                    _clock_observer(identifier, time, leading, timeline.chequered_time)
-                del pending[identifier]
-                order.remove(identifier)
-                if identifier == candidate:
-                    if crossing.finish_time is not None:
-                        return row.lap - current_lap + 1, time
-                    projected_age += 1
-                if leading and timeline.chequered_time is None:
-                    forecast = context.forecast_context
-                    surface = (surface.project_surface() if forecast is None else
-                               forecast.advanced(updates).project_next(surface))
-                    updates += 1
-                if crossing.finish_time is None:
-                    order.append(identifier)
-                    pending[identifier] = _ProjectedLap(row.lap + 1, time, None,
-                                                        row.free_running, False)
-                    if not begin(identifier, time):
-                        return None
-        return None
+                if surface.tire_mismatch(tire.compound) == "critical":
+                    return None
+                projection_driver.current_tire_laps = age + lap - current_lap
+                # A paid outlap is priced in clean air for its upper bound;
+                # retained traffic is observable at each simulated entry.
+                reference = field.free_paces[field.identifier] * field.running_modifier
+                gap = None if stopped else field.gap_ahead(reference)
+                free = physics.calculate_lap_time(
+                    projection_driver, projection_car, projection_track, tire, surface,
+                    lap, track.total_laps, gap_to_car_ahead=gap,
+                    active_aero_enabled=not field.controlled,
+                    overtake_mode_active=(current_overtake_mode_active and not stopped and first),
+                    sample_variation=False,
+                )
+            fit_cost = (tire_warmup_seconds(tire_warmup, tire.compound)
+                        if first and (stopped or current_fit_pending) else 0.)
+            field.cross(free, fit_cost)
+            observe()
+        return field.timeline.states[field.identifier].completed_laps - current_lap + 1, field.now
 
     def project(tire, age, *, stopped):
         try:
@@ -418,5 +538,10 @@ register_forecast_helpers(globals(), (
     "_validate_context", "_copy_driver", "_copy_tire", "_valid_positive", "_valid_nonnegative",
     "replacement_options", "safety_car_running_time", "minimum_lap_time",
     "project_observed_chronological_clock", "ObservedChronologicalClock", "_ObservedRunningPace",
+    "ObservedChronologicalField", "ObservedFieldCrossing", "_copy_timeline", "DriverFinishState",
 ))
 register_forecast_helpers(vars(_ObservedRunningPace), ("calculate_lap_time",))
+register_forecast_helpers(vars(ObservedChronologicalField), (
+    "__init__", "fork", "controlled", "running_modifier", "projection_required", "finished",
+    "_enqueue", "_gap_ahead", "gap_ahead", "_begin", "_advance", "enter", "cross",
+))

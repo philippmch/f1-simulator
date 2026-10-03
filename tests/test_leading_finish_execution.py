@@ -40,7 +40,7 @@ def inputs(lap, age, stress, lane, warmup, *, modifier=1.):
 
 
 def run(monkeypatch, engine_name, finite, case, warmup, *, guarded, neutralization=None,
-        rival=False, rival_skills=None, passing=True, control_duration=1):
+        rival=False, rival_skills=None, passing=True, control_duration=1, control_costs=False):
     lap, age, stress, lane = case
     modifier = {None: 1., "vsc": 1.2, "safety_car": 1.4}[neutralization]
     driver, car, track = inputs(lap, age, stress, lane, warmup, modifier=modifier)
@@ -56,6 +56,11 @@ def run(monkeypatch, engine_name, finite, case, warmup, *, guarded, neutralizati
             drivers.append(Driver(id=key, name=key, team_id=key, skill_rating=skill))
             cars[key] = car.model_copy(update={"team_id": key, "team_name": key}, deep=True)
     with monkeypatch.context() as patch:
+        if not control_costs:
+            # These cases isolate the finish guard's veto of an existing cost
+            # proposal. Control-aware cost decisions have their own complete
+            # execution comparisons in test_controlled_dry_strategy.
+            patch.setattr(simulator, "_dry_control_forecast_options", lambda *a, **k: {})
         patch.setattr(simulator, "_infer_team_strategy",
                       lambda *args: TeamStrategyArchetype.BALANCED)
         def control(lap, *args, **kwargs):

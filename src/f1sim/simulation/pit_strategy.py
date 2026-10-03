@@ -1,9 +1,11 @@
 """Deterministic remaining-race dry tyre and pit-cost planning.
 
-Future stops assume green running. Each action includes this lap, and at
-least one lap must be driven on a set before another stop. Only the current
-lap uses supplied traffic gaps; future traffic, weather and tyre inventory
-are deliberately outside this projection.
+Each action includes this lap, and at least one lap must be driven on a set
+before another stop. Ordinary forecasts price later laps and stops as green,
+with supplied traffic gaps on the current lap only. An observed dry control
+context instead advances a private field through known control and pending
+no-passing restrictions before that green suffix. Future weather, rival policy
+and tyre inventory remain outside this projection.
 """
 
 from dataclasses import dataclass
@@ -104,10 +106,11 @@ def _floor_plan(driver, car, track, tire, age, lap, budget, mask,
                 physical, scale, aero, modifier, lane, queue, gaps=None,
                 warmup_profile=(), current_fit_pending=False, safety_car=None):
     projection = driver.model_copy(deep=True)
-    projection.reset_race_state()
-    projection.id = projection.name = projection.team_id = "projection"
     package = car.model_copy(deep=True)
-    package.team_id = package.team_name = "projection"
+    if shared_forecast_available():
+        projection.reset_race_state()
+        projection.id = projection.name = projection.team_id = "projection"
+        package.team_id = package.team_name = "projection"
     models = (forecast_json(projection), forecast_json(package), forecast_json(track))
     fresh = tuple(forecast_json(TIRE_COMPOUNDS[c]) for c in SLICKS)
     costs, prefixes = _floor_tables(models, fresh, physical, scale, warmup_profile)
@@ -243,9 +246,16 @@ class DryPitDecision:
     pit_now_cost: float
     wait_cost: float
     compound: TireCompound | None
+    pit_now_laps: int | None = None
+    wait_laps: int | None = None
 
     def should_pit(self, timing_bias: float = 0.0) -> bool:
         """Style can move a near tie by at most 0.1 seconds total."""
+        if self.compound is None:
+            return False
+        if (self.pit_now_laps is not None and self.wait_laps is not None
+                and self.pit_now_laps != self.wait_laps):
+            return self.pit_now_laps > self.wait_laps
         return self.compound is not None and self.pit_now_cost < (
             self.wait_cost + max(-0.1, min(0.1, timing_bias))
         )
@@ -266,8 +276,14 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
                   tire_warmup: dict[str, float] | None = None,
                   current_fit_pending: bool = False,
                   safety_car=None,
+                  control_context=None,
                   ) -> DryPitDecision:
-    """Compare legal plans using tyre-relative, or floor-clipped absolute, costs."""
+    """Compare legal dry plans, optionally through an observed control prefix.
+
+    Ordinary comparisons use tyre-relative or floor-clipped absolute costs.
+    A supplied control context uses full mean running and expected field clocks
+    through its known intervals, followed by the established green suffix.
+    """
     if current_set_used is not None and not isinstance(current_set_used, bool):
         raise ValueError("current_set_used must be boolean or None")
     if not isinstance(current_fit_pending, bool):
@@ -287,6 +303,12 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
     mask = 7 if wet_exemption else sum(1 << i for i, c in enumerate(SLICKS)
                                      if c in used_compounds
                                      or (used_current and c == current_tire.compound))
+    if control_context is not None:
+        from f1sim.simulation.controlled_dry_strategy import plan_controlled_dry_stop
+
+        return plan_controlled_dry_stop(
+            driver, car, track, current_tire, tire_age, lap, remaining_stops, mask,
+            physical, tire_pace_multiplier, warmup_profile, current_fit_pending, control_context)
     # Fresh soft at the lightest projected fuel load bounds all slick pace.
     # If even it stays above the floor, common full-lap terms still cancel.
     fastest = _full_row(driver, car, track, TIRE_COMPOUNDS[TireCompound.SOFT],
@@ -370,3 +392,7 @@ register_forecast_helpers(globals(), ('_full_row', 'expected_stationary_time', '
 
 register_forecast_values(globals(), ("SLICKS",))
 register_forecast_helpers(globals(), ("current_running_time", "current_fitted_time"))
+register_forecast_helpers(globals(), (
+    "_floor_plan", "_ScaledDryWeather", "DryPitDecision", "plan_dry_stop",
+))
+register_forecast_helpers(vars(DryPitDecision), ("should_pit",))

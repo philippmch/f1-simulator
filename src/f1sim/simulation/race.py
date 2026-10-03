@@ -50,6 +50,7 @@ from f1sim.simulation.race_points import points_for_classification
 from f1sim.simulation.race_timing import RaceFinishClock, forecast_final_lap
 from f1sim.simulation.rain_strategy import plan_rain_stop, plan_rain_transition
 from f1sim.simulation.randomness import MechanicalRngFactory
+from f1sim.simulation.strategy_control_clock import StandardControlContext, StrategyControlContext
 from f1sim.simulation.strategy_neutralization import (
     SafetyCarBranch,
     StrategySafetyCarSnapshot,
@@ -154,6 +155,7 @@ class DriverRaceState:
     # Frozen leading finish comparison, separate from a custom plan's search.
     strategy_leading_finish_context: LeadingFinishContext | None = None
     strategy_safety_car_snapshot: StrategySafetyCarSnapshot | None = None
+    strategy_control_context: StrategyControlContext | None = None
 
     def __post_init__(self) -> None:
         """Seed tyre history from the driver's actual starting set."""
@@ -1538,6 +1540,9 @@ class RaceSimulator(InventoryStrategyMixin):
                                            current_traffic_gaps=safety_car.traffic_gaps,
                                            safety_car=safety_car)
             state.strategy_safety_car_snapshot = traffic_snapshot.safety_car
+            state.strategy_control_context = self._standard_dry_control_context(
+                state, lap_start_states, states, track, weather, lap, delay,
+                expected_losses, physical_total_laps)
             forced_repair = state.force_pit_next_lap
             if forced_repair:
                 # A forced stop bypasses policy evaluation.  Any proposal
@@ -1614,6 +1619,8 @@ class RaceSimulator(InventoryStrategyMixin):
                 overridden=state.pit_plan_override_reason is not None,
             )
             state.force_pit_next_lap = False
+        for state in states:
+            state.strategy_control_context = None
         return pitting
 
     def _standard_safety_car_snapshot(
@@ -1706,6 +1713,55 @@ class RaceSimulator(InventoryStrategyMixin):
                 or self.event_manager.red_flag_active):
             return {}
         return {"safety_car": snapshot.for_paid_fit() if paid_fit else snapshot}
+
+    def _dry_control_forecast_options(self, state, *, paid_fit=False):
+        context = state.strategy_control_context
+        if (context is None or self.event_manager.red_flag_active
+                or not (self.event_manager.safety_car_active or self.event_manager.vsc_active)):
+            return {}
+        return {"control_context": context.for_paid_fit() if paid_fit else context}
+
+    def _can_project_dry_control(self, state, track, weather, lap):
+        intervals = observed_control_intervals(self.event_manager)
+        # Native deployments last at most six intervals. Keep the field search
+        # bounded for custom controllers too; a shorter own horizon also caps
+        # their possible prefix. Other policy paths retain their own forecasts.
+        return (intervals is not None and intervals > 0
+                and min(intervals, track.total_laps - lap + 1) <= 6
+                and not self.event_manager.red_flag_active
+                and state.tire_inventory is None and state.pit_plan is None
+                and not self._has_weather_schedule()
+                and weather.track_wetness < .08 and weather.rain_intensity < .15)
+
+    def _standard_dry_control_context(
+        self, state, frozen_states, states, track, weather, lap, queue_delay,
+        committed_losses, physical_total_laps=None,
+    ):
+        if not self._can_project_dry_control(state, track, weather, lap):
+            return None
+        intervals = observed_control_intervals(self.event_manager)
+        for rival in states:
+            if rival is not state and rival.status == DriverStatus.RACING and any(
+                current_pit_plan_instruction(rival, lap + offset) is not None
+                for offset in range(1, min(intervals, track.total_laps - lap + 1) + 1)
+            ):
+                return None
+        field = self._standard_safety_car_finish_field(
+            state, frozen_states, states, track, weather, lap, queue_delay,
+            committed_losses, physical_total_laps)
+        if field is None:
+            return None
+        delay = (track.pit_lane_delta * self._pit_lane_factor()
+                 + expected_stationary_time(state.car) + queue_delay)
+        rivals = {row.identifier for row in field.retained.rows if row is not None}
+        order = tuple(None if row.driver.id == state.driver.id else row.driver.id
+                      for row in sorted(frozen_states, key=lambda row: row.position)
+                      if row.driver.id == state.driver.id or row.driver.id in rivals)
+        pitters = tuple(key for key in committed_losses if key in rivals)
+        context = StandardControlContext(
+            lap, state.total_time, field, self.event_manager.get_lap_time_modifier(),
+            self.event_manager.safety_car_active, intervals, delay, order, pitters)
+        return StrategyControlContext(context, state.total_time, delay)
 
     def _standard_safety_car_finish_field(
         self, state, frozen_states, states, track, weather, lap, queue_delay,
@@ -2124,6 +2180,7 @@ class RaceSimulator(InventoryStrategyMixin):
                 **traffic_options,
                 current_set_used=state.tire_laps > state.prior_tire_laps,
                 **self._safety_car_forecast_options(state),
+                **self._dry_control_forecast_options(state),
                 **({"tire_warmup": self.tire_warmup,
                     "current_fit_pending": state.fit_lap_pending}
                    if self.tire_warmup else {}),
@@ -2643,8 +2700,8 @@ class RaceSimulator(InventoryStrategyMixin):
         future_budget = min(3, max(0, self._dry_stop_budget(state, track) - state.pit_stops - 1))
         gaps = normalize_current_traffic_gaps(current_traffic_gaps)
 
-        def remaining_cost(compound: TireCompound) -> float:
-            return plan_dry_stop(
+        def remaining_rank(compound: TireCompound) -> tuple[int, float]:
+            decision = plan_dry_stop(
                 state.driver, state.car, track, TIRE_COMPOUNDS[compound], 0,
                 track.total_laps - current_lap + 1, future_budget,
                 used | {compound}, wet_exemption,
@@ -2660,9 +2717,13 @@ class RaceSimulator(InventoryStrategyMixin):
                 **({"current_traffic_gaps": (gaps[1], None)}
                    if gaps is not None and gaps[1] is not None else {}),
                 **self._safety_car_forecast_options(state, paid_fit=True),
-            ).wait_cost
+                **self._dry_control_forecast_options(state, paid_fit=True),
+            )
+            distance = (track.total_laps - current_lap + 1 if decision.wait_laps is None
+                        else decision.wait_laps)
+            return distance, -decision.wait_cost
 
-        return min(candidates, key=remaining_cost)
+        return max(candidates, key=remaining_rank)
 
     def _execute_pit_stop(
         self,
@@ -3662,6 +3723,7 @@ register_forecast_helpers(globals(), (
     "SafetyCarFinishBranch", "SafetyCarFinishCar", "SafetyCarFinishField",
     "safety_car_running_times",
     "observed_control_intervals",
+    "StandardControlContext", "StrategyControlContext",
 ))
 register_forecast_helpers(vars(RaceSimulator), (
     "_has_weather_schedule", "_choose_forecast_paid_compound",
@@ -3672,5 +3734,6 @@ register_forecast_helpers(vars(RaceSimulator), (
     "_standard_leading_finish_context", "_finish_replacement_options",
     "_protect_leading_finish_distance", "_clear_one_lap_pit_proposals",
     "_standard_safety_car_finish_field",
+    "_standard_dry_control_context", "_dry_control_forecast_options", "_can_project_dry_control",
 ))
 register_forecast_helpers(vars(InventoryStrategyMixin), ("_plan_inventory",))

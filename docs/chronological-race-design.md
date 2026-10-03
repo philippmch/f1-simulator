@@ -96,7 +96,22 @@ physical order, old no-passing restrictions and known fitting delays without
 advancing the live engine or sampling future service. The flag supplies no
 weather update. Unresolved repairs, rival tyre instructions or pace observations
 keep the simpler held-pace forecast. This corrects timing and entry surfaces;
-the existing cost planners still price later running and paid stops as green.
+rain, weather-stop and finite-pool cost planners still price later running and
+paid stops as green.
+
+Clearly dry unlimited-set stop timing and committed compound selection also
+use a branchable private field to price up to six known control intervals.
+Candidate mean tyre pace is evaluated at each actual projected entry. SC
+catch-up, VSC running, expected paid service, current queue delay and unscaled
+fitting fees advance the same private crossings as the finish guard. Leading
+crossings consume known control duration; old neutralized laps retain their
+no-passing barrier afterward. If the flag occurs during this prefix, completed
+own laps take priority over elapsed time. Rivals keep observed free pace and
+make no future decisions. After pending restrictions clear, the existing green
+suffix retains its fixed own-lap horizon and clean-air assumptions. Longer
+custom durations, unresolved observations, finite inventory, custom plans and
+weather policy paths keep their existing forecasts. See the
+[dry strategy model](strategy-model.md) for scope and a completed-race example.
 
 When the projected leader is another car, weather-cost planning also advances
 that clock through the candidate's own planned pit delays. A stop's compound is

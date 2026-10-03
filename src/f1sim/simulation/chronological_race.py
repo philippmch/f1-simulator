@@ -49,6 +49,7 @@ from f1sim.simulation.race_timing import (
     forecast_final_lap,
     forecast_running_duration,
 )
+from f1sim.simulation.strategy_control_clock import StrategyControlContext
 from f1sim.simulation.strategy_neutralization import (
     SafetyCarBranch,
     StrategySafetyCarSnapshot,
@@ -1041,6 +1042,20 @@ class ChronologicalRace:
                               safety_car=safety_car)
         state.strategy_safety_car_snapshot = traffic.safety_car
         restart = restart_planning is not None
+        state.strategy_control_context = None
+        if (not restart and self.simulator._can_project_dry_control(
+                state, planning, self.weather, lap)):
+            context = self._chronological_finish_context(state, now)
+            if context is not None and not any(
+                current_pit_plan_instruction(
+                    self.states[row.identifier], row.completed_laps + offset + 1) is not None
+                for row in context.rivals
+                for offset in range(1, min(context.control_intervals,
+                                           planning.total_laps - lap + 1) + 1)
+            ):
+                stop_delay = (self.track.pit_lane_delta * self.simulator._pit_lane_factor()
+                              + expected_stationary_time(state.car) + delay)
+                state.strategy_control_context = StrategyControlContext(context, now, stop_delay)
         if weather_clock is None and cadence is not None:
             weather_clock = self._strategy_weather_clock(
                 state, now, planning, delay, restart=restart,
@@ -1091,6 +1106,7 @@ class ChronologicalRace:
                 additional_current_stop_cost=delay,
                 weather_clock=weather_clock,
             ):
+                state.strategy_control_context = None
                 self._retire(driver_id, now, state.dnf_reason)
                 return
             expected_service = expected_stationary_time(state.car)
@@ -1107,6 +1123,7 @@ class ChronologicalRace:
                 additional_current_stop_cost=delay,
             )
             if state.status != DriverStatus.RACING:
+                state.strategy_control_context = None
                 self._retire(driver_id, now, state.dnf_reason)
                 return
             state.pit_stops += 1
@@ -1125,6 +1142,7 @@ class ChronologicalRace:
             if driver_id in self.order:
                 self.order.remove(driver_id)
         snapshot = self.weather.model_copy(deep=True)
+        state.strategy_control_context = None
         neutralized = not control.is_active_aero_allowed()
         interval = self.control_intervals + 1
         pending = _PendingLap(
@@ -1618,6 +1636,7 @@ register_forecast_helpers(globals(), (
     "evaluate_chronological_finish_protection",
     "project_observed_chronological_clock",
     "observed_control_intervals", "forecast_running_duration",
+    "StrategyControlContext",
 ))
 register_forecast_helpers(vars(ChronologicalRace), (
     "_chronological_finish_context", "_protect_neutralized_field_finish",

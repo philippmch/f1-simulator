@@ -96,9 +96,11 @@ across candidate compounds; first-lap tyre costs are priced separately.
 Explicit leading update times preserve the slow control prefix and later green
 cadence for both retained and paid branches. Expected paid service and fitting
 fees can move an entry across several of these events, but the flag never adds
-a surface update. This improves entry surfaces and estimated distance; the
-cost planners still assume green running after the current lap and green losses
-for later paid stops. They do not price a complete future neutralized queue.
+a surface update. This improves entry surfaces and estimated distance. Rain,
+weather-stop and finite-pool cost planners still assume green running after the
+current lap and green losses for later paid stops. Clearly dry unlimited-set
+decisions can price the known control prefix as described below; these weather
+paths do not price a complete future neutralized queue.
 
 The external leading clock remains fixed under these comparisons. A candidate
 that is itself the projected leader, including a single-car race, retains the
@@ -1165,6 +1167,45 @@ SC/VSC running multiplier, before a later stop is allowed. A repeated compound
 is eligible only if the remaining projected schedule can still satisfy the
 dry-use rule. The choice does not sample randomness or alter the race state.
 
+With usable observations during SC or VSC, clearly dry unlimited-set stop timing
+and the committed compound comparison price all known remaining control
+intervals. Each candidate uses full mean lap physics at its projected track
+entry, with the original scheduled fuel distance and current dry weather pace
+scale. Future stops committed during
+that prefix pay the observed lane discount and expected service. Fitting costs
+follow running and are not multiplied by control pace; another SC lap can
+recover the resulting gap. Known current team queue delay applies to the first
+stop only. The standard engine advances its shared lap order, including its
+completed-clock VSC pit rejoin. The chronological engine advances a private
+copy of committed crossings and expected pit exits, preserving physical order
+and old no-passing barriers after control ends.
+
+Rivals hold their observed free pace after already committed running or service;
+their future tyre choices, stops and incidents remain unknown. Known control
+duration decreases at leading crossings in the chronological engine. If the
+projected flag occurs within the prefix, plans rank completed own laps before
+elapsed time. Once the control and its pending restrictions have ended, the
+comparison uses the existing green suffix with a fixed own-lap horizon and
+clean-air future running. It therefore does not claim a complete optimal field
+strategy or predict later changes of leader, weather or control.
+
+The search covers up to six known intervals, matching the longest native
+deployment; a shorter remaining own-lap horizon can also bound the prefix.
+Missing observations, unresolved rival instructions and longer custom control
+durations keep the existing forecast. Explicit tyre pools, custom pit plans,
+prescribed weather and rain or damp policy paths retain their respective cost
+models. Field branches and control-prefix caches belong to one decision and
+never retain the live engine or consume simulation random draws. Existing
+native green cost tables retain their bounded process-local cache.
+
+In a controlled four-lap illustration, a fresh soft runs at 99.55 seconds versus
+100 seconds on medium, but pays a two-second fitting fee. After three known
+VSC laps and one green lap, the soft finishes 0.16 seconds sooner; under SC it
+finishes 0.52 seconds sooner. Pricing just the first controlled lap would choose
+medium in both cases. Completed native races in both engines verify the choice
+with the same stop lap and finishing distance. These are synthetic consistency
+checks, not calibrated tyre performance.
+
 Automatic paid changes on rain or damp surfaces compare complete remaining
 schedules as described below. The lower-level fallback ranker compares
 noise-free lap costs over the next stint for each eligible fresh slick when
@@ -1323,15 +1364,18 @@ a consistency correction, not a calibration to a real circuit.
 
 The full-lap projection retains the original scheduled fuel distance even when
 the planning horizon is shortened by the race clock or a car being lapped.
-Current aero eligibility and SC/VSC running factors apply only to the current
-lap; future laps assume green running. Cached costs in this path are absolute
-lap times, whereas the ordinary fast path reports tyre-relative costs. Costs
+Without an observed dry control prefix, current aero eligibility and SC/VSC
+running factors apply only to the current lap; future laps assume green running.
+The prefix described above instead applies those conditions at each projected
+entry until known control ends. Both floor-clipped and control-prefix costs are
+absolute lap times, whereas the ordinary fast path reports tyre-relative costs. Costs
 from those two bases should not be compared across different model inputs.
 The unlimited-set planners described above do not constrain physical inventory.
 Drivers with an explicit pool use the separate [finite-set policy](tyre-inventory.md)
 for opening selection and later decisions. Neither policy forecasts random
-future weather changes or incidents, prices traffic beyond the immediate rejoin
-lap, or jointly schedules both teammates' future stops. Cost tables are bounded
+future weather changes or incidents or jointly schedules both teammates' future
+stops. Green forecasts price traffic only on the immediate rejoin lap; the dry
+control prefix also preserves its observed queue and entry gaps. Cost tables are bounded
 in-memory calculations;
 they do not persist provider data or consume simulation random draws.
 Static circuit profiles and car/circuit pace terms also use bounded, process-local
