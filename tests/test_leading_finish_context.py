@@ -10,6 +10,7 @@ from test_leading_finish_strategy import BoundPhysics
 
 from f1sim.models import Car, Driver, TireCompound, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS
+from f1sim.simulation import chronological_race as chronological_module
 from f1sim.simulation import race as race_module
 from f1sim.simulation.chronological_race import (
     ChronologicalRace,
@@ -199,3 +200,50 @@ def test_leading_stop_remains_allowed_when_rival_preserves_finish_distance(
         )
     else:
         assert engine._protect_elective_finish_distance(states[0], track, 7100., 0., None)
+
+
+@pytest.mark.parametrize("engine_name", ["standard", "chronological"])
+@pytest.mark.parametrize("control_mode", ["vsc", "safety_car", "red_flag"])
+@pytest.mark.parametrize("field_size", [1, 3])
+def test_neutralized_finish_guard_uses_control_only_with_a_supported_field(
+    monkeypatch, engine_name, control_mode, field_size,
+):
+    simulator, states, track = inputs()
+    states = states[:field_size]
+    setattr(simulator.event_manager, f"{control_mode}_active", True)
+    calls = []
+
+    def compare(*args, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(veto=True)
+
+    engine = ChronologicalRace(simulator)
+    engine.states = {state.driver.id: state for state in states}
+    engine.track, engine.weather = track, Weather()
+    engine.timeline = RaceFinishTimeline(90, engine.states)
+    engine.control_intervals = 71
+    engine.running_paces = {state.driver.id: 100. for state in states}
+    engine.order, engine.pending = list(engine.states), {}
+    before = [snapshot(state, simulator) for state in states]
+    if engine_name == "standard":
+        monkeypatch.setattr(race_module, "evaluate_finish_protection", compare)
+        context = simulator._standard_leading_finish_context(
+            states, states[0], engine.running_paces, RaceFinishClock(90),
+        )
+        result = simulator._protect_leading_finish_distance(
+            states[0], track, Weather(), 72, context, active_states=states,
+        )
+    else:
+        monkeypatch.setattr(chronological_module, "evaluate_finish_protection", compare)
+        result = engine._protect_elective_finish_distance(states[0], track, 7100., 0., None)
+    supported = control_mode != "red_flag" and (
+        field_size == 1 or engine_name == "standard" and control_mode == "vsc")
+    assert result is supported
+    assert len(calls) == int(supported)
+    if calls:
+        assert calls[0]["current_lap_time_modifier"] == (
+            1.2 if control_mode == "vsc" else 1.4)
+        assert calls[0]["active_aero_enabled"] is False
+        assert calls[0]["expected_lane_loss"] == track.pit_lane_delta * (
+            .75 if control_mode == "vsc" else .55)
+    assert before == [snapshot(state, simulator) for state in states]

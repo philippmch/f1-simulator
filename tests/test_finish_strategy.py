@@ -3,8 +3,9 @@
 from copy import deepcopy
 
 import numpy as np
+import pytest
 
-from f1sim.models import Car, Driver, TireCompound, Track, Weather
+from f1sim.models import ActiveAeroZone, Car, Driver, TireCompound, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.finish_strategy import ReplacementOption, evaluate_finish_protection
 from f1sim.simulation.lap import LapSimulator, minimum_lap_time
@@ -131,3 +132,52 @@ def test_critical_retained_surface_is_inconclusive():
 
     assert not result.retained_feasible
     assert not result.veto
+
+
+@pytest.mark.parametrize("modifier", [1.2, 1.4])
+@pytest.mark.parametrize("pending_fit", [False, True])
+def test_neutralized_first_lap_prices_native_aero_and_fitting_costs(modifier, pending_fit):
+    driver, car, track, weather = models()
+    track.active_aero_zones = [ActiveAeroZone(zone_id=1, sector=1, time_gain=.7)]
+    driver.current_tire_laps = 4
+    physics = LapSimulator(np.random.default_rng(13))
+    before_rng = deepcopy(physics.rng.bit_generator.state)
+    current = TIRE_COMPOUNDS[TireCompound.MEDIUM]
+    options = dict(lap_simulator=physics, expected_lane_loss=7., expected_service_time=4.,
+                   expected_queue_delay=3., current_lap_time_modifier=modifier,
+                   replacements=(ReplacementOption(TireCompound.SOFT, age=7),),
+                   tire_warmup={"soft": 5., "medium": 3.}, current_fit_pending=pending_fit)
+    result = evaluate_finish_protection(
+        driver, car, track, current, 4, 1, weather, 0., 10., 10,
+        active_aero_enabled=False, **options,
+    )
+    retained = physics.calculate_lap_time(driver, car, track, current, weather, 1, 10,
+                                         sample_variation=False, active_aero_enabled=False)
+    replacement_driver = driver.model_copy(update={"current_tire_laps": 7}, deep=True)
+    outlap = physics.calculate_lap_time(replacement_driver, car, track,
+                                       TIRE_COMPOUNDS[TireCompound.SOFT], weather, 1, 10,
+                                       sample_variation=False, active_aero_enabled=False)
+    assert result.retained_crossing_time == pytest.approx(
+        retained * modifier + (3. if pending_fit else 0.))
+    assert result.stop_crossing_time == pytest.approx(14. + outlap * modifier + 5.)
+    assert result.retained_laps == result.stop_laps == 1 and not result.veto
+    aero = evaluate_finish_protection(
+        driver, car, track, current, 4, 1, weather, 0., 10., 10,
+        active_aero_enabled=True, **options,
+    )
+    assert aero.retained_crossing_time < result.retained_crossing_time
+    assert aero.stop_crossing_time < result.stop_crossing_time
+    assert physics.rng.bit_generator.state == before_rng
+    assert driver.current_tire_laps == 4
+
+
+@pytest.mark.parametrize("invalid", [None, 0, 1, "false"])
+def test_unavailable_aero_state_cannot_veto(invalid):
+    driver, car, track, weather = models()
+    physics = ConstantPhysics()
+    result = evaluate_finish_protection(
+        driver, car, track, TIRE_COMPOUNDS[TireCompound.MEDIUM], 0, 1, weather,
+        0., 250., 10, lap_simulator=physics, active_aero_enabled=invalid,
+    )
+    assert not result.veto and result.reason == "invalid active aero state"
+    assert not physics.calls

@@ -202,6 +202,7 @@ def decision_snapshot(monkeypatch):
     )
     leader = DriverRaceState(Driver(id="A", name="A", team_id="A"),
                              Car(team_id="A", team_name="A"), 1)
+    engine.states = {"A": leader, "B": state}
     monkeypatch.setattr(engine, "_forecast_leader", lambda: leader)
     monkeypatch.setattr(engine, "_projected_flag_time", lambda *a, **k: 250)
     monkeypatch.setattr(engine, "_weather_projection_clock", lambda *a, **k: (100, 100, 2))

@@ -1411,8 +1411,7 @@ class RaceSimulator(InventoryStrategyMixin):
     ):
         """Cancel an elective leading stop only when its distance bound loses."""
         control = self.event_manager
-        if (context is None or state.force_pit_next_lap or control.safety_car_active
-                or control.vsc_active or control.red_flag_active
+        if (context is None or state.force_pit_next_lap or control.red_flag_active
                 or weather.tire_mismatch(state.current_tire.compound) == "critical"
                 or not self._stay_satisfies_tire_rule(state)):
             return False
@@ -1448,6 +1447,10 @@ class RaceSimulator(InventoryStrategyMixin):
                     )
                 rivals.append(rival)
             context = replace(context, rivals=tuple(rivals))
+        if control.safety_car_active and context.rivals:
+            # A full SC queue can change both the candidate and rival leading
+            # crossings. The free-pace streams do not bound that interaction.
+            return False
         physical = physical_total_laps or track.total_laps
         physical_track = (track if physical == track.total_laps
                           else track.model_copy(update={"total_laps": physical}, deep=True))
@@ -1462,6 +1465,8 @@ class RaceSimulator(InventoryStrategyMixin):
             expected_lane_loss=track.pit_lane_delta * self._pit_lane_factor(),
             expected_service_time=expected_stationary_time(state.car),
             expected_queue_delay=additional_current_stop_cost,
+            current_lap_time_modifier=control.get_lap_time_modifier(),
+            active_aero_enabled=control.is_active_aero_allowed(),
             observed_gap=gap,
             current_overtake_mode_active=self._strategy_overtake_mode_active(
                 state, physical_track, lap, weather, gap,

@@ -50,9 +50,10 @@ def history(now, rivals, maximum):
     return timeline
 
 
-def execute(timeline, now, rivals, maximum, fee, pace, lockstep):
+def execute(timeline, now, rivals, maximum, fee, pace, lockstep, *, modifier=1.):
     """Execute all future mean crossings through the real finish controller."""
-    candidate = {lap: now + fee + (lap - 71) * pace for lap in range(72, maximum + 1)}
+    candidate = {lap: now + fee + (modifier + lap - 72) * pace
+                 for lap in range(72, maximum + 1)}
     if lockstep:
         # Standard execution advances everyone once per leading lap and feeds
         # that lap's earliest free crossing to its authoritative shared clock.
@@ -140,6 +141,38 @@ def test_a_rival_crossing_before_expiry_preserves_the_extra_lap():
     )
     assert alone.retained_laps == 3 and alone.stop_laps == 2 and alone.veto
     assert rival.retained_laps == rival.stop_laps == 3 and not rival.veto
+
+
+@pytest.mark.parametrize("now,fee", [(7050., 0.), (7100., 10.), (7100., 100.), (7200., 500.)])
+@pytest.mark.parametrize("modifier,rows", [
+    (1.2, ()), (1.4, ()), (1.2, ((71, 98., 100.),)), (1.2, ((71, 130., 96.),)),
+])
+def test_controlled_bound_matches_the_authoritative_shared_finish_clock(now, fee, modifier, rows):
+    rivals = tuple(RivalFinishForecast(count, now + offset, pace, str(index))
+                   for index, (count, offset, pace) in enumerate(rows))
+    maximum = 90
+    past = history(now, rivals, maximum)
+    context = LeadingFinishContext(7200., past.time_limit_announced, rivals, lockstep=True)
+    retained = execute(deepcopy(past), now, rivals, maximum, 0., 99., True, modifier=modifier)
+    stopped = execute(deepcopy(past), now, rivals, maximum, fee, 95., True, modifier=modifier)
+    driver, car, track = models(maximum)
+    physics = BoundPhysics()
+    result = evaluate_finish_protection(
+        driver, car, track, TIRE_COMPOUNDS[TireCompound.MEDIUM], 8, 72, Weather(),
+        now, None, maximum, lap_simulator=physics, expected_lane_loss=fee,
+        replacements=(ReplacementOption(TireCompound.SOFT),), leading_finish_context=context,
+        current_lap_time_modifier=modifier, active_aero_enabled=False,
+    )
+    assert result.stop_laps == stopped[0]
+    assert result.stop_crossing_time == pytest.approx(stopped[1], abs=1.e-8)
+    if result.retained_laps is not None:
+        assert result.retained_laps == retained[0]
+        assert result.retained_crossing_time == pytest.approx(retained[1], abs=1.e-8)
+    assert result.veto == (retained[0] > stopped[0])
+    assert all(not options["active_aero_enabled"] for lap, _, _, options in physics.calls
+               if lap == 72)
+    assert all(options["active_aero_enabled"] for lap, _, _, options in physics.calls
+               if lap > 72)
 
 
 @pytest.mark.parametrize("lockstep", [False, True])

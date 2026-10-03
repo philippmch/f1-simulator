@@ -212,6 +212,7 @@ def evaluate_finish_protection(
     tire_warmup=None,
     current_fit_pending: bool = False,
     leading_finish_context: LeadingFinishContext | None = None,
+    active_aero_enabled: bool = True,
 ) -> FinishProtectionResult:
     """Compare retained and optimistic-stop distances through the finish.
 
@@ -229,6 +230,12 @@ def evaluate_finish_protection(
     timed announcement then follows the first leading crossing at expiry and
     the flag follows the next leading crossing, for each candidate path. Rival
     streams can supply those crossings while the candidate is in service.
+
+    The first retained lap and mean outlap use the supplied current control
+    modifier and Active Aero state. Service and fitting costs remain outside
+    the running modifier; subsequent laps retain the green forecast. Callers
+    must exclude neutralized fields whose no-passing/queue constraints can
+    change these conditional crossing streams.
     """
     if not isinstance(current_lap, Integral) or isinstance(current_lap, bool):
         return _invalid_result("invalid current lap")
@@ -266,6 +273,8 @@ def evaluate_finish_protection(
     modifier = _valid_positive(current_lap_time_modifier)
     if modifier is None:
         return _invalid_result("invalid current lap modifier")
+    if type(active_aero_enabled) is not bool:
+        return _invalid_result("invalid active aero state")
     lane = _valid_nonnegative(expected_lane_loss)
     service = _valid_nonnegative(expected_service_time)
     queue = _valid_nonnegative(expected_queue_delay)
@@ -355,7 +364,8 @@ def evaluate_finish_protection(
                         lap_number,
                         int(physical),
                         gap_to_car_ahead=(first_gap if lap_number == current_lap else None),
-                        active_aero_enabled=True,
+                        active_aero_enabled=(active_aero_enabled
+                                             if lap_number == current_lap else True),
                         overtake_mode_active=(current_overtake_mode_active
                                               and not future_green_floor
                                               and lap_number == current_lap),

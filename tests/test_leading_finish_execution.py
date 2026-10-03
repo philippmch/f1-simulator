@@ -14,7 +14,7 @@ from f1sim.simulation.pit_strategy import expected_stationary_time
 from f1sim.simulation.race import RaceSimulator, TeamStrategyArchetype
 
 
-def inputs(lap, age, stress, lane, warmup):
+def inputs(lap, age, stress, lane, warmup, *, modifier=1.):
     driver = Driver(id="A", name="A", team_id="A")
     car = Car(team_id="A", team_name="A", tire_degradation_factor=1.5,
               pit_stop_avg=2.75, pit_stop_std=.1)
@@ -26,8 +26,9 @@ def inputs(lap, age, stress, lane, warmup):
     for number in range(1, lap + 1):
         compound = TireCompound.HARD if number < fit_lap else TireCompound.SOFT
         driver.current_tire_laps = number - 1 if number < fit_lap else number - fit_lap
-        prefix += physics.calculate_lap_time(driver, car, track, TIRE_COMPOUNDS[compound],
+        running = physics.calculate_lap_time(driver, car, track, TIRE_COMPOUNDS[compound],
                                              Weather(), number, 90, sample_variation=False)
+        prefix += running * (modifier if number == lap else 1.)
     # Choose a reference pace that places the retained first crossing just
     # before expiry. This exposes the finish phase without changing tyre curves.
     fitting = warmup.get("soft", 0.)
@@ -38,18 +39,31 @@ def inputs(lap, age, stress, lane, warmup):
     return driver, car, track
 
 
-def run(monkeypatch, engine_name, finite, case, warmup, *, guarded):
+def run(monkeypatch, engine_name, finite, case, warmup, *, guarded, neutralization=None,
+        rival=False):
     lap, age, stress, lane = case
-    driver, car, track = inputs(lap, age, stress, lane, warmup)
+    modifier = {None: 1., "vsc": 1.2, "safety_car": 1.4}[neutralization]
+    driver, car, track = inputs(lap, age, stress, lane, warmup, modifier=modifier)
     simulator = RaceSimulator(np.random.default_rng(21), tire_warmup=warmup)
     engine = ChronologicalRace(simulator)
     native = simulator._should_pit
     physics = simulator.lap_simulator.calculate_lap_time
     observations = {}
+    drivers, cars = [driver], {"A": car}
+    if rival:
+        drivers.append(Driver(id="B", name="B", team_id="B", skill_rating=.5))
+        cars["B"] = car.model_copy(update={"team_id": "B", "team_name": "B"}, deep=True)
     with monkeypatch.context() as patch:
         patch.setattr(simulator, "_infer_team_strategy",
                       lambda *args: TeamStrategyArchetype.BALANCED)
-        patch.setattr(simulator.event_manager, "process_lap", lambda *args, **kwargs: [])
+        def control(lap, *args, **kwargs):
+            simulator.event_manager.current_lap = lap
+            simulator.event_manager.safety_car_active = (
+                neutralization == "safety_car" and lap == case[0] - 1)
+            simulator.event_manager.vsc_active = neutralization == "vsc" and lap == case[0] - 1
+            return []
+
+        patch.setattr(simulator.event_manager, "process_lap", control)
         patch.setattr(simulator.event_manager, "_check_mechanical_failure", lambda *args: None)
         patch.setattr(simulator.event_manager, "_check_random_incident",
                       lambda *args, **kwargs: None)
@@ -71,6 +85,8 @@ def run(monkeypatch, engine_name, finite, case, warmup, *, guarded):
                         state.dry_pit_proposal = (number, TireCompound.SOFT)
                     return True
                 return False
+            if state.driver.id != "A":
+                return False
             stop = native(state, states, planning, number, *args, **kwargs)
             if number == lap:
                 observations.update(native_stop=bool(stop), now=state.total_time,
@@ -81,9 +97,9 @@ def run(monkeypatch, engine_name, finite, case, warmup, *, guarded):
                 retained.current_tire_laps = state.tire_laps
                 retained_time = LapSimulator().calculate_lap_time(
                     retained, state.car, track, state.current_tire, Weather(), number, 90,
-                    sample_variation=False,
+                    sample_variation=False, active_aero_enabled=neutralization is None,
                 )
-                observations["retained_first"] = state.total_time + retained_time
+                observations["retained_first"] = state.total_time + retained_time * modifier
             return stop
 
         patch.setattr(simulator, "_should_pit", decide)
@@ -109,9 +125,9 @@ def run(monkeypatch, engine_name, finite, case, warmup, *, guarded):
                      for identifier, compound in (("H", "hard"), ("S", "soft"),
                                                    ("S2", "soft"), ("M", "medium"))]
         execute = simulator.simulate_race if engine_name == "standard" else engine.run
-        result = execute([driver], {"A": car}, track, Weather(change_probability=0.), ["A"],
-                         starting_tires={"A": TireCompound.HARD},
-                         tire_inventory={"A": inventory} if finite else None)[0]
+        result = execute(drivers, cars, track, Weather(change_probability=0.), list(cars),
+                         starting_tires={key: TireCompound.HARD for key in cars},
+                         tire_inventory={key: inventory for key in cars} if finite else None)[0]
     return result, observations
 
 
@@ -131,4 +147,47 @@ def test_late_native_choice_keeps_the_additional_executed_lap(
     assert lap not in guarded.pit_laps and lap in baseline.pit_laps
     assert guarded.laps_completed == baseline.laps_completed + 1
     assert guarded.laps_completed == lap + 2
+    assert guarded.race_time_limited and baseline.race_time_limited
+
+
+@pytest.mark.parametrize("finite", [False, True])
+@pytest.mark.parametrize("case", [(45, 20, .4, 8.), (65, 30, 1., 20.)])
+@pytest.mark.parametrize("warmup", [{}, {"soft": 2., "medium": 1., "hard": 1.}])
+def test_standard_vsc_field_keeps_the_additional_executed_lap(
+    monkeypatch, finite, case, warmup,
+):
+    guarded, decision = run(monkeypatch, "standard", finite, case, warmup, guarded=True,
+                            neutralization="vsc", rival=True)
+    baseline, original = run(monkeypatch, "standard", finite, case, warmup, guarded=False,
+                             neutralization="vsc", rival=True)
+    lap = case[0]
+    assert decision["native_stop"] and original["native_stop"]
+    assert decision["retained_first"] == pytest.approx(7199.5, abs=1.e-8)
+    assert decision["veto"] and not original["veto"]
+    assert guarded.pit_laps == [lap - case[1]]
+    assert baseline.pit_laps == [lap - case[1], lap]
+    assert guarded.laps_completed == baseline.laps_completed + 1 == lap + 2
+    assert guarded.race_time_limited and baseline.race_time_limited
+
+
+@pytest.mark.parametrize("neutralization", ["vsc", "safety_car"])
+@pytest.mark.parametrize("engine", ["standard", "chronological"])
+@pytest.mark.parametrize("finite", [False, True])
+@pytest.mark.parametrize("case", [(45, 20, .4, 8.), (65, 30, 1., 20.)])
+@pytest.mark.parametrize("warmup", [{}, {"soft": 2., "medium": 1., "hard": 1.}])
+def test_neutralized_native_stop_keeps_the_additional_executed_lap(
+    monkeypatch, neutralization, engine, finite, case, warmup,
+):
+    guarded, decision = run(monkeypatch, engine, finite, case, warmup, guarded=True,
+                            neutralization=neutralization)
+    baseline, original = run(monkeypatch, engine, finite, case, warmup, guarded=False,
+                             neutralization=neutralization)
+    lap = case[0]
+    assert decision["native_stop"] and original["native_stop"]
+    assert decision["proposal"] == original["proposal"] == (
+        (lap, "S2") if finite else (lap, TireCompound.SOFT))
+    assert decision["retained_first"] == pytest.approx(7199.5, abs=1.e-8)
+    assert decision["veto"] and not original["veto"]
+    assert lap not in guarded.pit_laps and lap in baseline.pit_laps
+    assert guarded.laps_completed == baseline.laps_completed + 1 == lap + 2
     assert guarded.race_time_limited and baseline.race_time_limited

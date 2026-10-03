@@ -664,8 +664,16 @@ class ChronologicalRace:
         control = self.simulator.event_manager
         if state.force_pit_next_lap:
             return "forced stop"
-        if (control.safety_car_active or control.vsc_active or control.red_flag_active):
-            return "race control active"
+        if control.red_flag_active:
+            return "race suspended"
+        if (control.safety_car_active or control.vsc_active) and (
+                state.driver.id not in self.states
+                or sum(other.status == DriverStatus.RACING
+                       for other in self.states.values()) != 1):
+            # Physical no-passing constraints can delay the leading crossing
+            # and persist beyond its control update. Frozen free-pace streams
+            # do not establish either branch's clock for that field.
+            return "neutralized field forecast unavailable"
         if now is None or not isfinite(now):
             return "invalid current time"
         if self.weather.tire_mismatch(state.current_tire.compound) == "critical":
@@ -774,6 +782,7 @@ class ChronologicalRace:
             expected_service_time=expected_stationary_time(state.car),
             expected_queue_delay=delay,
             current_lap_time_modifier=modifier,
+            active_aero_enabled=self.simulator.event_manager.is_active_aero_allowed(),
             observed_gap=gap,
             current_overtake_mode_active=self.simulator._strategy_overtake_mode_active(
                 state, self.track, self.control_intervals + 1, self.weather, gap,

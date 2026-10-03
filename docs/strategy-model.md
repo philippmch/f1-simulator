@@ -133,9 +133,18 @@ the same guard when executing their isolated policy paths.
 Forced repairs, critical tyre mismatch, unavailable fitted sets and unresolved
 compound-use requirements remain under the existing compulsory-stop rules.
 Explicit executable pit instructions retain their requested stop. The check
-remains inactive under race control or without a usable forecast, including
-copied inputs unavailable to a custom physics hook or an unresolved committed
-rival fit with differing possible fitting costs.
+also covers VSC in the standard engine, and SC/VSC with a single racing car in
+either engine. Its first retained lap and mean outlap use the current running
+modifier with Active Aero disabled. Reduced lane loss, stationary service and
+optional fitting cost keep their execution semantics; the fitting cost is
+added once after the running modifier. Later laps retain the green forecast.
+The check remains inactive during a red flag, for a full SC field, and for a
+chronological VSC field with multiple racing cars. Their physical no-passing or
+queue constraints can change the leading clock; the frozen free-pace streams
+do not establish the two branches' distances in those cases.
+It also remains inactive without a usable forecast, including copied inputs
+unavailable to a custom physics hook or an unresolved committed rival fit with
+differing possible fitting costs.
 It protects distance under the native lap model and these conditional mean-pace
 assumptions; it does not guarantee the sampled race outcome or solve
 the complete timed strategy problem.
