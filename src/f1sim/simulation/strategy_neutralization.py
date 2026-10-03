@@ -2,10 +2,27 @@
 
 from dataclasses import dataclass
 from math import isfinite
-from numbers import Real
+from numbers import Integral, Real
 
 from f1sim.models._native import register_forecast_helpers
 from f1sim.simulation.neutralization import safety_car_running_time
+
+
+def observed_control_intervals(control):
+    """Read the remaining leading intervals without evolving race control.
+
+    A zero-count synthetic deployment still constrains the upcoming interval.
+    Overlapping controls or a non-integer duration supply no usable forecast.
+    """
+    if control.safety_car_active and control.vsc_active:
+        return None
+    if not (control.safety_car_active or control.vsc_active):
+        return 0
+    remaining = (control.safety_car_laps_remaining if control.safety_car_active else
+                 control.vsc_laps_remaining)
+    if isinstance(remaining, bool) or not isinstance(remaining, Integral):
+        return None
+    return max(1, int(remaining))
 
 
 def _finite(value, name, *, positive=False, nonnegative=False):

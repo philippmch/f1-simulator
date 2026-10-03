@@ -12,7 +12,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from itertools import count
 from math import ceil, floor, isfinite
-from numbers import Integral, Real
+from numbers import Real
 
 from f1sim.cancellation import raise_if_cancelled
 from f1sim.models._native import register_forecast_helpers
@@ -21,6 +21,7 @@ from f1sim.simulation.chronological_finish import (
     ChronologicalFinishCar,
     ChronologicalFinishContext,
     evaluate_chronological_finish_protection,
+    project_observed_chronological_clock,
 )
 from f1sim.simulation.custom_pit_strategy import CustomPitFinishContext
 from f1sim.simulation.events import EventType, RaceEvent
@@ -43,8 +44,16 @@ from f1sim.simulation.pit_service import expected_remaining_service
 from f1sim.simulation.pit_strategy import expected_stationary_time
 from f1sim.simulation.race import DriverRaceState, DriverStatus, RaceResult
 from f1sim.simulation.race_points import points_for_classification
-from f1sim.simulation.race_timing import RaceFinishTimeline, forecast_final_lap
-from f1sim.simulation.strategy_neutralization import SafetyCarBranch, StrategySafetyCarSnapshot
+from f1sim.simulation.race_timing import (
+    RaceFinishTimeline,
+    forecast_final_lap,
+    forecast_running_duration,
+)
+from f1sim.simulation.strategy_neutralization import (
+    SafetyCarBranch,
+    StrategySafetyCarSnapshot,
+    observed_control_intervals,
+)
 from f1sim.simulation.strategy_traffic import StrategyTrafficSnapshot
 from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.surface_projection import projected_surfaces
@@ -347,22 +356,36 @@ class ChronologicalRace:
         """Forecast an own-lap finish horizon without altering the actual flag.
 
         Use observed free running pace (excluding stops, incidents and blocking),
-        with the current control multiplier on the upcoming lap. The leading
+        through the observed remaining control intervals. The leading
         pending lap's absolute readiness anchors the forecast. Same-distance
         cars still on track precede cars in service; a lap-ahead pitter remains
         ahead. Unfinished pit service uses its expected exit, never its future
         sampled completion. The deadline
-        includes elapsed suspension time; later laps assume green running.
+        includes elapsed suspension time; running after those intervals is green.
         Future weather, interruptions and elective stops are unknown.
         """
         horizon = self.timeline.final_lap
+        observed = None if restart else self._observed_control_projection(now)
+        if observed is not None and observed.identifier == state.driver.id:
+            horizon = min(horizon, state.laps_completed + len(observed.own_crossings))
+            return self.track.model_copy(update={"total_laps": horizon})
         own_pace = self.running_paces.get(state.driver.id)
         flag_time = self._projected_flag_time(now, restart=restart)
-        if own_pace is not None and flag_time is not None:
+        if (own_pace is not None and isfinite(own_pace) and own_pace > 0
+                and flag_time is not None and isfinite(flag_time)):
             modifier = self.simulator.event_manager.get_lap_time_modifier()
-            remaining = max(1, 1 + ceil(
-                (flag_time - now - own_pace * modifier) / own_pace - 1e-12,
-            ))
+            intervals = self._neutralized_finish_intervals()
+            if intervals is not None and intervals > 1:
+                clock = self._weather_projection_clock(now, restart=restart)
+                starts = self._projected_lap_starts(
+                    own_pace, now, self.track.total_laps - state.laps_completed + 1, clock)
+                remaining = next((offset for offset, time in enumerate(starts[1:], 1)
+                                  if now + time >= flag_time - own_pace * 1.e-12),
+                                 self.track.total_laps - state.laps_completed)
+            else:
+                remaining = max(1, 1 + ceil(
+                    (flag_time - now - own_pace * modifier) / own_pace - 1e-12,
+                ))
             horizon = min(self.timeline.final_lap, state.laps_completed + remaining)
         return self.track.model_copy(update={"total_laps": horizon})
 
@@ -382,11 +405,16 @@ class ChronologicalRace:
         """Expected leading finish crossing using the same horizon assumptions."""
         if self.timeline.chequered_time is not None:
             return self.timeline.chequered_time
+        observed = None if restart else self._observed_control_projection(now)
+        if observed is not None:
+            return observed.flag_time
         leader = self._forecast_leader()
         if leader is not None:
             pending = None if restart else self.pending.get(leader.driver.id)
             leader_pace = self.running_paces.get(leader.driver.id)
             modifier = self.simulator.event_manager.get_lap_time_modifier()
+            intervals = self._neutralized_finish_intervals()
+            future_control = 1 if intervals is None else intervals
             if pending is not None:
                 flag_time = pending.ready
                 if leader_pace is None:
@@ -397,7 +425,8 @@ class ChronologicalRace:
                     flag_time += leader_pace * modifier
                     flag_time += self._pending_fit_cost(leader.driver.id)
                 anchor_lap = pending.lap
-                next_modifier = 1.0
+                future_control = max(0, future_control - 1)
+                next_modifier = modifier if future_control else 1.
             else:
                 flag_time = now
                 anchor_lap = leader.laps_completed
@@ -415,6 +444,7 @@ class ChronologicalRace:
                     projected_final = forecast_final_lap(
                         self.timeline.final_lap, anchor_lap, crossing_time, leader_pace,
                         self.timeline.time_limit_seconds, next_modifier,
+                        **({"controlled_laps": future_control} if future_control > 1 else {}),
                         **({"next_lap_start_time": now}
                            if resumed_after_suspension else {}),
                         **({"time_limit_announced": False}
@@ -422,9 +452,8 @@ class ChronologicalRace:
                            else {}),
                     )
                     laps_left = max(0, projected_final - anchor_lap)
-                flag_time += laps_left * leader_pace
-                if laps_left:
-                    flag_time += leader_pace * (next_modifier - 1)
+                flag_time += forecast_running_duration(
+                    leader_pace, laps_left, next_modifier, future_control)
                 return flag_time
         return None
 
@@ -534,7 +563,7 @@ class ChronologicalRace:
             completion = max(now, release) + expected_stationary_time(record.car)
         return completion + record.committed_lane_loss
 
-    def _weather_projection_clock(self, now, *, restart=False):
+    def _weather_projection_clock(self, now, *, restart=False, _observed=...):
         """Return the frozen leading update clock used by strategy forecasts.
 
         The tuple is ``(first_update_time, observed_leader_pace,
@@ -545,6 +574,16 @@ class ChronologicalRace:
         leader = self._forecast_leader()
         if leader is None or not isfinite(now):
             return None
+        observed = (_observed if _observed is not ... else
+                    None if restart else self._observed_control_projection(now))
+        if observed is not None:
+            first = (observed.leading_updates[0] if observed.leading_updates else
+                     max(now, observed.flag_time))
+            pace = self.running_paces.get(leader.driver.id)
+            if pace is None and leader.driver.id in self.pending:
+                pace = self.pending[leader.driver.id].running or None
+            if pace is not None and isfinite(pace) and pace > 0:
+                return first, pace, len(observed.leading_updates)
         pending = None if restart else self.pending.get(leader.driver.id)
         leader_pace = self.running_paces.get(leader.driver.id)
         if leader_pace is None and pending is not None:
@@ -569,29 +608,96 @@ class ChronologicalRace:
             return None
         # Include updates before an equal-time crossing, but never evolve the
         # surface at the chequered crossing itself.
-        available = max(0, ceil((flag_time - first_update) / leader_pace - 1e-12))
+        remaining = self._neutralized_finish_intervals()
+        controlled = min(self.track.total_laps, max(0, (remaining or 1) - 1))
+        controlled_span = controlled * leader_pace * modifier
+        span = flag_time - first_update
+        if span <= controlled_span:
+            available = max(0, ceil(span / (leader_pace * modifier) - 1.e-12))
+        else:
+            available = controlled + max(0, ceil(
+                (span - controlled_span) / leader_pace - 1.e-12))
         return first_update, leader_pace, available
+
+    def _observed_control_projection(self, now):
+        intervals = self._neutralized_finish_intervals()
+        if intervals is None or intervals <= 1 or type(getattr(self, "pending", None)) is not dict:
+            return None
+        candidates = [state for key, state in self.states.items()
+                      if state.status == DriverStatus.RACING and key not in self.pending]
+        if len(candidates) != 1:
+            return None
+        state = candidates[0]
+        context = self._chronological_finish_context(state, now)
+        if context is None:
+            return None
+        return project_observed_chronological_clock(
+            context, now, own_fitting_cost=self._pending_fit_cost(state.driver.id))
+
+    def _weather_update_times(self, clock, *, now=None, _observed=...):
+        """Explicit leading weather events; the flag itself is excluded."""
+        first, pace, available = clock
+        observed = (_observed if _observed is not ... else
+                    self._observed_control_projection(now) if now is not None else None)
+        if observed is not None:
+            return observed.leading_updates
+        remaining = self._neutralized_finish_intervals()
+        future_control = min(self.track.total_laps, max(0, (remaining or 1) - 1))
+        modifier = self.simulator.event_manager.get_lap_time_modifier()
+        return tuple(first + forecast_running_duration(pace, offset, modifier, future_control)
+                     for offset in range(available))
+
+    def _projected_lap_starts(self, pace, now, horizon, clock, *, _observed=...):
+        """Nominal own starts through observed leading control intervals."""
+        modifier = self.simulator.event_manager.get_lap_time_modifier()
+        remaining = self._neutralized_finish_intervals()
+        if remaining is None or remaining <= 1 or clock is None:
+            return (0., *(pace * (modifier + offset - 1) for offset in range(1, horizon)))
+        observed = (_observed if _observed is not ... else self._observed_control_projection(now))
+        if observed is not None and len(observed.own_crossings) >= horizon - 1:
+            return (0., *(time - now for time in observed.own_crossings[:horizon - 1]))
+        first, leader_pace, _ = clock
+        end = first + min(self.track.total_laps, remaining - 1) * leader_pace * modifier
+        starts = [0.]
+        for offset in range(1, horizon):
+            entry = now + starts[-1]
+            running_modifier = modifier if offset == 1 or entry < end - 1.e-10 else 1.
+            starts.append(starts[-1] + pace * running_modifier)
+        return tuple(starts)
+
+    def _weather_updates_at(self, time, clock, *, now=None):
+        first, pace, available = clock
+        remaining = self._neutralized_finish_intervals()
+        if remaining is None or remaining <= 1:
+            return min(available, max(0, floor((time - first) / pace + 1.e-12) + 1))
+        times = self._weather_update_times(clock, now=now)
+        return sum(value <= time + pace * 1.e-12 for value in times)
 
     def _weather_intervals(self, state, now, planning, *, restart=False):
         """Map projected leading weather updates onto future own-lap starts.
 
-        Extrapolate observed free pace, with current control on the upcoming
-        lap and green running afterward, as in the finish forecast. A leader
+        Extrapolate observed free pace through the known remaining control
+        intervals and then green running, as in the finish forecast. A leader
         already in service uses its expected exit. Later stops, incidents and
         pace changes are unknown. The winner's crossing produces no update.
         """
         own_pace = self.running_paces.get(state.driver.id)
-        clock = self._weather_projection_clock(now, restart=restart)
+        observed = None if restart else self._observed_control_projection(now)
+        clock = self._weather_projection_clock(now, restart=restart, _observed=observed)
         if (own_pace is None or not isfinite(own_pace) or own_pace <= 0
                 or clock is None):
             return None
-        first_update, leader_pace, available = clock
-        modifier = self.simulator.event_manager.get_lap_time_modifier()
         intervals = [0]
-        for offset in range(1, planning.total_laps - state.laps_completed):
-            start = now + own_pace * (modifier + offset - 1)
-            elapsed = (start - first_update) / leader_pace
-            intervals.append(min(available, max(0, floor(elapsed + 1e-12) + 1)))
+        starts = self._projected_lap_starts(
+            own_pace, now, planning.total_laps - state.laps_completed, clock, _observed=observed)
+        remaining = self._neutralized_finish_intervals()
+        times = (self._weather_update_times(clock, now=now, _observed=observed)
+                 if remaining is not None and remaining > 1 else None)
+        for start in starts[1:]:
+            if times is None:
+                intervals.append(self._weather_updates_at(now + start, clock))
+            else:
+                intervals.append(sum(value <= now + start + clock[1] * 1.e-12 for value in times))
         return tuple(intervals)
 
     def _strategy_weather_clock(self, state, now, planning, queue_delay, *, restart=False):
@@ -600,7 +706,8 @@ class ChronologicalRace:
         if leader is None or leader.driver.id == state.driver.id:
             return None
         own_pace = self.running_paces.get(state.driver.id)
-        projection = self._weather_projection_clock(now, restart=restart)
+        observed = None if restart else self._observed_control_projection(now)
+        projection = self._weather_projection_clock(now, restart=restart, _observed=observed)
         modifier = self.simulator.event_manager.get_lap_time_modifier()
         if (own_pace is None or not isfinite(own_pace) or own_pace <= 0
                 or projection is None or not isfinite(modifier) or modifier <= 0):
@@ -616,12 +723,10 @@ class ChronologicalRace:
         horizon = planning.total_laps - state.laps_completed
         if horizon < 1 or not isfinite(first_update - now):
             return None
-        offsets = [0.0]
-        for offset in range(1, horizon):
-            value = own_pace * (modifier + offset - 1)
-            if not isfinite(value):
-                return None
-            offsets.append(value)
+        offsets = self._projected_lap_starts(
+            own_pace, now, horizon, projection, _observed=observed)
+        if any(not isfinite(value) for value in offsets):
+            return None
         service = expected_stationary_time(state.car)
         current_delay = (
             service + self.track.pit_lane_delta * self.simulator._pit_lane_factor()
@@ -640,10 +745,19 @@ class ChronologicalRace:
                              if safety_car is not None and not restart
                              and self.simulator.event_manager.safety_car_active
                              and not self.simulator.event_manager.red_flag_active else None)
+            if observed is not None and len(offsets) > 1:
+                fee = self._pending_fit_cost(state.driver.id)
+                offsets = (0., *(value - fee for value in offsets[1:]))
+                if running_times is not None:
+                    running_times = (offsets[1], running_times[1])
             return StrategyWeatherClock(
                 tuple(offsets), first_update - now, leader_pace, available,
                 current_delay, future_delay,
                 current_running_times=running_times,
+                update_offsets=(tuple(value - now for value in
+                                      self._weather_update_times(
+                                          projection, now=now, _observed=observed))
+                                if (self._neutralized_finish_intervals() or 0) > 1 else None),
             )
         except ValueError:
             return None
@@ -653,9 +767,7 @@ class ChronologicalRace:
         clock = self._weather_projection_clock(now, restart=restart)
         if clock is None or not isfinite(absolute_time):
             return None
-        first_update, leader_pace, available = clock
-        elapsed = (absolute_time - first_update) / leader_pace
-        updates = min(available, max(0, floor(elapsed + 1e-12) + 1))
+        updates = self._weather_updates_at(absolute_time, clock, now=now)
         return projected_surfaces(self.weather, 2, (0, updates),
                                   **self.simulator._forecast_options())[-1]
 
@@ -669,18 +781,7 @@ class ChronologicalRace:
 
     def _neutralized_finish_intervals(self):
         """Read known remaining control intervals without evolving race control."""
-        control = self.simulator.event_manager
-        if control.safety_car_active and control.vsc_active:
-            return None
-        if not (control.safety_car_active or control.vsc_active):
-            return 0
-        remaining = (control.safety_car_laps_remaining if control.safety_car_active else
-                     control.vsc_laps_remaining)
-        if isinstance(remaining, bool) or not isinstance(remaining, Integral):
-            return None
-        # Zero-count synthetic interventions still constrain the current lap
-        # and end when the next leading update decrements the counter.
-        return max(1, int(remaining))
+        return observed_control_intervals(self.simulator.event_manager)
 
     def _field_finish_required(self, intervals):
         if intervals > 1:
@@ -1515,8 +1616,12 @@ def simulate_chronological_race(simulator, drivers, cars, track, weather, starti
 register_forecast_helpers(globals(), (
     "ChronologicalFinishCar", "ChronologicalFinishContext",
     "evaluate_chronological_finish_protection",
+    "project_observed_chronological_clock",
+    "observed_control_intervals", "forecast_running_duration",
 ))
 register_forecast_helpers(vars(ChronologicalRace), (
     "_chronological_finish_context", "_protect_neutralized_field_finish",
     "_neutralized_finish_intervals", "_field_finish_required",
+    "_weather_update_times", "_projected_lap_starts", "_weather_updates_at",
+    "_observed_control_projection",
 ))

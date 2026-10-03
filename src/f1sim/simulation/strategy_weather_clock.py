@@ -8,6 +8,7 @@ paid stops, which intentionally returns zero even when an equal-time
 background update is queued.
 """
 
+from bisect import bisect_right
 from dataclasses import dataclass
 from math import floor, isfinite
 from numbers import Integral, Real
@@ -44,7 +45,9 @@ class StrategyWeatherClock:
     ``lap_start_offsets`` contains the projected own-lap start offsets from a
     decision snapshot; ``updates`` receives an index into this tuple.
     ``first_update_after`` and ``update_interval`` define the external leader's
-    update events.  A paid stop consumes its physical
+    update events. Optional ``update_offsets`` supplies every event explicitly
+    when known control duration makes that cadence nonuniform. The flag itself
+    produces no weather update. A paid stop consumes its physical
     duration on this clock: the first stop uses ``current_stop_delay`` and
     later stops use ``future_stop_delay``.  Traffic pricing adjustments belong
     outside this object and must not be folded into those physical delays.
@@ -60,6 +63,7 @@ class StrategyWeatherClock:
     current_stop_delay: float
     future_stop_delay: float
     current_running_times: tuple[float, float] | None = None
+    update_offsets: tuple[float, ...] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.lap_start_offsets, tuple) or not self.lap_start_offsets:
@@ -104,6 +108,16 @@ class StrategyWeatherClock:
                 _positive_finite(value, "current_running_times values")
                 for value in self.current_running_times
             ))
+        if self.update_offsets is not None:
+            if (type(self.update_offsets) is not tuple
+                    or len(self.update_offsets) != self.max_updates):
+                raise ValueError("update_offsets must contain every available leading update")
+            times = tuple(_finite_nonnegative(value, "update_offsets values")
+                          for value in self.update_offsets)
+            if (times and times[0] != self.first_update_after
+                    or any(previous >= current for previous, current in zip(times, times[1:]))):
+                raise ValueError("update_offsets must start at first_update_after and increase")
+            object.__setattr__(self, "update_offsets", times)
 
     def validate_horizon(self, horizon: int) -> None:
         """Require a caller's planning horizon to match the stored starts."""
@@ -140,7 +154,7 @@ class StrategyWeatherClock:
 
         nominal = self.lap_start_offsets[offset]
         if offset > 0 and self.current_running_times is not None:
-            # Replace only the observed first running interval. Future green
+            # Replace only the observed first running interval. Future nominal
             # cadence, physical stops and fitting delays remain separate.
             nominal = (self.current_running_times[int(stopped_first)]
                        + (nominal - self.lap_start_offsets[1]))
@@ -156,6 +170,8 @@ class StrategyWeatherClock:
             elapsed += self.current_stop_delay - self.future_stop_delay
         if not isfinite(elapsed):
             return self.max_updates
+        if self.update_offsets is not None:
+            return bisect_right(self.update_offsets, elapsed + self.update_interval * 1.e-12)
         if elapsed < self.first_update_after:
             return 0
         ratio = (elapsed - self.first_update_after) / self.update_interval

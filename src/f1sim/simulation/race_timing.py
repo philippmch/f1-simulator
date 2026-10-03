@@ -9,6 +9,12 @@ from typing import Iterable, Mapping
 RACING_TIME_LIMIT_SECONDS = 7200.0
 
 
+def forecast_running_duration(running_pace, laps, modifier=1., controlled_laps=0):
+    """Held running pace through a known control prefix, excluding service."""
+    return (laps * running_pace
+            + min(laps, controlled_laps) * running_pace * (modifier - 1.))
+
+
 def forecast_final_lap(
     scheduled_final_lap: int,
     completed_lap: int,
@@ -19,10 +25,12 @@ def forecast_final_lap(
     *,
     next_lap_start_time: float | None = None,
     time_limit_announced: bool | None = None,
+    controlled_laps: int = 1,
 ) -> int:
     """Estimate strategy distance without announcing or changing the finish.
 
-    The upcoming lap uses current race control; subsequent laps assume green.
+    ``controlled_laps`` upcoming crossings use current race control, followed
+    by green running. Its default retains the single-interval forecast.
     Observed running pace excludes pit service and other elapsed-time losses.
     Without a usable observation, retain the scheduled strategy horizon.
 
@@ -37,6 +45,9 @@ def forecast_final_lap(
     retains the older assumption that an expired crossing announced the finish.
     """
     if time_limit_announced is not None and type(time_limit_announced) is not bool:
+        return scheduled_final_lap
+    if (isinstance(controlled_laps, bool) or not isinstance(controlled_laps, Integral)
+            or controlled_laps < 0):
         return scheduled_final_lap
     if time_limit_announced is True:
         return min(scheduled_final_lap, completed_lap + 1)
@@ -55,9 +66,28 @@ def forecast_final_lap(
         return scheduled_final_lap
     if crossing_time >= time_limit_seconds and time_limit_announced is not False:
         return min(scheduled_final_lap, completed_lap + 1)
-    next_crossing = (crossing_time if next_lap_start_time is None else next_lap_start_time)
-    next_crossing += running_pace * current_lap_time_modifier
-    additional = max(0, ceil((time_limit_seconds - next_crossing) / running_pace))
+    start = crossing_time if next_lap_start_time is None else next_lap_start_time
+    if controlled_laps > 1:
+        # Do not turn an arbitrary integer countdown into an unbounded loop.
+        # Advancing known intervals also avoids multiplying a huge countdown.
+        crossing = start
+        for offset in range(1, min(controlled_laps, scheduled_final_lap - completed_lap) + 1):
+            crossing += running_pace * current_lap_time_modifier
+            if not isfinite(crossing):
+                return scheduled_final_lap
+            if crossing >= time_limit_seconds:
+                return min(scheduled_final_lap, completed_lap + offset + 1)
+        ratio = (time_limit_seconds - crossing) / running_pace
+        if not isfinite(ratio):
+            return scheduled_final_lap
+        additional = max(0, ceil(ratio))
+        return min(scheduled_final_lap, completed_lap + controlled_laps + additional + 1)
+    next_crossing = start + running_pace * (
+        current_lap_time_modifier if controlled_laps else 1.)
+    ratio = (time_limit_seconds - next_crossing) / running_pace
+    if not isfinite(next_crossing) or not isfinite(ratio):
+        return scheduled_final_lap
+    additional = max(0, ceil(ratio))
     return min(scheduled_final_lap, completed_lap + 2 + additional)
 
 

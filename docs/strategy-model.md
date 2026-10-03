@@ -30,9 +30,10 @@ to weather scaling for this lap only, with later laps assumed green.
 Before a timed finish is announced, in-race strategy estimates its distance
 from the leader's elapsed time and most recent running pace. Pit service,
 post-fit costs, incident loss and time spent waiting behind another car are
-excluded from the recurring pace estimate. Current control affects the upcoming
-lap, with later laps assumed green. The estimate includes the lap following
-clock expiry and never exceeds the scheduled distance. Without a pace
+excluded from the recurring pace estimate. An observed integer SC/VSC countdown
+affects all its remaining leading intervals, followed by green running. Unknown
+or overlapping deployments retain the single-interval forecast. The estimate
+includes the lap following clock expiry and never exceeds the scheduled distance. Without a pace
 observation the automatic policy retains that schedule. Both engines use this estimate for pit
 decisions and free tyre choices; chronological races also map the leader's
 estimated finish time to each car's own remaining laps and include completed
@@ -57,9 +58,15 @@ Rain and weather-stop projections use this shared leading clock to estimate
 surface conditions at each car's future lap starts. A slow car can see multiple
 surface updates between its own laps; a faster car can see the same surface
 twice. The forecast includes no update at the projected chequered crossing.
-It uses observed free pace and expected unfinished leader service, with current
-control on the upcoming lap and green running thereafter. Without usable pace
-observations it retains one update per own lap. By default rainfall and condition
+It uses observed free pace and expected unfinished leader service through the
+known remaining control intervals, with green running afterward. When committed
+field entries are usable, a private crossing projection preserves physical
+SC order and pending no-passing barriers, including barriers surviving a return
+to green. It resolves changes of the projected leader caused by those committed
+entries. Neither live control nor the finish ledger is advanced. Unresolved
+rival repairs, tyre instructions or observations retain the simpler held-pace
+forecast. Without usable pace observations it retains one update per own lap.
+By default rainfall and condition
 remain fixed, and no future weather draws are consumed. A supplied
 [prescribed rainfall schedule](weather-schedule.md) instead provides known
 future changes at that same leading cadence, with existing standing water
@@ -79,15 +86,24 @@ clock applies that queue to its held free-pace estimate for the first running
 lap. Retaining and stopping use their respective observed entry gaps. Catch-up
 can therefore advance subsequent lap starts across fewer leading weather
 updates, while a slow observed queue can delay them. This replaces only the
-first running interval: later green cadence, physical service and fitting
+first running interval in ordinary forecasts. With a usable known-duration field,
+nominal retained starts instead use the private crossing projection, including
+its first committed fitting fee exactly once. Physical service and fitting
 delays retain their separate treatment. A missing or unresolved queue keeps
 the uniform control estimate. The clock continues to hold observed free pace
 across candidate compounds; first-lap tyre costs are priced separately.
 
+Explicit leading update times preserve the slow control prefix and later green
+cadence for both retained and paid branches. Expected paid service and fitting
+fees can move an entry across several of these events, but the flag never adds
+a surface update. This improves entry surfaces and estimated distance; the
+cost planners still assume green running after the current lap and green losses
+for later paid stops. They do not price a complete future neutralized queue.
+
 The external leading clock remains fixed under these comparisons. A candidate
 that is itself the projected leader, including a single-car race, retains the
 own-lap projection so its stationary pit time cannot invent weather updates.
-The forecasts do not resolve future changes of leader, tyre-dependent changes
+The forecasts do not resolve future rival decisions, tyre-dependent changes
 in free pace, battles or interventions. They retain the current planning
 distance and are recalculated at the next decision; stop timing can still change
 actual finishing distance. Matching the shared weather cadence does not

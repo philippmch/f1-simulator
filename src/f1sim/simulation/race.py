@@ -55,6 +55,7 @@ from f1sim.simulation.strategy_neutralization import (
     StrategySafetyCarSnapshot,
     current_fitted_time,
     current_running_time,
+    observed_control_intervals,
 )
 from f1sim.simulation.strategy_traffic import (
     StrategyTrafficSnapshot,
@@ -557,10 +558,13 @@ class RaceSimulator(InventoryStrategyMixin):
                 )
                 planning_crossing_time = completed.total_time
                 planning_next_lap_start = resumed_at
+            control_intervals = observed_control_intervals(self.event_manager)
             planning_final_lap = forecast_final_lap(
                 final_lap, lap - 1, planning_crossing_time,
                 observed_running_pace.get(leader.driver.id), finish_clock.time_limit_seconds,
                 self.event_manager.get_lap_time_modifier(),
+                **({"controlled_laps": control_intervals}
+                   if control_intervals is not None and control_intervals > 1 else {}),
                 **({"next_lap_start_time": planning_next_lap_start}
                    if planning_next_lap_start is not None else {}),
                 **({"time_limit_announced": False}
@@ -3657,6 +3661,7 @@ register_forecast_helpers(globals(), (
     "LeadingFinishContext", "RivalFinishForecast", "evaluate_finish_protection",
     "SafetyCarFinishBranch", "SafetyCarFinishCar", "SafetyCarFinishField",
     "safety_car_running_times",
+    "observed_control_intervals",
 ))
 register_forecast_helpers(vars(RaceSimulator), (
     "_has_weather_schedule", "_choose_forecast_paid_compound",

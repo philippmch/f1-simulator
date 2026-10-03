@@ -10,11 +10,12 @@ policy, atmosphere, incident, service or passing draw is consumed.
 
 import heapq
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import count
 from math import isfinite
 
 from f1sim.cancellation import cancellation_checkpoint
+from f1sim.models import Car, Driver, TireCompound, Track, Weather
 from f1sim.models._native import register_forecast_helpers
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.finish_strategy import (
@@ -134,6 +135,7 @@ def evaluate_chronological_finish_protection(
     expected_lane_loss=0., expected_service_time=0., expected_queue_delay=0.,
     replacements=None, tire_warmup=None, current_fit_pending=False, lap_simulator=None,
     current_overtake_mode_active=False,
+    _clock_observer=None,
 ):
     """Compare complete field clocks for retention and an optimistic stop.
 
@@ -291,6 +293,8 @@ def evaluate_chronological_finish_protection(
                     intervals_left = max(0, intervals_left - 1)
                     controlled = intervals_left > 0
                 crossing = timeline.observe_crossing(identifier, row.lap, time, is_leader=leading)
+                if _clock_observer is not None and not stopped:
+                    _clock_observer(identifier, time, leading, timeline.chequered_time)
                 del pending[identifier]
                 order.remove(identifier)
                 if identifier == candidate:
@@ -339,9 +343,80 @@ def evaluate_chronological_finish_protection(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class ObservedChronologicalClock:
+    """Held-pace field crossings and weather events from a private ledger."""
+
+    identifier: str
+    flag_time: float
+    own_crossings: tuple[float, ...]
+    leading_updates: tuple[float, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _ObservedRunningPace:
+    """One held observation, without creating a new class for every forecast."""
+
+    pace: float
+
+    def calculate_lap_time(self, *args, **kwargs):
+        return self.pace
+
+
+def project_observed_chronological_clock(context, now, *, own_fitting_cost=0.):
+    """Project the observed field without future policies or any physics draw.
+
+    The finish-distance projector owns the queue, service, control and ledger
+    laws. Reusing it here keeps strategy distance and weather on those same
+    crossings. A constant pace adapter holds only the candidate's latest free
+    running observation; rivals already hold theirs in that projector.
+    """
+    if _valid_nonnegative(own_fitting_cost) is None:
+        return None
+    try:
+        scheduled = context.timeline._clock.scheduled_laps
+        identifier = context.identifier
+    except AttributeError:
+        return None
+    try:
+        valid = (type(scheduled) is int and scheduled > 0
+                 and _valid_nonnegative(now) is not None
+                 and _validate_context(context, now, scheduled))
+    except (TypeError, ValueError, OverflowError, AttributeError, KeyError):
+        valid = False
+    if not valid:
+        return None
+    own, updates, flags = [], [], []
+
+    def observe(key, time, leading, flag):
+        if key == identifier:
+            own.append(time)
+        if leading and flag is None:
+            updates.append(time)
+        if flag is not None:
+            flags.append(flag)
+
+    result = evaluate_chronological_finish_protection(
+        Driver(id=identifier, name=identifier, team_id="clock"),
+        Car(team_id="clock", team_name="clock"),
+        Track(id="clock", name="clock", country="clock", total_laps=scheduled,
+              base_lap_time=context.own_pace),
+        TIRE_COMPOUNDS[TireCompound.MEDIUM],
+        0, Weather(), now, replace(context, forecast_context=None), replacements=(),
+        lap_simulator=_ObservedRunningPace(context.own_pace),
+        current_fit_pending=own_fitting_cost > 0., tire_warmup={"medium": own_fitting_cost},
+        _clock_observer=observe,
+    )
+    if not result.retained_feasible or not own or not flags:
+        return None
+    return ObservedChronologicalClock(identifier, flags[0], tuple(own), tuple(updates))
+
+
 register_forecast_helpers(globals(), (
     "ChronologicalFinishCar", "ChronologicalFinishContext",
     "evaluate_chronological_finish_protection",
     "_validate_context", "_copy_driver", "_copy_tire", "_valid_positive", "_valid_nonnegative",
     "replacement_options", "safety_car_running_time", "minimum_lap_time",
+    "project_observed_chronological_clock", "ObservedChronologicalClock", "_ObservedRunningPace",
 ))
+register_forecast_helpers(vars(_ObservedRunningPace), ("calculate_lap_time",))

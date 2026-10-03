@@ -58,10 +58,10 @@ outlap crossing. The fitting cost is added once, after current control scaling;
 it does not delay pit exit. An on-track pending crossing already contains it.
 Past service, fitting costs and blocked time do not become the forecast's
 recurring lap pace. The forecast uses no random draws and does not alter the
-actual finish boundary. It assumes continued pace with current control on the
-upcoming lap and green running thereafter, without
-predicting future incidents, weather changes or stops. Initial laps without an observed pace retain the
-scheduled horizon.
+actual finish boundary. It holds observed free pace through the remaining leading
+control intervals, followed by green running. It does not predict future
+incidents, weather changes or stops. Initial laps without an observed pace retain
+the scheduled horizon.
 
 Chronological pit decisions receive an immutable `StrategyTrafficSnapshot`.
 The gap ahead comes from the circular physical predecessor; the space behind
@@ -89,6 +89,15 @@ including their cached future stints. The standard engine retains its ordinary
 one-update-per-lap projection. Pending physics and actual shared weather updates
 are unaffected by these forecasts.
 
+When more than one SC/VSC interval remains and committed field observations
+are usable, a private crossing projection supplies the candidate's own starts,
+the projected flag, and explicit leading weather-update times. It retains SC
+physical order, old no-passing restrictions and known fitting delays without
+advancing the live engine or sampling future service. The flag supplies no
+weather update. Unresolved repairs, rival tyre instructions or pace observations
+keep the simpler held-pace forecast. This corrects timing and entry surfaces;
+the existing cost planners still price later running and paid stops as green.
+
 When the projected leader is another car, weather-cost planning also advances
 that clock through the candidate's own planned pit delays. A stop's compound is
 chosen using the pre-service surface, but its outlap and subsequent running use
@@ -101,9 +110,9 @@ free pace and the external leading clock stay fixed within a forecast.
 
 The candidate leader keeps the existing own-lap projection: its pit time cannot
 create leading crossings while it is stationary. Initial decisions without an
-observed pace and unchanging surfaces also retain the existing path. Future
-changes of leader, random weather and changed free pace remain unknown; these
-cost comparisons do not change the actual finish boundary or fit tyres twice.
+observed pace and unchanging surfaces also retain the existing path. Future rival
+decisions, random weather and changed free pace remain unknown; these cost
+comparisons do not change the actual finish boundary or fit tyres twice.
 
 In a controlled example, a 90-second leader next crosses at time 180 while a
 follower commits a stop at 170. Expected service plus a 22-second lane loss puts
