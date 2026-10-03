@@ -1,6 +1,5 @@
 """Mean dry tyre costs through the observed control prefix and green suffix."""
 
-from dataclasses import dataclass
 from math import inf, isfinite
 
 import numpy as np
@@ -18,38 +17,16 @@ from f1sim.simulation.pit_strategy import (
     _ScaledDryWeather,
     expected_stationary_time,
 )
-from f1sim.simulation.strategy_control_clock import ObservedStandardField, StrategyControlContext
-
-
-@dataclass(frozen=True, slots=True)
-class _Cost:
-    laps: int
-    seconds: float
-
-    @property
-    def rank(self):
-        return self.laps, -self.seconds
-
-
-def _field_key(field):
-    if type(field) is ObservedStandardField:
-        # Without an external car, absolute time cannot change lockstep
-        # running, pit discounts or fuel. Reuse equivalent future states.
-        return (field.lap, field.intervals_left,
-                field.now if len(field.rows) > 1 else None, tuple(field.rows),
-                field.pre_stop_order, field.pitting)
-    # Absolute scheduler counters and stale events cannot change subsequent
-    # crossings. Preserve the relative priority of valid events, including
-    # exact-time ties, so physically equivalent histories share one suffix.
-    queue = tuple((time, distance, kind, identifier)
-                  for time, distance, _, kind, identifier, generation in sorted(field.queue)
-                  if identifier in field.pending
-                  and field.pending[identifier].generation == generation)
-    pending = tuple((key, tuple(value for name, value in vars(row).items()
-                               if name != "generation")) for key, row in field.pending.items())
-    return (field.now, field.intervals_left, field.updates, tuple(field.order),
-            tuple(vars(field.timeline._clock).items()), tuple(field.timeline.states.items()),
-            pending, queue, tuple(field.free_paces.items()))
+from f1sim.simulation.strategy_control_clock import (
+    ObservedStandardField,
+    StrategyControlContext,
+)
+from f1sim.simulation.strategy_control_clock import (
+    ProjectedControlCost as _Cost,
+)
+from f1sim.simulation.strategy_control_clock import (
+    observed_control_key as _field_key,
+)
 
 
 def plan_controlled_dry_stop(

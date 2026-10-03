@@ -149,6 +149,8 @@ class InventoryStrategyMixin:
             options["tire_warmup"] = self.tire_warmup
             options["current_fit_pending"] = state.fit_lap_pending
         options.update(self._safety_car_forecast_options(state))
+        if not free_fit:
+            options.update(self._dry_control_forecast_options(state))
         return plan_inventory_strategy(
             state.driver, state.car, track, weather, state.tire_inventory, lap,
             tire_age=state.tire_laps, remaining_stops=max(0, maximum - state.pit_stops),

@@ -24,8 +24,9 @@ same current weather multiplier as simulated laps, including surface water,
 rainfall and the car's wet-performance
 contribution. It holds that multiplier constant over the projected stint;
 this is not a forecast of future weather. Expected service and pit-lane loss
-are not weather-scaled. A current SC/VSC running multiplier applies in addition
-to weather scaling for this lap only, with later laps assumed green.
+are not weather-scaled. Without a usable known-duration field, the current
+SC/VSC running multiplier applies in addition to weather scaling for this lap
+only, with later laps assumed green.
 
 Before a timed finish is announced, in-race strategy estimates its distance
 from the leader's elapsed time and most recent running pace. Pit service,
@@ -97,10 +98,11 @@ Explicit leading update times preserve the slow control prefix and later green
 cadence for both retained and paid branches. Expected paid service and fitting
 fees can move an entry across several of these events, but the flag never adds
 a surface update. This improves entry surfaces and estimated distance. Rain,
-weather-stop and finite-pool cost planners still assume green running after the
-current lap and green losses for later paid stops. Clearly dry unlimited-set
-decisions can price the known control prefix as described below; these weather
-paths do not price a complete future neutralized queue.
+weather-stop and transitional finite-pool cost planners still assume green
+running after the current lap and green losses for later paid stops. Clearly
+dry unlimited-set decisions and finite pools with zero rainfall and standing
+water can price the known control prefix as described below. The remaining
+weather paths do not price a complete future neutralized queue.
 
 The external leading clock remains fixed under these comparisons. A candidate
 that is itself the projected leader, including a single-car race, retains the
@@ -1169,7 +1171,9 @@ dry-use rule. The choice does not sample randomness or alter the race state.
 
 With usable observations during SC or VSC, clearly dry unlimited-set stop timing
 and the committed compound comparison price all known remaining control
-intervals. Each candidate uses full mean lap physics at its projected track
+intervals. Finite pools use that field when rainfall and standing water are
+both zero, conserving replacement ages and multiplicity through the prefix.
+Each candidate uses full mean lap physics at its projected track
 entry, with the original scheduled fuel distance and current dry weather pace
 scale. Future stops committed during
 that prefix pay the observed lane discount and expected service. Fitting costs
@@ -1192,9 +1196,11 @@ strategy or predict later changes of leader, weather or control.
 The search covers up to six known intervals, matching the longest native
 deployment; a shorter remaining own-lap horizon can also bound the prefix.
 Missing observations, unresolved rival instructions and longer custom control
-durations keep the existing forecast. Explicit tyre pools, custom pit plans,
-prescribed weather and rain or damp policy paths retain their respective cost
-models. Field branches and control-prefix caches belong to one decision and
+durations keep the existing forecast. Custom pit plans, prescribed weather and
+rain or damp policy paths retain their respective cost models. Finite branches
+return to their physical-set green search after the prefix; optimistic native
+bounds can relax stock for pricing but never invent an executable set. Field
+branches and control-prefix caches belong to one decision and
 never retain the live engine or consume simulation random draws. Existing
 native green cost tables retain their bounded process-local cache.
 
@@ -1209,8 +1215,9 @@ In a controlled four-lap illustration, a fresh soft runs at 99.55 seconds versus
 100 seconds on medium, but pays a two-second fitting fee. After three known
 VSC laps and one green lap, the soft finishes 0.16 seconds sooner; under SC it
 finishes 0.52 seconds sooner. Pricing just the first controlled lap would choose
-medium in both cases. Completed native races in both engines verify the choice
-with the same stop lap and finishing distance. These are synthetic consistency
+medium in both cases. Completed native races in both engines, with unlimited
+and finite pools, verify the choice with the same stop lap and finishing
+distance. These are synthetic consistency
 checks, not calibrated tyre performance.
 
 Automatic paid changes on rain or damp surfaces compare complete remaining

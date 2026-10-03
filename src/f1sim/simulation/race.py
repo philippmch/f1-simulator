@@ -1729,7 +1729,9 @@ class RaceSimulator(InventoryStrategyMixin):
         return (intervals is not None and intervals > 0
                 and min(intervals, track.total_laps - lap + 1) <= 6
                 and not self.event_manager.red_flag_active
-                and state.tire_inventory is None and state.pit_plan is None
+                and state.pit_plan is None
+                and (state.tire_inventory is None
+                     or weather.track_wetness == weather.rain_intensity == 0.)
                 and not self._has_weather_schedule()
                 and weather.track_wetness < .08 and weather.rain_intensity < .15)
 

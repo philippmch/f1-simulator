@@ -3,16 +3,22 @@
 from dataclasses import dataclass
 from functools import lru_cache
 from heapq import nsmallest
-from math import inf, isfinite, nextafter
+from math import inf, isfinite, nextafter, ulp
 from numbers import Real
 
 import numpy as np
 
 from f1sim.cancellation import cancellation_checkpoint
-from f1sim.models._native import register_forecast_helpers
+from f1sim.models._native import forecast_json, native_physics, register_forecast_helpers
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
-from f1sim.simulation.lap import LapSimulator
-from f1sim.simulation.pit_strategy import expected_stationary_time
+from f1sim.simulation.lap import LapSimulator, minimum_lap_time
+from f1sim.simulation.pit_strategy import SLICKS, _floor_tables, expected_stationary_time
+from f1sim.simulation.strategy_control_clock import (
+    ObservedStandardField,
+    ProjectedControlCost,
+    StrategyControlContext,
+    observed_control_key,
+)
 from f1sim.simulation.strategy_neutralization import current_fitted_time, current_running_time
 from f1sim.simulation.strategy_traffic import normalize_current_traffic_gaps
 from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
@@ -27,8 +33,13 @@ class InventoryDecision:
     wait_cost: float
     set_id: str | None
     compound: TireCompound | None
+    pit_now_laps: int | None = None
+    wait_laps: int | None = None
 
     def should_pit(self, timing_bias=0.0):
+        if (self.pit_now_laps is not None and self.wait_laps is not None
+                and self.pit_now_laps != self.wait_laps):
+            return self.pit_now_laps > self.wait_laps
         return self.pit_now_cost < self.wait_cost + max(-.1, min(.1, timing_bias))
 
 
@@ -503,13 +514,16 @@ def plan_inventory_strategy(
     current_lap_time_modifier=1., active_aero_enabled=True, physical_total_laps=None,
     weather_intervals=None, current_traffic_gaps=None, force_stop=False, free_fit=False,
     require_compound_rule=True, weather_clock=None, tire_warmup=None,
-    current_fit_pending=False, forecast_context=None, safety_car=None,
+    current_fit_pending=False, forecast_context=None, safety_car=None, control_context=None,
 ):
     """Minimize deterministic total time without inventing or freshening sets.
 
     The anonymous future pool retains compound, age and multiplicity. Only
     interchangeable IDs are merged. Local memoization is confined to this
     call, so every model, surface and cadence is intrinsically in its context.
+    A usable control field prices the known neutralized prefix on a stable
+    dry surface, then returns to this same physical-pool green search. Other
+    surface and free-fit paths retain their existing weather-clock costs.
     """
     for name, value in (("current_lap", current_lap), ("tire_age", tire_age),
                         ("remaining_stops", remaining_stops),
@@ -544,6 +558,16 @@ def plan_inventory_strategy(
                                             forecast_context=forecast_context)
     forecast_context = getattr(intervals, "context", forecast_context)
     _validate_weather_clock(weather_clock, horizon)
+    if control_context is not None and type(control_context) is not StrategyControlContext:
+        raise ValueError("control_context must be a StrategyControlContext")
+    # The field prices every known controlled crossing. A stable dry surface
+    # has no additional branch-dependent weather state; transitional weather
+    # and free refits retain the established surface-clock planner.
+    controlled = (control_context is not None and not free_fit and not control_context.paid_fit
+                  and weather.track_wetness == weather.rain_intensity == 0.
+                  and forecast_context is None)
+    if controlled:
+        car, track = car.model_copy(deep=True), track.model_copy(deep=True)
     gaps = normalize_current_traffic_gaps(current_traffic_gaps)
     if safety_car is not None:
         gaps = safety_car.traffic_gaps
@@ -554,7 +578,7 @@ def plan_inventory_strategy(
     mask = 0
     for compound in used_compounds:
         mask |= bits[TireCompound(compound).value]
-    if weather_clock is not None:
+    if weather_clock is not None and not controlled:
         return _clock_inventory_strategy(
             driver, car, track, weather, inventory, current_lap,
             tire_age=tire_age, remaining_stops=remaining_stops,
@@ -573,7 +597,8 @@ def plan_inventory_strategy(
         )
     prepared_lap_time = simulator.prepare_deterministic_lap_time(driver, car, track, physical)
     surfaces = tuple(projected_surfaces(weather, horizon, intervals))
-    green_stop = track.pit_lane_delta + expected_stationary_time(car)
+    service = expected_stationary_time(car)
+    green_stop = track.pit_lane_delta + service
     current_stop = (track.pit_lane_delta * pit_lane_factor + expected_stationary_time(car)
                     + additional_current_stop_cost)
 
@@ -601,9 +626,15 @@ def plan_inventory_strategy(
         aero_enabled = active_aero_enabled if first else True
         gap = gaps[first_kind] if first and gaps is not None else None
         if prepared_lap_time is None:
-            driver.current_tire_laps = age
+            lap_driver = driver.model_copy(deep=True) if controlled else driver
+            lap_driver.current_tire_laps = age
             value = simulator.calculate_lap_time(
-                driver, car, track, tire, surfaces[offset], current_lap + offset,
+                lap_driver,
+                car.model_copy(deep=True) if controlled else car,
+                track.model_copy(deep=True) if controlled else track,
+                tire.model_copy(deep=True) if controlled else tire,
+                surfaces[offset].model_copy(deep=True) if controlled else surfaces[offset],
+                current_lap + offset,
                 physical, sample_variation=False,
                 active_aero_enabled=aero_enabled, gap_to_car_ahead=gap,
             )
@@ -699,9 +730,13 @@ def plan_inventory_strategy(
                 continue
             cost = green_stop + run(offset, target, target_age,
                                     fitted=bool(tire_warmup))
-            if nextafter(cost + completion_bound(
+            bound = completion_bound(
                 offset + 1, target, target_age + 1, used | bits[target],
-            ), -inf) < best:
+            )
+            if controlled and native:
+                bound = max(bound, unlimited_dry_bound(
+                    offset + 1, target, target_age + 1, max(0, left - 1), used | bits[target]))
+            if nextafter(cost + bound, -inf) < best:
                 # Sorting a replacement pool is only needed for admitted branches.
                 child = (offset + 1, target, target_age + 1,
                          exchange(pool, index, (compound, age)), max(0, left - 1),
@@ -736,6 +771,239 @@ def plan_inventory_strategy(
     usable_current = current is not None and current_id not in inventory.unavailable_ids
     stock = tuple(inventory.replacements())
     pool = tuple(sorted((item.compound.value, item.age) for item in stock))
+
+    if controlled:
+        root = control_context.new_field()
+        if ((type(root) is ObservedStandardField
+             and (root.lap != current_lap or root.now != control_context.now))
+                or (type(root) is not ObservedStandardField
+                    and (root.timeline.states[root.identifier].completed_laps + 1 != current_lap
+                         or root.timeline._clock.scheduled_laps != physical))):
+            raise ValueError("control_context must match the current lap and physical distance")
+        native = prepared_lap_time is not None and native_physics(driver, car, track, weather)
+        memo, lap_costs, control_bound_rows, unlimited_bounds, retained_rows = {}, {}, {}, {}, {}
+        unlimited_tables = None
+        invalid = ProjectedControlCost(-1, inf)
+        uniform_prefix = (len(root.rows) == 1 or not root.safety_car
+                          if type(root) is ObservedStandardField else len(root.free_paces) == 1)
+
+        def unlimited_dry_bound(offset, compound, age, left, used):
+            """Native wear cannot make a set faster than a fresh replacement.
+
+            Relax stock ages, availability and compound obligations, allowing
+            an extra correction stop when needed. The result bounds physical
+            green costs, never supplies an executable inventory schedule.
+            """
+            nonlocal unlimited_tables
+            if offset == horizon:
+                return 0.
+            budget = min(left + int(not legal(used)), horizon - offset)
+            if budget > 3:
+                return 0.
+            key = offset, compound, age, budget
+            if key in unlimited_bounds:
+                return unlimited_bounds[key]
+            if unlimited_tables is None:
+                clean = driver.model_copy(deep=True)
+                clean.reset_race_state()
+                clean.id = clean.name = clean.team_id = "projection"
+                package = car.model_copy(deep=True)
+                package.team_id = package.team_name = "projection"
+                models = forecast_json(clean), forecast_json(package), forecast_json(track)
+                sets = tuple(forecast_json(TIRE_COMPOUNDS[choice]) for choice in SLICKS)
+                scale = simulator.weather_pace_multiplier(driver, car, surfaces[0])
+                profile = tuple(sorted((tire_warmup or {}).items()))
+                unlimited_tables = _floor_tables(models, sets, physical, scale, profile)
+            costs, prefixes = unlimited_tables
+            row_key = offset, compound, age
+            if row_key not in retained_rows:
+                retained_rows[row_key] = np.cumsum([
+                    running(index, compound, age + index - offset)
+                    for index in range(offset, horizon)])
+            old = retained_rows[row_key]
+            number = current_lap + offset
+            best = float(old[-1])
+            if budget and offset + 1 < horizon:
+                best = min(best, float(np.min(
+                    old[:-1] + costs[budget, 7, number + 1:track.total_laps + 1])))
+            if budget:
+                for index in range(3):
+                    prefix = prefixes[number, index]
+                    value = float(prefix[-1])
+                    if budget > 1 and offset + 1 < horizon:
+                        value = min(value, float(np.min(
+                            prefix[:-1] + costs[budget - 1, 7,
+                                                number + 1:track.total_laps + 1])))
+                    best = min(best, value + track.pit_lane_delta + service)
+            # Cumulative arrays and recursive physical-set sums group their
+            # arithmetic differently. Keep the relaxation below near ties.
+            value = max(0., nextafter(best - 4 * (horizon - offset + 2) * ulp(best), -inf))
+            unlimited_bounds[key] = value
+            return value
+
+        def bound_running(offset, compound, age):
+            multiplier = (root.running_modifier if uniform_prefix
+                          and offset < root.intervals_left else 1.)
+            return running(offset, compound, age) * multiplier
+
+        @lru_cache(maxsize=1)
+        def controlled_lower_bounds():
+            if not uniform_prefix:
+                return lower_bounds()
+            return _conserved_wear_lower_bounds(horizon, initial_ages, critical, bound_running)
+
+        def controlled_completion_bound(field, state):
+            offset, compound, age, _, left, dry, _, used = state
+            compliant = legal(used)
+            if offset == horizon:
+                return 0. if compliant else inf
+            if compliant and (left == 0 or dry == 0):
+                return sum(bound_running(index, compound, age + index - offset)
+                           for index in range(offset, horizon))
+            factor = .55 if field.controlled and field.safety_car else (
+                .75 if field.controlled else 1.)
+            minimum_stop = track.pit_lane_delta * factor + service
+            key = compound, age - offset, compliant, minimum_stop
+            if key not in control_bound_rows:
+                control_bound_rows[key] = [horizon, [None] * horizon
+                                          + [0. if compliant else inf]]
+            first, row = control_bound_rows[key]
+            lower = controlled_lower_bounds()
+            for index in range(first - 1, offset - 1, -1):
+                cancellation_checkpoint()
+                value = minimum_stop + lower[index]
+                if not critical[compound][index]:
+                    value = min(value, bound_running(index, compound, age - offset + index)
+                                + row[index + 1])
+                row[index] = nextafter(value, -inf)
+            control_bound_rows[key][0] = min(first, offset)
+            budget = min(left + int(not compliant), horizon - offset)
+            relaxed = unlimited_dry_bound(offset, compound, age, left, used)
+            # A real controlled stop cannot save more than this lane loss
+            # relative to a green stop. Running and fitting stay separate.
+            relaxed -= budget * track.pit_lane_delta * (1. - factor)
+            if uniform_prefix:
+                controlled_laps = max(0, min(root.intervals_left, horizon) - offset)
+                relaxed += (controlled_laps * (root.running_modifier - 1.)
+                            * minimum_lap_time(track))
+            return max(lower[offset], row[offset], relaxed)
+
+        def controlled_running(field, offset, compound, age):
+            gap = field.gap_ahead(
+                field.free_paces[field.identifier] * field.running_modifier
+                if type(field) is not ObservedStandardField else 1.)
+            aero = not field.controlled
+            key = offset, compound, age, gap, aero
+            if native and key in lap_costs:
+                return lap_costs[key]
+            tire = TIRE_COMPOUNDS[TireCompound(compound)]
+            if prepared_lap_time is not None:
+                value = prepared_lap_time(tire, surfaces[offset], current_lap + offset,
+                                          age, gap, aero)
+            else:
+                clean = driver.model_copy(deep=True)
+                clean.current_tire_laps = age
+                value = simulator.calculate_lap_time(
+                    clean, car.model_copy(deep=True), track.model_copy(deep=True),
+                    tire.model_copy(deep=True), surfaces[offset].model_copy(deep=True),
+                    current_lap + offset, physical, sample_variation=False,
+                    active_aero_enabled=aero, gap_to_car_ahead=gap)
+            if native:
+                lap_costs[key] = value
+            return value
+
+        def controlled_action(field, state, *, fitted=False, first=False, cutoff=None):
+            cancellation_checkpoint()
+            offset, compound, age, available, left, dry, damp, used = state
+            branch = field.fork()
+            factor = .55 if field.controlled and field.safety_car else (
+                .75 if field.controlled else 1.)
+            delay = (control_context.current_stop_delay if first else
+                     track.pit_lane_delta * factor + service)
+            branch.enter(delay if fitted else None)
+            fee = (tire_warmup_seconds(tire_warmup, compound) if tire_warmup
+                   and (fitted or first and current_fit_pending) else 0.)
+            branch.cross(controlled_running(branch, offset, compound, age), fee)
+            child = (offset + 1, compound, age + 1, available,
+                     max(0, left - int(fitted)), reduced(dry) if fitted else dry,
+                     reduced(damp) if fitted else damp, used | bits[compound])
+            if (native and root.running_modifier >= 1. and cutoff is not None
+                    and cutoff.laps == horizon - offset):
+                # Native dirty air and disabled aero cannot beat clean-air
+                # green running; SC catch-up never runs below free pace.
+                # Relaxed stock/stop bounds remain optimistic over every
+                # full-distance path. A shorter flagged path already loses
+                # on distance, so it cannot invalidate this time cutoff.
+                optimistic = (branch.now - field.now
+                              + controlled_completion_bound(branch, child))
+                rounding = 4 * (horizon - offset + 2) * ulp(
+                    max(branch.now, field.now + cutoff.seconds))
+                if optimistic > cutoff.seconds + rounding:
+                    return invalid
+            suffix = controlled_future(branch, child)
+            return (ProjectedControlCost(1 + suffix.laps,
+                                         branch.now - field.now + suffix.seconds)
+                    if suffix.laps >= 0 else invalid)
+
+        def controlled_future(field, state):
+            cancellation_checkpoint()
+            offset, compound, age, available, left, dry, damp, used = state
+            if offset == horizon or field.finished:
+                return ProjectedControlCost(0, 0.) if legal(used) else invalid
+            if not field.projection_required:
+                value = solve(state)
+                return (ProjectedControlCost(horizon - offset, value)
+                        if isfinite(value) else invalid)
+            key = (observed_control_key(field), state) if native else None
+            if native and key in memo:
+                return memo[key]
+            best = controlled_action(field, state) if not critical[compound][offset] else invalid
+            previous = None
+            for index, candidate in enumerate(available):
+                cancellation_checkpoint()
+                if candidate == previous:
+                    continue
+                previous = candidate
+                target, target_age = candidate
+                if critical[target][offset] or not allowed(
+                    offset, compound, left, dry, damp, used, target,
+                ):
+                    continue
+                child = (offset, target, target_age,
+                         exchange(available, index, (compound, age)), left, dry, damp, used)
+                option = controlled_action(field, child, fitted=True, cutoff=best)
+                if option.rank > best.rank:
+                    best = option
+            if native:
+                memo[key] = best
+            return best
+
+        wait = invalid
+        if usable_current and not force_stop and not critical[current.compound.value][0]:
+            wait = controlled_action(
+                root, (0, current.compound.value, tire_age, pool, remaining_stops,
+                       remaining_dry_stops, remaining_damp_stops, mask), first=True)
+        best, selected = invalid, None
+        for item in stock:
+            cancellation_checkpoint()
+            if critical[item.compound.value][0] or (not force_stop and usable_current
+                    and not allowed(0, current.compound.value, remaining_stops,
+                                    remaining_dry_stops, remaining_damp_stops,
+                                    mask, item.compound.value)):
+                continue
+            candidate = item.compound.value, item.age
+            index = pool.index(candidate)
+            available = pool[:index] + pool[index + 1:]
+            if usable_current:
+                available = tuple(sorted(available + ((current.compound.value, tire_age),)))
+            value = controlled_action(
+                root, (0, item.compound.value, item.age, available, remaining_stops,
+                       remaining_dry_stops, remaining_damp_stops, mask), fitted=True, first=True,
+                cutoff=best)
+            if value.rank > best.rank:
+                best, selected = value, item
+        return InventoryDecision(best.seconds, wait.seconds, selected.id if selected else None,
+                                 selected.compound if selected else None, best.laps, wait.laps)
 
     def initial_cost(item, age, available, charge, consume, kind, fitted=False):
         compound = item.compound.value
@@ -780,3 +1048,8 @@ def plan_inventory_strategy(
 
 register_forecast_helpers(globals(), ("project_next_surface",))
 register_forecast_helpers(globals(), ("current_running_time", "current_fitted_time"))
+register_forecast_helpers(globals(), (
+    "ObservedStandardField", "StrategyControlContext", "ProjectedControlCost",
+    "observed_control_key", "native_physics",
+    "_floor_tables", "forecast_json", "minimum_lap_time",
+))

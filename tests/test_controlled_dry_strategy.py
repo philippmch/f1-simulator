@@ -19,8 +19,9 @@ from f1sim.simulation.strategy_control_clock import StandardControlContext, Stra
 
 @pytest.mark.parametrize("engine_name", ["standard", "chronological"])
 @pytest.mark.parametrize("control_name,advantage", [("vsc", .16), ("sc", .52)])
+@pytest.mark.parametrize("finite", [False, True])
 def test_committed_compound_matches_faster_completed_controlled_stint(
-    monkeypatch, engine_name, control_name, advantage,
+    monkeypatch, engine_name, control_name, advantage, finite,
 ):
     # The fitting fee makes medium faster if only the first lap is controlled.
     # Four native controlled laps make soft faster in both real race engines.
@@ -54,6 +55,8 @@ def test_committed_compound_matches_faster_completed_controlled_stint(
         def stop(state, states, track, lap, *args, **kwargs):
             if lap == 66:
                 state.force_pit_next_lap = True
+                if finite and replacement is not None:
+                    state.inventory_pit_proposal = (lap, replacement.value)
                 return True
             return False
 
@@ -61,14 +64,16 @@ def test_committed_compound_matches_faster_completed_controlled_stint(
         monkeypatch.setattr(control, "_check_mechanical_failure", lambda *a, **k: None)
         monkeypatch.setattr(control, "_check_random_incident", lambda *a, **k: None)
         monkeypatch.setattr(simulator, "_should_pit", stop)
-        if replacement is not None:
+        if replacement is not None and not finite:
             monkeypatch.setattr(simulator, "_choose_committed_dry_compound",
                                 lambda *a, **k: replacement)
         execute = engine.run if engine is not None else simulator.simulate_race
         result, = execute(
             [Driver(id="A", name="A", team_id="A")], {"A": Car(team_id="A", team_name="A")},
             Track(id="T", name="T", country="Test", total_laps=90, base_lap_time=100.),
-            Weather(change_probability=0.), ["A"], starting_tires={"A": TireCompound.HARD})
+            Weather(change_probability=0.), ["A"], starting_tires={"A": TireCompound.HARD},
+            tire_inventory={"A": [{"id": compound.value, "compound": compound.value}
+                                  for compound in SLICKS]} if finite else None)
         return result
 
     chosen, medium, soft = complete(), complete(TireCompound.MEDIUM), complete(TireCompound.SOFT)
@@ -77,6 +82,9 @@ def test_committed_compound_matches_faster_completed_controlled_stint(
     assert chosen.laps_completed == medium.laps_completed == soft.laps_completed == 69
     assert chosen.total_time == pytest.approx(soft.total_time, abs=1.e-8)
     assert medium.total_time - soft.total_time == pytest.approx(advantage, abs=1.e-8)
+    if finite:
+        assert [row["set_id"] for row in chosen.tire_set_history] == ["hard", "soft"]
+        assert sum(row["laps_used"] for row in chosen.tire_set_history) == 69
 
 
 def single_car_context(track, car, control, intervals):

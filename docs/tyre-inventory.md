@@ -63,6 +63,24 @@ actual races still sample events and service variation. It does not anticipate
 random future weather changes or incidents, or jointly optimize both teammates.
 Its result is conditional on these assumptions, not an exact global optimum
 for the stochastic race. Heat cycles and tyre storage effects are not modeled.
+On a surface with zero rainfall and standing water, an observed SC/VSC field
+also prices its known control intervals, entry gaps, discounted lane loss,
+expected service and current queue. Fitting fees remain unscaled. Each branch
+returns removed sets at their accumulated wear and earns compound credit only
+after running. A chronological flag during that prefix makes completed laps
+take priority over elapsed time. Once control and pending barriers clear, the
+same physical-pool search prices the fixed remaining own-lap green horizon.
+Missing observations, longer custom controls, changing surfaces, prescribed
+weather and free red-flag fits retain their existing forecasts.
+
+Native search bounds can temporarily relax replacement stock to fresh sets
+and ignore compound obligations, with an extra correction stop allowed when
+needed. They also cap the maximum pit-lane saving under control. These are
+optimistic costs used only to discard slower full-distance continuations;
+every executable choice still comes from the supplied pool with its actual
+age, availability and allowances. Custom model hooks retain isolated actual
+models and bypass these native bounds and field-state memoization.
+
 Finite-pool planning adds work for each distinct driver, set age and forecast.
 Automatic opening selection also compares complete policy paths. Start with a
 small trial count when checking a new pool before running a large ensemble.

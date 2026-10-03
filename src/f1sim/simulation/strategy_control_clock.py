@@ -228,13 +228,45 @@ class StrategyControlContext:
         return replace(self, paid_fit=True)
 
 
+@dataclass(frozen=True, slots=True)
+class ProjectedControlCost:
+    """A feasible continuation ranks completed distance before elapsed time."""
+
+    laps: int
+    seconds: float
+
+    @property
+    def rank(self):
+        return self.laps, -self.seconds
+
+
+def observed_control_key(field):
+    """Keep physical event priority, dropping obsolete scheduler counters."""
+    if type(field) is ObservedStandardField:
+        # A lone lockstep car has no external clock whose phase can change
+        # running, fuel or a future pit discount.
+        return (field.lap, field.intervals_left,
+                field.now if len(field.rows) > 1 else None, tuple(field.rows),
+                field.pre_stop_order, field.pitting)
+    queue = tuple((time, distance, kind, identifier)
+                  for time, distance, _, kind, identifier, generation in sorted(field.queue)
+                  if identifier in field.pending
+                  and field.pending[identifier].generation == generation)
+    pending = tuple((key, tuple(value for name, value in vars(row).items()
+                               if name != "generation")) for key, row in field.pending.items())
+    return (field.now, field.intervals_left, field.updates, tuple(field.order),
+            tuple(vars(field.timeline._clock).items()), tuple(field.timeline.states.items()),
+            pending, queue, tuple(field.free_paces.items()))
+
+
 register_forecast_helpers(globals(), (
     "StandardControlContext", "ObservedStandardField", "StrategyControlContext",
     "ObservedChronologicalField", "safety_car_running_times", "_finite",
-    "_field_observation",
+    "_field_observation", "ProjectedControlCost", "observed_control_key",
 ))
 register_forecast_helpers(vars(ObservedStandardField), (
     "__init__", "fork", "controlled", "running_modifier", "projection_required", "finished",
     "enter", "gap_ahead", "cross",
 ))
 register_forecast_helpers(vars(StrategyControlContext), ("new_field", "for_paid_fit", "__eq__"))
+register_forecast_helpers(vars(ProjectedControlCost), ("rank",))
