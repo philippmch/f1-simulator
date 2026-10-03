@@ -162,17 +162,39 @@ It records finite last-crossing times and DNF status. These conditional checks
 use mean physics, expected service and no incidents; they do not establish a
 globally optimal survival schedule or forecast an actual retirement.
 
-If no complete forecast is feasible, a required stop can still choose the
-available set with the lowest predicted next-lap time. For a timed paid stop,
-that fallback uses the projected surface after expected lane, service and queue
-time, matching the main planner's outlap calculation. Eligibility remains based
-on observed conditions at commitment. Free red-flag refits have no paid-stop
-delay. The fallback does not claim that the chosen set can finish the race;
-later decisions use updated conditions and the remaining physical inventory.
-Its next-lap comparison retains each set's actual wear, pending fitting cost,
-current control conditions and supplied traffic observation: the rejoin gap
-for a paid stop, or the stay gap for a free fit. Candidate physics uses copied
-models, keeping the live race and shared tyre coefficients unchanged.
+When the full planner cannot finish, required stops and free red-flag fits
+compare compulsory continuations through retirement. Legal projected finishes
+take priority; failed paths compare accepted distance, then elapsed time at the
+last crossing, without custom-request ranking credit. For automatic strategy,
+this fallback inserts only required weather, usage-limit and compound
+corrections. A custom plan keeps its remaining executable requests. Neither
+fallback searches future profitable elective stops. Later decisions still
+replan from the observed race, so this is conditional survival evidence rather
+than a claim of globally optimal distance.
+
+The continuation preserves physical identities, wear, usage allowances and
+pending fitting costs. Paid starts include expected lane, service and queue
+delay in their weather clock; free fits add no paid delay. Eligibility uses
+the observed commitment surface. First-lap costs retain current control and
+the supplied rejoin/stay traffic gap, with green clean-air running afterward.
+Fuel uses the original scheduled distance. Failed completion costs remain
+infinite, separate from finite retirement times. If no candidate has a usable
+positive-distance forecast, execution keeps the existing immediate safety
+choice or retires before service when no eligible legal replacement remains.
+Candidate physics uses copied models and consumes no live RNG or service draw.
+Native compulsory continuations evaluate one representative of equal compound,
+wear and expiry at each decision, retaining every physical copy for later use
+and input order for ties. Custom physics keeps separate alternatives. This
+avoids enumerating permutations of interchangeable stock in an exhausted pool.
+
+Run `python examples/check_inventory_continuations.py` for a controlled
+eight-lap drying race starting at surface water `0.24`: one permitted lap on
+hard tyres, four on intermediates and one on wets. After the hard set expires,
+using wets first preserves six accepted laps in total; fitting intermediates
+first retires after five. The diagnostic independently commits each eligible
+replacement, repeats with a free red-flag fit and custom plans in both engines,
+and checks distance and time against actual later execution. All these paths
+still retire; the extra lap does not turn a DNF into a finish.
 
 Red-flag fittings are free changes and can retain the current physical set.
 They consume no paid stop. The physical-set ledger includes opening and later

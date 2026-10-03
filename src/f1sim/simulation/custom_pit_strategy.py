@@ -13,10 +13,11 @@ from math import inf, isfinite
 import numpy as np
 
 from f1sim.cancellation import cancellation_checkpoint
-from f1sim.models._native import forecast_decision, register_forecast_helpers
+from f1sim.models._native import forecast_decision, native_physics, register_forecast_helpers
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.pit_strategy import expected_stationary_time
+from f1sim.simulation.strategy_lap import isolated_strategy_lap
 from f1sim.simulation.strategy_neutralization import current_fitted_time, current_running_time
 from f1sim.simulation.strategy_traffic import normalize_current_traffic_gaps
 from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
@@ -42,6 +43,7 @@ class CustomPitChoice:
     set_id: str | None = None
     laps: int = 0
     instructions: int = 0
+    partial_time: float = inf
 
 
 @forecast_decision
@@ -72,8 +74,10 @@ def choose_custom_pit_replacement(
     then time. A cheap choice cannot win solely by making a later safe request
     unavailable when an equally long continuation can honor it. Other cars retain
     the caller's estimated own-lap horizon. No live finish signal is changed.
-    An infeasible full continuation returns no choice so execution can retain
-    its existing immediate-safety fallback.
+    Legal finishes take priority. If every continuation retires, rank accepted
+    distance and time at the last crossing, without credit for fulfilled requests.
+    Failed completion costs remain infinite; ``partial_time`` retains the finite
+    retirement trace. No choice is returned when no candidate can complete a lap.
     """
     horizon = track.total_laps - current_lap + 1
     if horizon < 1:
@@ -98,6 +102,7 @@ def choose_custom_pit_replacement(
     car = car.model_copy(deep=True)
     simulator = LapSimulator(np.random.default_rng(0))
     prepared = simulator.prepare_deterministic_lap_time(driver, car, track, physical)
+    interchangeable = prepared is not None and native_physics(driver, car, track, weather)
     current_stop = (track.pit_lane_delta * pit_lane_factor
                     + expected_stationary_time(car) + additional_current_stop_cost)
     green_stop = track.pit_lane_delta + expected_stationary_time(car)
@@ -130,10 +135,17 @@ def choose_custom_pit_replacement(
     for compound in used_compounds:
         initial_used |= bits[TireCompound(compound)]
     surface_path = [projected_surfaces(weather, 1)[0]]
-    infeasible = (inf, inf, inf)
+    # Completion status precedes distance, request credit and crossing time.
+    # A retired suffix accepts no further laps and incurs no further service.
+    retired = (1, 0, 0, 0.)
+    unknown = (inf, inf, inf, inf)
 
     def add_stint(laps, seconds, tail, instructions=0):
-        return tail[0] - laps, tail[1] - instructions, tail[2] + seconds
+        return (tail[0], tail[1] - laps,
+                0 if tail[0] else tail[2] - instructions, tail[3] + seconds)
+
+    def finish(laps, seconds, used, instructions=0):
+        return (0, -laps, -instructions, seconds) if legal(used) else retired
 
     def after_crossing(elapsed, seconds, announced):
         if finish_context is None:
@@ -175,10 +187,9 @@ def choose_custom_pit_replacement(
         aero = active_aero_enabled if offset == 0 else True
         gap = gaps[int(stopped_first)] if offset == 0 and gaps is not None else None
         if prepared is None:
-            driver.current_tire_laps = age
-            value = simulator.calculate_lap_time(
-                driver, car, track, tire, surface_path[update], current_lap + offset,
-                physical, sample_variation=False, active_aero_enabled=aero,
+            value = isolated_strategy_lap(
+                simulator, driver, car, track, tire, surface_path[update], current_lap + offset,
+                physical, tire_age=age, active_aero_enabled=aero,
                 gap_to_car_ahead=gap,
             )
         else:
@@ -208,12 +219,12 @@ def choose_custom_pit_replacement(
         outcome = run(offset, selected, fitted_ages, used, paid + 1, fit_delay, True,
                       stopped_first)
         if outcome is None:
-            return infeasible
+            return retired
         cost, next_ages, next_used, next_delay = outcome
         stop = current_stop if offset == 0 else green_stop
         seconds = stop + cost
         if announced:
-            return (-1, -int(requested), seconds) if legal(next_used) else infeasible
+            return finish(1, seconds, next_used, int(requested))
         next_elapsed, next_announced = after_crossing(elapsed, seconds, announced)
         return add_stint(1, seconds, continuation(
             offset + 1, selected, next_ages, next_used, paid + 1, next_delay,
@@ -250,22 +261,31 @@ def choose_custom_pit_replacement(
                 options = tuple(index for index in replacements(current, entry, ages)
                                 if not final or legal(used | bits[compounds[index]]))
             if options is not None:
+                if finite and interchangeable:
+                    # Requests select one physical ID already. Compulsory
+                    # alternatives with equal compound, wear and expiry have
+                    # identical suffix costs; retain their first input identity
+                    # here without removing any remaining copies from the pool.
+                    unique = {}
+                    for index in options:
+                        unique.setdefault((compounds[index], ages[index], expiries[index]), index)
+                    options = tuple(unique.values())
                 best = min((paid_fit(offset, index, ages, used, paid, fit_delay,
                                      stopped_first, elapsed, announced, honors_request)
-                            for index in options), default=infeasible)
+                            for index in options), default=retired)
                 return add_stint(completed, cost, best)
             outcome = run(offset, current, ages, used, paid, fit_delay, pending, stopped_first)
             if outcome is None:
-                return infeasible
+                return add_stint(completed, cost, retired)
             value, ages, used, fit_delay = outcome
             cost += value
             completed += 1
             if announced:
-                return (-completed, 0, cost) if legal(used) else infeasible
+                return finish(completed, cost, used)
             elapsed, announced = after_crossing(elapsed, value, announced)
             pending = False
             offset += 1
-        return (-completed, 0, cost) if legal(used) else infeasible
+        return finish(completed, cost, used)
 
     # Eligibility is the observed commitment surface; the delayed pit-exit
     # surface is used for running pace and feasibility, not eligibility.
@@ -275,7 +295,7 @@ def choose_custom_pit_replacement(
             and surface_path[0].tire_mismatch(compounds[current]) != "critical":
         candidates.insert(0, current)
     choice = CustomPitChoice(inf)
-    best = infeasible
+    best = unknown
     elapsed = 0. if finish_context is None else finish_context.now
     announced = False if finish_context is None else finish_context.announced
     try:
@@ -291,10 +311,12 @@ def choose_custom_pit_replacement(
                         and not legal(initial_used | bits[compounds[index]])):
                     continue
                 score = paid_fit(0, index, ages, initial_used, 0, 0., False, elapsed, announced)
-            if isfinite(score[2]) and score < best:
+            if isfinite(score[3]) and score[1] < 0 and score < best:
                 best = score
-                choice = CustomPitChoice(score[2], compounds[index], identifiers[index],
-                                         -score[0], -score[1])
+                choice = CustomPitChoice(score[3] if not score[0] else inf,
+                                         compounds[index], identifiers[index],
+                                         -score[1], -score[2],
+                                         score[3] if score[0] else inf)
         return choice
     finally:
         continuation.cache_clear()
@@ -305,3 +327,4 @@ register_forecast_helpers(globals(), ("choose_custom_pit_replacement", "project_
                                       "normalize_current_traffic_gaps"))
 register_forecast_helpers(globals(), ("current_running_time", "current_fitted_time"))
 register_forecast_helpers(globals(), ("tire_slot_usable",))
+register_forecast_helpers(globals(), ("isolated_strategy_lap", "native_physics"))

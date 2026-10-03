@@ -190,7 +190,7 @@ def clocked_inventory_fallback(records=None, wetness=.31):
     return sim, state, track, weather, clock
 
 
-def test_clocked_inventory_fallback_ranks_post_service_weather_without_mutation():
+def test_clocked_inventory_fallback_preserves_retirement_distance_without_mutation():
     sim, state, track, weather, clock = clocked_inventory_fallback()
     before_models = deepcopy((state.driver, state.car, track, weather))
     before_inventory = deepcopy(state.tire_inventory.__dict__)
@@ -203,7 +203,9 @@ def test_clocked_inventory_fallback_ranks_post_service_weather_without_mutation(
     assert decision.wait_cost == inf
     assert decision.set_id is None
 
-    assert sim._inventory_immediate_set(state, track, weather, 2) == "W"
+    # Both starts retire after eight further laps, but retaining intermediates
+    # avoids another paid service and beats the faster first wet lap.
+    assert sim._inventory_immediate_set(state, track, weather, 2) == "I"
     post_stop_weather, _ = sim._projected_stint_weather(weather, clock, None, 1)
     assert post_stop_weather.track_wetness == pytest.approx(.28)
     assert sim._inventory_immediate_set(
@@ -219,17 +221,17 @@ def test_clocked_inventory_fallback_ranks_post_service_weather_without_mutation(
     assert sim.rng.bit_generator.state == before_rng
 
 
-def test_inventory_fallback_without_clock_and_free_fit_keep_entry_weather():
+def test_inventory_fallback_and_free_fit_preserve_the_compulsory_continuation():
     sim, state, track, weather, clock = clocked_inventory_fallback()
-    assert sim._inventory_immediate_set(state, track, weather, 2) == "W"
+    assert sim._inventory_immediate_set(state, track, weather, 2) == "I"
     assert sim._inventory_immediate_set(
         state, track, weather, 2, free_fit=True, weather_clock=clock,
-    ) == "W"
+    ) == "I"
 
     assert sim._refit_inventory_free(
         state, track, weather, 1, weather_clock=clock,
     )
-    assert state.tire_inventory.current_set_id == "W"
+    assert state.tire_inventory.current_set_id == "I"
 
 
 def test_clocked_fallback_does_not_make_entry_critical_set_eligible():

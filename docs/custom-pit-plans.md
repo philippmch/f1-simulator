@@ -123,6 +123,15 @@ custom-request ranking credit. A forecasted legal finish retains priority.
 See the [incomplete-opening diagnostic](tyre-inventory.md) for controlled
 comparisons with actual execution.
 
+Compulsory replacements and free fits also retain accepted distance and
+last-crossing time when all remaining custom continuations retire. They keep
+infinite completion cost and receive no request-ranking credit. A legal
+projected finish, including a shorter timed finish, wins over a failed path.
+The continuation still executes safe requests at their specified laps; a
+requested fit is not replaced merely to preserve more distance. The
+[`check_inventory_continuations.py` diagnostic](../examples/check_inventory_continuations.py)
+checks paid and free fits against separately committed physical alternatives.
+
 At a chronological red-flag restart, free fits use the collected field's
 frozen finish horizons, weather clocks and projected-leader identity. Every
 survivor completes that fit before any restart lap is released or new paid

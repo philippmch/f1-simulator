@@ -69,7 +69,7 @@ def inputs(finite=False, plan=(), *, laps=8):
 def execution_costs(simulator, state, track, weather, lap, *, free_fit=False,
                     physical_total_laps=None, weather_intervals=None, weather_clock=None,
                     current_traffic_gaps=None, additional_current_stop_cost=0.,
-                    finish_context=None):
+                    finish_context=None, allow_incomplete=False):
     """Enumerate compulsory alternatives using execution helpers, never a planner.
 
     Every branch fits a real set, runs public lap physics, consumes the real
@@ -82,6 +82,10 @@ def execution_costs(simulator, state, track, weather, lap, *, free_fit=False,
     physical = track.total_laps if physical_total_laps is None else physical_total_laps
     context = simulator.weather_forecast_context
     infeasible = (inf,) * (2 if finish_context is None else 3)
+
+    def failed(state):
+        return ((1, -(state.laps_completed - lap + 1), 0, 0.)
+                if allow_incomplete else infeasible)
 
     def add_seconds(seconds, outcome):
         return (*outcome[:-1], seconds + outcome[-1])
@@ -124,7 +128,7 @@ def execution_costs(simulator, state, track, weather, lap, *, free_fit=False,
     def running(state, offset, paid, first_stop, delay):
         after = surface(offset, paid, first_stop, delay)
         if after.tire_mismatch(state.current_tire.compound) == "critical":
-            return infeasible
+            return failed(state)
         state.driver.current_tire_laps = state.tire_laps
         seconds = LapSimulator().calculate_lap_time(
             state.driver, state.car, track, state.current_tire, after, lap + offset,
@@ -167,9 +171,11 @@ def execution_costs(simulator, state, track, weather, lap, *, free_fit=False,
         if lap + offset > track.total_laps or finished:
             if simulator._stay_satisfies_tire_rule(state) or physical <= 1:
                 requested = -sum(item["status"] == "executed" for item in state.pit_plan_history)
+                if allow_incomplete:
+                    return (0, -(state.laps_completed - lap + 1), requested, 0.)
                 return ((requested, 0.) if finish_context is None else
                         (-state.laps_completed, requested, 0.))
-            return infeasible
+            return failed(state)
         simulator.event_manager.safety_car_active = first_control[0] if offset == 0 else False
         simulator.event_manager.vsc_active = first_control[1] if offset == 0 else False
         entry = surface(offset, paid, first_stop, delay)
@@ -186,7 +192,7 @@ def execution_costs(simulator, state, track, weather, lap, *, free_fit=False,
                 candidates = [option for option in candidates
                               if simulator._pit_plan_satisfies_rule(state, option[0])]
             return min((service(state, offset, paid, first_stop, delay, option)
-                        for option in candidates), default=infeasible)
+                        for option in candidates), default=failed(state))
         return running(state, offset, paid, first_stop, delay)
 
     def forbid_planning(*args, **kwargs):

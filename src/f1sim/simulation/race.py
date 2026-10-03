@@ -3501,10 +3501,10 @@ class RaceSimulator(InventoryStrategyMixin):
         additional_current_stop_cost=0.,
         current_traffic_gaps=None,
     ):
-        """Share the remaining requested policy across paid and free refits."""
+        """Share requested or compulsory-only continuation across paid/free fits."""
         return choose_custom_pit_replacement(
             state.driver, state.car, track, weather, state.current_tire,
-            state.tire_laps, lap, state.pit_plan,
+            state.tire_laps, lap, [] if state.pit_plan is None else state.pit_plan,
             pit_plan_index=state.pit_plan_index, inventory=state.tire_inventory,
             used_compounds=self._actually_used_compounds(state), free_fit=free_fit,
             current_fit_pending=state.fit_lap_pending,

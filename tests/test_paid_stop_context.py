@@ -6,7 +6,7 @@ from math import inf
 
 import numpy as np
 import pytest
-from test_custom_pit_replacements import inputs, snapshot
+from test_custom_pit_replacements import execution_costs, inputs, snapshot
 from test_paid_weather_compounds import exhaustive_safe_actions, models
 
 from f1sim.models import ActiveAeroZone, Car, Driver, TireCompound, Weather
@@ -77,7 +77,7 @@ def test_forced_dry_choice_matches_every_executed_schedule_at_the_lap_floor(stre
 @pytest.mark.parametrize("free", [False, True])
 @pytest.mark.parametrize("control", [False, True])
 @pytest.mark.parametrize("floor", [False, True])
-def test_finite_immediate_fallback_prices_actual_wear_first_gap_and_fit_fee(
+def test_finite_fallback_prices_continuation_wear_first_gap_and_fit_fee(
     monkeypatch, free, control, floor,
 ):
     simulator, state, track = inputs(True, [], laps=5)
@@ -109,10 +109,16 @@ def test_finite_immediate_fallback_prices_actual_wear_first_gap_and_fit_fee(
             value += simulator.tire_warmup[item.compound.value]
         expected[item.id] = value
     before = snapshot(state, simulator)
+    oracle_state = deepcopy(state)
+    oracle_state.pit_plan = []
+    continuations = execution_costs(
+        simulator, oracle_state, track, Weather(), 3, free_fit=free,
+        physical_total_laps=40, current_traffic_gaps=(1., .3))
     calculate, observed = LapSimulator.calculate_lap_time, []
 
     def inspect(*args, **kwargs):
-        observed.append(kwargs.get("gap_to_car_ahead"))
+        observed.append((kwargs.get("lap", args[6] if len(args) > 6 else None),
+                         kwargs.get("gap_to_car_ahead")))
         return calculate(*args, **kwargs)
 
     monkeypatch.setattr(LapSimulator, "calculate_lap_time", inspect)
@@ -121,7 +127,9 @@ def test_finite_immediate_fallback_prices_actual_wear_first_gap_and_fit_fee(
         current_traffic_gaps=(1., .3),
     )
     assert expected[selected] == pytest.approx(min(expected.values()), rel=0, abs=1.e-8)
-    assert observed == [gap] * len(candidates)
+    assert continuations[selected][1] == pytest.approx(min(continuations.values())[1], abs=1.e-8)
+    assert [value for lap, value in observed if lap == 3] == [gap] * len(candidates)
+    assert [value for lap, value in observed if lap > 3] == [None] * (2 * len(candidates))
     assert snapshot(state, simulator) == before
     if not free:
         monkeypatch.setattr(simulator, "_plan_inventory",
@@ -131,7 +139,8 @@ def test_finite_immediate_fallback_prices_actual_wear_first_gap_and_fit_fee(
                                                 physical_total_laps=40,
                                                 current_traffic_gaps=(1., .3))
         assert state.inventory_pit_proposal == (3, selected)
-        assert observed == [gap] * len(candidates)
+        assert [value for lap, value in observed if lap == 3] == [gap] * len(candidates)
+        assert [value for lap, value in observed if lap > 3] == [None] * (2 * len(candidates))
 
 
 @pytest.mark.parametrize("fallback", [False, True])

@@ -498,12 +498,23 @@ and their execution status remains DNF. The
 against independently executed explicit openings in both engines.
 Compulsory replacements and free red-flag choices under a supplied plan use a
 separate continuation over the remaining requested services. It follows the
-same skip, availability and actual-use rules, with compulsory weather and final
-compound corrections but no elective automatic stops. A projected leader's
+same skip, availability and actual-use rules, with compulsory weather,
+physical-set expiry and final compound corrections but no elective automatic
+stops. A projected leader's
 observed deadline also truncates these candidate continuations at the lap after
 expiry, even before the first pace observation. Distance is ranked first,
 fulfilled requests second, and time third. A cheap continuation cannot win by
 making a safe requested set unavailable when an equally long path can honor it.
+Legal finishes take priority over retirement paths. Failed continuations retain
+accepted laps and last-crossing time without request-ranking credit or a finite
+completion cost. When the automatic finite-pool planner has no feasible full
+plan, it uses the same compulsory-only continuation for required replacements
+and free fits. This fallback does not search future elective schedules and
+retains current control only for the first running lap. Execution still replans
+at later decisions. The
+[`check_inventory_continuations.py` diagnostic](../examples/check_inventory_continuations.py)
+compares actual paid and free alternatives in both engines; it does not establish
+a global survival optimum or empirical retirement forecast.
 The existing planning cap still applies. Followers retain their estimated own
 finish horizon and externally observed weather clock. The forecast preserves
 original fuel distance, set wear and post-fit costs and assumes later green

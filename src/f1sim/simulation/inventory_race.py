@@ -183,12 +183,22 @@ class InventoryStrategyMixin:
     def _inventory_immediate_set(self, state, track, weather, lap, *, free_fit=False,
                                  physical_total_laps=None,
                                  weather_clock: StrategyWeatherClock | None = None,
-                                 current_traffic_gaps=None):
-        """Survive the next lap if no complete forecast is feasible.
+                                 current_traffic_gaps=None, weather_intervals=None,
+                                 additional_current_stop_cost=0.):
+        """Preserve a compulsory continuation when the full planner cannot finish.
 
-        Later weather or finish changes can invalidate today's complete plan.
-        A mandatory final correction still requires a genuinely unused compound.
+        Automatic fallback inserts no future elective stops. Custom instructions
+        retain their execution semantics. Unknown or zero-lap continuations keep
+        the immediate safety choice; final corrections still require legal usage.
         """
+        choice = self._custom_plan_replacement_choice(
+            state, track, weather, lap, free_fit=free_fit,
+            physical_total_laps=physical_total_laps, weather_intervals=weather_intervals,
+            weather_clock=weather_clock, current_traffic_gaps=current_traffic_gaps,
+            additional_current_stop_cost=additional_current_stop_cost,
+        )
+        if choice.set_id is not None:
+            return choice.set_id
         car = state.car.model_copy(deep=True)
         track = track.model_copy(deep=True)
         weather = weather.model_copy(deep=True)
@@ -344,8 +354,9 @@ class InventoryStrategyMixin:
             )
             selected = decision.set_id or self._inventory_immediate_set(
                 state, track, weather, lap, physical_total_laps=physical_total_laps,
-                weather_clock=weather_clock,
+                weather_clock=weather_clock, weather_intervals=weather_intervals,
                 current_traffic_gaps=current_traffic_gaps,
+                additional_current_stop_cost=additional_current_stop_cost,
             )
         if selected is None:
             self._retire_without_inventory_tire(state)
@@ -365,6 +376,7 @@ class InventoryStrategyMixin:
         )
         selected = decision.set_id or self._inventory_immediate_set(
             state, track, weather, lap, free_fit=True, physical_total_laps=physical_total_laps,
+            weather_clock=weather_clock, weather_intervals=weather_intervals,
         )
         if selected is None:
             self._retire_without_inventory_tire(state)
