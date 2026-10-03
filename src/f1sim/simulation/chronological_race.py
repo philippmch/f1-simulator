@@ -624,9 +624,18 @@ class ChronologicalRace:
                 or not isfinite(future_delay) or future_delay < 0):
             return None
         try:
+            # _start_lap has just frozen this decision's queue on the state.
+            # Restart forecasts must not reuse an earlier lap's observation.
+            safety_car = state.strategy_safety_car_snapshot
+            running_times = (tuple(branch.running_time(own_pace, modifier)
+                                   for branch in (safety_car.retained, safety_car.stopped))
+                             if safety_car is not None and not restart
+                             and self.simulator.event_manager.safety_car_active
+                             and not self.simulator.event_manager.red_flag_active else None)
             return StrategyWeatherClock(
                 tuple(offsets), first_update - now, leader_pace, available,
                 current_delay, future_delay,
+                current_running_times=running_times,
             )
         except ValueError:
             return None

@@ -1,6 +1,6 @@
 """Pure event-timeline tests for strategy weather update clocks."""
 
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from math import isclose
 
 import numpy as np
@@ -149,3 +149,53 @@ def test_nonnegative_integer_rejects_invalid_or_negative_integral_inputs(value):
 @pytest.mark.parametrize("value", [np.int64(3), np.uint64(3)])
 def test_nonnegative_integer_accepts_numpy_integral_fallback(value):
     assert _nonnegative_integer(value, "value") == 3
+
+
+@pytest.mark.parametrize("first_running", [(80., 110.), (200., 150.)])
+@pytest.mark.parametrize("stopped", [False, True])
+def test_observed_running_moves_later_entries_without_changing_physical_delays(
+    first_running, stopped,
+):
+    clock = _clock(current_running_times=first_running,
+                   current_stop_delay=30., future_stop_delay=40.)
+    for offset in range(1, len(clock.lap_start_offsets)):
+        for later_stops in range(3):
+            paid = later_stops + stopped
+            for fit in (0., 15.):
+                elapsed = first_running[int(stopped)] + (offset - 1) * 170.
+                elapsed += later_stops * 40. + (30. if stopped else 0.) + fit
+                assert clock.updates(offset, paid, stopped, fit_delay=fit) == (
+                    _timeline_count(clock, elapsed))
+    assert clock.current_stop_delay == 30.
+    assert clock.future_stop_delay == 40.
+    assert clock.lap_start_offsets == (0., 170., 340., 510., 680.)
+
+
+def test_running_override_does_not_move_current_entry_or_mutate_its_clock():
+    clock = _clock(current_running_times=(80., 110.))
+    original = replace(clock)
+    baseline = replace(clock, current_running_times=None)
+    assert clock.updates(0, 0) == baseline.updates(0, 0)
+    assert clock.updates(0, 1, True, fit_delay=15.) == baseline.updates(0, 1, True)
+    assert clock.updates(1, 0) != baseline.updates(1, 0)
+    assert clock == original and hash(clock) == hash(original)
+    assert clock != baseline and hash(clock) != hash(baseline)
+    with pytest.raises(FrozenInstanceError):
+        clock.current_running_times = (90., 90.)
+
+
+@pytest.mark.parametrize("value", [[], [80., 110.], (), (80.,), (80., 110., 90.),
+                                   (0., 80.), (80., -1.), (True, 80.),
+                                   (80., float("nan")), (float("inf"), 80.)])
+def test_running_override_rejects_invalid_observations(value):
+    with pytest.raises(ValueError, match="current_running_times"):
+        _clock(current_running_times=value)
+
+
+def test_one_lap_clock_ignores_future_running_and_large_offsets_do_not_overflow_early():
+    clock = _clock(lap_start_offsets=(0.,), current_running_times=(80., 110.))
+    assert clock.updates(0, 0) == 0
+    assert clock.updates(0, 1, True) == 1
+    clock = _clock(lap_start_offsets=(0., 1.e308), first_update_after=1.e308,
+                   update_interval=1.e308, current_running_times=(1.e308, 1.e308))
+    assert clock.updates(1, 0) == 1

@@ -74,6 +74,16 @@ starts. Traffic-related cost adjustments do not advance this physical clock.
 The compound choice uses conditions before service, while its running cost uses
 the projected surface at rejoin; the execution still fits just once.
 
+When the upcoming full-safety-car queue is observable, the external weather
+clock applies that queue to its held free-pace estimate for the first running
+lap. Retaining and stopping use their respective observed entry gaps. Catch-up
+can therefore advance subsequent lap starts across fewer leading weather
+updates, while a slow observed queue can delay them. This replaces only the
+first running interval: later green cadence, physical service and fitting
+delays retain their separate treatment. A missing or unresolved queue keeps
+the uniform control estimate. The clock continues to hold observed free pace
+across candidate compounds; first-lap tyre costs are priced separately.
+
 The external leading clock remains fixed under these comparisons. A candidate
 that is itself the projected leader, including a single-car race, retains the
 own-lap projection so its stationary pit time cannot invent weather updates.

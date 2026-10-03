@@ -48,6 +48,9 @@ class StrategyWeatherClock:
     duration on this clock: the first stop uses ``current_stop_delay`` and
     later stops use ``future_stop_delay``.  Traffic pricing adjustments belong
     outside this object and must not be folded into those physical delays.
+    ``current_running_times`` optionally replaces the first observed running
+    interval for retaining and stopping, respectively. It uses the same held
+    free pace as the nominal cadence; fitting fees are still passed separately.
     """
 
     lap_start_offsets: tuple[float, ...]
@@ -56,6 +59,7 @@ class StrategyWeatherClock:
     max_updates: int
     current_stop_delay: float
     future_stop_delay: float
+    current_running_times: tuple[float, float] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.lap_start_offsets, tuple) or not self.lap_start_offsets:
@@ -92,6 +96,14 @@ class StrategyWeatherClock:
                 self.future_stop_delay, "future_stop_delay"
             )
         )
+        if self.current_running_times is not None:
+            if (not isinstance(self.current_running_times, tuple)
+                    or len(self.current_running_times) != 2):
+                raise ValueError("current_running_times must contain retained and stopped times")
+            object.__setattr__(self, "current_running_times", tuple(
+                _positive_finite(value, "current_running_times values")
+                for value in self.current_running_times
+            ))
 
     def validate_horizon(self, horizon: int) -> None:
         """Require a caller's planning horizon to match the stored starts."""
@@ -126,8 +138,14 @@ class StrategyWeatherClock:
         if self.max_updates == 0:
             return 0
 
+        nominal = self.lap_start_offsets[offset]
+        if offset > 0 and self.current_running_times is not None:
+            # Replace only the observed first running interval. Future green
+            # cadence, physical stops and fitting delays remain separate.
+            nominal = (self.current_running_times[int(stopped_first)]
+                       + (nominal - self.lap_start_offsets[1]))
         try:
-            elapsed = self.lap_start_offsets[offset] + paid_stops * self.future_stop_delay
+            elapsed = nominal + paid_stops * self.future_stop_delay
         except OverflowError:
             return self.max_updates
         # A fit penalty delays future lap entries only. The first running lap
