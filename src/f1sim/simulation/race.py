@@ -1729,11 +1729,7 @@ class RaceSimulator(InventoryStrategyMixin):
         return (intervals is not None and intervals > 0
                 and min(intervals, track.total_laps - lap + 1) <= 6
                 and not self.event_manager.red_flag_active
-                and state.pit_plan is None
-                and (state.tire_inventory is None
-                     or weather.track_wetness == weather.rain_intensity == 0.)
-                and not self._has_weather_schedule()
-                and weather.track_wetness < .08 and weather.rain_intensity < .15)
+                and state.pit_plan is None)
 
     def _standard_dry_control_context(
         self, state, frozen_states, states, track, weather, lap, queue_delay,
@@ -2226,6 +2222,7 @@ class RaceSimulator(InventoryStrategyMixin):
                 weather_intervals=weather_intervals,
                 **traffic_options,
                 **self._safety_car_forecast_options(state),
+                **self._dry_control_forecast_options(state),
                 **({"weather_clock": weather_clock} if weather_clock is not None else {}),
                 **({"tire_warmup": self.tire_warmup,
                     "current_fit_pending": state.fit_lap_pending}
@@ -3536,6 +3533,7 @@ class RaceSimulator(InventoryStrategyMixin):
             remaining_damp_stops=damp_remaining,
             used_compounds=self._actually_used_compounds(state),
             **self._safety_car_forecast_options(state),
+            **self._dry_control_forecast_options(state),
             **self._forecast_options(),
             **({"tire_warmup": self.tire_warmup,
                 "current_fit_pending": state.fit_lap_pending} if self.tire_warmup else {}),
@@ -3680,6 +3678,7 @@ class RaceSimulator(InventoryStrategyMixin):
             active_aero_enabled=self.event_manager.is_active_aero_allowed(),
             traffic_possible=traffic_possible,
             **self._safety_car_forecast_options(state),
+            **self._dry_control_forecast_options(state),
             physical_total_laps=physical_total_laps,
             weather_intervals=weather_intervals,
             **({"weather_clock": weather_clock} if weather_clock is not None else {}),
@@ -3692,7 +3691,7 @@ class RaceSimulator(InventoryStrategyMixin):
             state, track, weather, current_lap, current_overtake_mode_active,
             0.0 if traffic_possible else None, physical_total_laps,
         )
-        return costs.pit_now_cost < costs.stay_cost - gain
+        return costs.should_pit(gain)
 
     @staticmethod
     def _choose_weather_compound(weather: Weather) -> TireCompound | None:

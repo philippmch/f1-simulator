@@ -97,12 +97,13 @@ across candidate compounds; first-lap tyre costs are priced separately.
 Explicit leading update times preserve the slow control prefix and later green
 cadence for both retained and paid branches. Expected paid service and fitting
 fees can move an entry across several of these events, but the flag never adds
-a surface update. This improves entry surfaces and estimated distance. Rain,
-weather-stop and transitional finite-pool cost planners still assume green
-running after the current lap and green losses for later paid stops. Clearly
-dry unlimited-set decisions and finite pools with zero rainfall and standing
-water can price the known control prefix as described below. The remaining
-weather paths do not price a complete future neutralized queue.
+a surface update. With usable observations, dry, rain, reactive weather-stop
+and finite-pool decisions price up to six known control intervals. Weather
+evolves at the actual projected entries, including during paid service and
+under prescribed rainfall. Control discounts apply to later stops committed
+while the field remains neutralized. Once control and pending restrictions
+clear, the existing green policy resumes from the projected surface and a
+rebased weather clock. Missing observations retain the simpler forecast.
 
 The external leading clock remains fixed under these comparisons. A candidate
 that is itself the projected leader, including a single-car race, retains the
@@ -1169,12 +1170,12 @@ SC/VSC running multiplier, before a later stop is allowed. A repeated compound
 is eligible only if the remaining projected schedule can still satisfy the
 dry-use rule. The choice does not sample randomness or alter the race state.
 
-With usable observations during SC or VSC, clearly dry unlimited-set stop timing
-and the committed compound comparison price all known remaining control
-intervals. Finite pools use that field when rainfall and standing water are
-both zero, conserving replacement ages and multiplicity through the prefix.
+With usable observations during SC or VSC, unlimited-set stop timing,
+committed compound selection and finite-pool decisions price the known remaining
+control intervals on dry, damp and wet surfaces. Finite pools conserve
+replacement ages and multiplicity through the prefix.
 Each candidate uses full mean lap physics at its projected track
-entry, with the original scheduled fuel distance and current dry weather pace
+entry, with the original scheduled fuel distance and projected weather pace
 scale. Future stops committed during
 that prefix pay the observed lane discount and expected service. Fitting costs
 follow running and are not multiplied by control pace; another SC lap can
@@ -1189,20 +1190,27 @@ their future tyre choices, stops and incidents remain unknown. Known control
 duration decreases at leading crossings in the chronological engine. If the
 projected flag occurs within the prefix, plans rank completed own laps before
 elapsed time. Once the control and its pending restrictions have ended, the
-comparison uses the existing green suffix with a fixed own-lap horizon and
-clean-air future running. It therefore does not claim a complete optimal field
-strategy or predict later changes of leader, weather or control.
+comparison uses the existing green suffix with a fixed own-lap horizon. Weather
+and prescribed schedules rebase by completed leading updates. A held external
+leader supplies future weather events through the conditional flag; the flag
+adds no update. A leading candidate retains its own-lap weather cadence. Green
+traffic treatment follows the selected planner, including the reactive bound's
+retained-traffic assumption when rivals exist. This remains a conditional
+strategy estimate and does not predict rival decisions or later interventions.
 
 The search covers up to six known intervals, matching the longest native
 deployment; a shorter remaining own-lap horizon can also bound the prefix.
 Missing observations, unresolved rival instructions and longer custom control
-durations keep the existing forecast. Custom pit plans, prescribed weather and
-rain or damp policy paths retain their respective cost models. Finite branches
+durations keep the existing forecast. Custom pit plans, free restart fits and
+already committed paid-fit comparisons retain their existing policy. Finite branches
 return to their physical-set green search after the prefix; optimistic native
 bounds can relax stock for pricing but never invent an executable set. Field
 branches and control-prefix caches belong to one decision and
 never retain the live engine or consume simulation random draws. Existing
-native green cost tables retain their bounded process-local cache.
+native green cost tables retain their bounded process-local cache. Custom model
+hooks use isolated copies with actual driver and team identifiers on every
+hypothesis, including the green suffix; mutable hook state cannot pass between
+alternatives.
 
 Chronological branches reuse frozen scalar finish observations and copy their
 mutable ledger, clock, queue and pending events. Additional mutable ledger

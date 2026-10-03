@@ -1046,13 +1046,15 @@ class ChronologicalRace:
         if (not restart and self.simulator._can_project_dry_control(
                 state, planning, self.weather, lap)):
             context = self._chronological_finish_context(state, now)
-            if context is not None and not any(
+            if (context is not None and isinstance(context.own_pace, Real)
+                    and not isinstance(context.own_pace, bool)
+                    and isfinite(context.own_pace) and context.own_pace > 0 and not any(
                 current_pit_plan_instruction(
                     self.states[row.identifier], row.completed_laps + offset + 1) is not None
                 for row in context.rivals
                 for offset in range(1, min(context.control_intervals,
                                            planning.total_laps - lap + 1) + 1)
-            ):
+            )):
                 stop_delay = (self.track.pit_lane_delta * self.simulator._pit_lane_factor()
                               + expected_stationary_time(state.car) + delay)
                 state.strategy_control_context = StrategyControlContext(context, now, stop_delay)

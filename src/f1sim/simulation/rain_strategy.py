@@ -4,7 +4,7 @@ import json
 import os
 import sys
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from math import inf, isfinite
 from numbers import Integral, Real
@@ -19,14 +19,20 @@ from f1sim.models._native import (
     forecast_dump,
     forecast_json,
     native_forecast_cache,
+    native_physics,
     register_forecast_helpers,
     restore_model,
     shared_forecast_available,
 )
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation import lap as lap_physics  # noqa: F401 - extension compatibility
+from f1sim.simulation.controlled_weather_strategy import (
+    plan_controlled_weather,
+    usable_weather_control,
+)
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.pit_strategy import expected_stationary_time
+from f1sim.simulation.strategy_lap import isolated_strategy_lap, strategy_projection_models
 from f1sim.simulation.strategy_neutralization import current_fitted_time, current_running_time
 from f1sim.simulation.strategy_traffic import normalize_current_traffic_gaps
 from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
@@ -134,9 +140,14 @@ def _shared_green_lap(key, evaluate, tire, surface, lap, age):
 class RainStopDecision:
     pit_now_cost: float
     wait_cost: float
+    pit_now_laps: int | None = field(default=None, kw_only=True)
+    wait_laps: int | None = field(default=None, kw_only=True)
 
     def should_pit(self, tolerance: float = 0.0) -> bool:
         _nonnegative(tolerance, "tolerance")
+        if (self.pit_now_laps is not None and self.wait_laps is not None
+                and self.pit_now_laps != self.wait_laps):
+            return self.pit_now_laps > self.wait_laps
         return self.pit_now_cost + tolerance < self.wait_cost
 
 
@@ -163,10 +174,7 @@ def _clock_rain_stop(
     if safety_car is not None:
         gaps = safety_car.traffic_gaps
     horizon = track.total_laps - current_lap + 1
-    driver = driver.model_copy(deep=True)
-    driver.reset_race_state()
-    driver.id = driver.name = driver.team_id = "projection"
-    clean = car.model_copy(update={"team_id": "projection", "team_name": "projection"})
+    driver, clean = strategy_projection_models(driver, car, track, weather, current_tire)
     models = tuple(forecast_json(model) for model in (driver, clean, track))
     retained_json = forecast_json(current_tire)
     fresh = TIRE_COMPOUNDS[current_tire.compound]
@@ -498,7 +506,9 @@ def _clock_rain_transition(
     horizon = track.total_laps - current_lap + 1
     simulator = LapSimulator(np.random.default_rng(0))
     driver = driver.model_copy(deep=True)
-    driver.reset_race_state()
+    isolated = not native_physics(driver, car, track, weather, current_tire)
+    if not isolated:
+        driver.reset_race_state()
     clean = car.model_copy(deep=True)
     service = expected_stationary_time(clean)
     warmup = tire_warmup
@@ -599,16 +609,18 @@ def _clock_rain_transition(
                 return _shared_green_lap(key, prepared, tire, branch_surface,
                                          current_lap + offset, age)
             return prepared(tire, branch_surface, current_lap + offset, age)
-        driver.current_tire_laps = age
-        value = simulator.calculate_lap_time(
-            driver, clean, track, tire, branch_surface,
-            current_lap + offset, physical_total_laps,
-            active_aero_enabled=(active_aero_enabled if offset == 0 else True),
-            sample_variation=False,
-            gap_to_car_ahead=(
-                gaps[gap_kind] if gaps is not None and gap_kind in (0, 1) else None
-            ),
-        )
+        options = dict(active_aero_enabled=active_aero_enabled if offset == 0 else True,
+                       gap_to_car_ahead=gaps[gap_kind]
+                       if gaps is not None and gap_kind in (0, 1) else None)
+        if isolated:
+            value = isolated_strategy_lap(
+                simulator, driver, clean, track, tire, branch_surface,
+                current_lap + offset, physical_total_laps, tire_age=age, **options)
+        else:
+            driver.current_tire_laps = age
+            value = simulator.calculate_lap_time(
+                driver, clean, track, tire, branch_surface, current_lap + offset,
+                physical_total_laps, sample_variation=False, **options)
         return (current_running_time(value, current_lap_time_modifier, safety_car,
                                      stopped=gap_kind == 1) if offset == 0 else value)
 
@@ -933,11 +945,9 @@ def _running_row(models, weather_json, tire_json, age, lap, physical, intervals=
         if prepared is not None:
             value = prepared(tire, surface, lap + offset, age + offset)
         else:
-            driver.current_tire_laps = age + offset
-            value = simulator.calculate_lap_time(
-                driver, car, track, tire, surface, lap + offset, physical,
-                sample_variation=False,
-            )
+            value = isolated_strategy_lap(
+                simulator, driver, car, track, tire, surface, lap + offset, physical,
+                tire_age=age + offset)
         row.append(value)
     return tuple(row)
 
@@ -1051,13 +1061,16 @@ def plan_rain_stop(
     current_fit_pending: bool = False,
     forecast_context=None,
     safety_car=None,
+    control_context=None,
 ) -> RainStopDecision:
     """Compare stopping now with driving at least one lap before any stop.
 
     Every refit pays service and lane loss and consumes the bounded stop budget.
-    Current neutralization and queue costs apply once; future laps assume green
-    clean air. Rainfall stays fixed while surface wetness evolves. The caller
-    must ensure the same rain compound remains appropriate over the horizon.
+    A usable control_context prices known neutralized entries and later stops;
+    otherwise current neutralization and queue costs apply once. Green suffixes
+    retain the existing clean-air policy. Rainfall stays fixed while surface
+    wetness evolves. The caller must ensure the same rain compound remains
+    appropriate over the horizon.
     Fuel follows physical_total_laps even when track bounds a shorter plan.
     weather_intervals optionally supplies cumulative surface-update counts for
     each remaining own lap, starting at zero; None uses one update per lap.
@@ -1098,6 +1111,15 @@ def plan_rain_stop(
     forecast_context = getattr(intervals, "context", forecast_context)
     horizon = track.total_laps - current_lap + 1
     _validate_weather_clock(weather_clock, horizon)
+    if usable_weather_control(control_context, weather_clock):
+        result = plan_controlled_weather(
+            driver, car, track, weather, current_tire, tire_age, current_lap,
+            min(int(remaining_stops), horizon), control_context=control_context,
+            physical_total_laps=int(physical), tire_warmup=tire_warmup,
+            current_fit_pending=current_fit_pending, forecast_context=forecast_context,
+            require_compound_rule=False, same_compound=True)
+        return RainStopDecision(result.pit.seconds, result.wait.seconds,
+                                pit_now_laps=result.pit.laps, wait_laps=result.wait.laps)
     if weather_clock is not None:
         return _clock_rain_stop(
             driver, car, track, weather, current_tire, int(tire_age), int(current_lap),
@@ -1110,12 +1132,7 @@ def plan_rain_stop(
             forecast_context=forecast_context,
             safety_car=safety_car,
         )
-    clean = driver.model_copy(deep=True)
-    clean.reset_race_state()
-    # Lap physics reads performance attributes, never names or identifiers.
-    # Keep every performance field, including consistency used to compute std.
-    clean.id = clean.name = clean.team_id = "projection"
-    clean_car = car.model_copy(update={"team_id": "projection", "team_name": "projection"})
+    clean, clean_car = strategy_projection_models(driver, car, track, weather, current_tire)
     snapshots = tuple(forecast_json(model) for model in (
         clean, clean_car, track, weather, current_tire, TIRE_COMPOUNDS[current_tire.compound],
     ))
@@ -1367,6 +1384,7 @@ def plan_rain_transition(
     current_fit_pending: bool = False,
     forecast_context=None,
     safety_car=None,
+    control_context=None,
 ) -> RainTransitionDecision:
     """Plan bounded paid stops on a deterministic rainfall/surface projection.
 
@@ -1382,7 +1400,8 @@ def plan_rain_transition(
     prior tyre wear gives no credit. Two slicks or actual rain-tyre use are
     required at the finish. Slick callers must provide it; omitting it for
     retained rain tyres preserves the legacy wet exemption.
-    Every fit runs its fitting lap; future costs assume green clean air.
+    Every fit runs its fitting lap. A usable control_context prices known
+    neutralized entries and stops before resuming the existing green policy.
     Optional slick-state allowances count all paid fits from this decision,
     including earlier rain fits; they never reset on a compound transition.
     """
@@ -1442,6 +1461,16 @@ def plan_rain_transition(
     forecast_context = getattr(intervals, "context", forecast_context)
     horizon = track.total_laps - current_lap + 1
     _validate_weather_clock(weather_clock, horizon)
+    if usable_weather_control(control_context, weather_clock):
+        result = plan_controlled_weather(
+            driver, car, track, weather, current_tire, tire_age, current_lap,
+            min(int(remaining_stops), horizon), control_context=control_context,
+            physical_total_laps=int(physical), tire_warmup=tire_warmup,
+            current_fit_pending=current_fit_pending, forecast_context=forecast_context,
+            used_compounds={TireCompound.WET} if used_compounds is None else used_compounds,
+            remaining_dry_stops=remaining_dry_stops, remaining_damp_stops=remaining_damp_stops)
+        return RainTransitionDecision(result.pit.seconds, result.wait.seconds, result.compound,
+                                      pit_now_laps=result.pit.laps, wait_laps=result.wait.laps)
     if weather_clock is not None:
         # Alternative safe compounds can improve a steady-rain stint too;
         # only the explicit plan_rain_stop API keeps same-compound semantics.
@@ -1461,10 +1490,7 @@ def plan_rain_transition(
             forecast_context=forecast_context,
             safety_car=safety_car,
         )
-    clean = driver.model_copy(deep=True)
-    clean.reset_race_state()
-    clean.id = clean.name = clean.team_id = "projection"
-    clean_car = car.model_copy(update={"team_id": "projection", "team_name": "projection"})
+    clean, clean_car = strategy_projection_models(driver, car, track, weather, current_tire)
     snapshots = tuple(forecast_json(model) for model in (
         clean, clean_car, track, weather, current_tire,
     )) + (json.dumps({compound.value: forecast_dump(tire)
@@ -1487,6 +1513,8 @@ register_forecast_helpers(globals(), (
     "_native_green_model_available", "_equivalent_clock_branches",
     "_shared_clock_node", "_shared_refit_cost", "_store_refit_cost",
     "_budget_clock_branches",
+    "strategy_projection_models", "isolated_strategy_lap", "native_physics",
+    "plan_controlled_weather", "usable_weather_control",
 ))
 register_forecast_helpers(vars(StrategyWeatherClock), ("updates", "validate_horizon"))
 register_forecast_helpers(globals(), ("current_running_time", "current_fitted_time"))

@@ -169,12 +169,16 @@ def test_distance_ranking_precedes_cost_and_team_bias(pit_laps, wait_laps, expec
     assert decision.should_pit(.1) is expected
 
 
-@pytest.mark.parametrize("free_fit,wetness,rain", [(True, 0., 0.), (False, .05, 0.),
-                                                (False, .2, .8)])
-def test_free_fits_and_changing_surfaces_retain_the_existing_forecast(free_fit, wetness, rain):
+@pytest.mark.parametrize("free_fit,paid,wetness,rain", [(True, False, 0., 0.),
+                                                     (True, False, .05, 0.),
+                                                     (True, False, .2, .8),
+                                                     (False, True, .2, .8)])
+def test_free_and_already_paid_fits_retain_the_existing_forecast(free_fit, paid, wetness, rain):
     driver, car, track, weather, inventory = pool_fixture(4)
     weather.track_wetness, weather.rain_intensity = wetness, rain
     context = single_car_context(track, car, "sc", 4)
+    if paid:
+        context = context.for_paid_fit()
     options = dict(free_fit=free_fit, used_compounds={TireCompound.HARD}, tire_age=14)
     assert plan_inventory_strategy(driver, car, track, weather, inventory, 1, **options) == (
         plan_inventory_strategy(driver, car, track, weather, inventory, 1,

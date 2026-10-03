@@ -13,12 +13,18 @@ from f1sim.models._native import (
     forecast_decision,
     forecast_dump,
     native_forecast_cache,
+    native_physics,
     register_forecast_helpers,
     restore_model,
 )
 from f1sim.models.tire import TIRE_COMPOUNDS
+from f1sim.simulation.controlled_weather_strategy import (
+    plan_controlled_weather,
+    usable_weather_control,
+)
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.pit_strategy import expected_stationary_time
+from f1sim.simulation.strategy_lap import isolated_strategy_lap, strategy_projection_models
 from f1sim.simulation.strategy_neutralization import current_fitted_time, current_running_time
 from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.surface_projection import (
@@ -34,6 +40,14 @@ from f1sim.simulation.weather_schedule import paid_compound_candidates, project_
 class WeatherStopCosts:
     pit_now_cost: float
     stay_cost: float
+    pit_now_laps: int | None = None
+    stay_laps: int | None = None
+
+    def should_pit(self, running_gain=0.):
+        if (self.pit_now_laps is not None and self.stay_laps is not None
+                and self.pit_now_laps != self.stay_laps):
+            return self.pit_now_laps > self.stay_laps
+        return self.pit_now_cost < self.stay_cost - running_gain
 
 
 def _validate_weather_clock(weather_clock, horizon):
@@ -53,7 +67,9 @@ def _clock_weather_stop_costs(
     horizon = track.total_laps - current_lap + 1
     simulator = LapSimulator(np.random.default_rng(0))
     driver = driver.model_copy(deep=True)
-    driver.reset_race_state()
+    isolated = not native_physics(driver, car, track, weather, current_tire)
+    if not isolated:
+        driver.reset_race_state()
     clean = car.model_copy(deep=True)
     service = expected_stationary_time(clean)
     projected = [weather]
@@ -85,20 +101,23 @@ def _clock_weather_stop_costs(
     @lru_cache(maxsize=None)
     def running(offset, tire_key, compound, age, gap_kind, surface_id):
         tire = current_tire if tire_key == "retained" else TIRE_COMPOUNDS[compound]
-        driver.current_tire_laps = age
         # A proposed stop's out-lap is the optimistic clear-air bound.  The
         # retained branch keeps the observed traffic gap when that control is
         # enabled; future free-green laps are clear air in either branch.
         gap = (0.0 if traffic_possible else None) if gap_kind == 2 else None
         if offset == 0 and safety_car is not None:
             gap = safety_car.traffic_gaps[int(gap_kind == 1)]
-        value = simulator.calculate_lap_time(
-            driver, clean, track, tire, observed_surfaces[surface_id],
-            current_lap + offset, physical_total_laps,
-            gap_to_car_ahead=gap,
-            active_aero_enabled=(active_aero_enabled if offset == 0 else True),
-            sample_variation=False,
-        )
+        options = dict(gap_to_car_ahead=gap,
+                       active_aero_enabled=active_aero_enabled if offset == 0 else True)
+        if isolated:
+            value = isolated_strategy_lap(
+                simulator, driver, clean, track, tire, observed_surfaces[surface_id],
+                current_lap + offset, physical_total_laps, tire_age=age, **options)
+        else:
+            driver.current_tire_laps = age
+            value = simulator.calculate_lap_time(
+                driver, clean, track, tire, observed_surfaces[surface_id],
+                current_lap + offset, physical_total_laps, sample_variation=False, **options)
         return (current_running_time(value, current_lap_time_modifier, safety_car,
                                      stopped=gap_kind == 1) if offset == 0 else value)
 
@@ -248,8 +267,12 @@ def _surface_path(weather: Weather, laps: int, intervals=None) -> tuple[Weather,
 
 def _running(simulator, driver, car, track, tire, weather, lap, age, *, gap=None, aero=True,
              physical_total_laps=None):
-    driver.current_tire_laps = age  # Projection owns this isolated driver.
     total_laps = track.total_laps if physical_total_laps is None else physical_total_laps
+    if not native_physics(driver, car, track, tire, weather):
+        return isolated_strategy_lap(simulator, driver, car, track, tire, weather,
+                                     lap, total_laps, tire_age=age,
+                                     gap_to_car_ahead=gap, active_aero_enabled=aero)
+    driver.current_tire_laps = age
     return simulator.calculate_lap_time(
         driver, car, track, tire, weather, lap, total_laps,
         gap_to_car_ahead=gap, active_aero_enabled=aero, sample_variation=False,
@@ -374,6 +397,7 @@ def weather_stop_costs(
     current_fit_pending: bool = False,
     forecast_context=None,
     safety_car=None,
+    control_context=None,
 ) -> WeatherStopCosts:
     """Compare retaining while safe with an optimistic schedule of paid refits.
 
@@ -381,7 +405,9 @@ def weather_stop_costs(
     Every currently noncritical first fit is priced, including suboptimal
     alternatives. Later refits may use any noncritical fresh set without
     budget or compound-rule
-    constraints, but pay the full expected stop cost. The waiting alternative
+    constraints, but pay expected service and lane loss. A usable control_context
+    prices known neutralized entries and stops before the existing green policy
+    resumes. The waiting alternative
     retains each set until it becomes critical, then pays for an appropriate
     fresh set before running that lap. Only a currently critical set bypasses
     the veto. This is a cost bound under projected weather, not a forecast.
@@ -401,9 +427,20 @@ def weather_stop_costs(
     if type(current_fit_pending) is not bool:
         raise ValueError("current_fit_pending must be boolean")
     _validate_weather_clock(weather_clock, horizon)
+    controlled = usable_weather_control(control_context, weather_clock)
     weather_json = json.dumps(forecast_dump(weather), sort_keys=True)
     if weather.tire_mismatch(current_tire.compound) == "critical":
         return WeatherStopCosts(0.0, inf)
+    if controlled:
+        result = plan_controlled_weather(
+            driver, car, track, weather, current_tire, tire_age, current_lap, horizon,
+            control_context=control_context, physical_total_laps=physical_total_laps,
+            require_compound_rule=False, retained_weather_bound=True,
+            traffic_possible=traffic_possible,
+            tire_warmup=tire_warmup, current_fit_pending=current_fit_pending,
+            forecast_context=forecast_context)
+        return WeatherStopCosts(result.pit.seconds, result.wait.seconds,
+                                result.pit.laps, result.wait.laps)
     if weather_clock is not None:
         return _clock_weather_stop_costs(
             driver, car, track, weather, current_tire, int(tire_age), int(current_lap),
@@ -416,12 +453,7 @@ def weather_stop_costs(
             forecast_context=forecast_context,
             safety_car=safety_car,
         )
-    clean = driver.model_copy(deep=True)
-    clean.reset_race_state()
-    # Names and identifiers do not enter lap or service physics. Normalize
-    # only those fields so equivalent entrants can share immutable plans.
-    clean.id = clean.name = clean.team_id = "projection"
-    clean_car = car.model_copy(update={"team_id": "projection", "team_name": "projection"})
+    clean, clean_car = strategy_projection_models(driver, car, track, weather, current_tire)
     snapshots = (forecast_dump(clean), forecast_dump(clean_car), forecast_dump(track),
                  {compound.value: forecast_dump(tire) for compound, tire in TIRE_COMPOUNDS.items()})
     driver_json, car_json, track_json, tires_json = (
@@ -483,3 +515,7 @@ register_forecast_helpers(globals(), ('_running', '_surface_path'))
 
 register_forecast_helpers(globals(), ("project_next_surface", "paid_compound_candidates"))
 register_forecast_helpers(globals(), ("current_running_time", "current_fitted_time"))
+register_forecast_helpers(globals(), (
+    "isolated_strategy_lap", "strategy_projection_models", "native_physics",
+    "plan_controlled_weather", "usable_weather_control",
+))

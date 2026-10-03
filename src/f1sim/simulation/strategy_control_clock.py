@@ -1,4 +1,4 @@
-"""Observed field clocks for a bounded SC/VSC prefix of dry strategy."""
+"""Observed field clocks for a bounded SC/VSC prefix of strategy planning."""
 
 from copy import copy
 from dataclasses import dataclass, replace

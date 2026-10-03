@@ -11,6 +11,10 @@ import numpy as np
 from f1sim.cancellation import cancellation_checkpoint
 from f1sim.models._native import forecast_json, native_physics, register_forecast_helpers
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
+from f1sim.simulation.controlled_weather_strategy import (
+    plan_controlled_weather,
+    usable_weather_control,
+)
 from f1sim.simulation.lap import LapSimulator, minimum_lap_time
 from f1sim.simulation.pit_strategy import SLICKS, _floor_tables, expected_stationary_time
 from f1sim.simulation.strategy_control_clock import (
@@ -18,6 +22,12 @@ from f1sim.simulation.strategy_control_clock import (
     ProjectedControlCost,
     StrategyControlContext,
     observed_control_key,
+)
+from f1sim.simulation.strategy_lap import (
+    control_lap_memo,
+    control_wear_bound,
+    isolated_strategy_lap,
+    memoized_control_lap,
 )
 from f1sim.simulation.strategy_neutralization import current_fitted_time, current_running_time
 from f1sim.simulation.strategy_traffic import normalize_current_traffic_gaps
@@ -65,6 +75,8 @@ def _clock_inventory_strategy(
     prepared_lap_time = simulator.prepare_deterministic_lap_time(
         driver, car, track, physical_total_laps,
     )
+    shared_laps = (control_lap_memo(driver, car, track, physical_total_laps)
+                   if prepared_lap_time is not None else None)
     service = expected_stationary_time(car)
     green_stop = track.pit_lane_delta + service
     current_stop = track.pit_lane_delta * pit_lane_factor + service \
@@ -118,11 +130,13 @@ def _clock_inventory_strategy(
         aero_enabled = active_aero_enabled if offset == 0 else True
         gap = (gaps[first_kind]
                if first_kind is not None and gaps is not None else None)
-        if prepared_lap_time is None:
-            driver.current_tire_laps = age
-            value = simulator.calculate_lap_time(
-                driver, car, track, tire, surface, lap_number,
-                physical_total_laps, sample_variation=False,
+        if shared_laps is not None:
+            value = memoized_control_lap(shared_laps, prepared_lap_time, tire, surface,
+                                         lap_number, age, gap, aero_enabled)
+        elif prepared_lap_time is None:
+            value = isolated_strategy_lap(
+                simulator, driver, car, track, tire, surface, lap_number,
+                physical_total_laps, tire_age=age,
                 active_aero_enabled=aero_enabled, gap_to_car_ahead=gap,
             )
         else:
@@ -369,6 +383,10 @@ def _clock_inventory_strategy(
 
     @lru_cache(maxsize=1)
     def lower_bounds():
+        if shared_laps is not None:
+            common = control_wear_bound(driver, car, track, physical_total_laps, current_lap)
+            if common is not None:
+                return common
         value = _conserved_wear_lower_bounds(
             horizon, initial_ages, lower_critical, lower_running,
         )
@@ -578,6 +596,20 @@ def plan_inventory_strategy(
     mask = 0
     for compound in used_compounds:
         mask |= bits[TireCompound(compound).value]
+    if (usable_weather_control(control_context, weather_clock) and not free_fit
+            and not controlled):
+        current = inventory.sets.get(inventory.current_set_id)
+        tire = TIRE_COMPOUNDS[TireCompound.MEDIUM if current is None else current.compound]
+        result = plan_controlled_weather(
+            driver, car, track, weather, tire, tire_age, current_lap, remaining_stops,
+            control_context=control_context, physical_total_laps=physical,
+            used_compounds=used_compounds, remaining_dry_stops=remaining_dry_stops,
+            remaining_damp_stops=remaining_damp_stops, inventory=inventory,
+            force_stop=force_stop, require_compound_rule=require_compound_rule,
+            tire_warmup=tire_warmup, current_fit_pending=current_fit_pending,
+            forecast_context=forecast_context)
+        return InventoryDecision(result.pit.seconds, result.wait.seconds, result.set_id,
+                                 result.compound, result.pit.laps, result.wait.laps)
     if weather_clock is not None and not controlled:
         return _clock_inventory_strategy(
             driver, car, track, weather, inventory, current_lap,
@@ -626,16 +658,9 @@ def plan_inventory_strategy(
         aero_enabled = active_aero_enabled if first else True
         gap = gaps[first_kind] if first and gaps is not None else None
         if prepared_lap_time is None:
-            lap_driver = driver.model_copy(deep=True) if controlled else driver
-            lap_driver.current_tire_laps = age
-            value = simulator.calculate_lap_time(
-                lap_driver,
-                car.model_copy(deep=True) if controlled else car,
-                track.model_copy(deep=True) if controlled else track,
-                tire.model_copy(deep=True) if controlled else tire,
-                surfaces[offset].model_copy(deep=True) if controlled else surfaces[offset],
-                current_lap + offset,
-                physical, sample_variation=False,
+            value = isolated_strategy_lap(
+                simulator, driver, car, track, tire, surfaces[offset],
+                current_lap + offset, physical, tire_age=age,
                 active_aero_enabled=aero_enabled, gap_to_car_ahead=gap,
             )
         else:
@@ -1052,4 +1077,6 @@ register_forecast_helpers(globals(), (
     "ObservedStandardField", "StrategyControlContext", "ProjectedControlCost",
     "observed_control_key", "native_physics",
     "_floor_tables", "forecast_json", "minimum_lap_time",
+    "isolated_strategy_lap", "plan_controlled_weather", "usable_weather_control",
+    "control_lap_memo", "memoized_control_lap", "control_wear_bound",
 ))
