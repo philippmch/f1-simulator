@@ -77,6 +77,39 @@ def test_scheduled_finish_and_unavailable_forecast():
     assert engine._projected_progress("B", 7371, 81, now=7040) is not None
 
 
+def test_late_nonleading_crossing_does_not_announce_a_finish_on_handoff():
+    engine = fixture()
+    engine.track = Track(id="t", name="T", country="T", total_laps=90, base_lap_time=100.)
+    engine.running_paces = {"A": 100., "B": 110.}
+    # A's leading lap 70 precedes expiry. B then crosses the same lap after
+    # expiry, while A is in service: B's crossing cannot announce the finish.
+    events = [(7199. * lap / 70, -lap, "A") for lap in range(1, 71)]
+    events += [(7230. * lap / 70, -lap, "B") for lap in range(1, 71)]
+    for time, negative_lap, driver in sorted(events):
+        active = max(state.completed_laps for state in engine.timeline.states.values())
+        engine.timeline.observe_crossing(driver, -negative_lap, time,
+                                         is_leader=-negative_lap > active)
+    for key, time in (("A", 7199.), ("B", 7230.)):
+        engine.states[key].laps_completed = 70
+        engine.states[key].total_time = time
+    engine.order = ["B"]
+    engine.pending = {"A": _PendingLap(71, 7199., 9000., Weather(), True,
+                                       engine.states["A"].current_tire, 0, 0.,
+                                       on_track=False, expected_exit=7222.)}
+    assert engine._forecast_leader() is engine.states["B"]
+    assert not engine.timeline.time_limit_announced
+    before = pickle.dumps(engine.timeline), deepcopy(engine.simulator.rng.bit_generator.state)
+    assert engine._projected_flag_time(7230.) == 7450.
+    assert engine._planning_track(engine.states["B"], 7230.).total_laps == 72
+    assert before == (pickle.dumps(engine.timeline), engine.simulator.rng.bit_generator.state)
+    actual = deepcopy(engine.timeline)
+    actual.observe_crossing("A", 71, 7322., is_leader=True)
+    actual.observe_crossing("B", 71, 7340.)
+    actual.observe_crossing("A", 72, 7422., is_leader=True)
+    finish = actual.observe_crossing("B", 72, 7450.)
+    assert finish.completed_laps == 72 and finish.finish_time == 7450.
+
+
 def test_long_pit_exit_does_not_project_finished_leader_back_into_traffic(monkeypatch):
     simulator = RaceSimulator(np.random.default_rng(4))
     engine = ChronologicalRace(simulator)

@@ -18,6 +18,7 @@ def forecast_final_lap(
     current_lap_time_modifier: float = 1.0,
     *,
     next_lap_start_time: float | None = None,
+    time_limit_announced: bool | None = None,
 ) -> int:
     """Estimate strategy distance without announcing or changing the finish.
 
@@ -29,7 +30,16 @@ def forecast_final_lap(
     whether the time limit has already expired.  A caller projecting a restart
     may provide ``next_lap_start_time`` separately when an elapsed suspension
     places the upcoming lap well after that crossing.
+
+    An explicit signal distinguishes an authoritative timed announcement from
+    a later same-distance crossing after expiry. The latter still needs the
+    first expiring leading crossing and its following lap. Omitting the signal
+    retains the older assumption that an expired crossing announced the finish.
     """
+    if time_limit_announced is not None and type(time_limit_announced) is not bool:
+        return scheduled_final_lap
+    if time_limit_announced is True:
+        return min(scheduled_final_lap, completed_lap + 1)
     values = (crossing_time, running_pace, time_limit_seconds, current_lap_time_modifier)
     if any(isinstance(value, bool) or not isinstance(value, Real)
            or not isfinite(value) for value in values):
@@ -43,7 +53,7 @@ def forecast_final_lap(
         return scheduled_final_lap
     if running_pace <= 0 or current_lap_time_modifier <= 0 or crossing_time < 0:
         return scheduled_final_lap
-    if crossing_time >= time_limit_seconds:
+    if crossing_time >= time_limit_seconds and time_limit_announced is not False:
         return min(scheduled_final_lap, completed_lap + 1)
     next_crossing = (crossing_time if next_lap_start_time is None else next_lap_start_time)
     next_crossing += running_pace * current_lap_time_modifier

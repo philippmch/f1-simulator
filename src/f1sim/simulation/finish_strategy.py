@@ -1,19 +1,23 @@
-"""Bounded finish-distance checks for chronological elective pit stops.
+"""Bounded finish-distance checks for elective pit stops.
 
-The chronological engine's ordinary strategy planner answers a local question:
-whether a stop pays for itself under its configured policy horizon.  The
-helpers in this module answer a narrower safety question before that stop is
-committed.  They compare two direct, deterministic distance forecasts under
-the same projected leading flag:
+The ordinary strategy planner prices a stop over its estimated lap horizon.
+These helpers separately compare the distance achieved by two deterministic
+continuations before committing it:
 
 * staying on the fitted set, using the observed gap only for the first lap;
 * stopping now, using an optimistic replacement and clean air thereafter.
 
-The stop forecast is intentionally an upper bound on what a stop can achieve.
-It does not run a strategy policy, reserve an inventory set, sample service or
-traffic, or claim a global optimum.  A veto is therefore made only when the
-feasible retained forecast completes strictly more laps than that optimistic
-bound.
+Followers use an external projected flag. Leading candidates instead supply
+their own crossings to a conditional timed clock, alongside frozen observed
+rival forecasts. Each path can therefore change the leading announcement and
+flag time. Standard execution shares the final lap; chronological execution
+finishes each car at its own crossing after the flag.
+
+After a mean outlap the stop runs at the native lap model's absolute floor,
+without further service, weather or traffic constraints. It is an optimistic
+distance bound under that model and the frozen rival streams. A veto requires
+a feasible retained path with strictly more laps. No strategy policy, physical
+fit, reservation or future random draw is made, and no global optimum is claimed.
 """
 
 from collections.abc import Callable, Iterable
@@ -21,10 +25,75 @@ from dataclasses import dataclass
 from math import isfinite
 from numbers import Integral, Real
 
+from f1sim.cancellation import cancellation_checkpoint
 from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather
+from f1sim.models._native import register_forecast_helpers
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.lap import LapSimulator, minimum_lap_time
 from f1sim.simulation.warmup import tire_warmup_seconds, validate_tire_warmup
+from f1sim.simulation.weather_schedule import WeatherForecastContext
+
+
+@dataclass(frozen=True)
+class RivalFinishForecast:
+    """A frozen rival crossing stream, excluding future elective services."""
+
+    completed_laps: int
+    next_crossing_time: float
+    running_pace: float
+    identifier: str | None = None
+    fitting_cost: float = 0.
+
+
+@dataclass(frozen=True)
+class LeadingFinishContext:
+    """Observed timed signal and rival crossings for a leading candidate.
+
+    The candidate supplies its own counterfactual crossings. Each rival keeps
+    its observed recurring pace after the first expected crossing. ``lockstep``
+    retains the standard engine's shared distance and one-update-per-lap weather.
+    """
+
+    time_limit_seconds: float
+    announced: bool = False
+    rivals: tuple[RivalFinishForecast, ...] = ()
+    forecast_context: WeatherForecastContext | None = None
+    lockstep: bool = False
+
+
+class _LeadingProjection:
+    """Advance only leading crossings established by this path's history."""
+
+    def __init__(self, context, current_lap, maximum_lap):
+        self.context = context
+        self.next_lap = current_lap
+        self.maximum_lap = maximum_lap
+        self.announced = context.announced
+        self.flag_time = None
+        self.flag_lap = None
+        self.updates = 0
+        self.crossings = {}
+        for lap in range(current_lap, maximum_lap + 1):
+            cancellation_checkpoint()
+            self.crossings[lap] = min((
+                rival.next_crossing_time
+                + (lap - rival.completed_laps - 1) * rival.running_pace
+                for rival in context.rivals
+            ), default=float("inf"))
+
+    def observe_until(self, time, *, candidate_lap=None):
+        if candidate_lap is not None:
+            self.crossings[candidate_lap] = min(self.crossings[candidate_lap], time)
+        while self.flag_time is None and self.next_lap <= self.maximum_lap:
+            crossing = self.crossings[self.next_lap]
+            if crossing > time:
+                break
+            if self.announced or self.next_lap == self.maximum_lap:
+                self.flag_time, self.flag_lap = crossing, self.next_lap
+                break
+            self.announced = crossing >= self.context.time_limit_seconds
+            self.updates += 1
+            self.next_lap += 1
 
 
 @dataclass(frozen=True)
@@ -127,7 +196,7 @@ def evaluate_finish_protection(
     current_lap: int,
     weather: Weather,
     now: float,
-    projected_flag_time: float,
+    projected_flag_time: float | None,
     max_scheduled_lap: int,
     *,
     lap_simulator: LapSimulator | None = None,
@@ -142,6 +211,7 @@ def evaluate_finish_protection(
     projected_surface_at: Callable[[float], Weather] | None = None,
     tire_warmup=None,
     current_fit_pending: bool = False,
+    leading_finish_context: LeadingFinishContext | None = None,
 ) -> FinishProtectionResult:
     """Compare retained and optimistic-stop distances through the finish.
 
@@ -154,6 +224,11 @@ def evaluate_finish_protection(
     ends at the first crossing at or after ``projected_flag_time`` or at
     ``max_scheduled_lap``. Equal completed distances preserve the native
     decision, including when a terminal crossing equals the projected flag.
+
+    A leading candidate can instead supply ``leading_finish_context``. The
+    timed announcement then follows the first leading crossing at expiry and
+    the flag follows the next leading crossing, for each candidate path. Rival
+    streams can supply those crossings while the candidate is in service.
     """
     if not isinstance(current_lap, Integral) or isinstance(current_lap, bool):
         return _invalid_result("invalid current lap")
@@ -168,8 +243,26 @@ def evaluate_finish_protection(
     if _valid_nonnegative(now) is None:
         return _invalid_result("invalid current time")
     flag = _valid_nonnegative(projected_flag_time)
-    if flag is None:
+    if flag is None and leading_finish_context is None:
         return _invalid_result("missing projected flag")
+    if leading_finish_context is not None:
+        context = leading_finish_context
+        if (type(context) is not LeadingFinishContext
+                or _valid_nonnegative(context.time_limit_seconds) is None
+                or type(context.announced) is not bool or type(context.lockstep) is not bool
+                or type(context.rivals) is not tuple
+                or (context.forecast_context is not None
+                    and type(context.forecast_context) is not WeatherForecastContext)):
+            return _invalid_result("invalid leading finish context")
+        for rival in context.rivals:
+            if (type(rival) is not RivalFinishForecast
+                    or type(rival.completed_laps) is not int
+                    or not 0 <= rival.completed_laps < current_lap
+                    or _valid_nonnegative(rival.next_crossing_time) is None
+                    or rival.next_crossing_time < now
+                    or _valid_nonnegative(rival.fitting_cost) is None
+                    or _valid_positive(rival.running_pace) is None):
+                return _invalid_result("invalid rival finish forecast")
     modifier = _valid_positive(current_lap_time_modifier)
     if modifier is None:
         return _invalid_result("invalid current lap modifier")
@@ -204,8 +297,6 @@ def evaluate_finish_protection(
         except (TypeError, ValueError, AttributeError):
             return None
 
-    projection_driver = _copy_driver(driver)
-
     def path(
         tire: Tire,
         age: int,
@@ -216,9 +307,18 @@ def evaluate_finish_protection(
         fitted: bool = False,
     ) -> tuple[int, float] | None:
         """Return (distance, terminal crossing) for one deterministic path."""
+        projection_driver = _copy_driver(driver)
+        projection_car = car.model_copy(deep=True)
+        projection_track = track.model_copy(deep=True)
+        tire = _copy_tire(tire)
         entry = entry_time
         projected_age = int(age)
+        leading = (_LeadingProjection(leading_finish_context, current_lap, max_scheduled_lap)
+                   if leading_finish_context is not None else None)
+        surface = _surface_copy(base_surface)
+        surface_updates = 0
         for lap_number in range(current_lap, max_scheduled_lap + 1):
+            cancellation_checkpoint()
             if future_green_floor and lap_number > current_lap:
                 # This is deliberately an optimistic bound: after the actual
                 # outlap, future stop-side laps use the shared absolute green
@@ -226,15 +326,30 @@ def evaluate_finish_protection(
                 # demand that the original replacement remain suitable.
                 lap_time = minimum_lap_time(track)
             else:
-                surface = surface_at(entry)
+                if leading is None:
+                    surface = surface_at(entry)
+                else:
+                    leading.observe_until(entry)
+                    updates = (lap_number - current_lap if leading.context.lockstep
+                               else leading.updates)
+                    try:
+                        while surface_updates < updates:
+                            cancellation_checkpoint()
+                            forecast = leading.context.forecast_context
+                            surface = (surface.project_surface() if forecast is None else
+                                       forecast.advanced(surface_updates).project_next(surface))
+                            surface_updates += 1
+                        surface = _surface_copy(surface)
+                    except (TypeError, ValueError, AttributeError, OverflowError):
+                        return None
                 if surface is None or surface.tire_mismatch(tire.compound) == "critical":
                     return None
                 projection_driver.current_tire_laps = projected_age
                 try:
                     lap_time = physics.calculate_lap_time(
                         projection_driver,
-                        car,
-                        track,
+                        projection_car,
+                        projection_track,
                         tire,
                         surface,
                         lap_number,
@@ -246,7 +361,9 @@ def evaluate_finish_protection(
                                               and lap_number == current_lap),
                         sample_variation=False,
                     )
-                except (TypeError, ValueError, OverflowError, AttributeError):
+                except (TypeError, ValueError, OverflowError, AttributeError, KeyError):
+                    # Identity-keyed extensions may have no observation for a
+                    # copied driver. An unavailable counterfactual cannot veto.
                     return None
                 if (isinstance(lap_time, bool) or not isinstance(lap_time, Real)
                         or not isfinite(float(lap_time)) or float(lap_time) <= 0):
@@ -260,7 +377,14 @@ def evaluate_finish_protection(
             if not isfinite(crossing) or crossing < entry:
                 return None
             distance = lap_number - current_lap + 1
-            if crossing >= flag or lap_number == max_scheduled_lap:
+            if leading is not None:
+                leading.observe_until(crossing, candidate_lap=lap_number)
+                finished = (leading.flag_lap is not None and lap_number >= leading.flag_lap
+                            if leading.context.lockstep else
+                            leading.flag_time is not None and crossing >= leading.flag_time)
+            else:
+                finished = crossing >= flag
+            if finished or lap_number == max_scheduled_lap:
                 return distance, crossing
             entry = crossing
             projected_age += 1
@@ -275,6 +399,7 @@ def evaluate_finish_protection(
     # aged, and the same immutable replacement can be considered by callers
     # that intentionally pass duplicate records.
     for option in stop_candidates:
+        cancellation_checkpoint()
         tire = TIRE_COMPOUNDS[option.compound].model_copy(deep=True)
         candidate = path(
             tire,
@@ -348,3 +473,11 @@ def evaluate_finish_protection(
         veto=veto,
         reason="retained distance exceeds optimistic stop bound" if veto else None,
     )
+
+
+register_forecast_helpers(globals(), (
+    "LeadingFinishContext", "RivalFinishForecast", "_LeadingProjection", "replacement_options",
+    "evaluate_finish_protection", "_copy_driver", "_copy_tire", "_valid_nonnegative",
+    "_valid_positive", "_surface_copy",
+))
+register_forecast_helpers(vars(_LeadingProjection), ("__init__", "observe_until"))

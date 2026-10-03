@@ -19,6 +19,7 @@ from f1sim.models._native import (
 )
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
 from f1sim.simulation.custom_pit_strategy import CustomPitFinishContext
+from f1sim.simulation.finish_strategy import LeadingFinishContext
 from f1sim.simulation.pit_plans import (
     initialize_pit_plan_state,
     override_pit_plan_instruction,
@@ -339,6 +340,15 @@ def _policy_path_outcome(driver, car, track, weather, strategy, tuning, profiles
             **({"physical_total_laps": track.total_laps}
                if planning_final_lap < track.total_laps else {}),
         ))
+        if (should_pit and custom_stop is not True and observed_running_pace is not None
+                and simulator._protect_leading_finish_distance(
+                    state, planning_track, projected, lap,
+                    LeadingFinishContext(finish_clock.time_limit_seconds,
+                                         finish_clock.time_limit_announced,
+                                         forecast_context=simulator.weather_forecast_context),
+                    physical_total_laps=track.total_laps)):
+            simulator._clear_one_lap_pit_proposals(state)
+            should_pit = False
         if not should_pit and state.pit_plan_override_reason is not None:
             override_pit_plan_instruction(state, state.pit_plan_override_reason)
         if should_pit:
@@ -389,6 +399,6 @@ register_forecast_helpers(globals(), ('_policy_path_outcome', '_mean_policy_scor
                                       'OpeningPolicyScore', 'paid_compound_candidates',
                                       'has_prescribed_weather',
                                       'initialize_pit_plan_state', 'override_pit_plan_instruction',
-                                      'CustomPitFinishContext'))
+                                      'CustomPitFinishContext', 'LeadingFinishContext'))
 
 register_forecast_values(globals(), ("REACTION_SEEDS", "OPENING_CANDIDATES", "SLICKS"))

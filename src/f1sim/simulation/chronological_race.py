@@ -18,7 +18,11 @@ from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.custom_pit_strategy import CustomPitFinishContext
 from f1sim.simulation.events import EventType, RaceEvent
 from f1sim.simulation.execution import validate_starting_tire_ages, validate_starting_tires
-from f1sim.simulation.finish_strategy import ReplacementOption, evaluate_finish_protection
+from f1sim.simulation.finish_strategy import (
+    LeadingFinishContext,
+    RivalFinishForecast,
+    evaluate_finish_protection,
+)
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.neutralization import safety_car_running_time
 from f1sim.simulation.pit_plans import (
@@ -39,7 +43,6 @@ from f1sim.simulation.tire_inventory import validate_tire_inventory
 from f1sim.simulation.validation import validate_unique_ids
 from f1sim.simulation.weather_schedule import (
     WeatherForecastContext,
-    paid_compound_candidates,
     validate_weather_schedule,
 )
 
@@ -301,6 +304,13 @@ class ChronologicalRace:
             self._fit_red_flag_set(state, *restart_plans[driver_id])
             if state.status != DriverStatus.RACING:
                 self._retire(driver_id, resume, state.dnf_reason)
+        leading_context = (self._leading_finish_context(forecast_leader, resume, restart=True)
+                           if forecast_leader is not None
+                           and forecast_leader.status == DriverStatus.RACING else None)
+        for state in self.states.values():
+            state.strategy_leading_finish_context = (
+                leading_context if state is forecast_leader else None
+            )
         for driver_id in list(self.order):
             state = self.states[driver_id]
             pending = self.pending.get(driver_id)
@@ -398,6 +408,9 @@ class ChronologicalRace:
                         self.timeline.time_limit_seconds, next_modifier,
                         **({"next_lap_start_time": now}
                            if resumed_after_suspension else {}),
+                        **({"time_limit_announced": False}
+                           if pending is None and crossing_time >= self.timeline.time_limit_seconds
+                           else {}),
                     )
                     laps_left = max(0, projected_final - anchor_lap)
                 flag_time += laps_left * leader_pace
@@ -645,8 +658,6 @@ class ChronologicalRace:
             return "race control active"
         if now is None or not isfinite(now):
             return "invalid current time"
-        if self._forecast_leader() is state:
-            return "candidate is projected leader"
         if self.weather.tire_mismatch(state.current_tire.compound) == "critical":
             return "current tire is critical"
         inventory = state.tire_inventory
@@ -663,60 +674,41 @@ class ChronologicalRace:
 
     def _finish_replacement_options(self, state, *, lap, planning=None):
         """Use a known native replacement, or retain an optimistic option set."""
-        inventory = state.tire_inventory
-        if inventory is not None:
-            proposal = state.inventory_pit_proposal
-            if proposal is not None and proposal[0] == lap:
-                selected = next((item for item in inventory.replacements()
-                                 if item.id == proposal[1]), None)
-                if (selected is not None
-                        and self.weather.tire_mismatch(selected.compound) != "critical"):
-                    return (ReplacementOption(selected.compound, selected.age, selected.id),)
-            return tuple(ReplacementOption(item.compound, item.age, item.id)
-                         for item in inventory.replacements())
+        return self.simulator._finish_replacement_options(
+            state, self.weather, lap=lap, planning=planning,
+        )
 
-        if (self.simulator._has_weather_schedule()
-                or self.weather.track_wetness >= .08 or self.weather.rain_intensity >= .15):
-            candidates = paid_compound_candidates(
-                self.weather, self.simulator.weather_forecast_context,
-            )
-            target = state.pit_plan_target
-            if target is not None and target in candidates:
-                return (ReplacementOption(target),)
-            if planning is not None:
-                candidates = tuple(compound for compound in candidates
-                                   if self.simulator._automatic_weather_fit_is_eligible(
-                                       state, self.weather, compound, lap, planning))
-            proposals = [state.weather_pit_proposal]
-            if self.weather.track_wetness < .08 and self.weather.rain_intensity < .15:
-                proposals.append(state.dry_pit_proposal)
-            for proposal in proposals:
-                if proposal is not None and proposal[0] == lap and proposal[1] in candidates:
-                    return (ReplacementOption(proposal[1]),)
-            # The complete paid chooser selects from these observed-safe fits.
-            # An unresolved choice remains an optimistic distance bound, without
-            # another policy search, service sample, or strategy RNG consumption.
-            return tuple(ReplacementOption(compound) for compound in candidates)
-
-        # Execution's precedence is weather-required compound, then the
-        # weather planner's selected slick, then the dry planner's selected
-        # slick.  Calling none of the fallback rankers here avoids policy/DP
-        # work and leaves an unknown fallback optimistically unbounded.
-        weather_compound = self.simulator._choose_weather_compound(self.weather)
-        if weather_compound is not None:
-            return (ReplacementOption(weather_compound),)
-        weather_proposal = state.weather_pit_proposal
-        if (weather_proposal is not None and weather_proposal[0] == lap
-                and weather_proposal[1] in paid_compound_candidates(self.weather)
-                and (planning is None or self.simulator._automatic_weather_fit_is_eligible(
-                    state, self.weather, weather_proposal[1], lap, planning))):
-            return (ReplacementOption(weather_proposal[1]),)
-        dry_proposal = state.dry_pit_proposal
-        if (dry_proposal is not None and dry_proposal[0] == lap
-                and self.weather.track_wetness < 0.08
-                and self.weather.rain_intensity < 0.15):
-            return (ReplacementOption(dry_proposal[1]),)
-        return None
+    def _leading_finish_context(self, state, now, *, restart=False):
+        """Freeze rival crossings and the timed signal before a leading stop."""
+        timeline = getattr(self, "timeline", None)
+        if timeline is None or timeline.chequered_time is not None:
+            return None
+        rivals = []
+        modifier = self.simulator.event_manager.get_lap_time_modifier()
+        for other in self.states.values():
+            if other is state or other.status != DriverStatus.RACING:
+                continue
+            pending = None if restart else self.pending.get(other.driver.id)
+            pace = self.running_paces.get(other.driver.id)
+            if pace is None and pending is not None:
+                pace = pending.running or None
+            if pace is None or not isfinite(pace) or pace <= 0:
+                return None
+            if pending is not None and pending.on_track:
+                first = max(now, pending.ready)
+            else:
+                expected_exit = (self._pending_service_exit(other.driver.id, pending, now)
+                                 if pending is not None else now)
+                if expected_exit is None:
+                    return None
+                first = max(now, expected_exit) + pace * modifier
+                first += self._pending_fit_cost(other.driver.id)
+            if not isfinite(first):
+                return None
+            rivals.append(RivalFinishForecast(other.laps_completed, first, pace,
+                                             other.driver.id))
+        return LeadingFinishContext(timeline.time_limit_seconds, timeline.time_limit_announced,
+                                    tuple(rivals), self.simulator.weather_forecast_context)
 
     def _protect_elective_finish_distance(
         self, state, planning, now, delay, traffic, *, restart=False,
@@ -725,8 +717,15 @@ class ChronologicalRace:
         reason = self._finish_protection_skip_reason(state, restart=restart, now=now)
         if reason is not None:
             return False
-        flag_time = self._projected_flag_time(now, restart=restart)
-        if flag_time is None or not isfinite(flag_time):
+        leading_context = state.strategy_leading_finish_context if restart else None
+        if self._forecast_leader() is state:
+            if not restart:
+                leading_context = self._leading_finish_context(state, now)
+            if leading_context is None:
+                return False
+        flag_time = (None if leading_context is not None
+                     else self._projected_flag_time(now, restart=restart))
+        if leading_context is None and (flag_time is None or not isfinite(flag_time)):
             return False
         physical_total = self.track.total_laps
         # ``planning`` is an observed-pace strategy horizon.  The protection
@@ -776,6 +775,8 @@ class ChronologicalRace:
             **({"tire_warmup": self.simulator.tire_warmup,
                 "current_fit_pending": state.fit_lap_pending}
                if self.simulator.tire_warmup else {}),
+            **({"leading_finish_context": leading_context}
+               if leading_context is not None else {}),
         )
         return result.veto
 
@@ -786,6 +787,7 @@ class ChronologicalRace:
         lap = state.laps_completed + 1
         control = self.simulator.event_manager
         if restart_planning is None:
+            state.strategy_leading_finish_context = None
             state.strategy_finish_context = (
                 CustomPitFinishContext(now, self.timeline.time_limit_seconds,
                                        self.timeline.time_limit_announced)

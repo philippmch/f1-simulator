@@ -38,6 +38,12 @@ decisions and free tyre choices; chronological races also map the leader's
 estimated finish time to each car's own remaining laps and include completed
 suspension extensions.
 
+The actual timed announcement remains distinct from elapsed clock expiry.
+A car can cross the leader's already-completed lap after expiry without
+announcing the finish. If that car supplies the next strategy forecast while
+the previous leader is in service, the estimate still includes the first
+expiring leading crossing and the crossing after it.
+
 Chronological forecasts resolve equal completed distances using physical
 on-track order, ahead of cars still in the pits, rather than stale crossing
 times. A pitting car a full lap ahead retains distance priority. A pending stop
@@ -83,24 +89,45 @@ globally optimal timed strategy. After a timed announcement, the next leading
 crossing remains authoritative even if a lapped driver inherits the lead.
 Original scheduled fuel distance remains separate from all strategy horizons.
 
-Before committing an elective stop, the chronological engine also checks whether
-the stop would sacrifice a completed lap under the projected leading finish.
+Before committing an elective stop, both engines also check whether a leading
+car would sacrifice a completed lap. The chronological engine applies the same
+check to followers under their external projected leading finish.
 It compares a mean-pace continuation on the fitted tyre with an optimistic stop
 continuation: expected lane, service and queue time, a mean outlap, then later
 laps at the lap model's minimum time without further pit or traffic losses.
-Both paths end at their first crossing at or after the same projected flag, or
-at the original scheduled distance. A stop is cancelled only when retaining the
-tyre remains feasible and completes more laps than this optimistic stop path.
+For followers, both paths end at their first crossing at or after the same
+projected flag. For a leading candidate, each path supplies its own crossings
+to the timed clock: the first leading crossing at expiry announces the finish,
+and the next leading crossing supplies the flag. Frozen rival streams can lead
+while the candidate is in service. A rival crossing just before expiry can
+therefore preserve an extra lap that an isolated-car forecast would miss.
+Every path remains capped at the original scheduled distance.
+A stop is cancelled only when retaining the tyre remains feasible and completes
+more laps than this optimistic stop path.
 Equal-distance decisions retain the ordinary strategy planner's choice.
 
-This check uses persistent rainfall and the shared leading weather clock at
-projected track-entry times, including the expected pit exit. It consumes no
-future weather or service draws and does not fit or reserve physical tyre sets.
+Each rival starts from its committed on-track crossing or expected unfinished
+service and optional fitting cost, then holds its observed free pace. Standard
+decisions also include earlier stops committed in that lap's reservation order.
+Collected chronological restarts freeze the original leading candidate's rival
+view after all free tyre fits and before any running or paid service resumes.
+Future elective rival stops, battles and interruptions are unknown.
+
+The check projects persistent rainfall or a prescribed schedule at track entry,
+including expected pit exit. Standard paths retain one weather update per shared
+lap; chronological paths follow leading crossings, including updates during
+service and excluding the flag. It consumes no future weather or service draws
+and does not fit or reserve physical tyre sets. Finite-pool comparisons preserve
+the proposed replacement's identity and wear. Automatic opening comparisons use
+the same guard when executing their isolated policy paths.
 Forced repairs, critical tyre mismatch, unavailable fitted sets and unresolved
 compound-use requirements remain under the existing compulsory-stop rules.
-The check also remains inactive under race control, for the projected leader,
-or without a usable forecast. It protects distance under these conditional
-mean-pace assumptions; it does not guarantee the sampled race outcome or solve
+Explicit executable pit instructions retain their requested stop. The check
+remains inactive under race control or without a usable forecast, including
+copied inputs unavailable to a custom physics hook or an unresolved committed
+rival fit with differing possible fitting costs.
+It protects distance under the native lap model and these conditional mean-pace
+assumptions; it does not guarantee the sampled race outcome or solve
 the complete timed strategy problem.
 
 Pit-rejoin traffic uses the same projected finish time, even before the timed

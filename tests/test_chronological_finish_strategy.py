@@ -209,7 +209,7 @@ def decision_snapshot(monkeypatch):
 
 
 @pytest.mark.parametrize("exclusion", [
-    "repair", "critical", "compound_rule", "unavailable", "leader",
+    "repair", "critical", "compound_rule", "unavailable", "leader_without_clock",
     "safety_car_active", "vsc_active", "red_flag_active", "missing_clock",
 ])
 def test_compulsory_and_uncertain_decisions_are_not_vetoed(monkeypatch, exclusion):
@@ -225,7 +225,9 @@ def test_compulsory_and_uncertain_decisions_are_not_vetoed(monkeypatch, exclusio
         state.tire_inventory = TireInventory([TireSet("current", TireCompound.MEDIUM, 0)])
         state.tire_inventory.fit("current")
         state.tire_inventory.unavailable_ids.add("current")
-    elif exclusion == "leader":
+    elif exclusion == "leader_without_clock":
+        # A leading candidate needs an authoritative timed signal and frozen
+        # rival crossings. This isolated decision fixture has neither.
         monkeypatch.setattr(engine, "_forecast_leader", lambda: state)
     elif exclusion == "missing_clock":
         monkeypatch.setattr(engine, "_weather_projection_clock", lambda *a, **k: None)

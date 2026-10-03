@@ -18,6 +18,12 @@ from f1sim.simulation.custom_pit_strategy import (
 )
 from f1sim.simulation.events import EventManager, EventType, RaceEvent
 from f1sim.simulation.execution import validate_starting_tire_ages, validate_starting_tires
+from f1sim.simulation.finish_strategy import (
+    LeadingFinishContext,
+    ReplacementOption,
+    RivalFinishForecast,
+    evaluate_finish_protection,
+)
 from f1sim.simulation.inventory_race import (
     InventoryStrategyMixin,
     _timed_stop_budget_envelope,
@@ -134,6 +140,8 @@ class DriverRaceState:
     # Transient observed leader clock for conditional custom replacements.
     # Followers use the engine's existing estimated own-lap planning horizon.
     strategy_finish_context: CustomPitFinishContext | None = None
+    # Frozen leading finish comparison, separate from a custom plan's search.
+    strategy_leading_finish_context: LeadingFinishContext | None = None
 
     def __post_init__(self) -> None:
         """Seed tyre history from the driver's actual starting set."""
@@ -544,6 +552,9 @@ class RaceSimulator(InventoryStrategyMixin):
                 self.event_manager.get_lap_time_modifier(),
                 **({"next_lap_start_time": planning_next_lap_start}
                    if planning_next_lap_start is not None else {}),
+                **({"time_limit_announced": False}
+                   if not finish_clock.time_limit_announced
+                   and planning_crossing_time >= finish_clock.time_limit_seconds else {}),
             )
             planning_track = (track if planning_final_lap == track.total_laps else
                               track.model_copy(update={"total_laps": planning_final_lap}))
@@ -580,12 +591,16 @@ class RaceSimulator(InventoryStrategyMixin):
 
             # Decide every stop before sampling service or running laps. Both
             # pit-box queues use frozen lap-start clocks as arrival proxies.
+            leading_context = self._standard_leading_finish_context(
+                lap_start_states, leader, observed_running_pace, finish_clock,
+            )
             for state in states:
                 state.strategy_finish_context = (
                     CustomPitFinishContext(state.total_time, finish_clock.time_limit_seconds,
                                            finish_clock.time_limit_announced)
                     if state.pit_plan is not None and state is leader else None
                 )
+                state.strategy_leading_finish_context = leading_context if state is leader else None
             drivers_pitting = self._process_pit_stops(
                 states, lap_start_states, planning_track, current_weather, lap,
                 **({"physical_total_laps": track.total_laps}
@@ -1303,6 +1318,151 @@ class RaceSimulator(InventoryStrategyMixin):
             status=status,
         )
 
+    def _standard_leading_finish_context(self, states, leader, running_paces, finish_clock):
+        """Freeze the standard loop's known recurring pace and leading signal."""
+        own_pace = running_paces.get(leader.driver.id)
+        if own_pace is None or not isfinite(own_pace) or own_pace <= 0:
+            return None
+        rivals = []
+        modifier = self.event_manager.get_lap_time_modifier()
+        for other in states:
+            if other.driver.id == leader.driver.id or other.status != DriverStatus.RACING:
+                continue
+            pace = running_paces.get(other.driver.id)
+            if pace is None or not isfinite(pace) or pace <= 0:
+                return None
+            fit_cost = (self.tire_warmup.get(other.current_tire.compound.value, 0.)
+                        if other.fit_lap_pending else 0.)
+            crossing = other.total_time + pace * modifier + fit_cost
+            if not isfinite(crossing) or crossing < leader.total_time:
+                return None
+            rivals.append(RivalFinishForecast(other.laps_completed, crossing, pace,
+                                             other.driver.id, fit_cost))
+        return LeadingFinishContext(finish_clock.time_limit_seconds,
+                                    finish_clock.time_limit_announced, tuple(rivals),
+                                    self.weather_forecast_context, lockstep=True)
+
+    @staticmethod
+    def _clear_one_lap_pit_proposals(state):
+        state.dry_pit_proposal = None
+        state.weather_pit_proposal = None
+        state.inventory_pit_proposal = None
+        state.pit_decision_context = None
+
+    def _finish_replacement_options(self, state, weather, *, lap, planning=None):
+        """Use a known native replacement, or retain an optimistic option set."""
+        inventory = state.tire_inventory
+        if inventory is not None:
+            proposal = state.inventory_pit_proposal
+            if proposal is not None and proposal[0] == lap:
+                selected = next((item for item in inventory.replacements()
+                                 if item.id == proposal[1]), None)
+                if (selected is not None
+                        and weather.tire_mismatch(selected.compound) != "critical"):
+                    return (ReplacementOption(selected.compound, selected.age, selected.id),)
+            return tuple(ReplacementOption(item.compound, item.age, item.id)
+                         for item in inventory.replacements())
+        if (self._has_weather_schedule()
+                or weather.track_wetness >= .08 or weather.rain_intensity >= .15):
+            candidates = paid_compound_candidates(weather, self.weather_forecast_context)
+            if state.pit_plan_target is not None and state.pit_plan_target in candidates:
+                return (ReplacementOption(state.pit_plan_target),)
+            if planning is not None:
+                candidates = tuple(compound for compound in candidates
+                                   if self._automatic_weather_fit_is_eligible(
+                                       state, weather, compound, lap, planning))
+            proposals = [state.weather_pit_proposal]
+            if weather.track_wetness < .08 and weather.rain_intensity < .15:
+                proposals.append(state.dry_pit_proposal)
+            for proposal in proposals:
+                if proposal is not None and proposal[0] == lap and proposal[1] in candidates:
+                    return (ReplacementOption(proposal[1]),)
+            return tuple(ReplacementOption(compound) for compound in candidates)
+
+        # Mirror execution precedence without running its fallback policy search.
+        # An unknown fallback remains optimistic across all configured fits.
+        weather_compound = self._choose_weather_compound(weather)
+        if weather_compound is not None:
+            return (ReplacementOption(weather_compound),)
+        proposal = state.weather_pit_proposal
+        if (proposal is not None and proposal[0] == lap
+                and proposal[1] in paid_compound_candidates(weather)
+                and (planning is None or self._automatic_weather_fit_is_eligible(
+                    state, weather, proposal[1], lap, planning))):
+            return (ReplacementOption(proposal[1]),)
+        proposal = state.dry_pit_proposal
+        if (proposal is not None and proposal[0] == lap
+                and weather.track_wetness < .08 and weather.rain_intensity < .15):
+            return (ReplacementOption(proposal[1]),)
+        return None
+
+    def _protect_leading_finish_distance(
+        self, state, track, weather, lap, context, *, physical_total_laps=None,
+        additional_current_stop_cost=0., traffic_snapshot=None,
+        committed_losses=None, active_states=None,
+    ):
+        """Cancel an elective leading stop only when its distance bound loses."""
+        control = self.event_manager
+        if (context is None or state.force_pit_next_lap or control.safety_car_active
+                or control.vsc_active or control.red_flag_active
+                or weather.tire_mismatch(state.current_tire.compound) == "critical"
+                or not self._stay_satisfies_tire_rule(state)):
+            return False
+        if (state.tire_inventory is not None
+                and state.tire_inventory.current_set_id in state.tire_inventory.unavailable_ids):
+            return False
+        if active_states is not None:
+            active = {other.driver.id: other for other in active_states
+                      if other.status == DriverStatus.RACING}
+            losses = committed_losses or {}
+            rivals = []
+            for rival in context.rivals:
+                if rival.identifier not in active:
+                    continue
+                if rival.identifier in losses:
+                    alternatives = self._finish_replacement_options(
+                        active[rival.identifier], weather, lap=lap, planning=track,
+                    )
+                    compounds = (TIRE_COMPOUNDS if alternatives is None else
+                                 (item.compound for item in alternatives))
+                    fit_costs = {self.tire_warmup.get(compound.value, 0.)
+                                 for compound in compounds}
+                    if len(fit_costs) != 1:
+                        # Fitting alternatives can put this leading crossing
+                        # on either side of expiry. Do not guess a timed phase
+                        # before the rival's replacement has been resolved.
+                        return False
+                    fit_cost = next(iter(fit_costs))
+                    rival = replace(
+                        rival, next_crossing_time=rival.next_crossing_time
+                        + losses[rival.identifier] + fit_cost - rival.fitting_cost,
+                        fitting_cost=fit_cost,
+                    )
+                rivals.append(rival)
+            context = replace(context, rivals=tuple(rivals))
+        physical = physical_total_laps or track.total_laps
+        physical_track = (track if physical == track.total_laps
+                          else track.model_copy(update={"total_laps": physical}, deep=True))
+        replacements = self._finish_replacement_options(state, weather, lap=lap, planning=track)
+        if replacements == ():
+            return False
+        gap = traffic_snapshot.gap_ahead if traffic_snapshot is not None else None
+        result = evaluate_finish_protection(
+            state.driver, state.car, physical_track, state.current_tire, state.tire_laps,
+            lap, weather, state.total_time, None, physical,
+            physical_total_laps=physical,
+            expected_lane_loss=track.pit_lane_delta * self._pit_lane_factor(),
+            expected_service_time=expected_stationary_time(state.car),
+            expected_queue_delay=additional_current_stop_cost,
+            observed_gap=gap,
+            current_overtake_mode_active=self._strategy_overtake_mode_active(
+                state, physical_track, lap, weather, gap,
+            ),
+            replacements=replacements, leading_finish_context=context,
+            tire_warmup=self.tire_warmup, current_fit_pending=state.fit_lap_pending,
+        )
+        return result.veto
+
     def _process_pit_stops(
         self,
         states: list[DriverRaceState],
@@ -1361,6 +1521,14 @@ class RaceSimulator(InventoryStrategyMixin):
                     **({"physical_total_laps": physical_total_laps}
                        if physical_total_laps is not None else {}),
                 )
+            if (should_pit and custom_stop is not True
+                    and self._protect_leading_finish_distance(
+                        state, track, weather, lap, state.strategy_leading_finish_context,
+                        physical_total_laps=physical_total_laps,
+                        additional_current_stop_cost=delay, traffic_snapshot=traffic_snapshot,
+                        committed_losses=expected_losses, active_states=states)):
+                self._clear_one_lap_pit_proposals(state)
+                should_pit = False
             if not should_pit and state.pit_plan_override_reason is not None:
                 override_pit_plan_instruction(
                     state, state.pit_plan_override_reason,
@@ -3262,6 +3430,7 @@ register_forecast_helpers(globals(), (
     "skip_pit_plan_instruction", "override_pit_plan_instruction", "commit_pit_plan_service",
     "choose_custom_pit_replacement", "CustomPitFinishContext",
     "normalize_current_traffic_gaps",
+    "LeadingFinishContext", "RivalFinishForecast", "evaluate_finish_protection",
 ))
 register_forecast_helpers(vars(RaceSimulator), (
     "_has_weather_schedule", "_choose_forecast_paid_compound",
@@ -3269,5 +3438,7 @@ register_forecast_helpers(vars(RaceSimulator), (
     "_custom_pit_plan_decision", "_prepare_pit_plan_stop", "_pit_plan_compulsory_reason",
     "_pit_plan_replacement", "_commit_pit_plan_if_due",
     "_custom_plan_replacement_choice", "_execute_pit_stop", "_choose_red_flag_tire",
+    "_standard_leading_finish_context", "_finish_replacement_options",
+    "_protect_leading_finish_distance", "_clear_one_lap_pit_proposals",
 ))
 register_forecast_helpers(vars(InventoryStrategyMixin), ("_plan_inventory",))

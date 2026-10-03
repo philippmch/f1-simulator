@@ -42,3 +42,12 @@ def test_strategy_forecast_does_not_announce_finish():
     assert clock.final_lap == 90
     assert not clock.time_limit_announced
     assert clock.winner_time is None
+
+
+def test_late_nonleading_crossing_cannot_invent_a_timed_announcement():
+    assert forecast_final_lap(90, 70, 7230., 110., 7200., time_limit_announced=False) == 72
+    assert forecast_final_lap(90, 70, 7230., 110., 7200.) == 71
+
+
+def test_known_timed_signal_needs_only_one_more_leading_crossing():
+    assert forecast_final_lap(90, 60, 6990., None, 7200., time_limit_announced=True) == 61

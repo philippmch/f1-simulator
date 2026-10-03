@@ -24,11 +24,20 @@ def test_free_fits_finish_before_releasing_any_restart_lap(
     monkeypatch.setattr(control, "_check_random_incident", lambda *args, **kwargs: None)
     monkeypatch.setattr(simulator.overtaking_model, "attempt_overtake",
                         lambda *args, **kwargs: (False, False))
-    events, frozen, fitted, choices = [], {}, {}, {}
+    events, frozen, fitted, choices, leading_views = [], {}, {}, {}, []
     planning_track = engine._planning_track
     fit = engine._fit_red_flag_set
     begin_running = engine._begin_running
     choose = simulator._custom_plan_replacement_choice
+    leading_context = engine._leading_finish_context
+
+    def capture_leading_context(state, now, *, restart=False):
+        context = leading_context(state, now, restart=restart)
+        if restart:
+            assert fitted.keys() == engine.states.keys()
+            assert not engine.expected_box_releases
+            leading_views.append((state.driver.id, context))
+        return context
 
     def capture_horizon(state, now, *, restart=False):
         planning = planning_track(state, now, restart=restart)
@@ -57,6 +66,10 @@ def test_free_fits_finish_before_releasing_any_restart_lap(
         if engine.suspensions and start == engine.suspensions[-1][1]:
             assert fitted.keys() == engine.states.keys()
             assert not engine.free_refits
+            assert len(leading_views) == 1 and leading_views[0][0] == "A"
+            assert state.strategy_leading_finish_context is (
+                leading_views[0][1] if state.driver.id == "A" else None
+            )
             events.append(("running", state.driver.id))
         begin_running(state, pending, start)
 
@@ -64,6 +77,7 @@ def test_free_fits_finish_before_releasing_any_restart_lap(
     monkeypatch.setattr(engine, "_fit_red_flag_set", capture_fit)
     monkeypatch.setattr(engine, "_begin_running", capture_running)
     monkeypatch.setattr(simulator, "_custom_plan_replacement_choice", capture_choice)
+    monkeypatch.setattr(engine, "_leading_finish_context", capture_leading_context)
     drivers = [Driver(id=key, name=key, team_id=key, skill_rating=skill)
                for key, skill in (("A", .4), ("B", 1.))]
     cars = {key: Car(team_id=key, team_name=key, base_pace=pace)
@@ -87,6 +101,7 @@ def test_free_fits_finish_before_releasing_any_restart_lap(
     assert all(kind == "running" for kind, _ in events[4:])
     assert frozen["A"][1] is not None
     assert frozen["B"][1] is None
+    assert leading_views[0][1] is not None
     assert all(row.status == DriverStatus.FINISHED and row.race_time_limited for row in results)
     if finite and follower_custom and leader_paid:
         # Only keeping S available now can fulfill the later H request in the
