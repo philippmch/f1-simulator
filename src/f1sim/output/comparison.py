@@ -28,6 +28,7 @@ _PIT_DECISION_LABELS = {
     "dry_forecast": "Dry forecast",
     "rain_forecast": "Rain forecast",
     "inventory_forecast": "Inventory forecast",
+    "tyre_usage_limit": "Tyre usage limit",
     "neutralization_window": "Neutralization window",
     "planned_window": "Planned window",
     "user_plan": "Custom pit plan",

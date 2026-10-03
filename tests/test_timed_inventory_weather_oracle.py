@@ -25,6 +25,8 @@ def enumerate_sets(models, inventory, clock, options):
     horizon = track.total_laps - current_lap + 1
     ages = {key: item.age for key, item in sets.items()}
     ages[initial] = options["tire_age"]
+    expiries = {key: inf if item.remaining_laps is None else item.age + item.remaining_laps
+                for key, item in sets.items()}
     free = options["free_fit"]
     best = {key: inf for key in ids}
     events = [clock.first_update_after + index * clock.update_interval
@@ -47,6 +49,8 @@ def enumerate_sets(models, inventory, clock, options):
             return
         before = surface_at(clock.lap_start_offsets[offset] + delay)
         for target in ids:
+            if wear[target] >= expiries[target]:
+                continue
             changing = target != current
             root_free = offset == 0 and free
             old = sets[current].compound
@@ -59,7 +63,8 @@ def enumerate_sets(models, inventory, clock, options):
                     old in (TireCompound.INTERMEDIATE, TireCompound.WET)
                     or before.track_wetness > .3 or limit > 0
                 )
-                mandatory = before.tire_mismatch(old) == "critical"
+                mandatory = (before.tire_mismatch(old) == "critical"
+                             or wear[current] >= expiries[current])
                 correction = not legal(used) and compound not in used
                 if not (elective or mandatory or correction):
                     continue
@@ -78,6 +83,9 @@ def enumerate_sets(models, inventory, clock, options):
             )
             if offset == 0:
                 value *= options["current_lap_time_modifier"]
+            fee = (options.get("tire_warmup", {}).get(compound.value, 0.)
+                   if changing or offset == 0 and options.get("current_fit_pending", False) else 0.)
+            value += fee
             if paid:
                 value += expected_stationary_time(car) + track.pit_lane_delta * (
                     options["pit_lane_factor"] if offset == 0 else 1
@@ -88,7 +96,7 @@ def enumerate_sets(models, inventory, clock, options):
             next_wear[target] += 1
             visit(offset + 1, target, next_wear, used | {compound},
                   max(0, left - paid), max(0, dry - paid), max(0, damp - paid),
-                  after_delay, total + value, target if offset == 0 else first)
+                  after_delay + fee, total + value, target if offset == 0 else first)
 
     visit(0, initial, ages, set(options["used_compounds"]), options["remaining_stops"],
           options["remaining_dry_stops"], options["remaining_damp_stops"], 0, 0, None)

@@ -1757,7 +1757,7 @@ input:focus-visible {
 
 .tyre-editor-set-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 92px auto;
+  grid-template-columns: minmax(0, 1fr) 82px 110px auto;
   gap: 0.45rem;
   align-items: end;
 }
@@ -1942,7 +1942,7 @@ input:focus-visible {
   .tyre-editor-content,
   .tyre-editor-actions { padding-left: 1rem; padding-right: 1rem; }
   .tyre-editor-driver-grid { grid-template-columns: 1fr; gap: 0.75rem; }
-  .tyre-editor-set-row { grid-template-columns: minmax(0, 1fr) 82px auto; }
+  .tyre-editor-set-row { grid-template-columns: minmax(0, 1fr) 82px; }
   .tabs-container { padding: 0 1rem; }
   .tab { padding: 1rem; }
   .race-header { flex-wrap: wrap; gap: 0.75rem; }
@@ -2085,8 +2085,8 @@ input:focus-visible {
       <div class="control-group">
         <label class="control-label" for="tireInventoryInput">Race tyre sets (optional)</label>
         <input type="text" id="tireInventoryInput" maxlength="16384"
-          placeholder="VER=soft@5,medium,hard;NOR=soft,hard"
-          title="All race sets including the opening set. Separate drivers with semicolons. Removed sets retain wear and can be reused. Qualifying is separate. Blank or unlisted drivers use unlimited sets.">
+          placeholder="VER=soft@5/20,medium/25,hard;NOR=soft,hard"
+          title="All race sets including the opening set. @age adds prior wear; optional /remaining limits completed race laps, including SC/VSC laps. Refitting preserves that allowance. Separate drivers with semicolons. Qualifying is separate. Blank or unlisted drivers use unlimited sets.">
       </div>
       <div class="control-group">
         <label class="control-label" for="tireWarmupInput">Post-fit cost sensitivity (optional)</label>
@@ -2383,6 +2383,7 @@ const PIT_DECISION_LABELS = Object.freeze({
   dry_forecast: 'Dry strategy forecast',
   rain_forecast: 'Weather strategy forecast',
   inventory_forecast: 'Available-set strategy forecast',
+  tyre_usage_limit: 'Physical set race allowance exhausted',
   neutralization_window: 'Safety-car/VSC opportunity',
   planned_window: 'Planned pit window',
 });
@@ -2397,6 +2398,7 @@ const PIT_PLAN_REASON_LABELS = Object.freeze({
   forced_repair: 'Forced tyre replacement',
   critical_weather: 'Critical tyre/weather mismatch',
   compound_requirement: 'Required compound change',
+  tyre_usage_limit: 'Physical set race allowance exhausted',
   requested_compound_unavailable: 'Requested compound unavailable',
   critical_requested_compound: 'Requested compound unsafe under current weather',
   retired: 'Driver retired before instruction',
@@ -3188,7 +3190,7 @@ async function refreshLiveData() {
   }
 }
 
-const TYRE_INVENTORY_INPUT_ERROR = 'Race tyre sets: use VER=soft@5,medium,hard;NOR=soft,hard. Each driver needs 1–20 sets, with prior laps 0–1000.';
+const TYRE_INVENTORY_INPUT_ERROR = 'Race tyre sets: use VER=soft@5/20,medium/25,hard;NOR=soft,hard. Each driver needs 1–20 sets. Prior wear and optional remaining race laps must be integers 0–1000; at least one set needs a permitted lap.';
 const STARTING_TYRE_INPUT_ERROR = 'Starting tyres: use each driver once, e.g. VER=soft@5, NOR=hard. Prior laps must be 0–1000. Compounds: soft, medium, hard, intermediate, wet.';
 const PIT_PLAN_INPUT_ERROR = 'Custom pit plans: use VER=18:medium,36:hard;NOR=none. Laps must be whole numbers from 2 upward, strictly increasing, with canonical compounds (soft, medium, hard, intermediate, wet), and at most 20 instructions per driver.';
 const PIT_PLAN_COMPOUNDS = new Set(['soft', 'medium', 'hard', 'intermediate', 'wet']);
@@ -3942,19 +3944,25 @@ function parseTyreSetupInputs() {
         const entries = parts[1].split(',');
         if (entries.length < 1 || entries.length > TYRE_EDITOR_MAX_SETS) throw new Error();
         const metadata = entries.map(entry => {
-          const match = entry.trim().match(/^(soft|medium|hard|intermediate|wet)(?:@(\d+))?$/);
+          const match = entry.trim().match(/^(soft|medium|hard|intermediate|wet)(?:@(\d+))?(?:\/(\d+))?$/);
           const age = Number(match?.[2] || 0);
-          if (!match || !Number.isSafeInteger(age) || age > TYRE_EDITOR_MAX_AGE) throw new Error();
+          const remainingLaps = match?.[3] === undefined ? null : Number(match[3]);
+          if (!match || !Number.isSafeInteger(age) || age > TYRE_EDITOR_MAX_AGE
+              || remainingLaps !== null && (!Number.isSafeInteger(remainingLaps)
+                  || remainingLaps > TYRE_EDITOR_MAX_AGE)) throw new Error();
           return {
             compound: match[1],
             age,
             ageExplicit: match[2] !== undefined,
+            remainingLaps,
           };
         });
+        if (metadata.every(entry => entry.remainingLaps === 0)) throw new Error();
         tireInventory[id] = metadata.map((entry, index) => ({
           id: `set-${index + 1}`,
           compound: entry.compound,
           age: entry.age,
+          ...(entry.remainingLaps === null ? {} : {remaining_laps: entry.remainingLaps}),
         }));
         inventoryMeta[id] = metadata;
       }
@@ -4035,6 +4043,7 @@ function tyreEditorDriversFromDom() {
         compound: row.querySelector('[data-tyre-set-compound]')?.value || '',
         age: row.querySelector('[data-tyre-set-age]')?.value || '',
         ageExplicit: row.querySelector('[data-tyre-set-age]')?.dataset.ageExplicit === 'true',
+        remainingLaps: row.querySelector('[data-tyre-set-remaining]')?.value || '',
       })),
     })),
   };
@@ -4074,6 +4083,13 @@ function tyreEditorDriverMarkup(driver, index) {
           value="${escapeHtml(set.age ?? '')}" data-tyre-set-age
           data-age-explicit="${Boolean(set.ageExplicit)}"
           aria-label="${escapeHtml(driver.code || `Driver ${index + 1}`)} set ${setIndex + 1} prior laps">
+      </div>
+      <div>
+        <label for="tyreSetRemaining-${index}-${setIndex}">Race laps left</label>
+        <input id="tyreSetRemaining-${index}-${setIndex}" type="number" min="0" max="1000" step="1"
+          value="${escapeHtml(set.remainingLaps ?? '')}" placeholder="Unlimited" data-tyre-set-remaining
+          title="Completed race laps allowed, including SC/VSC. Refitting never resets this allowance. Blank means unlimited."
+          aria-label="${escapeHtml(driver.code || `Driver ${index + 1}`)} set ${setIndex + 1} remaining race laps">
       </div>
       <button class="tyre-editor-remove" type="button" data-tyre-remove-set
         aria-label="Remove ${escapeHtml(driver.code || `driver ${index + 1}`)} set ${setIndex + 1}">Remove</button>
@@ -4278,11 +4294,20 @@ function serializeTyreEditorDraft(draft) {
           sectionIndex: index, selector: `#tyreEditorContent [data-driver-index="${index}"] [data-set-index="${setIndex}"] [data-tyre-set-age]`};
       }
       const ageExplicit = Boolean(row.ageExplicit) || age > 0;
-      serializedSets.push(`${compound}${age > 0 || ageExplicit ? `@${age}` : ''}`);
-      numericSets.push({compound, age});
+      const remainingText = String(row.remainingLaps ?? '').trim();
+      const remaining = remainingText ? parseTyreEditorAge(remainingText) : null;
+      if (remainingText && remaining === null) {
+        return {ok: false, message: `Remaining race laps for physical set ${setIndex + 1} must be blank or a whole number from 0 to 1000.`,
+          sectionIndex: index, selector: `#tyreEditorContent [data-driver-index="${index}"] [data-set-index="${setIndex}"] [data-tyre-set-remaining]`};
+      }
+      serializedSets.push(`${compound}${age > 0 || ageExplicit ? `@${age}` : ''}${remaining === null ? '' : `/${remaining}`}`);
+      numericSets.push({compound, age, remaining});
+    }
+    if (numericSets.every(set => set.remaining === 0)) {
+      return {ok: false, message: 'A finite pool needs at least one set with a permitted race lap.', sectionIndex: index};
     }
     if (openingCompound && !numericSets.some(set => (
-      set.compound === openingCompound && set.age === openingAge
+      set.compound === openingCompound && set.age === openingAge && set.remaining !== 0
     ))) {
       return {ok: false, message: 'The opening tyre and prior laps must match one physical set in this finite pool.',
         sectionIndex: index, selector: tyreEditorFieldSelector(index, 'opening')};
@@ -4889,10 +4914,16 @@ function renderTireSetLedgers(race) {
   const finite = race.filter(driver => Array.isArray(driver.tire_set_history));
   if (!finite.length) return '';
   const tables = finite.map(driver => {
-    const table = (records, fields, caption) => `<div class="results-table" tabindex="0"><table class="matrix-table"><caption>${caption}</caption><thead><tr>${fields.map(key => `<th scope="col">${escapeHtml(key.replaceAll('_', ' '))}</th>`).join('')}</tr></thead><tbody>${(records || []).map(row => `<tr>${fields.map(key => `<td>${escapeHtml(String(row[key] ?? 'Not recorded'))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    const table = (records, fields, caption) => `<div class="results-table" tabindex="0"><table class="matrix-table"><caption>${caption}</caption><thead><tr>${fields.map(key => `<th scope="col">${escapeHtml(key.replaceAll('_', ' '))}</th>`).join('')}</tr></thead><tbody>${(records || []).map(row => `<tr>${fields.map(key => `<td>${escapeHtml(String(row[key] ?? (key.startsWith('remaining_laps') ? 'Unlimited' : 'Not recorded')))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    const historyFields = ['lap', 'kind', 'set_id', 'compound', 'age_at_fit', 'age_at_end', 'laps_used'];
+    const inventoryFields = ['id', 'compound', 'age', 'current', 'available', 'unavailable'];
+    if (driver.tire_set_history.some(row => Object.hasOwn(row, 'remaining_laps_at_fit'))) {
+      historyFields.push('remaining_laps_at_fit', 'remaining_laps_at_end');
+    }
+    if ((driver.tire_inventory || []).some(row => Object.hasOwn(row, 'remaining_laps'))) inventoryFields.push('remaining_laps');
     return `<h3>${escapeHtml(driver.driver_name || driver.driver_id)}</h3>`
-      + table(driver.tire_set_history, ['lap', 'kind', 'set_id', 'compound', 'age_at_fit', 'age_at_end', 'laps_used'], 'Physical set fittings')
-      + table(driver.tire_inventory, ['id', 'compound', 'age', 'current', 'available', 'unavailable'], 'Final race set pool');
+      + table(driver.tire_set_history, historyFields, 'Physical set fittings')
+      + table(driver.tire_inventory, inventoryFields, 'Final race set pool');
   }).join('');
   return `<details class="probability-details" id="sampleTireSetLedgers"><summary>Race tyre sets during this trial</summary><p class="inline-note">Fittings include free changes and unrun sets. Ages include prior wear. Removed undamaged sets remain reusable; qualifying uses separate sets.</p>${tables}</details>`;
 }

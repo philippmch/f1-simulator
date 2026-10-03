@@ -408,6 +408,38 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     await page.locator('#tyreSetupDialog').waitFor({state: 'hidden'});
     assert.equal(await page.evaluate(() => document.activeElement?.id), 'btnTyreSetup');
 
+    // Per-set race allowances survive editor import/apply and reject
+    // fractional inputs without erasing the previous serialized setup.
+    await page.locator('#startingTiresInput').fill('S00=soft@4');
+    await page.locator('#tireInventoryInput').fill('S00=soft@4/2,hard/0');
+    await page.locator('#btnTyreSetup').click();
+    const firstAllowance = page.locator('[data-driver-index="0"] [data-set-index="0"] [data-tyre-set-remaining]');
+    const secondAllowance = page.locator('[data-driver-index="0"] [data-set-index="1"] [data-tyre-set-remaining]');
+    assert.equal(await firstAllowance.inputValue(), '2');
+    assert.equal(await secondAllowance.inputValue(), '0');
+    await firstAllowance.fill('1.5');
+    await page.locator('#tyreEditorApply').click();
+    assert((await page.locator('#tyreEditorMessage').innerText()).includes('Remaining race laps'));
+    assert.equal(await page.locator('#tireInventoryInput').inputValue(), 'S00=soft@4/2,hard/0');
+    await firstAllowance.fill('2');
+    await secondAllowance.fill('3');
+    await page.locator('#tyreEditorApply').click();
+    assert.equal(await page.locator('#tireInventoryInput').inputValue(), 'S00=soft@4/2,hard/3');
+    assert.deepEqual(await page.evaluate(() => buildRunPayload().tire_inventory.S00), [
+      {id: 'set-1', compound: 'soft', age: 4, remaining_laps: 2},
+      {id: 'set-2', compound: 'hard', age: 0, remaining_laps: 3},
+    ]);
+    for (const malformed of ['S00=soft/-1', 'S00=soft/1.5', 'S00=soft/1001', 'S00=soft/', 'S00=soft/0,hard/0']) {
+      await page.locator('#tireInventoryInput').fill(malformed);
+      assert.equal(await page.evaluate(() => buildRunPayload()), null);
+    }
+    const usageLedger = await page.evaluate(() => renderTireSetLedgers([{
+      driver_id: 'S00', tire_set_history: [{remaining_laps_at_fit: 3, remaining_laps_at_end: 0}],
+      tire_inventory: [{id: '<img src=x>', remaining_laps: 0}, {id: 'unrestricted'}],
+    }]));
+    assert(usageLedger.includes('remaining laps at fit') && usageLedger.includes('Unlimited'));
+    assert(!usageLedger.includes('<img') && usageLedger.includes('&lt;img src=x&gt;'));
+
     // Direct shorthand edits are imported on the next open; malformed raw
     // input is reported on the original field and never gets erased.
     await page.locator('#startingTiresInput').fill('S00=soft@4');

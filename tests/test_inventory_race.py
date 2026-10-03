@@ -38,13 +38,14 @@ def race(request, monkeypatch):
     monkeypatch.setattr(sim.event_manager, "_check_random_incident", lambda *a, **kw: None)
     monkeypatch.setattr(Weather, "evolve", lambda self, rng: self.model_copy(deep=True))
 
-    def run(records, compound="soft", age=0, weather=None):
+    def run(records, compound="soft", age=0, weather=None, **options):
         execute = sim.simulate_race if request.param == "standard" else ChronologicalRace(sim).run
         return execute(
             [driver], {"A": car}, track, weather or Weather(change_probability=0), ["A"],
             starting_tires={"A": compound} if compound else None,
             starting_tire_ages={"A": age} if compound else None,
             tire_inventory={"A": records},
+            **options,
         )[0]
 
     return request.param, sim, track, run, services, running
@@ -312,7 +313,10 @@ def test_red_flag_repairs_puncture_from_pool_or_withdraws_without_service(
     conserved(result, records)
 
 
-def test_chronological_closed_exit_returns_unrun_paid_set_and_fits_restart_pool(monkeypatch):
+@pytest.mark.parametrize("limited", [False, True])
+def test_chronological_closed_exit_returns_unrun_paid_set_and_fits_restart_pool(
+    monkeypatch, limited,
+):
     sim = RaceSimulator(np.random.default_rng(7))
     engine = ChronologicalRace(sim)
     control = sim.event_manager
@@ -344,6 +348,9 @@ def test_chronological_closed_exit_returns_unrun_paid_set_and_fits_restart_pool(
     records = [{"id": "S", "compound": "soft", "age": 2},
                {"id": "H", "compound": "hard", "age": 5},
                {"id": "I", "compound": "intermediate", "age": 3}]
+    if limited:
+        for item in records:
+            item["remaining_laps"] = 4
     results = engine.run(
         [Driver(id=key, name=key, team_id=key) for key in "AB"],
         {key: Car(team_id=key, team_name=key) for key in "AB"},
@@ -365,6 +372,10 @@ def test_chronological_closed_exit_returns_unrun_paid_set_and_fits_restart_pool(
         ("S", 1), ("H", 0), ("I", 2),
     ]
     assert b.strategy == ["soft", "intermediate"]
+    if limited:
+        assert {item["id"]: item["remaining_laps"] for item in b.tire_inventory} == {
+            "S": 3, "H": 4, "I": 2,
+        }
     assert all(item.status == DriverStatus.FINISHED for item in results)
     for result in results:
         conserved(result, records)
@@ -386,7 +397,10 @@ def test_automatic_pool_policy_handles_shortened_finish(race, monkeypatch):
 
 
 @pytest.mark.parametrize("paid_fit", [False, True])
-def test_mechanical_retirement_does_not_credit_failed_lap_to_set(race, monkeypatch, paid_fit):
+@pytest.mark.parametrize("limited", [False, True])
+def test_mechanical_retirement_does_not_credit_failed_lap_to_set(
+    race, monkeypatch, paid_fit, limited,
+):
     _, sim, _, run, _, running = race
     control = sim.event_manager
     monkeypatch.setattr(control, "process_lap", EventManager.process_lap.__get__(control))
@@ -395,7 +409,8 @@ def test_mechanical_retirement_does_not_credit_failed_lap_to_set(race, monkeypat
     def fail(driver, car, track, lap, weather):
         if lap == 2:
             driver.dnf, driver.dnf_reason = True, "Controlled failure"
-            return RaceEvent(EventType.MECHANICAL_FAILURE, lap, [driver.id])
+            return RaceEvent(EventType.MECHANICAL_FAILURE, lap, [driver.id],
+                             forces_pit_stop=limited)
         return None
 
     monkeypatch.setattr(control, "_check_mechanical_failure", fail)
@@ -408,6 +423,9 @@ def test_mechanical_retirement_does_not_credit_failed_lap_to_set(race, monkeypat
             return lap == 2
 
         monkeypatch.setattr(sim, "_should_pit", policy)
+    if limited:
+        for item in records:
+            item["remaining_laps"] = 3
     result = run(records, "intermediate", 3,
                  Weather(track_wetness=.5, rain_intensity=.3, change_probability=0))
     assert result.status == DriverStatus.DNF and result.laps_completed == 1
@@ -416,3 +434,7 @@ def test_mechanical_retirement_does_not_credit_failed_lap_to_set(race, monkeypat
     if paid_fit:
         assert result.pit_stops == 1 and result.tire_set_history[-1]["laps_used"] == 0
     conserved(result, records)
+    if limited:
+        assert result.tire_inventory[0]["remaining_laps"] == 2
+        if paid_fit:
+            assert result.tire_inventory[1]["remaining_laps"] == 3

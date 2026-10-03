@@ -48,6 +48,8 @@ def enumerate_physical_schedules(inputs, control, intervals, budget, dry, used, 
     current = inventory.current_set_id
     ages = {key: item.age for key, item in sets.items()}
     ages[current] = 14
+    expiries = {key: inf if item.remaining_laps is None else item.age + item.remaining_laps
+                for key, item in sets.items()}
     warmup = {"soft": 2., "medium": .4, "hard": 1.1}
     best, selected = {False: inf, True: inf}, None
 
@@ -64,6 +66,8 @@ def enumerate_physical_schedules(inputs, control, intervals, budget, dry, used, 
             return
         controlled = offset < intervals
         for target in available:
+            if wear[target] >= expiries[target]:
+                continue
             changing = target != current
             compound = sets[target].compound
             if weather.tire_mismatch(compound) == "critical":
@@ -72,6 +76,7 @@ def enumerate_physical_schedules(inputs, control, intervals, budget, dry, used, 
                 continue
             if changing and current in available and not (
                 left > 0 and allowance > 0 or not legal(compounds) and compound not in compounds
+                or wear[current] >= expiries[current]
             ):
                 continue
             age = wear[target]

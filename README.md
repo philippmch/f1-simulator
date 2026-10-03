@@ -144,6 +144,9 @@ opening set; an explicit opening choice must match its compound and age.
 Unlisted drivers keep unlimited sets. Removed undamaged sets can be reused
 with their accumulated wear. See [finite race tyre pools](docs/tyre-inventory.md)
 for Python/API inputs, exhausted-pool behavior and exported set ledgers.
+Add `/remaining` per set, such as `VER=soft@5/20,medium/25,hard/25`, to impose
+an optional remaining race-lap allowance. SC/VSC laps count; refitting retains
+the allowance and expiry forces a replacement. Leave it blank for unrestricted use.
 
 To test deliberate stops, use **Custom pit plans (optional)** or
 `--pit-plans "VER=18:medium,36:hard;NOR=none"`. Lap numbers refer to each driver's
@@ -234,7 +237,9 @@ pit plans are supplied. Enabling post-fit cost sensitivity uses version 6,
 which retains any configured ages, inventory, and plans and requires
 `tire_warmup` plus `tire_warmup_policy`. Version 3 requires `starting_tire_ages`; version 4 also
 records `tire_inventory`, and version 5 retains `pit_plans`, including explicit
-empty plans. These versions require
+empty plans. Optional per-set usage limits use version 9 and
+`tire_usage_policy="completed_race_laps_v1"`, preserving the other selected inputs.
+All current snapshots require
 `rng_policy`, with new runs using `isolated_weather_v1`. Earlier installations
 reject unsupported schemas. Version 1 snapshots without a policy replay with
 `shared_v1`, which preserves

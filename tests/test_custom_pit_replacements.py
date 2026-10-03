@@ -115,7 +115,8 @@ def execution_costs(simulator, state, track, weather, lap, *, free_fit=False,
                     if weather.tire_mismatch(compound) != "critical"]
         inventory = state.tire_inventory
         available = list(inventory.replacements())
-        if free and inventory.current_set_id not in inventory.unavailable_ids:
+        if (free and inventory.current_set_id not in inventory.unavailable_ids
+                and inventory.current_remaining_laps(state.tire_laps) != 0):
             available.insert(0, inventory.sets[inventory.current_set_id])
         return [(item.compound, item.id) for item in available
                 if weather.tire_mismatch(item.compound) != "critical"]

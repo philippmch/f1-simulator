@@ -811,6 +811,11 @@ class ChronologicalRace:
         if inventory is not None:
             if inventory.current_set_id in inventory.unavailable_ids:
                 return "current inventory set unavailable"
+            remaining = inventory.current_remaining_laps(state.tire_laps)
+            if remaining is not None and remaining < self.track.total_laps - state.laps_completed:
+                # The retained-distance guard assumes no further compulsory
+                # service. Leave finite-lifetime paths to the inventory policy.
+                return "current inventory set has usage limit"
             if not self.simulator._stay_satisfies_tire_rule(state):
                 return "compound rule unresolved"
         elif not self.simulator._stay_satisfies_tire_rule(state):

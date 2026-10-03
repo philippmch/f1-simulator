@@ -120,3 +120,61 @@ def test_runtime_wear_can_exceed_opening_input_limit():
     with pytest.raises(ValueError):
         inventory.fit("set-1", current_age=0)
     assert inventory.__dict__ == before
+
+
+@pytest.mark.parametrize("remaining", [True, -1, 1001, 2.0, "2", float("nan")])
+def test_remaining_lap_allowances_are_strict(remaining):
+    with pytest.raises(ValueError, match="remaining_laps"):
+        validate_tire_inventory({"A": [{"compound": "hard", "remaining_laps": remaining}]})
+
+
+def test_remaining_allowance_is_preserved_across_used_set_refits():
+    inventory = TireInventory.from_sets([
+        {"id": "used", "compound": "hard", "age": 5, "remaining_laps": 20},
+        {"id": "spare", "compound": "soft", "remaining_laps": 3},
+    ])
+    inventory.fit("used")
+    assert inventory.current_remaining_laps(12) == 13
+    inventory.fit("spare", current_age=12)
+    assert inventory.sets["used"].remaining_laps == 13
+    inventory.fit("used", current_age=3)
+    assert inventory.sets["spare"].remaining_laps == 0
+    assert inventory.replacements() == ()
+    assert inventory.current_remaining_laps(25) == 0
+    snapshot = inventory.snapshot(25)
+    assert snapshot[0]["remaining_laps"] == snapshot[1]["remaining_laps"] == 0
+    assert all(not row["available"] for row in snapshot)
+    before = deepcopy(inventory.__dict__)
+    for operation in (lambda: inventory.fit("used", current_age=25),
+                      lambda: inventory.fit("spare", current_age=25),
+                      lambda: inventory.snapshot(26)):
+        with pytest.raises(ValueError):
+            operation()
+        assert inventory.__dict__ == before
+
+
+def test_exhausted_sets_cannot_supply_an_explicit_opening():
+    records = {"A": [{"compound": "hard", "age": 5, "remaining_laps": 0},
+                     {"compound": "soft"}]}
+    assert validate_tire_inventory(records)["A"][0]["remaining_laps"] == 0
+    with pytest.raises(ValueError, match="exact opening"):
+        validate_tire_inventory(records, {"A": "hard"}, {"A": 5})
+    with pytest.raises(ValueError, match="permitted race lap"):
+        validate_tire_inventory({"A": records["A"][:1]})
+
+
+def test_optional_allowance_parser_and_disabled_compatibility():
+    parsed = parse_tire_inventory_spec("A=hard@5/20,soft/3,wet")
+    assert parsed["A"] == [
+        {"id": "set-1", "compound": "hard", "age": 5, "remaining_laps": 20},
+        {"id": "set-2", "compound": "soft", "age": 0, "remaining_laps": 3},
+        {"id": "set-3", "compound": "wet", "age": 0},
+    ]
+    assert validate_tire_inventory({"A": [{"compound": "soft", "remaining_laps": None}]}) == {
+        "A": [{"id": "set-1", "compound": "soft", "age": 0}]}
+
+
+@pytest.mark.parametrize("spec", ["A=hard/", "A=hard/-1", "A=hard/1.5", "A=hard/2/3"])
+def test_malformed_allowance_specs_are_rejected(spec):
+    with pytest.raises(ValueError, match="tire_inventory"):
+        parse_tire_inventory_spec(spec)

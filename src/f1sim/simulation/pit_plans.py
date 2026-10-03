@@ -236,7 +236,7 @@ def commit_pit_plan_service(
     """Mark a request after a paid service has committed."""
     if status is None:
         status = "overridden" if reason in {
-            "forced_repair", "critical_weather", "compound_requirement",
+            "forced_repair", "critical_weather", "compound_requirement", "tyre_usage_limit",
         } else "executed"
     return _finish_instruction(
         state,

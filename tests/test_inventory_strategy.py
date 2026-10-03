@@ -33,6 +33,8 @@ def exhaustive(args, inventory, **options):
     ages = {key: item.age for key, item in sets.items()}
     if initial:
         ages[initial] = options.get("tire_age", 0)
+    expiries = {key: inf if item.remaining_laps is None else item.age + item.remaining_laps
+                for key, item in sets.items()}
     best = {False: inf, True: inf}
     selected = None
     require = options.get("require_compound_rule", True)
@@ -53,6 +55,8 @@ def exhaustive(args, inventory, **options):
             return
         surface = surfaces[offset]
         for target in ids:
+            if wear[target] >= expiries[target]:
+                continue
             changing = target != current
             root_free = offset == 0 and free
             if surface.tire_mismatch(sets[target].compound) == "critical":
@@ -67,7 +71,8 @@ def exhaustive(args, inventory, **options):
                             or surface.track_wetness > .3 or limit is None or limit > 0)
                 correction = not legal(compounds) and sets[target].compound not in compounds
                 forced = surface.tire_mismatch(old) == "critical" or (
-                    offset == 0 and options.get("force_stop", False))
+                    offset == 0 and options.get("force_stop", False)) or (
+                    wear[current] >= expiries[current])
                 if not (elective or correction or forced):
                     continue
             paid = changing and not root_free
@@ -85,6 +90,8 @@ def exhaustive(args, inventory, **options):
             )
             if offset == 0:
                 lap_cost *= options.get("current_lap_time_modifier", 1.)
+            if changing or offset == 0 and options.get("current_fit_pending", False):
+                lap_cost += options.get("tire_warmup", {}).get(sets[target].compound.value, 0.)
             if paid:
                 lap_cost += expected_stationary_time(car) + track.pit_lane_delta * (
                     options.get("pit_lane_factor", 1.) if offset == 0 else 1.)

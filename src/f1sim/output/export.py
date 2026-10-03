@@ -330,6 +330,12 @@ class Exporter:
                 ("tire_inventory", "Final race set pool",
                  ("id", "compound", "age", "current", "available", "unavailable")),
             ):
+                if key == "tire_inventory" and any("remaining_laps" in item
+                                                   for item in row[key] or []):
+                    fields += ("remaining_laps",)
+                if key == "tire_set_history" and any("remaining_laps_at_fit" in item
+                                                     for item in row[key] or []):
+                    fields += ("remaining_laps_at_fit", "remaining_laps_at_end")
                 sections.append('<div class="table-wrap" tabindex="0"><table><caption>'
                                 + caption + '</caption><thead><tr>'
                                 + ''.join('<th scope="col">' + field.replace('_', ' ')
@@ -337,7 +343,8 @@ class Exporter:
                                 + '</tr></thead><tbody>')
                 for record in row[key] or []:
                     sections.append('<tr>' + ''.join(
-                        '<td>' + escape(str(record.get(field, 'Not recorded'))) + '</td>'
+                        '<td>' + escape(str(record.get(field, 'Unlimited' if field.startswith(
+                            'remaining_laps') else 'Not recorded'))) + '</td>'
                         for field in fields) + '</tr>')
                 sections.append('</tbody></table></div>')
             sections.append('</details>')

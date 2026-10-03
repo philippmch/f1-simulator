@@ -21,6 +21,7 @@ from f1sim.simulation.strategy_neutralization import current_fitted_time, curren
 from f1sim.simulation.strategy_traffic import normalize_current_traffic_gaps
 from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.surface_projection import normalize_weather_intervals, projected_surfaces
+from f1sim.simulation.tire_inventory import tire_slot_usable
 from f1sim.simulation.warmup import tire_warmup_seconds, validate_tire_warmup
 from f1sim.simulation.weather_schedule import ScheduledWeatherIntervals, project_next_surface
 
@@ -112,6 +113,8 @@ def choose_custom_pit_replacement(
         compounds = tuple(TireCompound(item["compound"]) for item in records)
         identifiers = tuple(item["id"] for item in records)
         ages = tuple(item["age"] for item in records)
+        expiries = tuple(-1 if item.get("remaining_laps") is None else
+                         item["age"] + item["remaining_laps"] for item in records)
         unavailable = frozenset(index for index, item in enumerate(records)
                                 if item["unavailable"])
         current = identifiers.index(inventory.current_set_id)
@@ -160,9 +163,10 @@ def choose_custom_pit_replacement(
             return ages[:selected] + (ages[selected] + 1,) + ages[selected + 1:]
         return (ages[0] + 1,)
 
-    def replacements(current, entry):
+    def replacements(current, entry, ages):
         return tuple(index for index, compound in enumerate(compounds)
                      if index not in unavailable and (not finite or index != current)
+                     and (not finite or tire_slot_usable(ages[index], expiries[index]))
                      and entry.tire_mismatch(compound) != "critical")
 
     @lru_cache(maxsize=4096)
@@ -184,6 +188,8 @@ def choose_custom_pit_replacement(
                                      stopped=stopped_first) if offset == 0 else value)
 
     def run(offset, selected, ages, used, paid, fit_delay, pending, stopped_first):
+        if finite and not tire_slot_usable(ages[selected], expiries[selected]):
+            return None
         update, after = surface(offset, paid, fit_delay, stopped_first)
         if after.tire_mismatch(compounds[selected]) == "critical":
             return None
@@ -228,19 +234,20 @@ def choose_custom_pit_replacement(
             _, entry = surface(offset, paid, fit_delay, stopped_first)
             final = lap >= max(2, track.total_laps) or announced
             compulsory = (current in unavailable
+                          or finite and not tire_slot_usable(ages[current], expiries[current])
                           or entry.tire_mismatch(compounds[current]) == "critical"
                           or (final and not legal(used | bits[compounds[current]])))
             options = None
             honors_request = False
             if lap in requests:
-                requested = [index for index in replacements(current, entry)
+                requested = [index for index in replacements(current, entry, ages)
                              if compounds[index] == requests[lap]
                              and (not final or legal(used | bits[compounds[index]]))]
                 if requested:
                     options = (min(requested, key=lambda index: (age_at(ages, index), index)),)
                     honors_request = True
             if options is None and compulsory:
-                options = tuple(index for index in replacements(current, entry)
+                options = tuple(index for index in replacements(current, entry, ages)
                                 if not final or legal(used | bits[compounds[index]]))
             if options is not None:
                 best = min((paid_fit(offset, index, ages, used, paid, fit_delay,
@@ -262,8 +269,9 @@ def choose_custom_pit_replacement(
 
     # Eligibility is the observed commitment surface; the delayed pit-exit
     # surface is used for running pace and feasibility, not eligibility.
-    candidates = list(replacements(current, surface_path[0]))
+    candidates = list(replacements(current, surface_path[0], ages))
     if free_fit and finite and current not in unavailable \
+            and tire_slot_usable(ages[current], expiries[current]) \
             and surface_path[0].tire_mismatch(compounds[current]) != "critical":
         candidates.insert(0, current)
     choice = CustomPitChoice(inf)
@@ -296,3 +304,4 @@ def choose_custom_pit_replacement(
 register_forecast_helpers(globals(), ("choose_custom_pit_replacement", "project_next_surface",
                                       "normalize_current_traffic_gaps"))
 register_forecast_helpers(globals(), ("current_running_time", "current_fitted_time"))
+register_forecast_helpers(globals(), ("tire_slot_usable",))

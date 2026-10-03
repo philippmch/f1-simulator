@@ -226,6 +226,8 @@ def all_schedules(models, control, intervals, budget, *, finite, pending=False,
     current = "I" if finite else TireCompound.INTERMEDIATE
     ages = {key: value.age if finite else 0 for key, value in sets.items()}
     ages[current] = current_age
+    expiries = {key: inf if not finite or item.remaining_laps is None else
+                item.age + item.remaining_laps for key, item in sets.items()}
     warmup = {"intermediate": 1., "wet": 2., "soft": .6, "hard": .3}
     best, root_costs = {False: inf, True: inf}, {}
     simulator = LapSimulator()
@@ -242,8 +244,11 @@ def all_schedules(models, control, intervals, budget, *, finite, pending=False,
             return
         surface = surfaces[offset]
         old = sets[current].compound
-        critical = surface.tire_mismatch(old) == "critical" or offset == 0 and damaged
+        critical = (surface.tire_mismatch(old) == "critical" or offset == 0 and damaged
+                    or finite and wear[current] >= expiries[current])
         for target in available:
+            if finite and wear[target] >= expiries[target]:
+                continue
             compound = sets[target].compound
             fitting = target != current if finite else True
             # Unlimited retention is a distinct action from fitting a fresh

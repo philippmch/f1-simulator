@@ -236,6 +236,11 @@ and free red-flag changes fit fresh sets and reset the prior-wear offset.
 With a [finite race pool](tyre-inventory.md), fittings select actual available
 sets and preserve their wear, including reuse. Qualifying remains independent;
 heat cycles and real-world tyre allocations are not inferred.
+An optional per-set `remaining_laps` allowance constrains further race use,
+including SC/VSC laps. Refits preserve it; expiry compels replacement even
+after elective budgets are spent. It is supplied separately from prior wear,
+with no automatic event or season limit. See [usage limits](tyre-inventory.md#optional-physical-set-usage-limits)
+for input syntax, completed-lap conventions and replay policy.
 
 The optional `fixed_rainfall` weather mode helps isolate strategy behavior under
 unchanging rainfall. It prevents random condition transitions while retaining

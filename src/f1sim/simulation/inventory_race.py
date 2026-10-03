@@ -37,7 +37,8 @@ class InventoryStrategyMixin:
         inventory = TireInventory.from_sets(records)
         if compound is not None:
             selected = next(item for item in inventory.sets.values()
-                            if item.compound == compound and item.age == age)
+                            if item.compound == compound and item.age == age
+                            and item.remaining_laps != 0)
         else:
             scores = inventory_opening_policy_costs(
                 driver, car, track, weather, strategy, self.strategy_tuning,
@@ -60,6 +61,9 @@ class InventoryStrategyMixin:
         state.tire_set_history = [dict(lap=lap, kind="start", set_id=fitted.id,
                                       compound=fitted.compound.value, age_at_fit=fitted.age,
                                       age_at_end=fitted.age, laps_used=0)]
+        if fitted.remaining_laps is not None:
+            state.tire_set_history[-1].update(remaining_laps_at_fit=fitted.remaining_laps,
+                                             remaining_laps_at_end=fitted.remaining_laps)
 
     @staticmethod
     def _finish_inventory_stint(state):
@@ -67,6 +71,8 @@ class InventoryStrategyMixin:
             stint = state.tire_set_history[-1]
             stint["age_at_end"] = state.tire_laps
             stint["laps_used"] = state.tire_laps - stint["age_at_fit"]
+            if "remaining_laps_at_fit" in stint:
+                stint["remaining_laps_at_end"] = stint["remaining_laps_at_fit"] - stint["laps_used"]
 
     def _fit_inventory_tire(self, state, set_id, lap, kind):
         inventory = state.tire_inventory
@@ -82,6 +88,9 @@ class InventoryStrategyMixin:
             lap=lap, kind=kind, set_id=fitted.id, compound=fitted.compound.value,
             age_at_fit=fitted.age, age_at_end=fitted.age, laps_used=0,
         ))
+        if fitted.remaining_laps is not None:
+            state.tire_set_history[-1].update(remaining_laps_at_fit=fitted.remaining_laps,
+                                             remaining_laps_at_end=fitted.remaining_laps)
 
     @staticmethod
     def _inventory_result_fields(state):
@@ -91,6 +100,9 @@ class InventoryStrategyMixin:
         if history:
             history[-1]["age_at_end"] = state.tire_laps
             history[-1]["laps_used"] = state.tire_laps - history[-1]["age_at_fit"]
+            if "remaining_laps_at_fit" in history[-1]:
+                history[-1]["remaining_laps_at_end"] = (
+                    history[-1]["remaining_laps_at_fit"] - history[-1]["laps_used"])
         return dict(tire_set_history=history,
                     tire_inventory=state.tire_inventory.snapshot(state.tire_laps))
 
@@ -182,7 +194,8 @@ class InventoryStrategyMixin:
         weather = weather.model_copy(deep=True)
         inventory = state.tire_inventory
         candidates = list(inventory.replacements())
-        if free_fit and inventory.current_set_id not in inventory.unavailable_ids:
+        if (free_fit and inventory.current_set_id not in inventory.unavailable_ids
+                and inventory.current_remaining_laps(state.tire_laps) != 0):
             candidates.insert(0, inventory.sets[inventory.current_set_id])
         candidates = [item for item in candidates
                       if weather.tire_mismatch(item.compound) != "critical"]
@@ -250,6 +263,7 @@ class InventoryStrategyMixin:
             state.strategy_archetype = TeamStrategyArchetype.BALANCED
         inventory = state.tire_inventory
         compulsory = (inventory.current_set_id in inventory.unavailable_ids
+                      or inventory.current_remaining_laps(state.tire_laps) == 0
                       or weather.tire_mismatch(state.current_tire.compound) == "critical"
                       or (lap >= max(2, track.total_laps)
                           and not self._stay_satisfies_tire_rule(state)))
@@ -298,6 +312,8 @@ class InventoryStrategyMixin:
                 reason = "critical_weather"
             elif unavailable:
                 reason = "forced_repair"
+            elif inventory.current_remaining_laps(state.tire_laps) == 0:
+                reason = "tyre_usage_limit"
             elif compound_requirement:
                 reason = "compound_requirement"
             else:

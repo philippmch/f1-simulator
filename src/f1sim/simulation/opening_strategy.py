@@ -255,15 +255,18 @@ def _cached_inventory_policy_costs(driver_json, car_json, track_json, weather_js
     records = json.loads(records_json)
     tire_warmup = json.loads(warmup_json)
     pit_plan = json.loads(pit_plan_json) if pit_plan_json is not None else None
-    eligible = [item for item in records
+    usable = [item for item in records if item.get("remaining_laps") != 0]
+    if not usable:
+        raise ValueError("tire_inventory has no set with a permitted opening race lap")
+    eligible = [item for item in usable
                 if weather.tire_mismatch(TireCompound(item["compound"])) != "critical"]
     scores = []
     equivalent_outcomes = {}
     # Finite-set policy uses deterministic costs throughout, so private lap
     # variation/events are unnecessary. The actual race RNG is untouched.
-    for item in eligible or records:
+    for item in eligible or usable:
         cancellation_checkpoint()
-        key = (item["compound"], item.get("age", 0))
+        key = (item["compound"], item.get("age", 0), item.get("remaining_laps"))
         if key not in equivalent_outcomes:
             # Fitting an equivalent identity leaves the same anonymous future
             # pool and the same compound-request fulfillment;

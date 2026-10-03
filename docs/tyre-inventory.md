@@ -41,10 +41,50 @@ Each listed driver needs 1–20 sets. Ages must be integers from 0 through 1000;
 booleans, fractional values and numeric strings are rejected. This input bound
 does not imply a realistic tyre lifetime. IDs must be nonempty and unique per
 driver. Omitted IDs become `set-1`, `set-2`, etc.; omitted ages become zero.
-Only `id`, `compound` and `age` are accepted in input records. Unknown drivers
+Only `id`, `compound`, `age` and optional `remaining_laps` are accepted in input records.
+Unknown drivers
 are rejected. An explicit `starting_tires`/`starting_tire_ages` choice must have
 an exact compound-and-age match in that driver's pool. No replacement set is
 fabricated to satisfy an override or a later strategy decision.
+
+## Optional physical-set usage limits
+
+Supply `remaining_laps` to limit the completed race laps a physical set can
+still cover. Omission or `null` leaves that set unrestricted. The allowance is
+independent of prior wear: `{"compound": "hard", "age": 5, "remaining_laps": 20}`
+starts with five laps of wear and permits twenty more race laps. The CLI and
+dashboard shorthand is `hard@5/20`; `hard/25` permits twenty-five laps on a
+fresh set. The editor's **Race laps left** field accepts the same allowance;
+leave it blank for unrestricted usage. Allowances must be integers 0–1000.
+Zero makes a spare ineligible, and an opening selection must have at least
+one permitted lap. A pool containing only exhausted sets is rejected.
+
+This supports scenarios such as Pirelli's
+[2025 Qatar cumulative per-set restriction](https://press.pirelli.com/a-maximum-of-25-laps-per-tyre-set-in-qatar/).
+That prescription counted previous weekend running and SC/VSC laps, and teams
+received each set's remaining allowance before the race. Enter the remaining
+race allowance yourself; the simulator does not reconstruct practice, sprint
+or qualifying tyre usage, or automatically apply a historical limit to another
+event or season.
+
+Both engines consume one allowance lap for each accepted own-lap crossing,
+including SC/VSC running. Failed retirement crossings, pit service and red-flag
+pauses consume none. Removing, retaining during a suspension, or refitting a
+used set never resets its allowance. These are the simulator's completed-lap
+and pre-lap pit-entry conventions, not a model of partial-lap regulatory
+counting, formation laps or individual tyres mixed between sets.
+
+Expiry requires a replacement before the next own lap, even with zero elective
+stops left or an empty custom plan. A compulsory expiry stop is recorded as
+`tyre_usage_limit`; it remains a paid visit and reduces remaining elective stop
+budgets. Free red-flag changes still require usable stock. If no suitable set
+remains, the existing exhausted-pool DNF applies before service or running.
+Dry, wet, changing-weather and observed SC/VSC forecasts preserve each set's
+allowance through exchanges and handoffs. Sets with equal compound and wear
+but different allowances are distinct planning choices. Forecast pruning may
+relax lifetime constraints optimistically, but executable paths cannot exceed
+them. A retained-distance finish veto is bypassed when its assumption of no
+further compulsory service cannot safely cover a usage-limited set.
 
 ## Race behavior and planning
 
@@ -292,6 +332,10 @@ provenance and replay inputs. A nonempty finite pool uses snapshot schema 4,
 schema 5 with custom pit plans, or schema 6 with post-fit cost sensitivity;
 older supported snapshots retain their existing unlimited-set interpretation.
 Unsupported schemas are rejected instead of silently dropping the constraint.
+Any explicit usage allowance selects schema 9 and
+`tire_usage_policy="completed_race_laps_v1"`, retaining other configured weather,
+qualifying, warmup and custom-plan inputs. Replay and paired comparisons reject
+usage limits in older schemas and unknown or missing usage policies.
 
 Finite race results include `tire_set_history` records with `lap`, `kind`
 (`start`, `pit`, `red_flag`), `set_id`, `compound`, `age_at_fit`, `age_at_end`
@@ -301,6 +345,11 @@ that final snapshot directly as an input pool: its extra state flags are not
 input fields. Unlimited or legacy results have no finite ledger.
 Wear and `laps_used` count completed laps; an interrupted retirement lap is
 not credited as a full lap. A paid fitting on that lap remains in the ledger.
+Limited sets additionally record `remaining_laps` in the final pool and
+`remaining_laps_at_fit`/`remaining_laps_at_end` in their fitting history.
+An exhausted undamaged set has zero allowance and `available=false`, while
+`unavailable` continues to identify damage. Reports show unrestricted sets as
+**Unlimited** when they share a table with limited sets.
 
 Dashboard and HTML reports display both fittings and final pools. JSON and
 race CSV exports preserve the records, while paid-stop details additionally

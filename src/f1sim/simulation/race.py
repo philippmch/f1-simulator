@@ -795,7 +795,12 @@ class RaceSimulator(InventoryStrategyMixin):
                         pool = state.tire_inventory
                         current = pool.sets[pool.current_set_id]
                         if current.age > state.tire_laps:
-                            pool.sets[current.id] = replace(current, age=state.tire_laps)
+                            pool.sets[current.id] = replace(
+                                current, age=state.tire_laps,
+                                remaining_laps=(None if current.remaining_laps is None else
+                                                current.remaining_laps
+                                                + current.age - state.tire_laps),
+                            )
 
             # A post-lap incident can make the car that was physically ahead
             # slower on elapsed time than a car behind it.  Reclassify only
@@ -1218,6 +1223,9 @@ class RaceSimulator(InventoryStrategyMixin):
         if (state.tire_inventory is not None
                 and state.tire_inventory.current_set_id in state.tire_inventory.unavailable_ids):
             return "forced_repair"
+        if (state.tire_inventory is not None
+                and state.tire_inventory.current_remaining_laps(state.tire_laps) == 0):
+            return "tyre_usage_limit"
         if lap >= max(2, track.total_laps) and not self._stay_satisfies_tire_rule(state):
             return "compound_requirement"
         return None
@@ -1428,6 +1436,13 @@ class RaceSimulator(InventoryStrategyMixin):
         if (state.tire_inventory is not None
                 and state.tire_inventory.current_set_id in state.tire_inventory.unavailable_ids):
             return False
+        if state.tire_inventory is not None:
+            remaining = state.tire_inventory.current_remaining_laps(state.tire_laps)
+            retained_horizon = (physical_total_laps or track.total_laps) - lap + 1
+            if remaining is not None and remaining < retained_horizon:
+                # This guard compares retaining to the flag without further
+                # service. An expiry would invalidate that retained branch.
+                return False
         if active_states is not None:
             active = {other.driver.id: other for other in active_states
                       if other.status == DriverStatus.RACING}
@@ -2766,7 +2781,7 @@ class RaceSimulator(InventoryStrategyMixin):
                 if candidate_reason in {
                     "critical_weather", "weather_reaction", "compound_requirement",
                     "dry_forecast", "rain_forecast", "inventory_forecast",
-                    "neutralization_window", "planned_window", "forced_repair",
+                    "neutralization_window", "planned_window", "forced_repair", "tyre_usage_limit",
                     "user_plan",
                 }:
                     decision_reason = candidate_reason

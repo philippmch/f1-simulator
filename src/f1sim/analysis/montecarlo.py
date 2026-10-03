@@ -47,7 +47,11 @@ from f1sim.simulation.randomness import (
     validate_rng_policy,
     weather_rng_for_trial,
 )
-from f1sim.simulation.tire_inventory import validate_tire_inventory
+from f1sim.simulation.tire_inventory import (
+    TIRE_USAGE_POLICY,
+    has_tire_usage_limits,
+    validate_tire_inventory,
+)
 from f1sim.simulation.validation import validate_unique_ids
 from f1sim.simulation.warmup import validate_tire_warmup
 from f1sim.simulation.weather_schedule import validate_weather_schedule
@@ -55,7 +59,7 @@ from f1sim.simulation.weather_schedule import validate_weather_schedule
 _PIT_DECISION_REASONS = frozenset({
     "forced_repair", "critical_weather", "weather_reaction", "compound_requirement",
     "dry_forecast", "rain_forecast", "inventory_forecast", "neutralization_window",
-    "planned_window", "user_plan",
+    "planned_window", "user_plan", "tyre_usage_limit",
 })
 
 
@@ -1279,7 +1283,8 @@ class MonteCarloRunner:
         track_data = self.track.model_dump()
         weather_data = self.weather.model_dump()
         input_snapshot = {
-            "schema_version": (8 if weather_schedule else 7 if qualifying_weather
+            "schema_version": (9 if has_tire_usage_limits(inventory)
+                               else 8 if weather_schedule else 7 if qualifying_weather
                                else 6 if tire_warmup else 5 if pit_plans
                                else 4 if inventory else 3 if ages else 2),
             "drivers": deepcopy(drivers_data),
@@ -1297,6 +1302,8 @@ class MonteCarloRunner:
             input_snapshot["qualifying_weather"] = deepcopy(qualifying_weather)
         if inventory:
             input_snapshot["tire_inventory"] = deepcopy(inventory)
+            if has_tire_usage_limits(inventory):
+                input_snapshot["tire_usage_policy"] = TIRE_USAGE_POLICY
         if ages:
             input_snapshot["starting_tire_ages"] = ages.copy()
         if pit_plans:

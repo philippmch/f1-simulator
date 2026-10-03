@@ -240,7 +240,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--tire-inventory", type=_tire_inventory,
-        help="Race sets: VER=soft@5,medium,hard;NOR=soft,hard. Unlisted drivers unlimited.",
+        help=("Race sets: VER=soft@5/20,medium/25,hard;NOR=soft,hard. "
+              "Optional /remaining caps race laps per physical set. Unlisted drivers unlimited."),
     )
     parser.add_argument(
         "--pit-plans", type=_pit_plans,
