@@ -19,6 +19,7 @@ from f1sim.models._native import (
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.pit_strategy import expected_stationary_time
+from f1sim.simulation.strategy_neutralization import current_fitted_time, current_running_time
 from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.surface_projection import (
     normalize_weather_intervals,
@@ -46,7 +47,7 @@ def _clock_weather_stop_costs(
     driver, car, track, weather, current_tire, tire_age, current_lap,
     *, pit_lane_factor, additional_current_stop_cost, current_lap_time_modifier,
     active_aero_enabled, traffic_possible, physical_total_laps, weather_clock,
-    tire_warmup, current_fit_pending, forecast_context=None,
+    tire_warmup, current_fit_pending, forecast_context=None, safety_car=None,
 ):
     """Evaluate weather-stop bounds while each paid stop delays the clock."""
     horizon = track.total_laps - current_lap + 1
@@ -89,6 +90,8 @@ def _clock_weather_stop_costs(
         # retained branch keeps the observed traffic gap when that control is
         # enabled; future free-green laps are clear air in either branch.
         gap = (0.0 if traffic_possible else None) if gap_kind == 2 else None
+        if offset == 0 and safety_car is not None:
+            gap = safety_car.traffic_gaps[int(gap_kind == 1)]
         value = simulator.calculate_lap_time(
             driver, clean, track, tire, observed_surfaces[surface_id],
             current_lap + offset, physical_total_laps,
@@ -96,7 +99,8 @@ def _clock_weather_stop_costs(
             active_aero_enabled=(active_aero_enabled if offset == 0 else True),
             sample_variation=False,
         )
-        return value * current_lap_time_modifier if offset == 0 else value
+        return (current_running_time(value, current_lap_time_modifier, safety_car,
+                                     stopped=gap_kind == 1) if offset == 0 else value)
 
     def run(offset, tire_key, compound, age, branch_surface, first=False, retained=False,
             fitted=False):
@@ -104,9 +108,9 @@ def _clock_weather_stop_costs(
         name = compound.value if isinstance(compound, TireCompound) else compound
         value = running(offset, tire_key, name, age, gap_kind,
                         id(branch_surface))
-        if fitted and tire_warmup:
-            value += tire_warmup_seconds(tire_warmup, name)
-        return value
+        fee = tire_warmup_seconds(tire_warmup, name) if fitted and tire_warmup else 0.
+        return (current_fitted_time(value, fee, safety_car, stopped=gap_kind == 1)
+                if offset == 0 else value + fee)
 
     def evaluate(initial, cache, actions_for):
         """Evaluate an offset-increasing strategy DAG without recursion."""
@@ -232,7 +236,7 @@ def _clock_weather_stop_costs(
         cost = (track.pit_lane_delta * pit_lane_factor + service
                 + additional_current_stop_cost
                 + run(0, candidate.value, candidate, 0, after,
-                      fitted=bool(tire_warmup))
+                      first=True, fitted=bool(tire_warmup))
                 + future((1, candidate.value, candidate.value, 1, 1, True, fit_cost)))
         pit = min(pit, cost)
     return WeatherStopCosts(pit, wait)
@@ -369,6 +373,7 @@ def weather_stop_costs(
     tire_warmup=None,
     current_fit_pending: bool = False,
     forecast_context=None,
+    safety_car=None,
 ) -> WeatherStopCosts:
     """Compare retaining while safe with an optimistic schedule of paid refits.
 
@@ -409,6 +414,7 @@ def weather_stop_costs(
             physical_total_laps=int(physical_total_laps), weather_clock=weather_clock,
             tire_warmup=tire_warmup, current_fit_pending=current_fit_pending,
             forecast_context=forecast_context,
+            safety_car=safety_car,
         )
     clean = driver.model_copy(deep=True)
     clean.reset_race_state()
@@ -433,24 +439,41 @@ def weather_stop_costs(
         traffic_possible, physical_total_laps, tires_json, intervals,
         tuple(sorted(tire_warmup.items())), current_fit_pending,
     )
-    if current_lap_time_modifier != 1.0 or not active_aero_enabled:
+    if safety_car is not None or current_lap_time_modifier != 1.0 or not active_aero_enabled:
         actual_stay_first = _running(
             simulator, clean, car, track, current_tire, weather, current_lap, tire_age,
-            gap=0.0 if traffic_possible else None, aero=active_aero_enabled,
+            gap=(safety_car.retained.traffic_gap if safety_car is not None else
+                 0.0 if traffic_possible else None), aero=active_aero_enabled,
             physical_total_laps=physical_total_laps,
         )
-        stay += actual_stay_first * current_lap_time_modifier - stay_first
+        if safety_car is None:
+            stay += actual_stay_first * current_lap_time_modifier - stay_first
+        else:
+            fee = (tire_warmup_seconds(tire_warmup, current_tire.compound)
+                   if current_fit_pending else 0.)
+            controlled = current_running_time(actual_stay_first,
+                                              current_lap_time_modifier, safety_car)
+            stay += current_fitted_time(controlled, fee, safety_car) - stay_first - fee
     candidates = paid_compound_candidates(weather, forecast_context)
     pit = inf
     for compound, cost, baseline_first in fresh:
         cancellation_checkpoint()
         if compound not in candidates:
             continue
-        actual_first = baseline_first if active_aero_enabled else _running(
+        actual_first = baseline_first if active_aero_enabled and safety_car is None else _running(
             simulator, clean, car, track, TIRE_COMPOUNDS[compound],
-            weather, current_lap, 0, aero=False, physical_total_laps=physical_total_laps,
+            weather, current_lap, 0, aero=active_aero_enabled,
+            gap=safety_car.stopped.traffic_gap if safety_car is not None else None,
+            physical_total_laps=physical_total_laps,
         )
-        pit = min(pit, cost - baseline_first + actual_first * current_lap_time_modifier)
+        if safety_car is None:
+            pit = min(pit, cost - baseline_first + actual_first * current_lap_time_modifier)
+        else:
+            fee = tire_warmup_seconds(tire_warmup, compound)
+            controlled = current_running_time(actual_first, current_lap_time_modifier,
+                                              safety_car, stopped=True)
+            pit = min(pit, cost - baseline_first - fee + current_fitted_time(
+                controlled, fee, safety_car, stopped=True))
     pit += (track.pit_lane_delta * pit_lane_factor + expected_stationary_time(car)
             + additional_current_stop_cost)
     return WeatherStopCosts(pit, stay)
@@ -459,3 +482,4 @@ def weather_stop_costs(
 register_forecast_helpers(globals(), ('_running', '_surface_path'))
 
 register_forecast_helpers(globals(), ("project_next_surface", "paid_compound_candidates"))
+register_forecast_helpers(globals(), ("current_running_time", "current_fitted_time"))

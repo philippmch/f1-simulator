@@ -818,8 +818,9 @@ the pit lane through their expected exits. The shared lap model contributes
 between zero and 0.5
 seconds before weather scaling, depending on a gap below two seconds; this can
 move a close timing decision in either direction. It does not predict a queue of slower cars over multiple laps,
-passing opportunities, or rivals' stop decisions. The correction is disabled
-under neutralisation. Expected gaps approximate a nonlinear cost at the mean
+passing opportunities, or rivals' stop decisions. The green traffic correction
+is disabled under neutralisation; full-SC forecasts instead use the observed
+queue described below. Expected gaps approximate a nonlinear cost at the mean
 service time; they are not an average over every possible service outcome.
 
 For example, when two tied cars from different teams both stop behind a
@@ -937,12 +938,35 @@ can create additional gap that is subsequently recovered on track, while its
 lane, service and queue losses remain in the stop ledger and lap accounting.
 The lap on which an SC countdown ends still uses its starting restrictions.
 
-This does not make the standard loop chronological: it still advances every
-survivor once per leading lap. Pit optimizers retain their nominal
-current SC multiplier and do not predict the field's full catch-up sequence or
-future SC duration. The chronological engine instead schedules individual
-crossings and pit exits. The engines share catch-up bounds, but their physical
-queue and pit-arrival approximations can produce different results.
+Pit forecasts price that upcoming SC lap against separate retained and paid
+track-entry snapshots. Expected lane, stationary service and team-box delay
+remain paid costs; recovering some of the resulting gap reduces subsequent
+running time. A fresh compound's pace gain can also disappear inside an already
+formed queue. Dirty air enters free pace before the queue bounds are applied.
+Fitting sensitivity is added afterward, with any known predecessor fitting
+delay still preventing a neutralized pass. This applies to dry, rain, finite-set
+and custom replacement forecasts, including external weather clocks and
+selection after a compulsory stop has been committed.
+
+The standard forecast holds undecided rivals on their current sets and includes
+earlier committed stops with expected loss and a resolved replacement. Mean
+running through that copied field supplies the same queue anchor and predecessor
+crossing used in execution. An unresolved replacement or unavailable mean pace
+retains the nominal current multiplier. Mean pace uses an isolated strategy
+calculator; it does not advance the live lap sampler or race RNG.
+The chronological forecast holds already
+observed unfinished running through expected pit exit, including visible fitting
+delays. It retains the nominal forecast if a rival is still in service or would
+cross before or at that exit, because subsequent starts and physical order are
+unresolved. It never reads a private future service sample to fill that gap.
+
+These are conditional first-lap forecasts. Future running stays green and clean;
+the plan does not predict later queue catch-up, future SC duration, rival stops,
+or a race-control/weather change during service. The standard loop still
+advances every survivor once per leading lap. The chronological engine schedules
+individual crossings and pit exits. Their physical queue and pit-arrival
+approximations can therefore produce different results. VSC retains its uniform
+running multiplier and does not bunch the forecast field.
 
 Clean air's relevance to an undercut is described in Formula 1's
 [pit-strategy analysis](https://www.formula1.com/en/latest/article/jolyon-palmers-analysis-singapore-and-the-art-of-undercutting.1NgVyVsZnHTDEA9wi0s5lW).

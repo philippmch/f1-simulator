@@ -8,7 +8,7 @@ cross a physical predecessor.
 """
 
 import heapq
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import count
 from math import ceil, floor, isfinite
 from numbers import Real
@@ -36,6 +36,7 @@ from f1sim.simulation.pit_strategy import expected_stationary_time
 from f1sim.simulation.race import DriverRaceState, DriverStatus, RaceResult
 from f1sim.simulation.race_points import points_for_classification
 from f1sim.simulation.race_timing import RaceFinishTimeline, forecast_final_lap
+from f1sim.simulation.strategy_neutralization import SafetyCarBranch, StrategySafetyCarSnapshot
 from f1sim.simulation.strategy_traffic import StrategyTrafficSnapshot
 from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.surface_projection import projected_surfaces
@@ -815,6 +816,11 @@ class ChronologicalRace:
         delay = max(0.0, forecast_release - now)
         active = [other for other in self.states.values() if other.status == DriverStatus.RACING]
         traffic = self._strategy_traffic(state, now, delay)
+        safety_car = self._safety_car_strategy_snapshot(state, now, delay)
+        if safety_car is not None:
+            traffic = replace(traffic, current_traffic_gaps=safety_car.traffic_gaps,
+                              safety_car=safety_car)
+        state.strategy_safety_car_snapshot = traffic.safety_car
         restart = restart_planning is not None
         if weather_clock is None and cadence is not None:
             weather_clock = self._strategy_weather_clock(
@@ -1018,6 +1024,58 @@ class ChronologicalRace:
             traffic = self.simulator.lap_simulator.traffic_pace_contribution
             cost = traffic(rejoin_gap) - traffic(ahead)
         return StrategyTrafficSnapshot(ahead, behind, cost, traffic_gaps)
+
+    def _safety_car_strategy_snapshot(self, state, now, queue_delay):
+        """Hold the observed on-track queue through expected service.
+
+        Project only unfinished running already visible at this decision.
+        If a rival crosses or is in service before expected rejoin, its next
+        start/queue order is unresolved and the uniform forecast is retained.
+        Actual sampled future service and hypothetical rival choices are never
+        read. Race control/weather are conditional on the current snapshot.
+        """
+        control = self.simulator.event_manager
+        if not control.safety_car_active or control.red_flag_active:
+            return None
+        identifier = state.driver.id
+        others = [key for key in self.order if key != identifier
+                  and self.states[key].status == DriverStatus.RACING]
+        pace = self.running_paces.get(identifier)
+        if not others or pace is None or not isfinite(pace) or pace <= 0:
+            return None
+        if any(other.status == DriverStatus.RACING and key != identifier and key not in others
+               for key, other in self.states.items()):
+            return None
+        modifier = control.get_lap_time_modifier()
+        exit_time = (now + self.track.pit_lane_delta * self.simulator._pit_lane_factor()
+                     + expected_stationary_time(state.car) + queue_delay)
+        for key in others:
+            pending = self.pending.get(key)
+            if (pending is None or not pending.on_track or pending.running_start is None
+                    or not isfinite(pending.ready) or pending.ready <= exit_time
+                    or pending.running_start > now or pending.ready <= pending.running_start
+                    or not isfinite(pending.running) or pending.running <= 0):
+                return None
+
+        def branch(stopped):
+            order = others + [identifier] if stopped else list(self.order)
+            if identifier not in order:
+                return None
+            leader = min(order, key=lambda key: -self.states[key].laps_completed)
+            queue = (None if leader == identifier else
+                     self.pending[leader].running * modifier)
+            index = order.index(identifier)
+            if index == 0:
+                return SafetyCarBranch(queue)
+            ahead = self.pending[order[index - 1]]
+            entry = exit_time if stopped else now
+            progress = min(1., (entry - ahead.running_start) / (ahead.ready - ahead.running_start))
+            return SafetyCarBranch(queue, progress * pace * modifier, ahead_progress=progress,
+                                   blocked_until=ahead.ready + 1.e-9 - entry)
+
+        retained, stopped = branch(False), branch(True)
+        return (StrategySafetyCarSnapshot(retained, stopped)
+                if retained is not None and stopped is not None else None)
 
     def _physical_gap_ahead(self, driver_id, now, reference_pace=None):
         """Time-equivalent forward distance to the circular physical predecessor.

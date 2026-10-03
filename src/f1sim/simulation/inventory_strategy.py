@@ -13,6 +13,7 @@ from f1sim.models._native import register_forecast_helpers
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.pit_strategy import expected_stationary_time
+from f1sim.simulation.strategy_neutralization import current_fitted_time, current_running_time
 from f1sim.simulation.strategy_traffic import normalize_current_traffic_gaps
 from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.surface_projection import normalize_weather_intervals, projected_surfaces
@@ -44,7 +45,7 @@ def _clock_inventory_strategy(
     pit_lane_factor, additional_current_stop_cost, current_lap_time_modifier,
     active_aero_enabled, physical_total_laps, current_traffic_gaps, force_stop,
     free_fit, require_compound_rule, weather_clock, tire_warmup,
-    current_fit_pending, forecast_context=None,
+    current_fit_pending, forecast_context=None, safety_car=None,
 ):
     """Exact finite-pool search whose branch surfaces include paid-stop delay."""
     horizon = track.total_laps - current_lap + 1
@@ -58,6 +59,8 @@ def _clock_inventory_strategy(
     current_stop = track.pit_lane_delta * pit_lane_factor + service \
         + additional_current_stop_cost
     gaps = normalize_current_traffic_gaps(current_traffic_gaps)
+    if safety_car is not None:
+        gaps = safety_car.traffic_gaps
     bits = {compound.value: 1 << index if index < 3 else 8
             for index, compound in enumerate(TireCompound)}
 
@@ -115,14 +118,15 @@ def _clock_inventory_strategy(
             value = prepared_lap_time(
                 tire, surface, lap_number, age, gap, aero_enabled,
             )
-        return value * current_lap_time_modifier if offset == 0 else value
+        return (current_running_time(value, current_lap_time_modifier, safety_car,
+                                     stopped=first_kind == 1) if offset == 0 else value)
 
     def run(offset, compound, age, updates, first_kind=None, fitted=False):
         name = compound.value if isinstance(compound, TireCompound) else compound
         value = running(offset, name, age, first_kind, updates)
-        if fitted and warmup:
-            value += tire_warmup_seconds(warmup, name)
-        return value
+        fee = tire_warmup_seconds(warmup, name) if fitted and warmup else 0.
+        return (current_fitted_time(value, fee, safety_car, stopped=first_kind == 1)
+                if offset == 0 else value + fee)
 
     def legal(used):
         return (not require_compound_rule or bool(used & 8)
@@ -499,7 +503,7 @@ def plan_inventory_strategy(
     current_lap_time_modifier=1., active_aero_enabled=True, physical_total_laps=None,
     weather_intervals=None, current_traffic_gaps=None, force_stop=False, free_fit=False,
     require_compound_rule=True, weather_clock=None, tire_warmup=None,
-    current_fit_pending=False, forecast_context=None,
+    current_fit_pending=False, forecast_context=None, safety_car=None,
 ):
     """Minimize deterministic total time without inventing or freshening sets.
 
@@ -541,6 +545,8 @@ def plan_inventory_strategy(
     forecast_context = getattr(intervals, "context", forecast_context)
     _validate_weather_clock(weather_clock, horizon)
     gaps = normalize_current_traffic_gaps(current_traffic_gaps)
+    if safety_car is not None:
+        gaps = safety_car.traffic_gaps
     driver = driver.model_copy(deep=True)
     simulator = LapSimulator(np.random.default_rng(0))
     bits = {compound.value: 1 << index if index < 3 else 8
@@ -563,6 +569,7 @@ def plan_inventory_strategy(
             require_compound_rule=require_compound_rule, weather_clock=weather_clock,
             tire_warmup=tire_warmup, current_fit_pending=current_fit_pending,
             forecast_context=forecast_context,
+            safety_car=safety_car,
         )
     prepared_lap_time = simulator.prepare_deterministic_lap_time(driver, car, track, physical)
     surfaces = tuple(projected_surfaces(weather, horizon, intervals))
@@ -604,13 +611,14 @@ def plan_inventory_strategy(
             value = prepared_lap_time(
                 tire, surfaces[offset], current_lap + offset, age, gap, aero_enabled,
             )
-        return value * current_lap_time_modifier if first else value
+        return (current_running_time(value, current_lap_time_modifier, safety_car,
+                                     stopped=first_kind == 1) if first else value)
 
     def run(offset, compound, age, first_kind=None, fitted=False):
         value = running(offset, compound, age, first_kind)
-        if fitted and tire_warmup:
-            value += tire_warmup_seconds(tire_warmup, compound)
-        return value
+        fee = tire_warmup_seconds(tire_warmup, compound) if fitted and tire_warmup else 0.
+        return (current_fitted_time(value, fee, safety_car, stopped=first_kind == 1)
+                if first_kind is not None else value + fee)
 
     # A physical set can run each completed age only once, even when removed
     # and refitted. Keep multiplicity when constructing those potential uses.
@@ -771,3 +779,4 @@ def plan_inventory_strategy(
                              selected.compound if selected else None)
 
 register_forecast_helpers(globals(), ("project_next_surface",))
+register_forecast_helpers(globals(), ("current_running_time", "current_fitted_time"))

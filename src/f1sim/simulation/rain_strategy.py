@@ -27,6 +27,7 @@ from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation import lap as lap_physics  # noqa: F401 - extension compatibility
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.pit_strategy import expected_stationary_time
+from f1sim.simulation.strategy_neutralization import current_fitted_time, current_running_time
 from f1sim.simulation.strategy_traffic import normalize_current_traffic_gaps
 from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.surface_projection import (
@@ -155,10 +156,12 @@ def _clock_rain_stop(
     driver, car, track, weather, current_tire, tire_age, current_lap, remaining_stops,
     *, pit_lane_factor, additional_current_stop_cost, current_lap_time_modifier,
     active_aero_enabled, physical_total_laps, current_traffic_gaps, weather_clock,
-    tire_warmup, current_fit_pending, forecast_context=None,
+    tire_warmup, current_fit_pending, forecast_context=None, safety_car=None,
 ):
     """Compare complete same-compound stints on the paid-stop weather clock."""
     gaps = normalize_current_traffic_gaps(current_traffic_gaps)
+    if safety_car is not None:
+        gaps = safety_car.traffic_gaps
     horizon = track.total_laps - current_lap + 1
     driver = driver.model_copy(deep=True)
     driver.reset_race_state()
@@ -330,8 +333,10 @@ def _clock_rain_stop(
             driver, clean, track, tire, projected[first], current_lap,
             physical_total_laps, active_aero_enabled=active_aero_enabled,
             sample_variation=False, gap_to_car_ahead=gap,
-        ) * current_lap_time_modifier
-        return value + fit_fee
+        )
+        value = current_running_time(value, current_lap_time_modifier, safety_car,
+                                     stopped=stopped_first)
+        return current_fitted_time(value, fit_fee, safety_car, stopped=stopped_first)
 
     current_fee = (tire_warmup_seconds(warmup, current_tire.compound)
                    if current_fit_pending and warmup else 0.0)
@@ -484,10 +489,12 @@ def _clock_rain_transition(
     *, pit_lane_factor, additional_current_stop_cost, current_lap_time_modifier,
     active_aero_enabled, physical_total_laps, remaining_dry_stops,
     remaining_damp_stops, used_mask, current_traffic_gaps, weather_clock,
-    tire_warmup, current_fit_pending, forecast_context=None,
+    tire_warmup, current_fit_pending, forecast_context=None, safety_car=None,
 ):
     """Evaluate rain/slick transitions while paid stops move an external clock."""
     gaps = normalize_current_traffic_gaps(current_traffic_gaps)
+    if safety_car is not None:
+        gaps = safety_car.traffic_gaps
     horizon = track.total_laps - current_lap + 1
     simulator = LapSimulator(np.random.default_rng(0))
     driver = driver.model_copy(deep=True)
@@ -602,7 +609,8 @@ def _clock_rain_transition(
                 gaps[gap_kind] if gaps is not None and gap_kind in (0, 1) else None
             ),
         )
-        return value * current_lap_time_modifier if offset == 0 else value
+        return (current_running_time(value, current_lap_time_modifier, safety_car,
+                                     stopped=gap_kind == 1) if offset == 0 else value)
 
     def run(offset, tire_key, compound, age, branch_surface, gap_kind=-1, fitted=False):
         if isinstance(compound, TireCompound):
@@ -611,9 +619,9 @@ def _clock_rain_transition(
             compound = compound.compound.value
         value = running(offset, tire_key, compound, age, gap_kind,
                         id(branch_surface))
-        if fitted and warmup:
-            value += tire_warmup_seconds(warmup, compound)
-        return value
+        fee = tire_warmup_seconds(warmup, compound) if fitted and warmup else 0.
+        return (current_fitted_time(value, fee, safety_car, stopped=gap_kind == 1)
+                if offset == 0 else value + fee)
 
     def legal(mask):
         return bool(mask & 8) or (mask & 7).bit_count() >= 2
@@ -970,7 +978,8 @@ def _fresh_future(models, weather_json, fresh_json, lap, budget, physical, inter
 
 @native_forecast_cache(maxsize=256)
 def _plan(snapshots, tire_age, current_lap, budget, lane, queue, modifier, aero, physical,
-          intervals=None, gaps=None, warmup_profile=(), current_fit_pending=False):
+          intervals=None, gaps=None, warmup_profile=(), current_fit_pending=False,
+          safety_car=None):
     models = snapshots[:3]
     weather_json, retained_json, fresh_json = snapshots[3:]
     car = restore_model(Car, models[1])
@@ -1016,8 +1025,17 @@ def _plan(snapshots, tire_age, current_lap, budget, lane, queue, modifier, aero,
             )
         first_old = first(retained_json, tire_age, gaps[0] if gaps else None)
         first_fresh = first(fresh_json, 0, gaps[1] if gaps else None)
-    return RainStopDecision(pit + first_fresh * modifier - fresh_row[0],
-                            wait + first_old * modifier - row[0])
+    if safety_car is None:
+        return RainStopDecision(pit + first_fresh * modifier - fresh_row[0],
+                                wait + first_old * modifier - row[0])
+    fresh_fee = dict(warmup_profile).get(restore_model(Tire, fresh_json).compound.value, 0.)
+    paid_first = current_running_time(first_fresh, modifier, safety_car, stopped=True)
+    old_first = current_running_time(first_old, modifier, safety_car)
+    return RainStopDecision(
+        pit + current_fitted_time(paid_first, fresh_fee, safety_car, stopped=True)
+        - fresh_row[0] - fresh_fee,
+        wait + current_fitted_time(old_first, current_fee, safety_car) - row[0] - current_fee,
+    )
 
 
 @forecast_decision
@@ -1032,6 +1050,7 @@ def plan_rain_stop(
     tire_warmup=None,
     current_fit_pending: bool = False,
     forecast_context=None,
+    safety_car=None,
 ) -> RainStopDecision:
     """Compare stopping now with driving at least one lap before any stop.
 
@@ -1070,6 +1089,8 @@ def plan_rain_stop(
     if type(current_fit_pending) is not bool:
         raise ValueError("current_fit_pending must be boolean")
     gaps = normalize_current_traffic_gaps(current_traffic_gaps)
+    if safety_car is not None:
+        gaps = safety_car.traffic_gaps
     intervals = normalize_weather_intervals(
         track.total_laps - current_lap + 1, weather_intervals, weather=weather,
         forecast_context=forecast_context,
@@ -1087,6 +1108,7 @@ def plan_rain_stop(
             current_traffic_gaps=current_traffic_gaps, weather_clock=weather_clock,
             tire_warmup=tire_warmup, current_fit_pending=current_fit_pending,
             forecast_context=forecast_context,
+            safety_car=safety_car,
         )
     clean = driver.model_copy(deep=True)
     clean.reset_race_state()
@@ -1102,7 +1124,7 @@ def plan_rain_stop(
                  float(pit_lane_factor), float(additional_current_stop_cost),
                  float(current_lap_time_modifier), active_aero_enabled, int(physical),
                  intervals, gaps, tuple(sorted(tire_warmup.items())),
-                 current_fit_pending)
+                 current_fit_pending, safety_car)
 
 
 @dataclass(frozen=True)
@@ -1158,7 +1180,7 @@ def _transition_stop_eligibility_row(surfaces, critical, compound, left, dry, da
 @native_forecast_cache(maxsize=256)
 def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
                      modifier, aero, physical, dry_budget, damp_budget, intervals=None, gaps=None,
-                     used_mask=8, warmup_profile=(), current_fit_pending=False):
+                     used_mask=8, warmup_profile=(), current_fit_pending=False, safety_car=None):
     models = snapshots[:3]
     weather_json, retained_json, tires_json = snapshots[3:]
     track = restore_model(Track, models[2])
@@ -1283,10 +1305,15 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
                           budget, dry_budget, damp_budget, used_mask,
                           fitted=current_fit_pending))
 
-    def first(tire_json, age, gap):
+    def first(tire_json, age, gap, *, stopped=False):
         row = _running_row(models, weather_json, tire_json, age, current_lap, physical, intervals)
+        fee = (dict(warmup_profile).get(restore_model(Tire, tire_json).compound.value, 0.)
+               if stopped or current_fit_pending else 0.)
         if aero and gap is None:
-            return row[0] * modifier - row[0]
+            if safety_car is None:
+                return row[0] * modifier - row[0]
+            value = current_running_time(row[0], modifier, safety_car, stopped=stopped)
+            return current_fitted_time(value, fee, safety_car, stopped=stopped) - row[0] - fee
         driver = restore_model(Driver, models[0])
         driver.current_tire_laps = age
         simulator = LapSimulator(np.random.default_rng(0))
@@ -1295,7 +1322,10 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
             current_lap, physical, active_aero_enabled=aero, sample_variation=False,
             gap_to_car_ahead=gap,
         )
-        return actual * modifier - row[0]
+        if safety_car is None:
+            return actual * modifier - row[0]
+        value = current_running_time(actual, modifier, safety_car, stopped=stopped)
+        return current_fitted_time(value, fee, safety_car, stopped=stopped) - row[0] - fee
 
     wait += first(retained_json, tire_age, gaps[0] if gaps else None)
     pit, compound = inf, None
@@ -1316,7 +1346,7 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
 
             value = evaluate(root())
             cost = (track.pit_lane_delta * lane + service + queue + value
-                    + first(fresh[candidate], 0, gaps[1] if gaps else None))
+                    + first(fresh[candidate], 0, gaps[1] if gaps else None, stopped=True))
             if cost < pit:
                 pit, compound = cost, candidate
     return RainTransitionDecision(pit, wait, compound)
@@ -1336,6 +1366,7 @@ def plan_rain_transition(
     tire_warmup=None,
     current_fit_pending: bool = False,
     forecast_context=None,
+    safety_car=None,
 ) -> RainTransitionDecision:
     """Plan bounded paid stops on a deterministic rainfall/surface projection.
 
@@ -1402,6 +1433,8 @@ def plan_rain_transition(
             mask |= {TireCompound.SOFT: 1, TireCompound.MEDIUM: 2,
                      TireCompound.HARD: 4}.get(compound, 8)
     gaps = normalize_current_traffic_gaps(current_traffic_gaps)
+    if safety_car is not None:
+        gaps = safety_car.traffic_gaps
     intervals = normalize_weather_intervals(
         track.total_laps - current_lap + 1, weather_intervals, weather=weather,
         forecast_context=forecast_context,
@@ -1426,6 +1459,7 @@ def plan_rain_transition(
             weather_clock=weather_clock,
             tire_warmup=tire_warmup, current_fit_pending=current_fit_pending,
             forecast_context=forecast_context,
+            safety_car=safety_car,
         )
     clean = driver.model_copy(deep=True)
     clean.reset_race_state()
@@ -1442,7 +1476,7 @@ def plan_rain_transition(
         float(current_lap_time_modifier), active_aero_enabled, int(physical),
         None if remaining_dry_stops is None else int(remaining_dry_stops),
         None if remaining_damp_stops is None else int(remaining_damp_stops), intervals, gaps, mask,
-        tuple(sorted(tire_warmup.items())), current_fit_pending,
+        tuple(sorted(tire_warmup.items())), current_fit_pending, safety_car,
     )
 
 
@@ -1455,3 +1489,4 @@ register_forecast_helpers(globals(), (
     "_budget_clock_branches",
 ))
 register_forecast_helpers(vars(StrategyWeatherClock), ("updates", "validate_horizon"))
+register_forecast_helpers(globals(), ("current_running_time", "current_fitted_time"))

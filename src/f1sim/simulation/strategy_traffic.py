@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from math import isfinite
 from numbers import Real
 
+from f1sim.simulation.strategy_neutralization import StrategySafetyCarSnapshot
+
 
 def normalize_current_traffic_gaps(gaps):
     """Optional stay/rejoin gaps for candidate-specific first-lap physics."""
@@ -28,9 +30,12 @@ class StrategyTrafficSnapshot:
     traffic. Callers include any expected queue delay in their projection.
     current_traffic_gaps retains the stay/rejoin observations for pricing each
     candidate through lap physics; None retains the legacy scalar-cost contract.
+    safety_car optionally supplies the frozen queue for that first running lap,
+    including catch-up and any known predecessor fitting delay.
     """
 
     gap_ahead: float | None
     gap_behind: float | None
     rejoin_traffic_cost: float
     current_traffic_gaps: tuple[float | None, float | None] | None = None
+    safety_car: StrategySafetyCarSnapshot | None = None

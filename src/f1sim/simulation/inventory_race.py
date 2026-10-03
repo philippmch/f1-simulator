@@ -7,6 +7,7 @@ import numpy as np
 from f1sim.models._native import register_forecast_helpers
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.lap import LapSimulator
+from f1sim.simulation.strategy_neutralization import current_fitted_time, current_running_time
 from f1sim.simulation.strategy_traffic import normalize_current_traffic_gaps
 from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.surface_projection import projected_surfaces
@@ -147,6 +148,7 @@ class InventoryStrategyMixin:
         if self.tire_warmup:
             options["tire_warmup"] = self.tire_warmup
             options["current_fit_pending"] = state.fit_lap_pending
+        options.update(self._safety_car_forecast_options(state))
         return plan_inventory_strategy(
             state.driver, state.car, track, weather, state.tire_inventory, lap,
             tire_age=state.tire_laps, remaining_stops=max(0, maximum - state.pit_stops),
@@ -190,6 +192,8 @@ class InventoryStrategyMixin:
         if not candidates:
             return None
         gaps = normalize_current_traffic_gaps(current_traffic_gaps)
+        if not free_fit and self._safety_car_forecast_options(state):
+            gaps = state.strategy_safety_car_snapshot.traffic_gaps
         driver = state.driver.model_copy(deep=True)
         simulator = LapSimulator(np.random.default_rng(0))
         ranking_weather = weather
@@ -212,10 +216,15 @@ class InventoryStrategyMixin:
                 **({"gap_to_car_ahead": gaps[0 if free_fit else 1]}
                    if gaps is not None else {}),
             )
-            if self.tire_warmup and (
-                item.id != inventory.current_set_id or state.fit_lap_pending
-            ):
-                value += self.tire_warmup.get(item.compound.value, 0.0)
+            if not free_fit and self._safety_car_forecast_options(state):
+                value = current_running_time(value, self.event_manager.get_lap_time_modifier(),
+                                             state.strategy_safety_car_snapshot, stopped=True)
+            fee = (self.tire_warmup.get(item.compound.value, 0.0)
+                   if item.id != inventory.current_set_id or state.fit_lap_pending else 0.)
+            if not free_fit and self._safety_car_forecast_options(state):
+                return current_fitted_time(value, fee, state.strategy_safety_car_snapshot,
+                                           stopped=True)
+            value += fee
             return value
 
         return min(candidates, key=cost).id
@@ -246,7 +255,9 @@ class InventoryStrategyMixin:
             return False
         gaps = None
         traffic_cost = 0
-        if self.event_manager.is_active_aero_allowed():
+        if self._safety_car_forecast_options(state):
+            gaps = state.strategy_safety_car_snapshot.traffic_gaps
+        elif self.event_manager.is_active_aero_allowed():
             if traffic_snapshot is None:
                 gaps = self._pit_rejoin_traffic_gaps(
                     state, all_states, track, additional_current_stop_cost,

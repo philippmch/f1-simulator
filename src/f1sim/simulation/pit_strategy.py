@@ -26,6 +26,7 @@ from f1sim.models._native import (
 )
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
 from f1sim.simulation.lap import LapSimulator
+from f1sim.simulation.strategy_neutralization import current_fitted_time, current_running_time
 from f1sim.simulation.strategy_traffic import normalize_current_traffic_gaps
 from f1sim.simulation.warmup import tire_warmup_seconds, validate_tire_warmup
 
@@ -101,7 +102,7 @@ def _floor_tables(models, fresh, physical, scale, warmup_profile=()):
 
 def _floor_plan(driver, car, track, tire, age, lap, budget, mask,
                 physical, scale, aero, modifier, lane, queue, gaps=None,
-                warmup_profile=(), current_fit_pending=False):
+                warmup_profile=(), current_fit_pending=False, safety_car=None):
     projection = driver.model_copy(deep=True)
     projection.reset_race_state()
     projection.id = projection.name = projection.team_id = "projection"
@@ -121,10 +122,12 @@ def _floor_plan(driver, car, track, tire, age, lap, budget, mask,
         wait = min(wait, float(np.min(
             old[:-1] + costs[budget, wait_mask, lap + 1:track.total_laps + 1]
         )))
-    def first(set_tire, set_age, gap, *, fitted=False):
+    def first(set_tire, set_age, gap, *, fitted=False, stopped=False):
         value = _full_row(projection, car, track, set_tire, set_age,
-                          lap, physical, scale, aero, gap)[0] * modifier
-        return value + (warmup.get(set_tire.compound.value, 0.0) if fitted else 0.0)
+                          lap, physical, scale, aero, gap)[0]
+        value = current_running_time(value, modifier, safety_car, stopped=stopped)
+        fee = warmup.get(set_tire.compound.value, 0.0) if fitted else 0.0
+        return current_fitted_time(value, fee, safety_car, stopped=stopped)
     wait += first(tire, age, gaps[0] if gaps else None,
                   fitted=bool(current_fit_pending)) - row[0]
     pit, selected = inf, None
@@ -139,7 +142,7 @@ def _floor_plan(driver, car, track, tire, age, lap, budget, mask,
                     prefix[:-1] + costs[budget - 1, next_mask, lap + 1:track.total_laps + 1]
                 )))
             candidate = (best + first(TIRE_COMPOUNDS[compound], 0,
-                                      gaps[1] if gaps else None, fitted=True)
+                                      gaps[1] if gaps else None, fitted=True, stopped=True)
                          - prefix[0]
                          + track.pit_lane_delta * lane + expected_stationary_time(car) + queue)
             if candidate < pit:
@@ -262,6 +265,7 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
                   current_set_used: bool | None = None,
                   tire_warmup: dict[str, float] | None = None,
                   current_fit_pending: bool = False,
+                  safety_car=None,
                   ) -> DryPitDecision:
     """Compare legal plans using tyre-relative, or floor-clipped absolute, costs."""
     if current_set_used is not None and not isinstance(current_set_used, bool):
@@ -272,6 +276,8 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
     warmup_profile = tuple(sorted(tire_warmup.items()))
     used_current = tire_age > 0 if current_set_used is None else current_set_used
     gaps = normalize_current_traffic_gaps(current_traffic_gaps)
+    if safety_car is not None:
+        gaps = safety_car.traffic_gaps
     if remaining_laps < 1 or remaining_stops < 0 or remaining_stops > 3:
         raise ValueError("Positive remaining laps and zero to three stops are required")
     physical = track.total_laps if physical_total_laps is None else physical_total_laps
@@ -285,12 +291,13 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
     # If even it stays above the floor, common full-lap terms still cancel.
     fastest = _full_row(driver, car, track, TIRE_COMPOUNDS[TireCompound.SOFT],
                         0, track.total_laps, physical, tire_pace_multiplier)[0]
-    if not shared_forecast_available() or fastest <= track.base_lap_time * 0.95:
+    if (safety_car is not None or not shared_forecast_available()
+            or fastest <= track.base_lap_time * 0.95):
         return _floor_plan(driver, car, track, current_tire, tire_age, lap,
                            remaining_stops, mask, physical, tire_pace_multiplier,
                            active_aero_enabled, current_lap_time_modifier,
                            pit_lane_factor, additional_current_stop_cost, gaps,
-                           warmup_profile, current_fit_pending)
+                           warmup_profile, current_fit_pending, safety_car)
     # Both compound pace and degradation are linear in reference lap time.
     # Scale only the private tyre-physics key, never the actual track or pit
     # costs. This also isolates differently scaled curves in existing caches.
@@ -362,3 +369,4 @@ register_forecast_helpers(globals(), ('_full_row', 'expected_stationary_time', '
                                       '_pace_curve', '_tire_key'))
 
 register_forecast_values(globals(), ("SLICKS",))
+register_forecast_helpers(globals(), ("current_running_time", "current_fitted_time"))
