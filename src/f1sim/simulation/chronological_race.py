@@ -1165,6 +1165,7 @@ class ChronologicalRace:
         )
         self.pending[driver_id] = pending
         state.overtake_mode_active_lap = False
+        state.overtake_mode_detected_gap = None
         if not stop:
             self._begin_running(state, pending, now)
         self._enqueue(driver_id, pending.ready, "exit" if stop else "cross")
@@ -1491,9 +1492,8 @@ class ChronologicalRace:
                 )
                 success, incident = self.simulator.overtaking_model.attempt_overtake(
                     state.driver, state.car, defender.driver, defender.car, self.track, 0.0,
-                    overtake_mode_active=(pending.mode_active and pending.detected_gap is not None
-                                          and pending.detected_gap
-                                          <= self.track.overtake_mode_detection_gap),
+                    overtake_mode_active=pending.mode_active,
+                    detected_gap=pending.detected_gap,
                     restart_boost=pending.restart_boost,
                     is_wet=pending.weather.is_wet(), tire_pace_advantage_seconds=advantage,
                 )

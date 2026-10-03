@@ -123,6 +123,7 @@ class DriverRaceState:
     overtake_mode_energy: float = 1.0
     overtake_mode_deployments: int = 0
     overtake_mode_active_lap: bool = False
+    overtake_mode_detected_gap: float | None = None
     # Counts of model calls and their returned outcomes.  Opportunity gates
     # that never call the model do not contribute to these race-level totals.
     overtake_attempts: int = 0
@@ -654,6 +655,7 @@ class RaceSimulator(InventoryStrategyMixin):
                 if state.status != DriverStatus.RACING:
                     continue
                 state.overtake_mode_active_lap = False
+                state.overtake_mode_detected_gap = None
                 gap_ahead = lap_start_gaps[state.driver.id]
                 should_pit = state.driver.id in pitting_ids
 
@@ -3048,6 +3050,9 @@ class RaceSimulator(InventoryStrategyMixin):
         enough energy for a full burst.  No random draw is used here, making
         the energy timeline deterministic for a fixed simulation seed.
         """
+        # Passing later in this lap must retain the gap used for activation,
+        # even when the current traffic gap has widened beyond detection range.
+        state.overtake_mode_detected_gap = gap_ahead
         if not mode_allowed or gap_ahead is None:
             return False
         if gap_ahead > track.overtake_mode_detection_gap:
@@ -3081,6 +3086,7 @@ class RaceSimulator(InventoryStrategyMixin):
                 np.clip(state.overtake_mode_energy + recharge, 0.0, 1.0)
             )
             state.overtake_mode_active_lap = False
+            state.overtake_mode_detected_gap = None
 
     def _process_overtakes(
         self,
@@ -3168,6 +3174,7 @@ class RaceSimulator(InventoryStrategyMixin):
                         else overtake_mode_allowed
                     )
                 ),
+                detected_gap=attacker.overtake_mode_detected_gap,
                 is_wet=weather.is_wet(),
                 restart_boost=restart_lap,  # Extra chance on restart
                 tire_pace_advantage_seconds=tire_advantage,

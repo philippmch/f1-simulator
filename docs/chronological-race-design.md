@@ -210,8 +210,10 @@ Weather evolution and SC/VSC deployment or clearance during service therefore
 affect the upcoming running. Lane loss, queue and service remain charged from
 the committed stop, and the fitted set is retained. Changing conditions at exit
 does not grant another tyre change. SC catch-up uses the queue observed at track
-entry, including a safety car deployed while the car was in service. Passing retains the
-original detection decision, and energy recharges once per completed own lap.
+entry, including a safety car deployed while the car was in service. Passing sends
+the captured detection gap and activation decision to the shared maneuver model;
+the later contact gap cannot replace that earlier observation. Energy recharges
+once per completed own lap.
 Recharge uses the running conditions captured for that own lap, so a control
 deployment detected at its completion affects subsequent running rather than
 retroactively changing its energy gain. The standard engine uses the same

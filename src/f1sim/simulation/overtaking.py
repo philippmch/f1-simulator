@@ -33,6 +33,8 @@ class OvertakingModel:
         is_wet: bool = False,
         restart_boost: bool = False,
         tire_pace_advantage_seconds: float = 0.0,
+        *,
+        detected_gap: float | None = None,
     ) -> tuple[bool, bool]:
         """Attempt an overtake maneuver.
 
@@ -47,6 +49,8 @@ class OvertakingModel:
             is_wet: Whether track is wet
             restart_boost: Whether this is a SC restart lap (increased aggression)
             tire_pace_advantage_seconds: Positive for a faster attacker tyre set
+            detected_gap: Earlier observed gap that determined deployment eligibility;
+                omitted standalone calls use the current maneuver gap
 
         Returns:
             Tuple of (overtake_successful, incident_occurred)
@@ -56,12 +60,13 @@ class OvertakingModel:
         if gap > max_gap:
             return False, False  # Too far behind to attempt
 
-        # Keep the detection-gap rule at the maneuver boundary as well as in
-        # the race-state deployment step.  This protects direct callers from
-        # accidentally turning a non-eligible attack into a mode deployment.
+        # Activation follows the earlier detection observation, not the later
+        # maneuver gap. Stateless callers without that observation retain the
+        # current-gap gate. The maneuver opportunity window above is separate.
+        detection_gap = gap if detected_gap is None else detected_gap
         mode_active = (
             overtake_mode_active
-            and gap <= track.overtake_mode_detection_gap
+            and detection_gap <= track.overtake_mode_detection_gap
         )
 
         # Calculate success probability

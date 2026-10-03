@@ -1782,6 +1782,24 @@ without a measured venue calibration. Current venue profiles use the default
 effectiveness; an independently supported estimate can be supplied through a
 profile or explicit track input.
 
+Activation and passing retain the same detection observation.
+[FIA sporting regulation B7.2.3](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_b_sporting_-_iss_09_-_2026-10-01.pdf)
+bases activation on the earlier gap at the Detection Line. At lap resolution,
+the standard engine captures its pre-stop lap-start gap, and the chronological
+engine captures the physical gap when on-track running starts. A burst that was
+eligible then retains its passing benefit if the later maneuver gap widens beyond
+the detection threshold. The current maneuver gap still determines passing
+difficulty and the separate maximum opportunity window. Neither a closing gap nor
+the saved observation grants a burst without energy and control permission.
+Paid laps clear the earlier deployment snapshot; completing an own lap clears it
+before the next detection. Strategy forecasts leave this execution state unchanged.
+
+Direct `OvertakingModel.attempt_overtake` calls can supply `detected_gap` separately
+from the current `gap`. For example, a captured gap of 0.8 seconds can retain an
+active burst during a maneuver at 1.2 seconds. Without a captured observation,
+the standalone helper uses its current gap for detection eligibility. Passing
+uses one outcome draw and does not spend another burst's energy.
+
 [F1's 2026 Monaco explanation](https://www.formula1.com/en/latest/article/explained-why-active-aero-will-not-be-used-at-the-monaco-grand-prix.4nLtpjM9ZTUbPBQLmeAbj4)
 confirms that Overtake Mode remains available while Active Aero is disabled
 there. The Monaco profile therefore retains electrical deployment despite its
