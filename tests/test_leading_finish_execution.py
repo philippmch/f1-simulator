@@ -40,7 +40,7 @@ def inputs(lap, age, stress, lane, warmup, *, modifier=1.):
 
 
 def run(monkeypatch, engine_name, finite, case, warmup, *, guarded, neutralization=None,
-        rival=False, rival_skills=None, passing=True):
+        rival=False, rival_skills=None, passing=True, control_duration=1):
     lap, age, stress, lane = case
     modifier = {None: 1., "vsc": 1.2, "safety_car": 1.4}[neutralization]
     driver, car, track = inputs(lap, age, stress, lane, warmup, modifier=modifier)
@@ -60,9 +60,15 @@ def run(monkeypatch, engine_name, finite, case, warmup, *, guarded, neutralizati
                       lambda *args: TeamStrategyArchetype.BALANCED)
         def control(lap, *args, **kwargs):
             simulator.event_manager.current_lap = lap
+            remaining = max(0, case[0] - 1 + control_duration - lap)
+            active = case[0] - 1 <= lap < case[0] - 1 + control_duration
             simulator.event_manager.safety_car_active = (
-                neutralization == "safety_car" and lap == case[0] - 1)
-            simulator.event_manager.vsc_active = neutralization == "vsc" and lap == case[0] - 1
+                neutralization == "safety_car" and active)
+            simulator.event_manager.vsc_active = neutralization == "vsc" and active
+            simulator.event_manager.safety_car_laps_remaining = (
+                remaining if simulator.event_manager.safety_car_active else 0)
+            simulator.event_manager.vsc_laps_remaining = (
+                remaining if simulator.event_manager.vsc_active else 0)
             return []
 
         patch.setattr(simulator.event_manager, "process_lap", control)
@@ -231,3 +237,62 @@ def test_safety_car_field_preserves_distance_and_equal_distance_choices(
         assert guarded.laps_completed == baseline.laps_completed
         assert guarded.pit_laps == baseline.pit_laps == [lap - case[1], lap]
     assert guarded.race_time_limited and baseline.race_time_limited
+
+
+@pytest.mark.parametrize("control", ["vsc", "safety_car"])
+@pytest.mark.parametrize("finite", [False, True])
+@pytest.mark.parametrize("case", [(45, 20, .4, 8.), (65, 30, 1., 20.)])
+@pytest.mark.parametrize("warmup", [{}, {"soft": 2., "medium": 1., "hard": 1.}])
+@pytest.mark.parametrize("field_size", [2, 3, 22])
+@pytest.mark.parametrize("rival_skill", [.5, .8, .9])
+def test_chronological_neutralized_field_preserves_finish_distance(
+    monkeypatch, control, finite, case, warmup, field_size, rival_skill,
+):
+    options = dict(neutralization=control, rival=True, passing=False,
+                   rival_skills=(rival_skill,) * (field_size - 1))
+    guarded, decision = run(monkeypatch, "chronological", finite, case, warmup,
+                            guarded=True, **options)
+    baseline, original = run(monkeypatch, "chronological", finite, case, warmup,
+                             guarded=False, **options)
+    lap = case[0]
+    assert decision["native_stop"] and original["native_stop"]
+    assert guarded.laps_completed == lap + 2
+    if rival_skill <= .8:
+        assert decision["veto"] is True
+        assert guarded.laps_completed == baseline.laps_completed + 1
+        assert guarded.pit_laps == [lap - case[1]]
+        assert baseline.pit_laps == [lap - case[1], lap]
+    else:
+        assert decision["veto"] is False
+        assert guarded.laps_completed == baseline.laps_completed
+        assert guarded.pit_laps == baseline.pit_laps == [lap - case[1], lap]
+    assert guarded.race_time_limited and baseline.race_time_limited
+
+
+@pytest.mark.parametrize("control", ["vsc", "safety_car"])
+@pytest.mark.parametrize("duration", [2, 4])
+@pytest.mark.parametrize("finite", [False, True])
+@pytest.mark.parametrize("case", [(45, 20, .4, 8.), (65, 30, 1., 20.)])
+@pytest.mark.parametrize("field_size", [2, 22])
+@pytest.mark.parametrize("rival_skill", [.5, .9])
+def test_chronological_known_control_duration_preserves_native_distance_choices(
+    monkeypatch, control, duration, finite, case, field_size, rival_skill,
+):
+    options = dict(neutralization=control, rival=True, passing=False,
+                   rival_skills=(rival_skill,) * (field_size - 1), control_duration=duration)
+    warmup = {"soft": 2., "medium": 1., "hard": 1.}
+    guarded, decision = run(monkeypatch, "chronological", finite, case, warmup,
+                            guarded=True, **options)
+    baseline, original = run(monkeypatch, "chronological", finite, case, warmup,
+                             guarded=False, **options)
+    lap = case[0]
+    assert decision["native_stop"] and original["native_stop"]
+    assert guarded.laps_completed == lap + 2
+    if rival_skill == .5:
+        assert decision["veto"] is True
+        assert guarded.laps_completed == baseline.laps_completed + 1
+        assert lap not in guarded.pit_laps and lap in baseline.pit_laps
+    else:
+        assert decision["veto"] is False
+        assert guarded.laps_completed == baseline.laps_completed
+        assert guarded.pit_laps == baseline.pit_laps

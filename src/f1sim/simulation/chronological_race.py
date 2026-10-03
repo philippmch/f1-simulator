@@ -8,13 +8,20 @@ cross a physical predecessor.
 """
 
 import heapq
+from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from itertools import count
 from math import ceil, floor, isfinite
-from numbers import Real
+from numbers import Integral, Real
 
 from f1sim.cancellation import raise_if_cancelled
+from f1sim.models._native import register_forecast_helpers
 from f1sim.models.tire import TIRE_COMPOUNDS
+from f1sim.simulation.chronological_finish import (
+    ChronologicalFinishCar,
+    ChronologicalFinishContext,
+    evaluate_chronological_finish_protection,
+)
 from f1sim.simulation.custom_pit_strategy import CustomPitFinishContext
 from f1sim.simulation.events import EventType, RaceEvent
 from f1sim.simulation.execution import validate_starting_tire_ages, validate_starting_tires
@@ -26,6 +33,7 @@ from f1sim.simulation.finish_strategy import (
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.neutralization import safety_car_running_time
 from f1sim.simulation.pit_plans import (
+    current_pit_plan_instruction,
     finalize_pit_plan,
     initialize_pit_plan_state,
     override_pit_plan_instruction,
@@ -659,6 +667,29 @@ class ChronologicalRace:
         state.inventory_pit_proposal = None
         state.pit_decision_context = None
 
+    def _neutralized_finish_intervals(self):
+        """Read known remaining control intervals without evolving race control."""
+        control = self.simulator.event_manager
+        if control.safety_car_active and control.vsc_active:
+            return None
+        if not (control.safety_car_active or control.vsc_active):
+            return 0
+        remaining = (control.safety_car_laps_remaining if control.safety_car_active else
+                     control.vsc_laps_remaining)
+        if isinstance(remaining, bool) or not isinstance(remaining, Integral):
+            return None
+        # Zero-count synthetic interventions still constrain the current lap
+        # and end when the next leading update decrements the counter.
+        return max(1, int(remaining))
+
+    def _field_finish_required(self, intervals):
+        if intervals > 1:
+            return True
+        active = {key for key, row in self.states.items() if row.status == DriverStatus.RACING}
+        return len(active) > 1 and (intervals > 0 or any(
+            pending.neutralized for key, pending in getattr(self, "pending", {}).items()
+            if key in active and pending.on_track))
+
     def _finish_protection_skip_reason(self, state, *, restart=False, now=None):
         """Return why the bounded elective-stop guard must remain inactive."""
         control = self.simulator.event_manager
@@ -666,14 +697,10 @@ class ChronologicalRace:
             return "forced stop"
         if control.red_flag_active:
             return "race suspended"
-        if (control.safety_car_active or control.vsc_active) and (
-                state.driver.id not in self.states
-                or sum(other.status == DriverStatus.RACING
-                       for other in self.states.values()) != 1):
-            # Physical no-passing constraints can delay the leading crossing
-            # and persist beyond its control update. Frozen free-pace streams
-            # do not establish either branch's clock for that field.
-            return "neutralized field forecast unavailable"
+        intervals = self._neutralized_finish_intervals()
+        if intervals is None:
+            return "unavailable control duration"
+        neutralized_field = self._field_finish_required(intervals)
         if now is None or not isfinite(now):
             return "invalid current time"
         if self.weather.tire_mismatch(state.current_tire.compound) == "critical":
@@ -686,9 +713,79 @@ class ChronologicalRace:
                 return "compound rule unresolved"
         elif not self.simulator._stay_satisfies_tire_rule(state):
             return "compound rule unresolved"
-        if self._weather_projection_clock(now, restart=restart) is None:
+        if not neutralized_field and self._weather_projection_clock(now, restart=restart) is None:
             return "missing weather forecast"
         return None
+
+    def _chronological_finish_context(self, state, now, *, restart=False):
+        """Freeze observable pending events without sampled future service."""
+        pending_laps = getattr(self, "pending", None)
+        if (restart or getattr(self, "regrouping", False) or type(pending_laps) is not dict
+                or state.driver.id in pending_laps):
+            return None
+        intervals = self._neutralized_finish_intervals()
+        if intervals is None:
+            return None
+        active = {key: row for key, row in self.states.items()
+                  if row.status == DriverStatus.RACING}
+        if state.driver.id not in active:
+            return None
+        events = {}
+        for _, _, serial, kind, key, generation in getattr(self, "queue", ()):
+            pending = self.pending.get(key)
+            if (pending is not None and generation == pending.generation
+                    and kind == ("cross" if pending.on_track else "exit")):
+                events[key] = min(serial, events.get(key, serial))
+        rivals = []
+        try:
+            for key, other in active.items():
+                if other is state:
+                    continue
+                pending = self.pending.get(key)
+                if (pending is None or pending.lap != other.laps_completed + 1
+                        or key not in events or other.force_pit_next_lap
+                        or self.weather.tire_mismatch(other.current_tire.compound) == "critical"
+                        or current_pit_plan_instruction(other, pending.lap + 1) is not None):
+                    return None
+                pace = (pending.running if pending.on_track else self.running_paces.get(key))
+                ready = (pending.ready if pending.on_track else
+                         self._pending_service_exit(key, pending, now))
+                rivals.append(ChronologicalFinishCar(
+                    key, other.laps_completed, pace, max(now, ready),
+                    pending.running_start if pending.on_track else None,
+                    pending.neutralized, events[key],
+                    0. if pending.on_track else self._pending_fit_cost(key),
+                ))
+            return ChronologicalFinishContext(
+                state.driver.id, deepcopy(self.timeline), tuple(self.order), tuple(rivals),
+                self.running_paces.get(state.driver.id),
+                self.simulator.event_manager.get_lap_time_modifier(),
+                self.simulator.event_manager.safety_car_active,
+                self.simulator.weather_forecast_context,
+                control_intervals=intervals,
+            )
+        except (TypeError, ValueError, OverflowError, AttributeError, KeyError):
+            return None
+
+    def _protect_neutralized_field_finish(self, state, planning, now, delay, traffic, *,
+                                        restart=False):
+        context = self._chronological_finish_context(state, now, restart=restart)
+        if context is None:
+            return False
+        replacements = self._finish_replacement_options(
+            state, lap=state.laps_completed + 1, planning=planning)
+        result = evaluate_chronological_finish_protection(
+            state.driver, state.car, self.track, state.current_tire, state.tire_laps,
+            self.weather, now, context,
+            expected_lane_loss=self.track.pit_lane_delta * self.simulator._pit_lane_factor(),
+            expected_service_time=expected_stationary_time(state.car),
+            expected_queue_delay=delay, replacements=replacements,
+            tire_warmup=self.simulator.tire_warmup, current_fit_pending=state.fit_lap_pending,
+            current_overtake_mode_active=self.simulator._strategy_overtake_mode_active(
+                state, self.track, self.control_intervals + 1, self.weather,
+                traffic.gap_ahead if traffic is not None else None),
+        )
+        return result.veto
 
     def _finish_replacement_options(self, state, *, lap, planning=None):
         """Use a known native replacement, or retain an optimistic option set."""
@@ -735,6 +832,9 @@ class ChronologicalRace:
         reason = self._finish_protection_skip_reason(state, restart=restart, now=now)
         if reason is not None:
             return False
+        if self._field_finish_required(self._neutralized_finish_intervals()):
+            return self._protect_neutralized_field_finish(
+                state, planning, now, delay, traffic, restart=restart)
         leading_context = state.strategy_leading_finish_context if restart else None
         if self._forecast_leader() is state:
             if not restart:
@@ -1410,3 +1510,13 @@ def simulate_chronological_race(simulator, drivers, cars, track, weather, starti
         pit_plans=pit_plans,
         **({"weather_schedule": schedule} if schedule else {}),
     )
+
+
+register_forecast_helpers(globals(), (
+    "ChronologicalFinishCar", "ChronologicalFinishContext",
+    "evaluate_chronological_finish_protection",
+))
+register_forecast_helpers(vars(ChronologicalRace), (
+    "_chronological_finish_context", "_protect_neutralized_field_finish",
+    "_neutralized_finish_intervals", "_field_finish_required",
+))

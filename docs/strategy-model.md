@@ -133,12 +133,11 @@ the same guard when executing their isolated policy paths.
 Forced repairs, critical tyre mismatch, unavailable fitted sets and unresolved
 compound-use requirements remain under the existing compulsory-stop rules.
 Explicit executable pit instructions retain their requested stop. The check
-also covers SC and VSC fields in the standard engine, and SC/VSC with a single
-racing car in either engine. Its first retained lap and mean outlap use the
-current running modifier with Active Aero disabled. Reduced lane loss,
+also covers SC and VSC fields in both engines. The current running modifier
+and Active Aero availability apply at track entry. Reduced lane loss,
 stationary service and optional fitting cost keep their execution semantics;
-the fitting cost is added once after running. Later laps retain the green
-forecast.
+the fitting cost is added once after running. Standard paths retain the later
+green forecast.
 
 For a standard SC field, staying out and stopping have separate first-lap
 queues. Each freezes the complete pit-exit order, mean rival tyre pace and
@@ -151,10 +150,33 @@ elective stops and interruptions remain unknown. A known but unresolved rival
 repair, critical mismatch, due pit instruction or replacement keeps this SC
 comparison inactive, as do unavailable mean inputs or custom merge rules.
 
-The check remains inactive during a red flag and for chronological SC/VSC
-fields with multiple racing cars. Their physical no-passing constraints can
-change crossings beyond the first lap; frozen free-pace streams do not
-establish the two branches' distances in those cases.
+Chronological neutralized comparisons advance a private copy of the complete
+finish ledger and circular on-track order. Committed running keeps its known
+readiness; unfinished paid service uses its conditional expected exit and a
+single pending fitting cost. A paid candidate rejoins behind the line. Pending
+neutralized laps keep their no-passing restriction until they cross, including
+after control returns to green. A lapped physical predecessor can therefore
+delay an otherwise leading crossing without inventing an extra retained lap.
+Each branch supplies its actual conditional leading crossings to the finish
+clock and evolves persistent rainfall or the prescribed schedule only at
+those crossings, excluding the flag.
+
+The chronological field forecast also honors the observed remaining SC/VSC
+interval count, decremented at each leading crossing. This applies to a
+single car when more than the current interval remains, and to green decisions
+with earlier neutralized running still pending. An outlap entering after a
+control or weather update uses the updated conditions; its lane/service loss
+stays committed at the decision. After its mean outlap, the optimistic stop
+uses the absolute running floor with applicable control and queue constraints.
+Retained laps continue mean tyre ageing and entry traffic. Rival recurring
+laps hold their latest observed free pace; later green passage is free and
+future stops, incidents or control extensions are not predicted. The retained
+first lap preserves eligible current Overtake Mode without forecasting later
+deployments. Unresolved rival repairs, critical mismatch, a due next-lap pit
+instruction, missing pending-event observations or unknown control durations
+keep this comparison inactive.
+
+The check remains inactive during a red flag.
 It also remains inactive without a usable forecast, including copied inputs
 unavailable to a custom physics hook or an unresolved committed rival fit with
 differing possible fitting costs.
