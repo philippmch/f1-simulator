@@ -13,10 +13,12 @@ A Formula 1 race simulator whose live runs use **only the current UTC season**. 
 - Returns source and fetch-time provenance with calendar, ratings, and simulation responses.
 - Shows individual 95% Monte Carlo sampling ranges for win, podium, and DNF probabilities. These describe sampling noise under the chosen model, not confidence in the real race outcome.
 
-The race engine models circuit-dependent car performance, tyre stress and degradation, wet-weather car/driver performance, race-level safety-car risk, 2026 Active Aero, proximity-gated and energy-limited Overtake Mode, incidents with time/strategy consequences, current-season compound form, reliability, pit strategy, and Monte Carlo uncertainty. Active Aero is available to the field on configured straights rather than being a following aid; Overtake Mode is handled separately and is disabled during neutralisations, wet running, and restart laps. Monaco's 2026 Active Aero exception is represented with no configured zones.
+The race engine models circuit-dependent car performance, tyre stress and degradation, wet-weather car/driver performance, race-level safety-car risk, 2026 Active Aero, proximity-gated and energy-limited Overtake Mode, incidents with time/strategy consequences, current-season compound form, reliability, pit strategy, and Monte Carlo uncertainty. Active Aero is available to the field on configured straights rather than being a following aid; Overtake Mode is handled separately and is disabled during neutralisations, wet running, and restart laps. Monaco's 2026 Active Aero exception is represented with no configured zones, while Overtake Mode retains its separate pace and passing benefits under the usual eligibility rules.
 
 Configured aero gains are simplified lap-time inputs; see the
 [Active Aero assumptions and limits](docs/strategy-model.md#active-aero-modeling-limits).
+Electrical deployment uses a separate venue input; see the
+[Overtake Mode assumptions and limits](docs/strategy-model.md#overtake-mode-modeling-limits).
 
 Optional [qualifying-session weather](docs/qualifying-weather.md) lets Q1, Q2
 and Q3 differ from the race, including wet qualifying followed by a dry race.

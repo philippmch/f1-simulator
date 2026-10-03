@@ -125,6 +125,9 @@ class TrackStats(BaseModel):
     pit_lane_time: float = Field(default=20.0, gt=0)
     safety_car_rate: float = Field(default=0.3, ge=0.0, le=1.0)
     active_aero_zones: int = Field(default=2, ge=0)
+    overtake_mode_effectiveness: float = Field(
+        default=1.0, ge=0.0, le=1.0, allow_inf_nan=False,
+    )
     overtake_difficulty: float = Field(default=0.5, ge=0.0, le=1.0)
     tire_stress: float = Field(default=0.5, ge=0.0, le=1.0)
     weather_variability: float = Field(default=0.2, ge=0.0, le=1.0)
@@ -2925,6 +2928,7 @@ class CurrentSeasonDataLoader:
             pit_lane_time=float(profile["pit"]),
             safety_car_rate=float(profile["sc"]),
             active_aero_zones=int(profile["active_aero"]),
+            overtake_mode_effectiveness=float(profile.get("overtake_mode_effectiveness", 1.0)),
             overtake_difficulty=float(profile["overtake"]),
             tire_stress=float(profile["tire"]),
             weather_variability=float(profile["weather"]),
@@ -3046,6 +3050,7 @@ class CurrentSeasonDataLoader:
                 ActiveAeroZone(zone_id=index + 1, sector=min(3, index % 3 + 1), time_gain=0.25)
                 for index in range(stats.active_aero_zones)
             ],
+            overtake_mode_effectiveness=stats.overtake_mode_effectiveness,
             overtake_difficulty=stats.overtake_difficulty,
             tire_stress=stats.tire_stress,
             safety_car_probability=stats.safety_car_rate,

@@ -129,17 +129,14 @@ class OvertakingModel:
         gap_factor = max(0, 1.0 - gap / self._maximum_attempt_gap(restart_boost))
 
         # Overtake Mode is distinct from common Straight Mode.  Its bounded
-        # passing bonus reflects the amount of straight-mode opportunity on
-        # this venue, the attacker's straight-line package, and how difficult
-        # it is to complete a pass at this circuit.
+        # passing bonus uses its own assumed venue effectiveness, the attacker's
+        # straight-line package, and circuit difficulty. Active Aero availability
+        # does not determine the electrical deployment's effectiveness.
         if overtake_mode_active and not is_wet:
-            active_aero_mix = float(
-                np.clip(track.total_active_aero_gain / 1.2, 0.0, 1.0)
-            )
             straight_speed = float(np.clip(attacker_car.straight_line_speed, 0.5, 1.1))
             overtake_mode_bonus = (
                 0.16
-                * active_aero_mix
+                * track.overtake_mode_effectiveness
                 * (0.8 + 0.4 * straight_speed)
                 * (1.0 - 0.5 * track.overtake_difficulty)
             )

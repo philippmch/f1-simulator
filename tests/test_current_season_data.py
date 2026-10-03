@@ -1478,6 +1478,35 @@ def test_current_venue_profiles_use_active_aero_and_neutral_fallback() -> None:
     assert fallback["active_aero"] == 2
 
 
+def test_monaco_assembly_keeps_overtake_mode_with_active_aero_disabled() -> None:
+    def unexpected(*args, **kwargs):
+        pytest.fail("Venue configuration must not fetch race data")
+
+    loader = CurrentSeasonDataLoader(current_year=CURRENT_YEAR, http_getter=unexpected)
+    event = dict(round=8, circuit_id="monaco", circuit_name="Circuit de Monaco", country="Monaco")
+    stats = loader._track_stats_from_event(CURRENT_YEAR, event)
+    track = loader.create_track_from_stats(stats)
+    assert stats.active_aero_zones == track.active_aero_zone_count == 0
+    assert track.total_active_aero_gain == 0
+    assert stats.overtake_mode_effectiveness == track.overtake_mode_effectiveness == 1
+
+
+@pytest.mark.parametrize("effectiveness", [0, .25, 1])
+def test_independent_mode_effectiveness_survives_venue_and_stats_assembly(
+    monkeypatch, effectiveness,
+):
+    loader = CurrentSeasonDataLoader(current_year=CURRENT_YEAR, http_getter=lambda *a, **kw: {})
+    event = dict(round=8, circuit_id="monaco")
+    profile = dict(loader._venue_profile(event), overtake_mode_effectiveness=effectiveness)
+    monkeypatch.setattr(loader, "_venue_profile", lambda event: profile)
+    stats = loader._track_stats_from_event(CURRENT_YEAR, event)
+    restored = current_module.TrackStats.model_validate_json(stats.model_dump_json())
+    track = loader.create_track_from_stats(restored)
+    assert restored.overtake_mode_effectiveness == effectiveness
+    assert track.overtake_mode_effectiveness == effectiveness
+    assert track.active_aero_zones == []
+
+
 def test_supplied_driver_evidence_assembly_is_pure_and_matches_live(monkeypatch):
     import copy
 

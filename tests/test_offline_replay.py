@@ -51,6 +51,28 @@ def test_roundtrip_second_trial_and_events(tmp_path, engine, monkeypatch):
     assert replay.parallel is False
 
 
+@pytest.mark.parametrize("engine", ["standard", "chronological"])
+def test_roundtrip_preserves_independent_overtake_mode_effectiveness(tmp_path, engine, monkeypatch):
+    drivers = [Driver(id=str(i), name=str(i), team_id=str(i)) for i in range(2)]
+    cars = {driver.id: Car(team_id=driver.id, team_name=driver.id) for driver in drivers}
+    track = Track(id="t", name="Saved circuit", country="T", total_laps=6, base_lap_time=90,
+                  overtake_mode_effectiveness=.25, active_aero_zones=[])
+    original = MonteCarloRunner(drivers, cars, track, Weather(change_probability=0),
+                                seed=71, race_engine=engine).run(2, parallel=False)
+    path = Exporter(tmp_path).export_statistics_json(original)
+
+    def no_network(*args, **kwargs):
+        pytest.fail("Replay must use the saved venue effectiveness without fetching data")
+
+    monkeypatch.setattr("socket.socket.connect", no_network)
+    loaded, _ = _load_saved_runner(path)
+    assert loaded.track.overtake_mode_effectiveness == .25
+    assert loaded.track.active_aero_zones == []
+    replay = replay_saved_simulation(path, simulation=2)
+    assert replay.race_results == [original.race_results[1]]
+    assert replay.qualifying_results == [original.qualifying_results[1]]
+
+
 @pytest.mark.parametrize("index", [True, False, 0, -1, 3, 1.0, "1", None])
 def test_invalid_index(saved, index):
     with pytest.raises(ValueError, match="simulation"):
@@ -113,6 +135,8 @@ def test_invalid_inputs(saved, field, value):
     (("track", None, "total_laps"), True),
     (("track", None, "total_laps"), 5.0),
     (("track", None, "total_laps"), "5"),
+    (("track", None, "overtake_mode_effectiveness"), True),
+    (("track", None, "overtake_mode_effectiveness"), "0.25"),
     (("track.sectors", 0, "base_time"), True),
     (("track.sectors", 0, "base_time"), "90"),
     (("track.active_aero_zones", 0, "zone_id"), True),

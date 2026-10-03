@@ -80,6 +80,13 @@ class Track(BaseModel):
         le=3.0,
         description="Detection gap in seconds for Overtake Mode",
     )
+    overtake_mode_effectiveness: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        allow_inf_nan=False,
+        description="Relative Overtake Mode pace/passing effect, independent of Active Aero",
+    )
 
     # Track characteristics affecting racing
     overtake_difficulty: float = Field(

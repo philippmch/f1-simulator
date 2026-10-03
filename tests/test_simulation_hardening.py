@@ -402,7 +402,7 @@ def test_active_aero_is_not_proximity_gated() -> None:
     assert lap_time(None) < lap_time(None, active=False)
 
 
-def test_overtake_mode_bonus_is_bounded_and_zero_on_zero_zone_track() -> None:
+def test_overtake_mode_bonus_is_bounded_and_independent_of_active_aero() -> None:
     driver = _driver("A")
     car = Car(team_id="a", team_name="A", straight_line_speed=1.0)
     tire = TIRE_COMPOUNDS[TireCompound.MEDIUM].model_copy(deep=True)
@@ -426,7 +426,9 @@ def test_overtake_mode_bonus_is_bounded_and_zero_on_zero_zone_track() -> None:
     deployed = lap_time(track, True)
     zero_zone = track.model_copy(update={"active_aero_zones": []})
     assert 0.0 < normal - deployed <= 0.35
-    assert lap_time(zero_zone, True) == pytest.approx(lap_time(zero_zone, False))
+    assert lap_time(zero_zone, False) - lap_time(zero_zone, True) == pytest.approx(
+        normal - deployed,
+    )
 
 
 def test_overtake_mode_energy_depletes_and_recharges_with_fixed_seed() -> None:

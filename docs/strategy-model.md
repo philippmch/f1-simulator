@@ -967,6 +967,8 @@ an unconditional bonus. A paid-stop candidate receives no deployment benefit,
 matching race execution. Future laps assume no deployment because future gaps
 and energy use are unknown. Evaluating a strategy consumes neither energy nor
 random draws; actual running still owns deployment and recharge.
+These electrical gains use the venue's independent Overtake Mode effectiveness;
+removing Active Aero zones does not remove the eligible retained-lap benefit.
 Both engines recharge once per completed own lap using the control conditions
 captured for that lap's running. A green lap followed by a new SC/VSC deployment
 receives green recharge; the next neutralized lap receives neutral recharge.
@@ -1760,6 +1762,33 @@ synthetic workload measurements, not a general speed guarantee. Outcome hashes
 matched for every timed pair and 120 additional short-race cases spanning both
 engines, five weather patterns, finite and unlimited inventories, explicit and
 automatic openings, evolving weather, and custom pit plans.
+
+## Overtake Mode modeling limits
+
+Electrical Overtake Mode uses `Track.overtake_mode_effectiveness`, a finite value
+from zero to one with a default of one, for both lap pace and passing probability.
+Current-season venue assembly carries this separate value through `TrackStats`
+into the track model, and exports and offline replay preserve it. Active Aero
+zone counts, zone gains and availability do not determine this value. Gap,
+energy, weather and race-control rules still determine deployment eligibility;
+the coefficient only scales the assumed effect of an eligible deployment.
+
+The lap-time term uses a 0.18-second reference scaled by venue effectiveness and
+car straight-line speed, capped at 0.35 seconds before the shared weather
+multiplier and lap-time floor. The passing term uses a 0.16 reference scaled by
+the same effectiveness, car straight-line speed and circuit difficulty, before
+the existing probability cap. These coefficients are modeling assumptions,
+without a measured venue calibration. Current venue profiles use the default
+effectiveness; an independently supported estimate can be supplied through a
+profile or explicit track input.
+
+[F1's 2026 Monaco explanation](https://www.formula1.com/en/latest/article/explained-why-active-aero-will-not-be-used-at-the-monaco-grand-prix.4nLtpjM9ZTUbPBQLmeAbj4)
+confirms that Overtake Mode remains available while Active Aero is disabled
+there. The Monaco profile therefore retains electrical deployment despite its
+zero aero zones. The source also describes a reduced electrical deployment map;
+the simulator does not model speed-dependent power maps, detection and activation
+lines within a lap, or a calibrated Monaco-specific gain. The independent
+effectiveness input separates the two systems without claiming those details.
 
 ## Active Aero modeling limits
 

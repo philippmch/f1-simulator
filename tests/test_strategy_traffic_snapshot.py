@@ -176,6 +176,10 @@ def test_native_gaps_reach_candidate_physics_without_scalar_double_charge(
 
     def plan(*args, **kwargs):
         captured.append((args, kwargs))
+        if path == "dry":
+            # A retained electrical deployment adjusts this decision's wait cost,
+            # including at tracks with no Active Aero zones.
+            return DryPitDecision(10, 0, TireCompound.HARD)
         return SimpleNamespace(should_pit=lambda *a: False)
 
     name = {"dry": "plan_dry_stop", "rain": "plan_rain_transition",

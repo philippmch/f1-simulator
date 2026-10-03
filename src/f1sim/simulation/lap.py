@@ -191,18 +191,15 @@ class LapSimulator:
 
         # Overtake Mode is a separate, short-duration deployment.  Energy
         # accounting is owned by RaceSimulator; this term only converts an
-        # eligible deployment into a bounded lap-time advantage.  Scale its
-        # effect with actual straight-mode opportunities and package speed so
-        # a zero-zone venue (e.g. Monaco) cannot accidentally gain a bonus.
+        # eligible deployment into a bounded lap-time advantage. Its assumed
+        # venue effectiveness is independent of Active Aero: Monaco retains
+        # Overtake Mode even with the wings locked in Corner Mode.
         overtake_mode_gain = 0.0
         if overtake_mode_active and not weather.is_wet():
-            active_aero_mix = float(
-                np.clip(track.total_active_aero_gain / 1.0, 0.0, 1.0)
-            )
             overtake_mode_gain = min(
                 0.35,
                 0.18
-                * active_aero_mix
+                * track.overtake_mode_effectiveness
                 * (0.85 + 0.3 * car.straight_line_speed),
             )
 

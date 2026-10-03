@@ -15,10 +15,11 @@ from f1sim.simulation.strategy_traffic import StrategyTrafficSnapshot
 from f1sim.simulation.tire_inventory import TireInventory
 
 
-def near_tie(energy=1, finite=False):
+def near_tie(energy=1, finite=False, aero=True):
     track = Track(id="T", name="T", country="T", total_laps=20,
                   base_lap_time=90, pit_lane_delta=5, tire_stress=.3,
-                  active_aero_zones=[ActiveAeroZone(zone_id=1, sector=2, time_gain=1)])
+                  active_aero_zones=[ActiveAeroZone(zone_id=1, sector=2, time_gain=1)]
+                  if aero else [])
     state = DriverRaceState(
         Driver(id="D", name="D", team_id="T", tire_management=.8),
         Car(team_id="T", team_name="T", tire_degradation_factor=.8),
@@ -34,9 +35,10 @@ def near_tie(energy=1, finite=False):
 
 
 @pytest.mark.parametrize("finite", [False, True])
+@pytest.mark.parametrize("aero", [False, True])
 @pytest.mark.parametrize("energy,stop", [(0, True), (.34, True), (.35, False), (1, False)])
-def test_available_deployment_reverses_near_tie_without_spending_energy(finite, energy, stop):
-    sim, state, track = near_tie(energy, finite)
+def test_available_deployment_reverses_near_tie_without_spending_energy(finite, aero, energy, stop):
+    sim, state, track = near_tie(energy, finite, aero)
     before_rng = deepcopy(sim.rng.bit_generator.state)
     before_driver = state.driver.model_dump()
     snapshot = StrategyTrafficSnapshot(1, None, -.25, (1, None))
@@ -100,7 +102,7 @@ def test_pure_eligibility_matches_execution(energy, gap, allowed):
     assert prediction == sim._deploy_overtake_mode_if_eligible(state, track, gap, allowed)
 
 
-@pytest.mark.parametrize("zones", [1, 8, 20])
+@pytest.mark.parametrize("zones", [0, 1, 8, 20])
 def test_gain_matches_current_lap_physics_including_floor(zones):
     sim, state, track = near_tie()
     track.active_aero_zones = [
@@ -122,6 +124,8 @@ def test_gain_matches_current_lap_physics_including_floor(zones):
     assert actual == pytest.approx(expected)
     if zones == 20:
         assert actual == 0
+    elif zones < 8:
+        assert actual > 0
 
 
 def test_finish_distance_uses_mode_only_on_first_retained_lap():
@@ -176,9 +180,10 @@ def test_chronological_planning_uses_shared_interval_permission(monkeypatch):
 
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])
+@pytest.mark.parametrize("aero", [False, True])
 @pytest.mark.parametrize("energy,stop", [(0, True), (1, False)])
-def test_native_engine_executes_near_tie_choice(monkeypatch, engine, energy, stop):
-    sim, state, track = near_tie(energy)
+def test_native_engine_executes_near_tie_choice(monkeypatch, engine, aero, energy, stop):
+    sim, state, track = near_tie(energy, aero=aero)
     driver = state.driver
     leader = driver.model_copy(update={"id": "A", "name": "A", "team_id": "A"})
     cars = {"A": state.car.model_copy(update={"team_id": "A"}), "T": state.car}
