@@ -324,6 +324,10 @@ def plan_controlled_weather(
         return 8 if native and result & 8 else result
 
     def state_key(state):
+        if physical and not same_compound and not retained_weather_bound:
+            from f1sim.simulation.inventory_strategy import _expired_inventory_state
+
+            state = _expired_inventory_state(state)
         offset, compound, age, available, left, dry, damp, mask, retained, expiry = state
         room = horizon - offset
         # Only one fit can precede each remaining own lap. Surplus allowances

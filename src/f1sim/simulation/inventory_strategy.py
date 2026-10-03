@@ -85,6 +85,20 @@ def _validate_weather_clock(weather_clock, horizon):
         weather_clock.validate_horizon(horizon)
 
 
+def _expired_inventory_state(state):
+    """Forget an exhausted active slot, preserving all usable future stock.
+
+    Once its allowance is exhausted, the active set cannot run or return to
+    the pool. Its compound and wear no longer affect any future action; used
+    compounds, stop budgets and clocks remain separate parts of the state.
+    Native searches can therefore share the suffix across different last
+    exhausted sets. Keep a valid, explicitly expired slot for existing checks.
+    """
+    if not tire_slot_usable(state[2], state[-1]):
+        return (state[0], "soft", 0, *state[3:-1], 0)
+    return state
+
+
 def _clock_inventory_strategy(
     driver, car, track, weather, inventory, current_lap, *, tire_age,
     remaining_stops, remaining_dry_stops, remaining_damp_stops, used_mask,
@@ -100,6 +114,10 @@ def _clock_inventory_strategy(
     prepared_lap_time = simulator.prepare_deterministic_lap_time(
         driver, car, track, physical_total_laps,
     )
+    native = prepared_lap_time is not None and native_physics(driver, car, track, weather)
+    constant_surface = (native and type(weather_clock) is StrategyWeatherClock
+                        and forecast_context is None
+                        and weather.track_wetness == weather.rain_intensity)
     shared_laps = (control_lap_memo(driver, car, track, physical_total_laps)
                    if prepared_lap_time is not None else None)
     service = expected_stationary_time(car)
@@ -193,6 +211,11 @@ def _clock_inventory_strategy(
         return 7 if slick.bit_count() >= 2 else slick
 
     def canonical_clock_state(offset, paid_stops, stopped_first, fit_delay):
+        if constant_surface:
+            # Native surface projection is stationary at rainfall equilibrium.
+            # Stop and fitting delays still enter costs, but cannot change any
+            # future surface, eligibility or pace in this green suffix.
+            return horizon + 1, True, 0.0
         if offset >= horizon:
             return horizon + 1, True, 0.0
         if updates(offset, paid_stops, stopped_first, fit_delay) == weather_clock.max_updates:
@@ -298,6 +321,8 @@ def _clock_inventory_strategy(
             ])
 
         def action_key(action):
+            if native:
+                action[0] = _expired_inventory_state(action[0])
             bound = completion_bound(action[0])
             action[2] = bound
             return action[1] + bound
@@ -309,6 +334,8 @@ def _clock_inventory_strategy(
 
     def solve(initial):
         """Evaluate the finite-pool strategy DAG without recursion."""
+        if native:
+            initial = _expired_inventory_state(initial)
         if initial in solve_cache:
             return solve_cache[initial]
         frames = [[initial, None, 0, retired]]
@@ -447,10 +474,12 @@ def _clock_inventory_strategy(
         costs only lowers this bound; no age-monotonicity assumption is needed.
         """
         (offset, compound, age, _pool, _left, _dry, _damp, used, paid,
-         stopped, fit_delay, _expiry) = state
+         stopped, fit_delay, expiry) = state
         compliant = legal(used)
         if offset >= horizon:
             return 0.0 if compliant else inf
+        if not tire_slot_usable(age, expiry):
+            return nextafter(green_stop + lower_bounds()[offset], -inf)
         base_age = age - offset
         key = compound, base_age, paid, stopped, fit_delay, compliant
         if key not in completion_rows:
@@ -576,7 +605,8 @@ def plan_inventory_strategy(
     """Rank legal finishes, accepted distance, then deterministic elapsed time.
 
     The anonymous future pool retains compound, age, usage expiry and multiplicity. Only
-    interchangeable IDs are merged. Local memoization is confined to this
+    interchangeable usable IDs are merged; an exhausted active slot no longer
+    distinguishes otherwise identical suffixes. Local memoization is confined to this
     call, so every model, surface and cadence is intrinsically in its context.
     A usable control field prices the known neutralized prefix on a stable
     dry surface, then returns to this same physical-pool green search. Other
@@ -669,6 +699,7 @@ def plan_inventory_strategy(
             safety_car=safety_car,
         )
     prepared_lap_time = simulator.prepare_deterministic_lap_time(driver, car, track, physical)
+    native = prepared_lap_time is not None and native_physics(driver, car, track, weather)
     surfaces = tuple(projected_surfaces(weather, horizon, intervals))
     service = expected_stationary_time(car)
     green_stop = track.pit_lane_delta + service
@@ -748,7 +779,7 @@ def plan_inventory_strategy(
 
     completion_rows = {}
 
-    def completion_bound(offset, compound, age, used):
+    def completion_bound(offset, compound, age, used, expiry):
         """Retain actual wear until the first future service, then relax stock.
 
         A completion either keeps this set through the finish, when legal, or
@@ -759,6 +790,8 @@ def plan_inventory_strategy(
         compliant = legal(used)
         if offset >= horizon:
             return 0.0 if compliant else inf
+        if not tire_slot_usable(age, expiry):
+            return nextafter(green_stop + lower_bounds()[offset], -inf)
         base_age = age - offset
         key = compound, base_age, compliant
         if key not in completion_rows:
@@ -804,7 +837,7 @@ def plan_inventory_strategy(
                                     fitted=bool(tire_warmup))
             if best.finished:
                 bound = completion_bound(
-                    offset + 1, target, target_age + 1, used | bits[target],
+                    offset + 1, target, target_age + 1, used | bits[target], target_expiry,
                 )
                 if controlled and native:
                     bound = max(bound, unlimited_dry_bound(
@@ -823,6 +856,8 @@ def plan_inventory_strategy(
         return best
 
     def solve(initial):
+        if native:
+            initial = _expired_inventory_state(initial)
         if initial in solved:
             return solved[initial]
         stack = [(initial, frame(initial))]
@@ -837,6 +872,8 @@ def plan_inventory_strategy(
                 solved[state] = value
                 stack.pop()
                 continue
+            if native:
+                child = _expired_inventory_state(child)
             if child in solved:
                 value = solved[child]
             else:
@@ -863,7 +900,6 @@ def plan_inventory_strategy(
                     and (root.timeline.states[root.identifier].completed_laps + 1 != current_lap
                          or root.timeline._clock.scheduled_laps != physical))):
             raise ValueError("control_context must match the current lap and physical distance")
-        native = prepared_lap_time is not None and native_physics(driver, car, track, weather)
         memo, lap_costs, control_bound_rows, unlimited_bounds, retained_rows = {}, {}, {}, {}, {}
         unlimited_tables = None
         uniform_prefix = (len(root.rows) == 1 or not root.safety_car
@@ -1038,7 +1074,7 @@ def plan_inventory_strategy(
                 return ProjectedControlCost(0, 0.) if legal(used) else retired
             if not field.projection_required:
                 return solve(state)
-            key = (observed_control_key(field), state) if native else None
+            key = (observed_control_key(field), _expired_inventory_state(state)) if native else None
             if native and key in memo:
                 return memo[key]
             best = (controlled_action(field, state) if tire_slot_usable(age, expiry)
@@ -1137,9 +1173,10 @@ register_forecast_helpers(globals(), ("project_next_surface",))
 register_forecast_helpers(globals(), ("current_running_time", "current_fitted_time"))
 register_forecast_helpers(globals(), (
     "ObservedStandardField", "StrategyControlContext", "ProjectedControlCost",
-    "observed_control_key", "native_physics",
+    "StrategyWeatherClock", "observed_control_key", "native_physics",
     "_floor_tables", "forecast_json", "minimum_lap_time",
     "isolated_strategy_lap", "plan_controlled_weather", "usable_weather_control",
     "control_lap_memo", "memoized_control_lap", "control_wear_bound",
     "exchange_tire_slots", "tire_set_slot", "tire_slot_usable",
+    "_expired_inventory_state",
 ))

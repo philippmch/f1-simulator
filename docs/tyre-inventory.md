@@ -240,9 +240,33 @@ cannot improve. A bound on full-distance time cannot discard a longer partial
 continuation while all explored paths still retire.
 The native search builds and sorts a replacement's inventory state only after
 admitting the branch. Rejected candidates incur no pool-rebuild cost;
-admitted candidates retain the same state, evaluation order and forecast cost.
+admitted candidates preserve the usable pool, its wear and physical multiplicity.
 
-That bound starts with the cheapest reachable running cost on each future lap.
+Native forecasts also share otherwise identical continuations after the active
+set exhausts its usage allowance. That set cannot run or return to the future
+pool, so its last compound and wear no longer distinguish the suffix. Usable
+stock, compound-use credit, stop allowances and elapsed fitting costs remain
+part of the decision. The race ledger still preserves the actual exhausted set.
+The completion bound charges the next compulsory service instead of pricing
+further running on an exhausted set. Custom physics retains its actual model
+state and bypasses this reduction.
+
+On a native surface already at rainfall equilibrium, with no future weather
+schedule, paid and fitting delays cannot change future water or pace. Green
+finite-pool forecasts can share their weather-clock states while retaining
+those delays in elapsed costs. Changing surfaces, schedules and custom clock
+subclasses retain their clock-dependent branches. Observed SC/VSC field state
+still distinguishes controlled continuations.
+
+`python examples/benchmark_inventory_retirement.py --sets 18 --trials 1`
+measures a conditional decision with distinct used intermediate sets, one
+permitted lap on each, constant surface water and rainfall `0.3`, and a longer
+scheduled distance. Both own-lap and external clocks must preserve 18 accepted
+laps followed by retirement. The JSON reports times, proposed replacement and
+decision, plus an outcome digest that excludes timings. This is a synthetic
+search workload, not a prediction of race retirement or an executed race.
+
+The conserved-wear bound starts with the cheapest reachable running cost on each future lap.
 For each physical set and age, it finds the smallest excess above that lap's
 baseline over eligible future surfaces. It then adds the cheapest distinct uses
 needed for the remaining distance. A set cannot supply its same age twice;

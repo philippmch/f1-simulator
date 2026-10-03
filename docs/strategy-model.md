@@ -1661,6 +1661,16 @@ tied alternatives, and the calculation makes
 no assumption that older tyres are slower. It changes search work rather than
 physical-set availability, stop allowances or the strategy objective.
 
+Native physical-set searches share a continuation once the active set's usage
+allowance is exhausted: it can neither run another lap nor return to the pool.
+They retain usable physical stock, compound credit, stop allowances and the
+observed field clock. At rainfall equilibrium without a future schedule,
+native green suffixes also share equivalent weather-clock states; physical
+service and fitting costs still enter elapsed time. Changing surfaces and
+custom physics keep their branch-dependent state. The synthetic
+`examples/benchmark_inventory_retirement.py` diagnostic compares conditional
+distance, retirement time and decisions independently of its timings.
+
 JSON output includes individual trial times, the first trial, the mean of later
 trials, and their total. In a fresh command-line process, the first trial starts
 with cold strategy caches; later trials can reuse them. Output serialization

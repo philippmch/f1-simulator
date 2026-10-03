@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from math import floor, isfinite
 from numbers import Integral, Real
 
+from f1sim.models._native import register_forecast_helpers
+
 
 def _finite_nonnegative(value, name: str) -> float:
     if (isinstance(value, bool) or not isinstance(value, Real)
@@ -179,3 +181,6 @@ class StrategyWeatherClock:
             return self.max_updates
         count = floor(ratio + 1.0e-12) + 1
         return max(0, min(self.max_updates, count))
+
+
+register_forecast_helpers(vars(StrategyWeatherClock), ("updates",))
