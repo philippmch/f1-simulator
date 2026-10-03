@@ -62,9 +62,15 @@ jobs:
         run: |
           python -m pip install -e '.[web,dev]'
           npm install --prefix output/browser-deps --no-audit --no-fund playwright@1.58.2
+      - name: Generate complete offline dashboard fixture
+        timeout-minutes: 10
+        env:
+          PYTHONFAULTHANDLER: "1"
+        run: python tests/browser_fixture.py --progress > output/browser-dashboard-fixture.json
       - name: Offline dashboard smoke
         env:
           F1SIM_OFFLINE: "1"
+          F1SIM_BROWSER_FIXTURE: output/browser-dashboard-fixture.json
           NODE_PATH: ${{ github.workspace }}/output/browser-deps/node_modules
         run: node tests/browser_dashboard.cjs
       - name: Offline HTML export checks

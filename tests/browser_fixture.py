@@ -3,10 +3,12 @@
 This helper never loads season data and writes no persisted fixtures.
 """
 
+import argparse
 import contextlib
 import copy
 import json
 import sys
+from time import perf_counter
 
 from f1sim.analysis import MonteCarloRunner, scenario_weather_from_label
 from f1sim.analysis.paired_comparison import paired_comparison_statistics
@@ -20,7 +22,22 @@ from f1sim.web.server import (
 )
 
 
-def build_fixture() -> dict:
+def build_fixture(*, progress=False) -> dict:
+    def run_fixture(runner, label):
+        if progress:
+            from f1sim.models._native import native_physics
+
+            print(f"Starting {label}: seed={runner.base_seed}, "
+                  f"native_forecasts={native_physics()}", file=sys.stderr, flush=True)
+        started = perf_counter()
+        result = runner.run(num_simulations=10, parallel=False)
+        if progress:
+            print(f"Completed {label}: {perf_counter() - started:.1f} seconds",
+                  file=sys.stderr, flush=True)
+        return result
+
+    if progress:
+        print(f"Fixture Python: {sys.version}", file=sys.stderr, flush=True)
     drivers = [
         Driver(id=f"S{i:02}", name=f"Synthetic Driver {i}", team_id=f"team{i // 2}")
         for i in range(22)
@@ -43,13 +60,13 @@ def build_fixture() -> dict:
     for index, label in enumerate(("dry", "light_rain", "heavy_rain")):
         scenario = scenario_weather_from_label(Weather(change_probability=0), label)
         weather[label] = scenario.weather
-        results[label] = MonteCarloRunner(
+        results[label] = run_fixture(MonteCarloRunner(
             drivers, cars, track, scenario.weather, seed=42 + index * 1000,
             race_engine="chronological",
             starting_tires={"S00": "hard", "S01": "soft"},
             starting_tire_ages={"S00": 5},
             tire_inventory=inventory,
-        ).run(num_simulations=10, parallel=False)
+        ), f"{label} default automatic")
         # Give output smoke tests deterministic recorded, zero, and partial cases.
         for race in results[label].race_results:
             for row in race:
@@ -97,14 +114,14 @@ def build_fixture() -> dict:
             "tire_inventory": inventory,
             "rng_policy": "isolated_weather_mechanical_v1",
         }
-        automatic_result = MonteCarloRunner(
+        automatic_result = run_fixture(MonteCarloRunner(
             drivers, cars, track, weather[label], **common,
-        ).run(num_simulations=10, parallel=False)
-        custom_result = MonteCarloRunner(
+        ), f"{label} mechanical automatic")
+        custom_result = run_fixture(MonteCarloRunner(
             drivers, cars, track, weather[label],
             pit_plans={"S00": [{"lap": 4, "compound": "hard"}], "S01": []},
             **common,
-        ).run(num_simulations=10, parallel=False)
+        ), f"{label} mechanical custom")
         for result in (automatic_result, custom_result):
             result.event_stats.mechanical_failure_breakdown = {
                 "engine": 2,
@@ -198,6 +215,9 @@ def build_fixture() -> dict:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--progress", action="store_true", help="Log scenario timings to stderr")
+    options = parser.parse_args()
     with contextlib.redirect_stdout(sys.stderr):
-        fixture = build_fixture()
+        fixture = build_fixture(progress=options.progress)
     print(json.dumps(fixture, allow_nan=False))

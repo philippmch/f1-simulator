@@ -10,14 +10,16 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 
 (async () => {
   const offline = process.env.F1SIM_OFFLINE === '1';
+  const fixturePath = offline && process.env.F1SIM_BROWSER_FIXTURE;
   const fixtureStarted = performance.now();
   // The complete 90-race fixture runs exact wet/control strategy searches.
   // Give setup its own budget; page interactions retain their timeout below.
-  const fixture = offline ? JSON.parse(execFileSync(process.env.PYTHON || 'python',
+  const fixture = offline ? JSON.parse(fixturePath ? readFileSync(fixturePath, 'utf8') :
+    execFileSync(process.env.PYTHON || 'python',
     [path.join(__dirname, 'browser_fixture.py')], {encoding: 'utf8', maxBuffer: 8 * 1024 * 1024,
       timeout: 300000})) : null;
   if (offline) {
-    console.log(`SYNTHETIC offline fixture generated in ${
+    console.log(`SYNTHETIC offline fixture ${fixturePath ? 'loaded' : 'generated'} in ${
       ((performance.now() - fixtureStarted) / 1000).toFixed(1)} seconds.`);
   }
   const browser = await chromium.launch({
