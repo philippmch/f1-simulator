@@ -307,7 +307,8 @@ still enforces physical sets, stop allowances and actual compound use.
 For prescribed forecasts, native own-lap searches also use a
 relaxation with unlimited fresh replacements. Each idealized stint still ages,
 pays its pit visit and any configured fitting fee. Externally timed searches
-use this relaxation when fitting fees are disabled, retaining the delayed weather path.
+retain the delayed weather path; native fee-bearing forecasts of up to 100 own
+laps can also price future service with an interval of possible fitting delays.
 Native accumulated
 wear and the fading soft-tyre pace bonus cannot improve an older set over a
 fresh copy. Ignoring finite availability, stop allowances and compound obligations
@@ -321,8 +322,9 @@ complete starting weather, prescribed forecast and reachable paid-stop weather
 observations. The retained set's age and usage expiry stay in its own bound;
 the exact physical search still enforces stock, allowances and compound rules.
 At most 32 forecast tables remain in the decision's LRU, which resets on return
-or cancellation. Externally timed fitting fees, current traffic or control adjustments,
-changed dispatch and longer horizons keep independent completion costs.
+or cancellation. Timed fitting-fee tables additionally retain the exact clock
+and normalized fee profile. Current traffic or control adjustments, changed
+dispatch and longer horizons keep independent completion costs.
 Own-lap tables retain their exact cumulative weather cadence and prescribed
 schedule, with distinct fitting profiles kept separate. A ready retained set
 pays no fitting fee, including at age zero. Native running costs also share identical compound, age, fuel lap,
@@ -346,6 +348,21 @@ longer fee-bearing forecasts retain the full surface envelope. Native callers
 reserve the dry and rain stop envelopes for those delayed branches while the
 planner continues to enforce the damp or dry allowance at the surface where
 each stop occurs.
+
+For complex prescribed forecasts with fitting fees, the fresh-service bound
+starts from the retained set's actual accumulated fitting delay. Each future
+fresh replacement pays its compound's configured fee once. Its first outlap
+sees the surface after physical service, before that new fee affects timing.
+Later entries admit every weather count between repeatedly accumulated minimum
+and maximum compound fees. This relaxes future fee histories without enumerating
+them; actual candidate schedules still charge their precise fees. Ready retained
+sets pay none. The extra bound is built only after the physical search exceeds
+its horizon-dependent state budget, preserving the cheaper path for simple suffixes.
+For differing compound fees, its service evaluations also have a quadratic work
+budget. An unfinished query returns an optimistic zero, leaving the earlier
+completion bound in force; only completed service costs are shared. This limits
+the extra bound's overhead while the physical strategy search still runs to its
+exact result.
 
 The timed-weather search retains each action's completion bound when sorting
 candidates and reuses that exact value for pruning. Bounds remain local to the

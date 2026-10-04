@@ -124,7 +124,7 @@ def test_external_controlled_clocks_reuse_complete_fresh_costs_across_pool_histo
     def execute():
         result = benchmark(laps=30, drivers=4, intervals=3, profile=True)
         assert result["native"]
-        assert result["benchmark_version"] == 4
+        assert result["benchmark_version"] == 5
         return result, result["fresh_service_frame_visits"]
 
     shared, shared_visits = execute()

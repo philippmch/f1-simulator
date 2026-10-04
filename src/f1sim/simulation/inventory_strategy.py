@@ -205,18 +205,23 @@ def _bounded_inventory_suffix(initial, solved, excluded, actions_for, terminal):
 
 def _fresh_inventory_completion_bound(horizon, compounds, running, eligible,
                                       advance, canonical, green_stop, *, solved=None,
-                                      fitted_running=None):
+                                      fitted_running=None, fitted_advance=None, max_work=None):
     """Relax physical stock to unlimited fresh sets, retaining paid weather time.
 
     Native wear cannot improve a set over a fresh copy. Allowing every future
     replacement fresh stock, ignoring stop limits and compound compliance,
     therefore lowers completion cost. Every fitted stint still ages, pays its
-    entry and observes the same weather clock. This is never an executable plan.
+    entry. Optional fitting delays may relax later weather observations; the
+    retained physical set keeps its exact timeline. This is never an executable plan.
+    A work limit may return zero for unfinished queries when all costs are
+    nonnegative. Only fully solved service costs enter the shared table.
     """
+    work = 0
     if solved is None:
         solved = {}
 
     def service(offset, clock):
+        nonlocal work
         if offset >= horizon:
             return 0.
         initial = offset, canonical(offset, clock)
@@ -229,6 +234,10 @@ def _fresh_inventory_completion_bound(horizon, compounds, running, eligible,
         value = None
         while frames:
             cancellation_checkpoint()
+            if max_work is not None:
+                if work >= max_work:
+                    return 0.
+                work += 1
             key, frame = frames[-1]
             try:
                 child = frame.send(value)
@@ -246,6 +255,7 @@ def _fresh_inventory_completion_bound(horizon, compounds, running, eligible,
     def service_frame(offset, clock):
         best = inf
         after = advance(clock)
+        fitted_clock = after if fitted_advance is None else fitted_advance(after)
         for compound in compounds:
             if not eligible(offset, compound, clock):
                 continue
@@ -254,19 +264,22 @@ def _fresh_inventory_completion_bound(horizon, compounds, running, eligible,
                 cancellation_checkpoint()
                 # Entry eligibility precedes service; subsequent retained
                 # entries see its paid delay, just as in the physical search.
-                if number > offset and not eligible(number, compound, after):
+                active = after if number == offset else fitted_clock
+                if number > offset and not eligible(number, compound, active):
                     break
                 evaluate = (fitted_running if number == offset and fitted_running is not None
                             else running)
-                total = nextafter(total + evaluate(number, compound, number - offset, after), -inf)
+                total = nextafter(total + evaluate(number, compound, number - offset, active), -inf)
                 suffix = (0. if number + 1 == horizon else
-                          (yield (number + 1, canonical(number + 1, after))))
+                          (yield (number + 1, canonical(number + 1, fitted_clock))))
                 best = min(best, nextafter(total + suffix, -inf))
         return best
 
     @lru_cache(maxsize=None)
     def bound(offset, compound, age, clock, expiry):
         best = service(offset, clock)
+        if max_work is not None and best == 0.:
+            return 0.
         total = 0.
         for number in range(offset, horizon):
             cancellation_checkpoint()
@@ -278,6 +291,48 @@ def _fresh_inventory_completion_bound(horizon, compounds, running, eligible,
         return best
 
     return bound
+
+
+def _fitting_inventory_completion_bound(horizon, compounds, running, updates, critical,
+                                        canonical, warmup, green_stop, *, solved=None):
+    """Price fresh service while bounding every future compound-specific delay.
+
+    Retained clocks have one exact fitting delay. Fresh clocks carry its lower
+    and upper endpoints. Each new fit charges its compound's actual fee, then
+    widens later entries by the smallest/largest fee across all fresh compounds.
+    This relaxation shares no raw future fitting histories or physical stock.
+    """
+    fit_floor = min(tire_warmup_seconds(warmup, compound) for compound in compounds)
+    fit_ceiling = max(warmup.values(), default=0.)
+
+    @lru_cache(maxsize=None)
+    def service_surfaces(offset, clock):
+        paid, stopped, low, *upper = clock
+        high = upper[0] if upper else low
+        return range(updates(offset, paid, stopped, low),
+                     updates(offset, paid, stopped, high) + 1)
+
+    def service_running(offset, compound, age, clock):
+        return min(running(offset, compound, age, update)
+                   for update in service_surfaces(offset, clock))
+
+    def service_clock(offset, clock):
+        paid, stopped, low, *upper = clock
+        value = canonical(offset, paid, stopped, low)
+        if value[0] >= horizon + 1:
+            return (*value, 0.)
+        return paid, stopped, low, upper[0] if upper else low
+
+    return _fresh_inventory_completion_bound(
+        horizon, compounds, service_running,
+        lambda offset, compound, clock: any(not critical(update, compound)
+                                            for update in service_surfaces(offset, clock)),
+        lambda clock: (clock[0] + 1, *clock[1:]), service_clock, green_stop,
+        solved=solved, max_work=(4 * horizon * horizon if fit_floor != fit_ceiling else None),
+        fitted_running=lambda offset, compound, age, clock:
+            service_running(offset, compound, age, clock) + tire_warmup_seconds(warmup, compound),
+        fitted_advance=lambda clock:
+            (*clock[:2], clock[2] + fit_floor, clock[3] + fit_ceiling))
 
 
 def _inventory_clock_surfaces(horizon, clock, warmup, max_paid_stops, *, native=False):
@@ -555,6 +610,7 @@ def _clock_inventory_strategy(
 
     solve_cache, excluded = {}, {}
     fresh_bound = None
+    fresh_bound_factory = None
 
     def terminal(state):
         (offset, compound, age, _pool, left, _dry, _damp, used,
@@ -669,16 +725,25 @@ def _clock_inventory_strategy(
         max_paid_stops = horizon  # Usage expiry can compel one paid fit per own lap.
     clock_surfaces = _inventory_clock_surfaces(
         horizon, weather_clock, warmup, max_paid_stops, native=native_clock)
+
+    @lru_cache(maxsize=None)
+    def lower_running(offset, compound, age):
+        return min(
+            run(offset, compound, age, update)
+            for update in clock_surfaces[offset]
+        )
+
     if native_clock:
         # Include every before/after-service clock allowed by the relaxation.
         # Removing a compound requires it to remain critical throughout this
         # entire superset, not just along the currently cheapest schedule.
-        dead_stock = _dead_inventory_compounds({
+        relaxed_critical = {
             compound.value: tuple(all(critical_at(update, compound.value)
                                       for update in clock_surfaces[offset])
                                   for offset in range(horizon))
             for compound in TireCompound
-        })
+        }
+        dead_stock = _dead_inventory_compounds(relaxed_critical)
         if forecast_context is not None and not warmup:
             shared_services = None
             if (shared_laps is not None and horizon <= 100 and safety_car is None
@@ -697,13 +762,24 @@ def _clock_inventory_strategy(
                 lambda clock: (clock[0] + 1, clock[1]),
                 lambda offset, clock: canonical_clock_state(offset, *clock, 0.)[:2],
                 green_stop, solved=shared_services)
+        elif forecast_context is not None and warmup and horizon <= 100:
+            def build_fitting_bound():
+                shared_services = None
+                if (shared_laps is not None and safety_car is None
+                        and current_lap_time_modifier == 1. and active_aero_enabled
+                        and gaps is None):
+                    # Each fit widens future delay by the smallest/largest fee,
+                    # independently of compound choice. Its first outlap sees
+                    # the pre-fee surface. Retained sets preserve actual delay.
+                    key = ("fit", current_lap, horizon, forecast_json(weather), forecast_context,
+                           weather_clock, green_stop, tuple(sorted(warmup.items())))
+                    shared_services = control_relaxation_memo(shared_laps, key)
+                return _fitting_inventory_completion_bound(
+                    horizon, tuple(compound.value for compound in TireCompound),
+                    run, updates, critical_at, canonical_clock_state, warmup, green_stop,
+                    solved=shared_services)
 
-    @lru_cache(maxsize=None)
-    def lower_running(offset, compound, age):
-        return min(
-            run(offset, compound, age, updates)
-            for updates in clock_surfaces[offset]
-        )
+            fresh_bound_factory = build_fitting_bound
 
     initial_ages = tuple((item.compound.value,
                           tire_age if item.id == inventory.current_set_id else item.age)
@@ -738,13 +814,23 @@ def _clock_inventory_strategy(
         when legal. Ignoring replacement availability and all subsequent stop
         costs only lowers this bound; no age-monotonicity assumption is needed.
         """
+        nonlocal fresh_bound
         (offset, compound, age, _pool, _left, _dry, _damp, used, paid,
          stopped, fit_delay, expiry) = state
         compliant = legal(used)
         if offset >= horizon:
             return 0.0 if compliant else inf
+        if (fresh_bound is None and fresh_bound_factory is not None
+                and len(solve_cache) + len(excluded) > horizon * horizon):
+            # Short/simple suffixes finish more cheaply with the existing
+            # bound. Pay for service relaxation only once the physical search
+            # has accumulated more states than this horizon's quadratic budget.
+            fresh_bound = fresh_bound_factory()
+        fresh_clock = (paid, stopped, fit_delay) if warmup else (paid, stopped)
         if not tire_slot_usable(age, expiry):
-            return nextafter(green_stop + lower_bounds()[offset], -inf)
+            value = nextafter(green_stop + lower_bounds()[offset], -inf)
+            return (max(value, fresh_bound(offset, compound, age, fresh_clock, expiry))
+                    if fresh_bound is not None else value)
         base_age = age - offset
         key = compound, base_age, paid, stopped, fit_delay, compliant
         if key not in completion_rows:
@@ -761,7 +847,7 @@ def _clock_inventory_strategy(
         completion_rows[key][0] = min(first, offset)
         value = max(lower_bounds()[offset], row[offset])
         if fresh_bound is not None:
-            value = max(value, fresh_bound(offset, compound, age, (paid, stopped), expiry))
+            value = max(value, fresh_bound(offset, compound, age, fresh_clock, expiry))
         return value
 
     def initial_cost(item, available, charge, consume, first_kind, paid_stops,
@@ -1531,4 +1617,5 @@ register_forecast_helpers(globals(), (
     "_canonical_inventory_state", "_dead_inventory_compounds",
     "_bounded_inventory_suffix",
     "_fresh_inventory_completion_bound",
+    "_fitting_inventory_completion_bound",
 ))

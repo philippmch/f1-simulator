@@ -28,7 +28,7 @@ from f1sim.simulation.weather_schedule import WeatherForecastContext
 
 
 def benchmark(control="sc", intervals=5, laps=53, drivers=22, profile=False, leader=False,
-              tire_warmup=None):
+              tire_warmup=None, opening=False):
     """Return the immutable scenario, exact decision and search measurements."""
     for value, low, high, name in ((intervals, 1, 8, "intervals"), (laps, 8, 100, "laps"),
                                   (drivers, 2, 22, "drivers")):
@@ -40,13 +40,15 @@ def benchmark(control="sc", intervals=5, laps=53, drivers=22, profile=False, lea
         raise ValueError("profile must be a boolean")
     if type(leader) is not bool:
         raise ValueError("leader must be a boolean")
+    if type(opening) is not bool:
+        raise ValueError("opening must be a boolean")
     tire_warmup = validate_tire_warmup(tire_warmup)
     driver = Driver(id="A", name="Synthetic", team_id="T", skill_rating=.832,
                     tire_management=.832)
     car = Car(team_id="T", team_name="Synthetic", base_pace=.83, tire_degradation_factor=.98)
     track = Track(id="audit", name="Synthetic", country="Synthetic", total_laps=laps,
                   base_lap_time=90., pit_lane_delta=22.)
-    current_lap = max(3, laps * 2 // 5)
+    current_lap = 1 if opening else max(3, laps * 2 // 5)
     now = (current_lap - 1) * 105.
     paces = {"A": 105., **{f"B{i:02}": (110. if leader else 100.) + i * .17
                           for i in range(drivers - 1)}}
@@ -60,8 +62,8 @@ def benchmark(control="sc", intervals=5, laps=53, drivers=22, profile=False, lea
         ledger.observe_crossing(identifier, lap, time, is_leader=leading)
     rivals = tuple(ChronologicalFinishCar(
         identifier, ledger.states[identifier].completed_laps, pace,
-        ledger.states[identifier].last_crossing_time + pace,
-        ledger.states[identifier].last_crossing_time, False, index,
+        (ledger.states[identifier].last_crossing_time or 0.) + pace,
+        ledger.states[identifier].last_crossing_time or 0., False, index,
     ) for index, (identifier, pace) in enumerate(paces.items()) if identifier != "A")
     order = tuple(sorted(paces, key=lambda identifier: (
         -ledger.states[identifier].completed_laps,
@@ -114,7 +116,8 @@ def benchmark(control="sc", intervals=5, laps=53, drivers=22, profile=False, lea
         inventory_expansions = sum(value[1] for key, value in profiler.stats.items()
                                    if key[2] == "make_actions")
     return dict(
-        benchmark_version=4, native=native, control=control, intervals=intervals, leader=leader,
+        benchmark_version=5, native=native, control=control, intervals=intervals, leader=leader,
+        opening=opening,
         laps=laps, drivers=drivers, current_lap=current_lap, now=now,
         driver=driver.model_dump(mode="json"), car=car.model_dump(mode="json"),
         track=track.model_dump(mode="json"), weather=weather.model_dump(mode="json"),
@@ -138,6 +141,8 @@ def main():
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--leader", action="store_true",
                         help="Place the candidate at the head of the synthetic field")
+    parser.add_argument("--opening", action="store_true",
+                        help="Forecast from lap one, keeping the full remaining horizon")
     parser.add_argument("--tire-warmup", type=parse_tire_warmup_spec,
                         help="Post-fit seconds per compound, e.g. intermediate=0.5,wet=0.5")
     try:

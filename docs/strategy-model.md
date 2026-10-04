@@ -1731,7 +1731,8 @@ compound credit can share equivalent suffixes. Native prescribed-weather searche
 known finishing time into descendant branches, recording exclusions as bounds
 rather than exact results. For prescribed own-lap forecasts, an
 unlimited fresh-set relaxation also prices future service, ageing and configured
-fitting fees. Externally timed forecasts use it when fitting fees are disabled. Its
+fitting fees. Externally timed forecasts retain exact paid weather timing without
+fees and can use fitting-delay intervals for complex native forecasts of up to 100 own laps. Its
 service dependencies use an explicit stack and decision-local completed costs,
 preserving the original downward rounding without recursive cache calls.
 Own-lap and externally timed native green continuations of up to 100 own laps share these
@@ -1739,8 +1740,9 @@ completed fresh-service costs across physical-pool histories within one field
 decision. Exact physics, fuel laps, starting weather, prescribed schedule and
 reachable paid-stop weather observations separate the tables. The retained
 tyre's actual age and expiry remain local. A 32-table LRU bounds reuse and resets
-after the decision, including cancellation; externally timed fitting fees and
-current traffic or control adjustments retain independent calculations.
+after the decision, including cancellation. Timed fitting-fee tables keep the
+exact clock and normalized fee profile separate; current traffic or control
+adjustments retain independent calculations.
 Own-lap continuations keep their cumulative weather cadence and prescribed
 schedule and fitting profile in the key. Only newly fitted replacements pay the
 fee in this relaxation; ready retained sets keep their normal running cost.
@@ -1756,6 +1758,19 @@ the zero-fee and maximum-fee endpoints is included. Pending or free initial fits
 are covered, while the current lap's fee affects only later entries. Custom
 clocks and longer forecasts retain the full envelope. Actual candidate schedules
 still charge their exact compound-specific fees and physical service delays.
+Once a prescribed fee-bearing physical search grows beyond its horizon-dependent
+state budget, a further fresh-service bound prices later visits and ageing.
+It begins with the retained set's exact fitting delay. Each idealized future fit
+pays its actual compound fee, while the weather interval advances by the minimum
+and maximum configured fees. Repeated addition preserves floating-point delay
+endpoints. The first outlap uses the interval before its new fee; later entries
+include every weather count between the endpoints. Future fee choices are
+therefore relaxed, and no raw future fitting histories are cached. Simple
+suffixes retain the cheaper bound. This changes search work, not executable fits.
+Differing compound fees also limit the extra service relaxation's work to a
+quadratic budget. Unfinished queries fall back to zero and cannot enter the
+completed-cost table. The existing completion bound still applies, and the
+physical search has no such work limit or approximation.
 Changing surfaces and custom physics keep their branch-dependent state. The synthetic
 `examples/benchmark_inventory_retirement.py` diagnostic compares conditional
 distance, retirement time and decisions independently of its timings.
@@ -1792,6 +1807,9 @@ can be compared separately from timing noise.
 adds the existing post-fit cost sensitivity to this scenario. JSON records the
 normalized profile, and `--profile` counts inventory state expansions as well.
 These fees are configurable timing costs, not a calibrated tyre-temperature model.
+`--opening` starts the same observed-field diagnostic at lap one, with rivals
+already running their first laps. It exposes the full remaining horizon instead
+of the default mid-race snapshot. JSON records this choice with the scenario.
 
 The transition solver suspends a stint while evaluating a missing future cost
 and resumes at that stop choice. This avoids rescanning earlier choices whenever

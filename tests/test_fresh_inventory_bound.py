@@ -11,7 +11,7 @@ from f1sim.simulation.inventory_strategy import _fresh_inventory_completion_boun
 
 
 def recursive_reference(horizon, compounds, running, eligible, advance, canonical, stop,
-                        *, fitted_running=None):
+                        *, fitted_running=None, fitted_advance=None):
     """Retain the original small-horizon calculation as a rounding oracle."""
     def service(offset, clock):
         return 0. if offset == horizon else fitted(offset, canonical(offset, clock))
@@ -20,17 +20,19 @@ def recursive_reference(horizon, compounds, running, eligible, advance, canonica
     def fitted(offset, clock):
         best = inf
         after = advance(clock)
+        fitted_clock = after if fitted_advance is None else fitted_advance(after)
         for compound in compounds:
             if not eligible(offset, compound, clock):
                 continue
             total = nextafter(stop, -inf)
             for number in range(offset, horizon):
-                if number > offset and not eligible(number, compound, after):
+                active = after if number == offset else fitted_clock
+                if number > offset and not eligible(number, compound, active):
                     break
                 evaluate = (fitted_running if number == offset and fitted_running is not None
                             else running)
-                total = nextafter(total + evaluate(number, compound, number - offset, after), -inf)
-                best = min(best, nextafter(total + service(number + 1, after), -inf))
+                total = nextafter(total + evaluate(number, compound, number - offset, active), -inf)
+                best = min(best, nextafter(total + service(number + 1, fitted_clock), -inf))
         return best
 
     def bound(offset, compound, age, clock, expiry):
@@ -50,7 +52,7 @@ def recursive_reference(horizon, compounds, running, eligible, advance, canonica
 @pytest.mark.parametrize("horizon", [1, 4, 7])
 @pytest.mark.parametrize("expiry", [-1, 0, 3])
 @pytest.mark.parametrize("clocked", [False, True])
-@pytest.mark.parametrize("fitting", [False, True])
+@pytest.mark.parametrize("fitting", [False, True, "delay"])
 def test_stint_bound_retains_original_rounding_eligibility_and_paid_clock(
     horizon, expiry, clocked, fitting,
 ):
@@ -68,6 +70,8 @@ def test_stint_bound_retains_original_rounding_eligibility_and_paid_clock(
     fees = ({"fitted_running": lambda offset, compound, age, clock:
              running(offset, compound, age, clock) + (.3 if compound == "slick" else .7)}
             if fitting else {})
+    if fitting == "delay":
+        fees["fitted_advance"] = lambda clock: clock + 3
     expected = recursive_reference(*arguments, **fees)
     actual = _fresh_inventory_completion_bound(*arguments, **fees)
     for offset in range(horizon):
@@ -85,6 +89,22 @@ def test_ready_age_zero_set_pays_no_fitting_fee_but_an_expired_set_must_pay():
         fitted_running=lambda *args: 10.)
     assert bound(0, "slick", 0, None, -1) == pytest.approx(3.)
     assert bound(0, "slick", 0, None, 0) == pytest.approx(11.)
+
+
+def test_fitting_delay_changes_later_entries_and_preserves_the_first_outlap():
+    def running(offset, compound, age, clock):
+        return 10. + clock
+
+    bound = _fresh_inventory_completion_bound(
+        2, ("slick",), running, lambda *args: True,
+        lambda clock: clock + 1, lambda offset, clock: clock, 2.,
+        fitted_running=lambda offset, compound, age, clock:
+            running(offset, compound, age, clock) + 7.,
+        fitted_advance=lambda clock: clock + 10)
+    # Service costs 2 + 11 + 7; the next lap sees the accumulated delay and
+    # costs 21. Keeping a ready set sees neither a fitting fee nor its delay.
+    assert bound(0, "slick", 0, 0, 0) == pytest.approx(41.)
+    assert bound(0, "slick", 0, 0, -1) == pytest.approx(20.)
 
 
 def test_thousands_of_compulsory_stints_do_not_grow_the_call_stack():
@@ -122,3 +142,52 @@ def test_deep_relaxation_remains_cancellable():
         lambda clock: clock, lambda offset, clock: clock, 1.)
     with cancellation_scope(cancelled), pytest.raises(SimulationCancelled):
         bound(0, "even", 0, None, -1)
+
+
+@pytest.mark.parametrize("horizon", [1, 4, 7])
+@pytest.mark.parametrize("limit", [0, 1, 10, 1000])
+def test_limited_service_work_stays_optimistic_for_every_remaining_stint(horizon, limit):
+    arguments = (
+        horizon, ("even", "odd"), lambda *args: 3.,
+        lambda offset, compound, clock: compound == ("odd" if offset % 2 else "even"),
+        lambda clock: clock, lambda offset, clock: clock, 1.)
+    expected = recursive_reference(*arguments)
+    actual = _fresh_inventory_completion_bound(*arguments, max_work=limit)
+    for offset in range(horizon):
+        compound = "odd" if offset % 2 else "even"
+        for expiry in (0, -1):
+            value = actual(offset, compound, 0, None, expiry)
+            exact = expected(offset, compound, 0, None, expiry)
+            assert 0. <= value <= exact
+            if limit == 1000:
+                assert value == exact
+
+
+def test_unfinished_service_queries_keep_only_completed_reusable_costs():
+    arguments = (
+        4, ("even", "odd"), lambda *args: 3.,
+        lambda offset, compound, clock: compound == ("odd" if offset % 2 else "even"),
+        lambda clock: clock, lambda offset, clock: clock, 1.)
+    expected = recursive_reference(*arguments)
+    solved = {}
+    limited = _fresh_inventory_completion_bound(*arguments, solved=solved, max_work=6)
+    assert limited(0, "even", 0, None, 0) == 0.
+    assert (0, None) not in solved and solved
+    assert all(type(cost) is float for cost in solved.values())
+    # Completed descendants remain valid even after the computing budget ends,
+    # and another continuation can reuse them without consuming any more work.
+    expected_tail = expected(1, "odd", 0, None, 0)
+    assert limited(1, "odd", 0, None, 0) == expected_tail
+    reused = _fresh_inventory_completion_bound(*arguments, solved=solved, max_work=0)
+    before = dict(solved)
+    assert reused(1, "odd", 0, None, 0) == expected_tail
+    assert reused(0, "even", 0, None, 0) == 0.
+    assert solved == before
+
+
+def test_exhausted_service_budget_does_not_mask_cancellation():
+    bound = _fresh_inventory_completion_bound(
+        4, ("slick",), lambda *args: 3., lambda *args: True,
+        lambda clock: clock, lambda offset, clock: clock, 1., max_work=0)
+    with cancellation_scope(lambda: True), pytest.raises(SimulationCancelled):
+        bound(0, "slick", 0, None, 0)
