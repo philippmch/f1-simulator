@@ -518,6 +518,7 @@ def _aggregate_component_variant(folds, variant) -> dict:
 def evaluate_qualifying_pace(
     loader: CurrentSeasonDataLoader, year: int, *, target_race: str | int | None = None,
     form_races: int = 3, weather: Weather | None = None, include_components: bool = False,
+    qualifying_only: bool = False,
 ) -> dict:
     """Score noise-free qualifying pace against target Q1, with previous-Q1 baseline.
 
@@ -525,21 +526,27 @@ def evaluate_qualifying_pace(
     constructor standings (including sprint points), and static venue physics.
     Weather is an explicit fixed scenario, not observed target weather. All
     provider data is fetched today and may contain retrospective corrections.
+    qualifying_only permits targets with qualifying but no race results and
+    scores the available qualifying roster without requiring result overlap.
     """
     loader._assert_current_year(year)
     if type(form_races) is not int or not 0 <= form_races <= 24:
         raise ValueError("form_races must be between 0 and 24")
+    if type(qualifying_only) is not bool:
+        raise ValueError("qualifying_only must be a boolean")
     weather = (Weather() if weather is None else weather).model_copy(
         deep=True, update={"change_probability": 0.0},
     )
     events = loader.get_event_schedule(year)
     results, qualifying = loader._season_data(year)
-    completed = {_integer(row.get("round")) for row in results}
+    available = {_integer(row.get("round")) for row in (qualifying if qualifying_only else results)}
     if target_race is None:
-        targets = [event for event in events if int(event["round"]) in completed]
+        targets = [event for event in events if int(event["round"]) in available]
     else:
         targets = [loader._event_for_race(year, target_race)]
-        if int(targets[0]["round"]) not in completed:
+        if int(targets[0]["round"]) not in available:
+            if qualifying_only:
+                raise ValueError("Evaluation requires target qualifying data")
             raise ValueError("Evaluation requires a completed current-season target")
     historical_q1 = (
         build_historical_q1_events(
@@ -556,6 +563,7 @@ def evaluate_qualifying_pace(
     for event in sorted(targets, key=lambda row: int(row["round"])):
         assembled, observations = assemble_holdout_fold(
             loader, year, event, events, results, qualifying, form_races=form_races,
+            require_result_coverage=not qualifying_only,
         )
         target = assembled.metadata.target_round
         roster = assembled.roster
@@ -591,12 +599,21 @@ def evaluate_qualifying_pace(
         paired = [row for row in scored if row["previous_q1_seconds"] is not None]
         obs = [row["observed_q1_seconds"] for row in scored]
         paired_obs = [row["observed_q1_seconds"] for row in paired]
+        coverage = assembled.metadata.coverage
         fold = {
             "round": target, "race": event["race"],
-            "entrants": assembled.metadata.coverage.qualifying_entrants,
+            "entrants": coverage.qualifying_entrants,
+            "scored_entrants": len(scored),
             "status": "scored" if len(scored) >= 2 else "insufficient_q1_times",
-            "result_entrants": assembled.metadata.coverage.result_entrants,
-            "matched_result_entrants": assembled.metadata.coverage.matched_result_entrants,
+            "result_entrants": coverage.result_entrants,
+            "matched_result_entrants": coverage.matched_result_entrants,
+            "expected_result_entrants": coverage.expected_result_entrants,
+            "result_coverage_status": (
+                "unavailable" if not coverage.result_entrants else
+                "near_complete" if loader._near_complete(
+                    coverage.matched_result_entrants, coverage.expected_result_entrants,
+                ) else "incomplete"
+            ),
             "form_rounds": list(assembled.metadata.form_rounds),
             "standings_round": assembled.metadata.standings_round,
             "baseline_round": baseline_round, "static_reference_lap_seconds": track.base_lap_time,
@@ -666,10 +683,13 @@ def evaluate_qualifying_pace(
         }
     return {
         "year": year, "evaluation": "round_holdout_q1", "form_races": form_races,
+        "target_basis": "qualifying" if qualifying_only else "completed_race",
+        "requires_result_coverage": not qualifying_only,
         "weather_assumption": weather.model_dump(),
         "entrant_basis": "target_qualifying_identities",
         "data_revision": "current_provider_data_not_historical_availability",
         "fetched_at": provenance["fetched_at"], "source_urls": provenance["urls"],
+        "provenance": provenance,
         "folds": folds,
         "aggregate": aggregate,
     }

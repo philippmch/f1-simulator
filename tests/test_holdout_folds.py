@@ -163,3 +163,53 @@ def test_conflicting_target_result_aliases_are_fatal_before_coverage_exclusion(
         assemble_holdout_fold(loader, YEAR, events[1], events, results, qualifying)
 
     assert not isinstance(caught.value, InsufficientTargetCoverage)
+
+
+@pytest.mark.parametrize("remaining_results", [0, 3])
+def test_optional_result_gate_preserves_models_and_training_cutoff(
+    fold_sources, remaining_results,
+):
+    loader, events, results, qualifying = fold_sources
+    original, _ = assemble_holdout_fold(loader, YEAR, events[1], events, results, qualifying)
+    target_results = [row for row in results if row["round"] == 2]
+    results[:] = [row for row in results if row["round"] != 2] + target_results[:remaining_results]
+
+    with pytest.raises(InsufficientTargetCoverage):
+        assemble_holdout_fold(loader, YEAR, events[1], events, results, qualifying)
+    assembled, observations = assemble_holdout_fold(
+        loader, YEAR, events[1], events, results, qualifying, require_result_coverage=False,
+    )
+
+    for name in ("drivers", "cars", "track", "roster", "stats", "race_rows", "quali_rows"):
+        assert getattr(assembled, name) == getattr(original, name)
+    assert assembled.metadata.training_cutoff_round == assembled.metadata.standings_round == 1
+    assert assembled.metadata.form_rounds == (1,)
+    assert assembled.metadata.coverage.result_entrants == remaining_results
+    assert assembled.metadata.coverage.matched_result_entrants == remaining_results
+    assert assembled.metadata.coverage.expected_result_entrants == 4
+    assert len(observations.target_qualifying_rows) == 4
+
+
+@pytest.mark.parametrize("source", ["results", "qualifying"])
+def test_optional_result_gate_still_rejects_conflicting_target_aliases(fold_sources, source):
+    loader, events, results, qualifying = fold_sources
+    rows = results if source == "results" else qualifying
+    target = next(row for row in rows if row["round"] == 2 and row["Driver"]["code"] == "A1")
+    target["Driver"]["givenName" if source == "results" else "code"] = "B2"
+
+    with pytest.raises(
+        CurrentSeasonDataError, match="Conflicting aliases|duplicate driver identity",
+    ):
+        assemble_holdout_fold(
+            loader, YEAR, events[1], events, results, qualifying, require_result_coverage=False,
+        )
+
+
+@pytest.mark.parametrize("invalid", [None, 0, 1, "false"])
+def test_result_gate_validation_precedes_assembly(fold_sources, monkeypatch, invalid):
+    loader, events, results, qualifying = fold_sources
+    monkeypatch.setattr(loader, "_fetch_json", lambda *a: pytest.fail("unexpected fetch"))
+    with pytest.raises(ValueError, match="require_result_coverage"):
+        assemble_holdout_fold(
+            loader, YEAR, events[1], events, results, qualifying, require_result_coverage=invalid,
+        )

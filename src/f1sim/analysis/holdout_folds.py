@@ -206,15 +206,20 @@ def assemble_holdout_fold(
     qualifying: Sequence[Mapping[str, Any]],
     *,
     form_races: int = 3,
+    require_result_coverage: bool = True,
 ) -> tuple[HoldoutFoldInputs, HoldoutObservations]:
     """Build a pre-target model from target identities and strictly prior evidence.
 
     The model-input result contains a whitelisted entrant roster and no target
     result or qualifying labels. Scoring rows are returned as a separate value
     so callers can use them only after model assembly.
+    Qualifying-only diagnostics may omit the result-overlap gate; identities
+    and strictly prior training evidence are still validated in that mode.
     """
     if type(form_races) is not int or not 0 <= form_races <= 24:
         raise ValueError("form_races must be between 0 and 24")
+    if type(require_result_coverage) is not bool:
+        raise ValueError("require_result_coverage must be a boolean")
 
     target = int(event["round"])
     calendar_rounds = {int(calendar_event["round"]) for calendar_event in events}
@@ -246,7 +251,7 @@ def assemble_holdout_fold(
         matched_result_entrants=len(matched_results),
         expected_result_entrants=expected,
     )
-    if not loader._near_complete(len(matched_results), expected):
+    if require_result_coverage and not loader._near_complete(len(matched_results), expected):
         raise InsufficientTargetCoverage(
             target_round=target,
             roster=roster,

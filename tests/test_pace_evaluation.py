@@ -816,3 +816,173 @@ def test_cli_failure_prints_no_partial_json(fixture, monkeypatch, capsys):
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "Evaluation failed" in captured.err
+
+
+def test_qualifying_only_scores_without_target_results_and_preserves_forecasts(fixture):
+    loader, results, _, _ = fixture
+    completed = evaluate_qualifying_pace(loader, YEAR, target_race=2, include_components=True)
+    results[:] = [row for row in results if row["round"] != 2]
+    with pytest.raises(ValueError, match="completed current-season target"):
+        evaluate_qualifying_pace(loader, YEAR, target_race=2)
+
+    report = evaluate_qualifying_pace(
+        loader, YEAR, target_race=2, include_components=True, qualifying_only=True,
+    )
+    fold = report["folds"][0]
+    assert report["target_basis"] == "qualifying"
+    assert report["requires_result_coverage"] is False
+    assert report["provenance"] == loader.get_provenance()
+    assert fold["result_coverage_status"] == "unavailable"
+    assert fold["result_entrants"] == fold["matched_result_entrants"] == 0
+    assert fold["expected_result_entrants"] == fold["entrants"] == fold["scored_entrants"] == 4
+    for name in ("predictions", "model", "paired_comparison", "components", "form_rounds"):
+        assert fold[name] == completed["folds"][0][name]
+    assert report["aggregate"] == completed["aggregate"]
+
+
+def test_qualifying_only_reports_partial_result_overlap(fixture):
+    loader, results, _, _ = fixture
+    results[:] = [row for row in results
+                  if row["round"] != 2 or row["Driver"]["code"] != "B2"]
+    with pytest.raises(CurrentSeasonDataError, match="Incomplete target entrant coverage"):
+        evaluate_qualifying_pace(loader, YEAR, target_race=2)
+    fold = evaluate_qualifying_pace(
+        loader, YEAR, target_race=2, qualifying_only=True,
+    )["folds"][0]
+    assert fold["result_coverage_status"] == "incomplete"
+    assert fold["result_entrants"] == fold["matched_result_entrants"] == 3
+    assert fold["expected_result_entrants"] == fold["entrants"] == 4
+
+
+def test_qualifying_only_selects_available_sessions_and_matches_single_target(fixture):
+    loader, results, _, _ = fixture
+    results[:] = [row for row in results if row["round"] < 3]
+    loader._calendar[2]["completed"] = False
+    default = evaluate_qualifying_pace(loader, YEAR, include_components=True)
+    assert default["target_basis"] == "completed_race"
+    assert default["requires_result_coverage"] is True
+    assert [fold["round"] for fold in default["folds"]] == [1, 2]
+    report = evaluate_qualifying_pace(loader, YEAR, include_components=True, qualifying_only=True)
+    single = evaluate_qualifying_pace(
+        loader, YEAR, target_race=3, include_components=True, qualifying_only=True,
+    )
+    assert [fold["round"] for fold in report["folds"]] == [1, 2, 3]
+    assert report["folds"][:2] == default["folds"]
+    assert report["folds"][2] == single["folds"][0]
+    assert single["folds"][0]["form_rounds"] == [1, 2]
+    assert single["folds"][0]["standings_round"] == 2
+    forecast = single["folds"][0]["components"]["recent_team_q1"]["forecast"]
+    assert forecast["training_rounds"] == [1, 2]
+
+
+def test_qualifying_only_target_and_future_performance_cannot_change_components(fixture):
+    loader, results, qualifying, _ = fixture
+    results[:] = [row for row in results if row["round"] != 2]
+    before = evaluate_qualifying_pace(
+        loader, YEAR, target_race=2, qualifying_only=True, include_components=True,
+    )["folds"][0]
+    for rows in (results, qualifying):
+        for record in rows:
+            if record["round"] >= 2:
+                record.update(Q1="2:00.000", position="22", points="99999")
+                record["FastestLap"] = {"Time": {"time": "0:01.000"},
+                                        "AverageSpeed": {"speed": "999"}}
+    after = evaluate_qualifying_pace(
+        loader, YEAR, target_race=2, qualifying_only=True, include_components=True,
+    )["folds"][0]
+    assert before["model"] != after["model"]
+    assert before["form_rounds"] == after["form_rounds"] == [1]
+    assert before["standings_round"] == after["standings_round"] == 1
+    for name in ("constructor_prior", "team_form", "full_model", "recent_team_q1"):
+        original = before["components"][name]["predictions"]
+        changed = after["components"][name]["predictions"]
+        assert [{key: value for key, value in row.items() if key != "observed_q1_seconds"}
+                for row in original] == [
+            {key: value for key, value in row.items() if key != "observed_q1_seconds"}
+            for row in changed
+        ]
+    assert before["components"]["recent_team_q1"]["forecast"] == (
+        after["components"]["recent_team_q1"]["forecast"]
+    )
+
+
+@pytest.mark.parametrize("usable", [0, 1, 2])
+def test_qualifying_only_retains_missing_q1_identities_without_substituting_q2(fixture, usable):
+    loader, results, qualifying, _ = fixture
+    results[:] = [row for row in results if row["round"] != 2]
+    target = [row for row in qualifying if row["round"] == 2]
+    for record in target[usable:]:
+        record.update(Q1=None, Q2="1:00.000", Q3="0:59.000")
+    report = evaluate_qualifying_pace(loader, YEAR, target_race=2, qualifying_only=True)
+    fold = report["folds"][0]
+    assert len(fold["predictions"]) == fold["entrants"] == 4
+    assert fold["scored_entrants"] == usable
+    assert sum(row["observed_q1_seconds"] is not None for row in fold["predictions"]) == usable
+    assert fold["status"] == ("scored" if usable >= 2 else "insufficient_q1_times")
+    assert (fold["model"]["rank_mae"] is None) == (usable < 2)
+    json.dumps(report, allow_nan=False)
+
+
+def test_qualifying_only_uses_available_roster_without_claiming_result_completeness(fixture):
+    loader, results, qualifying, _ = fixture
+    results[:] = [row for row in results if row["round"] != 2]
+    qualifying[:] = [row for row in qualifying
+                     if row["round"] != 2 or row["Driver"]["code"] != "B2"]
+    fold = evaluate_qualifying_pace(loader, YEAR, target_race=2, qualifying_only=True)["folds"][0]
+    assert fold["entrants"] == fold["expected_result_entrants"] == fold["scored_entrants"] == 3
+    assert [row["driver_id"] for row in fold["predictions"]] == ["A1", "A2", "B1"]
+    assert fold["result_coverage_status"] == "unavailable"
+
+
+def test_qualifying_only_requires_a_target_session_and_allows_empty_season(fixture):
+    loader, _, qualifying, calls = fixture
+    qualifying.clear()
+    report = evaluate_qualifying_pace(loader, YEAR, qualifying_only=True, include_components=True)
+    assert report["folds"] == []
+    assert report["aggregate"]["model"]["scored_folds"] == 0
+    with pytest.raises(ValueError, match="target qualifying data"):
+        evaluate_qualifying_pace(loader, YEAR, target_race=2, qualifying_only=True)
+    assert calls == []
+    json.dumps(report, allow_nan=False)
+
+
+@pytest.mark.parametrize("invalid", [None, 0, 1, "false"])
+def test_qualifying_only_validation_precedes_provider_requests(fixture, monkeypatch, invalid):
+    loader, _, _, _ = fixture
+    monkeypatch.setattr(loader, "get_event_schedule", lambda *a: pytest.fail("unexpected fetch"))
+    with pytest.raises(ValueError, match="qualifying_only"):
+        evaluate_qualifying_pace(loader, YEAR, qualifying_only=invalid)
+
+
+@pytest.mark.parametrize("missing_session", [False, True])
+def test_cli_qualifying_only_scores_or_fails_without_partial_json(
+    fixture, monkeypatch, capsys, missing_session,
+):
+    loader, results, qualifying, _ = fixture
+    results[:] = [row for row in results if row["round"] != 2]
+    if missing_session:
+        qualifying[:] = [row for row in qualifying if row["round"] != 2]
+    path = Path(__file__).resolve().parents[1] / "examples" / "evaluate_qualifying_pace.py"
+    spec = importlib.util.spec_from_file_location("pace_qualifying_cli", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "CurrentSeasonDataLoader", lambda **kwargs: loader)
+    monkeypatch.setattr(
+        sys, "argv", [str(path), "--race", "2", "--qualifying-only", "--components"],
+    )
+    if missing_session:
+        with pytest.raises(SystemExit) as error:
+            module.main()
+        assert error.value.code == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "Evaluation failed" in captured.err
+    else:
+        module.main()
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert captured.err == ""
+        assert report["target_basis"] == "qualifying"
+        assert report["folds"][0]["round"] == 2
+        assert report["folds"][0]["result_coverage_status"] == "unavailable"
+        assert "recent_team_q1" in report["folds"][0]["components"]

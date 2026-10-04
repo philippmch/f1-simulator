@@ -11,6 +11,7 @@ python examples/evaluate_qualifying_pace.py --race 13
 python examples/evaluate_qualifying_pace.py --race "Italian Grand Prix"
 python examples/evaluate_qualifying_pace.py
 python examples/evaluate_qualifying_pace.py --components
+python examples/evaluate_qualifying_pace.py --race 16 --qualifying-only --components
 python examples/evaluate_qualifying_pace.py --form-races 5 --scenario light_rain
 ```
 
@@ -21,6 +22,14 @@ fetch budget is 120 seconds; `--fetch-budget` accepts 1–300 seconds. Requests 
 the live loader's rate limits, timeouts and response-size limits. The evaluator
 does not retain a provider-feed cache. Collection failure prints an error on
 standard error and emits no partial JSON report.
+
+Use `--qualifying-only` to score available qualifying sessions before race
+results arrive. Omitting `--race` in this mode selects every calendar round with
+qualifying entries. The report records `target_basis: "qualifying"` and
+`requires_result_coverage: false`. The available qualifying roster defines the
+cohort; this mode does not verify that the provider lists every expected entrant.
+It keeps the same strictly earlier training inputs and fixed component formulas.
+The Python API accepts `qualifying_only=True` for the same behavior.
 
 ## What a fold knows
 
@@ -59,8 +68,13 @@ common session across the field. Q2/Q3 times never substitute for missing Q1.
 
 Each fold lists predicted times, observed Q1 times and previous-Q1 times for
 each entrant, with missing observations represented by `null`. Target qualifying
-and result identities must have near-complete overlap; counts are retained in
-the report. This checks internal coverage, not completeness of the provider.
+and result identities must have near-complete overlap in the default completed-race
+mode. Qualifying-only mode reports result coverage without requiring that overlap.
+`result_coverage_status` is `unavailable`, `incomplete` or `near_complete`, with
+qualifying, result, matching-result and expected-overlap counts retained.
+`expected_result_entrants` is the larger of the two available identity cohorts,
+not an independent expected field size; `scored_entrants` counts usable Q1 labels.
+These checks measure internal coverage, not completeness of the provider.
 Conflicting driver identities or constructor aliases fail collection.
 
 | Metric | Definition |
@@ -340,6 +354,37 @@ These are the all-event common-cohort summaries, including the experiment's
 warmup and development events. They do not supply new prospective validation.
 The existing conclusion therefore remains: pace spacing is promising, while
 the event-level ranking results are mixed. Live ratings remain unchanged.
+
+## Qualifying-only round 16 check, 4 October 2026
+
+At 16:22 UTC, the fresh provider feeds contained round 16 qualifying with
+22 usable Q1 times and no round 16 race-result rows. The new `--qualifying-only`
+mode scored that session using form rounds 13–15, standings through round 15
+and the default dry assumption. The earlier-team-Q1 transformation was unchanged
+from revision `b3d3fa9`; its three training events were also rounds 13–15.
+No formula or coefficient was adjusted after inspecting this target.
+
+All three methods share 22 drivers, 11 teams and 11 teammate pairs in this
+comparison. Pace and gap errors are in percentage points.
+
+| Paired metric | Native model | Earlier team Q1 | Previous Q1 |
+|---|---:|---:|---:|
+| Driver rank MAE (places) | 3.2727 | 2.9091 | 4.1818 |
+| Relative pace MAE | 0.4916 | 0.5088 | 0.6236 |
+| Team rank MAE (places) | 1.4545 | 1.0909 | 1.4545 |
+| Team relative pace MAE | 0.4010 | 0.3522 | 0.5056 |
+| Teammate gap MAE | 0.3826 | 0.3826 | 0.8357 |
+
+The candidate improved driver and team ranking and team-median pace spacing,
+but slightly worsened driver pace spacing relative to the native model.
+Teammate gap error was essentially unchanged. This additional held-out event
+therefore remains mixed evidence for promoting the candidate into live ratings.
+It uses revised provider data and assumed dry weather, and does not establish
+that a forecast was published before qualifying.
+
+On the same fresh snapshot, both target modes produced identical folds for
+completed rounds 1–15. Selecting round 16 alone, selecting all qualifying
+targets and running the CLI produced identical round 16 predictions and scores.
 
 ## Interpretation limits
 

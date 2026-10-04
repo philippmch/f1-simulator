@@ -16,7 +16,13 @@ from f1sim.models import Weather
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--race", help="Completed race name or round; default: all completed races")
+    parser.add_argument(
+        "--race", help="Race name or round; default: all available targets under the selected mode",
+    )
+    parser.add_argument(
+        "--qualifying-only", action="store_true",
+        help="Score available qualifying entrants without requiring race results",
+    )
     parser.add_argument("--form-races", type=int, default=3)
     parser.add_argument("--scenario", choices=("dry", "light_rain", "heavy_rain"), default="dry")
     parser.add_argument(
@@ -37,6 +43,7 @@ def main():
             datetime.now(timezone.utc).year, target_race=target, form_races=args.form_races,
             weather=scenario_weather_from_label(Weather(), args.scenario).weather,
             include_components=args.components,
+            qualifying_only=args.qualifying_only,
         )
     except (CurrentSeasonDataError, ValueError) as exc:
         parser.exit(1, f"Evaluation failed: {exc}\n")
