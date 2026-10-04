@@ -487,6 +487,10 @@ earlier evidence and simulates its own qualifying session. The report compares
 winner probabilities with observed winners using multiclass Brier loss and an
 equal-chance baseline. See the [scope and assumptions](docs/race-probability-evaluation.md)
 before interpreting scores or Monte Carlo sampling intervals.
+The report also separates finite-trial score bias and conditional sampling error.
+Use `python examples/rescore_race_probabilities.py output/saved-evaluation.json`
+to add those diagnostics to a saved evaluation offline; see the
+[score definitions and limits](docs/race-probability-evaluation.md#finite-trial-score-diagnostics).
 
 For controlled strategy comparisons, select **Fixed rainfall** under Weather
 behavior, pass `--weather-mode fixed_rainfall` to the CLI, or set

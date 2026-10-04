@@ -148,8 +148,95 @@ independent observations.
 
 Scores use the empirical Monte Carlo probabilities. Finite trial counts add
 sampling error to those probabilities and their squared-error scores. Compare
-results with their recorded budgets and assumptions; this diagnostic supplies
-neither a significance test nor a fitted probability correction.
+results with their recorded budgets and assumptions. The following diagnostic
+quantifies finite-trial score noise without fitting a probability correction.
+
+### Finite-trial score diagnostics
+
+Every scored event now also includes `score.mc_adjustment`. It reports the
+estimated finite-trial bias of the empirical Brier score, an adjusted score and
+its delta from the same exact equal-chance baseline. This follows the
+[finite-ensemble Brier correction in Ferro's *Fair scores for ensemble forecasts*,
+sections 2.2–2.3](https://empslocal.ex.ac.uk/people/staff/ferro/Publications/ferro2013.pdf).
+The correction applies when trials are independent samples from a fixed winner
+distribution. It removes the expected excess score due to estimating that
+distribution with finitely many trials; it does not improve the forecasts.
+
+For `N > 1`, with empirical category frequencies `p_hat[c]`, the reported
+correction and adjusted score are:
+
+```text
+estimated_empirical_score_bias = (1 - sum(p_hat[c]^2)) / (N - 1)
+adjusted_brier_score = empirical_brier_score - estimated_empirical_score_bias
+```
+
+Every category contributes, including `no_classified_winner`. For example,
+six wins by A, three by B and one no-winner outcome in ten trials, scored against
+an observed A win, give an empirical loss of 0.26, a correction of 0.06 and an
+adjusted loss of 0.20. The two-driver equal-chance baseline remains exactly 0.50;
+the adjusted delta is −0.30. A deterministic baseline needs no simulation-budget
+correction.
+
+The implementation evaluates the equivalent mean pair loss directly from integer
+counts, avoiding cancellation near zero. With `y` the fixed observed category,
+the pair kernel is `h(X,Z) = I(X=Z) - I(X=y) - I(Z=y) + 1`. It is zero when either
+trial gives `y`, two when both give the same other category, and one otherwise.
+The resulting adjusted loss lies between zero and two. Two different trial
+budgets estimate the same underlying loss in expectation under the stated
+sampling assumption; one observed estimate can still be far from that loss.
+
+`mc_standard_error` is a conditional plug-in estimate for the adjusted loss.
+For a category distribution `p`, let `zeta1` be the variance of
+`p[X] - I(X=y)` and `zeta2` the variance of `h(X,Z)` for independent draws. The
+variance of the average pair loss is:
+
+```text
+4 * (N - 2) / (N * (N - 1)) * zeta1
++ 2 / (N * (N - 1)) * zeta2
+```
+
+The diagnostic substitutes the observed category frequencies for `p` and reports
+the square root, recording method `multinomial_plugin_u_statistic_v1`. The second
+term retains sampling variation when the first-order term is zero. This plug-in
+estimate is not itself unbiased and supplies no confidence interval or
+significance test. It can miss outcomes not observed in the trials. With only one
+observed category, the standard error is explicitly unavailable rather than
+reported as zero. With only one trial, the score adjustment is unavailable too;
+the empirical score remains recorded. Reasons distinguish these cases.
+
+Aggregates retain the original empirical scores and add the mean adjusted loss,
+mean estimated finite-trial bias and mean adjusted baseline delta. Each adjusted
+event receives equal weight and its contributing count is recorded as
+`adjusted_events`; events with one trial contribute to empirical summaries only.
+No aggregate standard error assumes independence across reused events.
+
+Python callers with complete winner counts can use `score_winner_counts` from
+`f1sim.analysis.race_probability_scores`. Counts must be nonnegative integers
+with at least one total trial; booleans, floating-point counts, unknown observed
+drivers and invalid identifiers are rejected. The probability-only
+`score_winner_probabilities` function retains its existing result.
+
+Existing saved evaluations can be rescored entirely offline:
+
+```powershell
+python examples/rescore_race_probabilities.py output/race-probabilities.json > output/race-probabilities-rescored.json
+```
+
+The command checks the declared trial count, roster, category counts and matching
+empirical probabilities before emitting any JSON. It preserves the recorded
+forecasts, simulation inputs and provenance, and adds the source file's SHA-256
+digest. It neither downloads current feeds nor runs new trials. Saved exclusions
+stay excluded; this check cannot establish the truth of original outcome labels
+or the validity of a saved physical model. Duplicate event rounds, duplicate JSON
+keys and inconsistent evidence fail. The input file remains unchanged. Python
+callers can use `rescore_saved_winner_evaluation` from
+`f1sim.analysis.race_probability_evaluation` for the same count checks.
+
+These diagnostics concern Monte Carlo sampling with fixed inputs and a fixed
+observed outcome. They do not quantify model error, parameter uncertainty,
+weather uncertainty, real-world calibration or the uncertainty of future races.
+Choosing or tuning a model after inspecting adjusted scores still requires fresh
+evaluation evidence.
 
 Only the current UTC season is supported. Data is fetched for each invocation
 without a persistent provider-feed cache. Saved reports contain derived
@@ -226,3 +313,11 @@ under assumed dry conditions, and no new completed race was available beyond
 round 15. The September standard-engine snapshot used earlier code; comparing
 its score with this run does not isolate the engine's effect. No live ratings
 or probability coefficients were fitted from this check.
+
+Offline rescoring of that same 15-event snapshot gives a mean estimated
+finite-trial score bias of **0.0065865**, an adjusted mean Brier loss of
+**0.7960135**, and an adjusted mean delta of **−0.1577505** against the unchanged
+equal-chance baseline. All original winner counts, forecasts, saved model inputs
+and source URLs were retained. The original empirical mean remains 0.8026.
+These numbers use the same 1,500 already-recorded trials and observed outcomes;
+the lower adjusted loss supplies no new evidence of predictive improvement.

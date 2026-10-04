@@ -163,6 +163,29 @@ def run_target(loader, **kwargs):
     )
 
 
+@pytest.mark.parametrize("trials", (1, 4))
+def test_holdout_scores_include_trial_adjustment_without_additional_runs(
+    evaluation_data, fake_runner, trials,
+):
+    report = run_target(evaluation_data[0], trials=trials)
+    assert len(fake_runner) == 1
+    fold = report["folds"][0]
+    adjustment = fold["score"]["mc_adjustment"]
+    assert adjustment["trials"] == trials
+    assert fold["training"]["target_qualifying_performance_used"] is False
+    if trials == 1:
+        assert adjustment["status"] == "unavailable"
+        assert report["aggregate"]["adjusted_events"] == 0
+        assert report["aggregate"]["mean_adjusted_brier_score"] is None
+    else:
+        assert fold["score"]["brier_score"] == pytest.approx(0.75)
+        assert adjustment["adjusted_brier_score"] == pytest.approx(0.5)
+        assert adjustment["estimated_empirical_score_bias"] == pytest.approx(0.25)
+        assert adjustment["mc_standard_error"] > 0
+        assert report["aggregate"]["mean_adjusted_brier_score"] == pytest.approx(0.5)
+    assert evaluation.rescore_saved_winner_evaluation(report)["aggregate"] == report["aggregate"]
+
+
 def test_target_and_future_result_mutations_change_labels_not_forecasts(
     evaluation_data, fake_runner,
 ):

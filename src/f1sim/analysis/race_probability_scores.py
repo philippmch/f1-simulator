@@ -8,7 +8,7 @@ not confidence bounds on the simulator's real-world accuracy.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from math import fsum, isclose, isfinite
+from math import fsum, isclose, isfinite, sqrt
 from numbers import Integral, Real
 from typing import Any
 
@@ -200,6 +200,110 @@ def score_winner_probabilities(
         "uniform_baseline_brier_score": baseline_brier_score,
         "delta_from_uniform_baseline": brier_score - baseline_brier_score,
     }
+
+
+def score_winner_counts(
+    driver_wins: Mapping[str, Integral],
+    no_winner_count: Integral,
+    observed_winner_id: str | None,
+) -> dict[str, Any]:
+    """Score counts with a finite-trial correction and conditional sampling SE.
+
+    The adjustment estimates the underlying distribution's Brier loss for a
+    fixed observed outcome, assuming independent identically distributed trials.
+    Its standard error substitutes empirical category frequencies into the
+    exact variance of the order-two U statistic. It is an estimate, not a
+    confidence interval or an unbiased estimator of the variance. Categories
+    include no classified winner without colliding with any driver identifier.
+    """
+    if not isinstance(driver_wins, Mapping) or not driver_wins:
+        raise ValueError("driver_wins must be a non-empty mapping")
+    wins = {}
+    for driver_id, count in driver_wins.items():
+        _validate_driver_id(driver_id, "driver_wins key")
+        wins[driver_id] = _validate_count(count, f"wins for {driver_id!r}")
+    no_winner = _validate_count(no_winner_count, "no_winner_count")
+    counts = [*wins.values(), no_winner]
+    trials = sum(counts)
+    if trials == 0:
+        raise ValueError("winner counts must contain at least one trial")
+    score = score_winner_probabilities(
+        {driver_id: count / trials for driver_id, count in wins.items()},
+        no_winner / trials,
+        observed_winner_id,
+    )
+    adjustment = {
+        "method": "finite_ensemble_multiclass_brier_v1",
+        "trials": trials,
+        "scope": "monte_carlo_sampling_with_fixed_observed_outcome",
+        "trial_assumption": "independent_identically_distributed_winner_categories",
+        "status": "unavailable",
+        "reason": "at_least_two_trials_required",
+        "estimated_empirical_score_bias": None,
+        "adjusted_brier_score": None,
+        "adjusted_delta_from_uniform_baseline": None,
+        "mc_standard_error": None,
+        "mc_standard_error_method": "multinomial_plugin_u_statistic_v1",
+        "mc_standard_error_reason": "at_least_two_trials_required",
+        "observed_categories": sum(count > 0 for count in counts),
+    }
+    score["mc_adjustment"] = adjustment
+    if trials == 1:
+        return score
+
+    observed_count = no_winner if observed_winner_id is None else wins[observed_winner_id]
+    other_counts = [count for driver_id, count in wins.items()
+                    if driver_id != observed_winner_id]
+    if observed_winner_id is not None:
+        other_counts.append(no_winner)
+    wrong = trials - observed_count
+    # Average pair kernels directly in integer counts. This avoids subtracting
+    # two almost equal floating-point scores when the corrected loss is zero.
+    pair_sum = wrong * (wrong - 1) + sum(count * (count - 1) for count in other_counts)
+    adjusted_score = pair_sum / (trials * (trials - 1))
+    bias = (trials * trials - sum(count * count for count in counts)) / (
+        trials * trials * (trials - 1)
+    )
+    adjustment.update({
+        "status": "available",
+        "reason": None,
+        "estimated_empirical_score_bias": bias,
+        "adjusted_brier_score": adjusted_score,
+        "adjusted_delta_from_uniform_baseline": (
+            adjusted_score - score["uniform_baseline_brier_score"]
+        ),
+        "mc_standard_error_reason": None,
+    })
+    if adjustment["observed_categories"] < 2:
+        adjustment["mc_standard_error_reason"] = "single_observed_category"
+        return score
+
+    # h(X,Z) = 1[X=Z] - 1[X=y] - 1[Z=y] + 1. Its values are
+    # zero if either outcome is y, two for equal non-y outcomes, and one
+    # otherwise. Covariances between overlapping pairs supply zeta_one.
+    probabilities = [(observed_count / trials, observed_count / trials - 1)]
+    probabilities.extend((count / trials, count / trials) for count in other_counts)
+    q_mean = fsum(probability * q for probability, q in probabilities)
+    zeta_one = fsum(probability * (q - q_mean) ** 2 for probability, q in probabilities)
+    square_total = sum(count * count for count in other_counts)
+    squared_trials = trials * trials
+    p_zero = observed_count * (2 * trials - observed_count) / squared_trials
+    p_one = (wrong * wrong - square_total) / squared_trials
+    p_two = square_total / squared_trials
+    kernel_mean = (wrong * wrong + square_total) / squared_trials
+    zeta_two = fsum((p_zero * kernel_mean**2,
+                     p_one * (1 - kernel_mean)**2,
+                     p_two * (2 - kernel_mean)**2))
+    variance = (4 * (trials - 2) / (trials * (trials - 1)) * zeta_one
+                + 2 / (trials * (trials - 1)) * zeta_two)
+    adjustment["mc_standard_error"] = sqrt(variance)
+    return score
+
+
+def _validate_count(value: Any, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, Integral) or value < 0:
+        raise ValueError(f"{name} must be a non-negative integer")
+    return int(value)
 
 
 def _materialize_iterable(value: Any, name: str) -> tuple[Any, ...]:

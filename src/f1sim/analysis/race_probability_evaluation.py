@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
-from math import fsum
+from math import fsum, isclose
 from typing import Any
 
 import numpy as np
@@ -21,6 +21,7 @@ from f1sim.analysis.holdout_folds import (
 )
 from f1sim.analysis.montecarlo import MonteCarloRunner
 from f1sim.analysis.race_probability_scores import (
+    score_winner_counts,
     score_winner_probabilities,
     summarize_winner_trials,
 )
@@ -158,6 +159,8 @@ def _observed_winner(
 def _aggregate(folds: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     scored = [fold["score"] for fold in folds if fold["status"] == "scored"]
     count = len(scored)
+    adjusted = [score for score in scored if score["mc_adjustment"]["status"] == "available"]
+    adjusted_count = len(adjusted)
     return {
         "selected_events": len(folds),
         "scored_events": count,
@@ -174,6 +177,20 @@ def _aggregate(folds: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             if count else None
         ),
         "event_weighting": "equal_weight_per_scored_event",
+        "adjusted_events": adjusted_count,
+        "mean_adjusted_brier_score": (
+            fsum(score["mc_adjustment"]["adjusted_brier_score"] for score in adjusted)
+            / adjusted_count if adjusted_count else None
+        ),
+        "mean_estimated_finite_trial_bias": (
+            fsum(score["mc_adjustment"]["estimated_empirical_score_bias"] for score in adjusted)
+            / adjusted_count if adjusted_count else None
+        ),
+        "mean_adjusted_delta_from_uniform_baseline": (
+            fsum(score["mc_adjustment"]["adjusted_delta_from_uniform_baseline"]
+                 for score in adjusted) / adjusted_count if adjusted_count else None
+        ),
+        "adjusted_event_weighting": "equal_weight_per_event_with_at_least_two_trials",
     }
 
 
@@ -181,6 +198,88 @@ def _notify_progress(callback, state, phase, **updates) -> None:
     state.update(phase=phase, **updates)
     if callback is not None:
         callback(dict(state))
+
+
+def rescore_saved_winner_evaluation(report: Mapping[str, Any]) -> dict[str, Any]:
+    """Add finite-trial scores to an exported evaluation without running races.
+
+    Recorded counts must match the declared trial count, roster and empirical
+    probabilities. Original forecasts, inputs and provenance are preserved.
+    This validates scoring evidence, not the source model or real-race labels.
+    """
+    if not isinstance(report, Mapping) or report.get("evaluation") != (
+        "round_holdout_race_winner_probabilities"
+    ):
+        raise ValueError("report must be a saved race-winner probability evaluation")
+    folds = report.get("folds")
+    if not isinstance(folds, list) or not folds:
+        raise ValueError("report must contain a non-empty folds list")
+    _validate_integer(report.get("year"), "report year", 1, 9999)
+    seen_rounds = set()
+    rescored = []
+    for fold in folds:
+        if not isinstance(fold, Mapping) or fold.get("status") not in ("scored", "excluded"):
+            raise ValueError("every fold must have scored or excluded status")
+        round_number = _validate_integer(fold.get("round"), "fold round", 1, 10_000)
+        if round_number in seen_rounds:
+            raise ValueError("report contains duplicate event rounds")
+        seen_rounds.add(round_number)
+        updated = deepcopy(dict(fold))
+        forecast = fold.get("forecast")
+        if forecast is None:
+            if fold["status"] != "excluded" or fold.get("score") is not None:
+                raise ValueError("a fold without a forecast must be excluded and unscored")
+            updated["score"] = None
+            rescored.append(updated)
+            continue
+        if not isinstance(forecast, Mapping):
+            raise ValueError("fold forecast must be a mapping or null")
+        trials = _validate_integer(forecast.get("trials"), "forecast trials", 1, _MAX_TRIALS)
+        drivers = forecast.get("drivers")
+        no_winner = forecast.get("no_classified_winner")
+        if (not isinstance(drivers, Mapping) or not drivers
+                or any(not isinstance(item, Mapping) for item in drivers.values())
+                or not isinstance(no_winner, Mapping)):
+            raise ValueError("forecast must contain driver and no-winner count records")
+        roster = fold.get("entrant_ids")
+        if (not isinstance(roster, list) or any(not isinstance(name, str) for name in roster)
+                or len(roster) != len(drivers) or set(roster) != set(drivers)):
+            raise ValueError("forecast drivers must match the recorded entrant roster")
+        observed_id = None
+        if fold["status"] == "scored":
+            observed = fold.get("observed_outcome")
+            if (not isinstance(observed, Mapping) or observed.get("status") != "observed"
+                    or "winner_id" not in observed):
+                raise ValueError("a scored fold requires an observed winner category")
+            observed_id = observed["winner_id"]
+        elif fold.get("score") is not None:
+            raise ValueError("an excluded fold must not contain a score")
+        score = score_winner_counts(
+            {name: item.get("wins") for name, item in drivers.items()},
+            no_winner.get("count"), observed_id,
+        )
+        if score["mc_adjustment"]["trials"] != trials:
+            raise ValueError("forecast counts must sum to its declared trial count")
+        probabilities = {name: item.get("probability") for name, item in drivers.items()}
+        score_winner_probabilities(probabilities, no_winner.get("probability"), observed_id)
+        count_records = [(item.get("probability"), item["wins"]) for item in drivers.values()]
+        count_records.append((no_winner.get("probability"), no_winner["count"]))
+        if any(not isclose(probability, count / trials, rel_tol=1e-12, abs_tol=1e-12)
+               for probability, count in count_records):
+            raise ValueError("forecast probabilities must match its winner counts")
+        updated["score"] = score if fold["status"] == "scored" else None
+        rescored.append(updated)
+    updated_report = deepcopy(dict(report))
+    updated_report["folds"] = rescored
+    updated_report["aggregate"] = _aggregate(rescored)
+    updated_report["rescoring"] = {
+        "method": "finite_ensemble_multiclass_brier_v1",
+        "basis": "recorded_winner_counts_and_observed_categories",
+        "live_data_fetched": False,
+        "additional_simulation_trials": 0,
+        "source_inputs_and_provenance": "preserved_from_saved_report",
+    }
+    return updated_report
 
 
 def evaluate_race_probabilities(
@@ -414,12 +513,12 @@ def evaluate_race_probabilities(
         status = "excluded"
         reason = observed.get("reason")
         if observed["status"] == "observed":
-            score = score_winner_probabilities(
+            score = score_winner_counts(
                 {
-                    driver_id: item["probability"]
+                    driver_id: item["wins"]
                     for driver_id, item in forecast["drivers"].items()
                 },
-                forecast["no_classified_winner"]["probability"],
+                forecast["no_classified_winner"]["count"],
                 observed["winner_id"],
             )
             status = "scored"
