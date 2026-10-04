@@ -46,9 +46,12 @@ def profiled_decision(models, options):
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])
 @pytest.mark.parametrize("control", ["sc", "vsc"])
-@pytest.mark.parametrize("horizon,limited", [(5, False), (14, False), (5, True)])
+@pytest.mark.parametrize("horizon,limited,warmup", [
+    (5, False, None), (14, False, None), (5, True, None),
+    (14, False, {"intermediate": .3, "wet": .5, "hard": .1}),
+])
 def test_pool_independent_costs_preserve_exact_controlled_decisions(
-    monkeypatch, engine, control, horizon, limited,
+    monkeypatch, engine, control, horizon, limited, warmup,
 ):
     driver, car, track, weather, stock = models = inputs(.2, .2, horizon)
     if limited:
@@ -66,6 +69,7 @@ def test_pool_independent_costs_preserve_exact_controlled_decisions(
         WeatherForecastContext.from_schedule([
             dict(lap=2, rain_intensity=.6), dict(lap=max(4, horizon * 2 // 3), rain_intensity=0.),
         ]),
+        tire_warmup=warmup,
     )
     before = deepcopy((models, observed))
     shared, shared_visits = profiled_decision(models, options)
@@ -120,7 +124,7 @@ def test_external_controlled_clocks_reuse_complete_fresh_costs_across_pool_histo
     def execute():
         result = benchmark(laps=30, drivers=4, intervals=3, profile=True)
         assert result["native"]
-        assert result["benchmark_version"] == 3
+        assert result["benchmark_version"] == 4
         return result, result["fresh_service_frame_visits"]
 
     shared, shared_visits = execute()

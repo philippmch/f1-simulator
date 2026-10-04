@@ -10,7 +10,8 @@ from f1sim.cancellation import SimulationCancelled, cancellation_scope
 from f1sim.simulation.inventory_strategy import _fresh_inventory_completion_bound
 
 
-def recursive_reference(horizon, compounds, running, eligible, advance, canonical, stop):
+def recursive_reference(horizon, compounds, running, eligible, advance, canonical, stop,
+                        *, fitted_running=None):
     """Retain the original small-horizon calculation as a rounding oracle."""
     def service(offset, clock):
         return 0. if offset == horizon else fitted(offset, canonical(offset, clock))
@@ -26,7 +27,9 @@ def recursive_reference(horizon, compounds, running, eligible, advance, canonica
             for number in range(offset, horizon):
                 if number > offset and not eligible(number, compound, after):
                     break
-                total = nextafter(total + running(number, compound, number - offset, after), -inf)
+                evaluate = (fitted_running if number == offset and fitted_running is not None
+                            else running)
+                total = nextafter(total + evaluate(number, compound, number - offset, after), -inf)
                 best = min(best, nextafter(total + service(number + 1, after), -inf))
         return best
 
@@ -47,7 +50,10 @@ def recursive_reference(horizon, compounds, running, eligible, advance, canonica
 @pytest.mark.parametrize("horizon", [1, 4, 7])
 @pytest.mark.parametrize("expiry", [-1, 0, 3])
 @pytest.mark.parametrize("clocked", [False, True])
-def test_stint_bound_retains_original_rounding_eligibility_and_paid_clock(horizon, expiry, clocked):
+@pytest.mark.parametrize("fitting", [False, True])
+def test_stint_bound_retains_original_rounding_eligibility_and_paid_clock(
+    horizon, expiry, clocked, fitting,
+):
     compounds = ("slick", "rain")
 
     def running(offset, compound, age, clock):
@@ -59,13 +65,26 @@ def test_stint_bound_retains_original_rounding_eligibility_and_paid_clock(horizo
 
     arguments = (horizon, compounds, running, eligible,
                  lambda clock: clock + int(clocked), lambda offset, clock: min(clock, 3), 2.1)
-    expected = recursive_reference(*arguments)
-    actual = _fresh_inventory_completion_bound(*arguments)
+    fees = ({"fitted_running": lambda offset, compound, age, clock:
+             running(offset, compound, age, clock) + (.3 if compound == "slick" else .7)}
+            if fitting else {})
+    expected = recursive_reference(*arguments, **fees)
+    actual = _fresh_inventory_completion_bound(*arguments, **fees)
     for offset in range(horizon):
         for compound in compounds:
             for clock in (0, 2, 4):
-                assert actual(offset, compound, 2, clock, expiry) == expected(
-                    offset, compound, 2, clock, expiry)
+                for age in (0, 2):
+                    assert actual(offset, compound, age, clock, expiry) == expected(
+                        offset, compound, age, clock, expiry)
+
+
+def test_ready_age_zero_set_pays_no_fitting_fee_but_an_expired_set_must_pay():
+    bound = _fresh_inventory_completion_bound(
+        1, ("slick",), lambda *args: 3., lambda *args: True,
+        lambda clock: clock, lambda offset, clock: clock, 1.,
+        fitted_running=lambda *args: 10.)
+    assert bound(0, "slick", 0, None, -1) == pytest.approx(3.)
+    assert bound(0, "slick", 0, None, 0) == pytest.approx(11.)
 
 
 def test_thousands_of_compulsory_stints_do_not_grow_the_call_stack():

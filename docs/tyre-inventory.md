@@ -304,9 +304,11 @@ Own-lap forecasts reuse these costs only within the same decision, for the same
 compound, age trajectory and compound-rule completion status. The full search
 still enforces physical sets, stop allowances and actual compound use.
 
-For prescribed forecasts without fitting fees, native searches also use a
+For prescribed forecasts, native own-lap searches also use a
 relaxation with unlimited fresh replacements. Each idealized stint still ages,
-pays its pit visit and follows the delayed weather path. Native accumulated
+pays its pit visit and any configured fitting fee. Externally timed searches
+use this relaxation when fitting fees are disabled, retaining the delayed weather path.
+Native accumulated
 wear and the fading soft-tyre pace bonus cannot improve an older set over a
 fresh copy. Ignoring finite availability, stop allowances and compound obligations
 therefore yields another completion bound. It prices later service visits that
@@ -319,10 +321,11 @@ complete starting weather, prescribed forecast and reachable paid-stop weather
 observations. The retained set's age and usage expiry stay in its own bound;
 the exact physical search still enforces stock, allowances and compound rules.
 At most 32 forecast tables remain in the decision's LRU, which resets on return
-or cancellation. Fitting fees, current traffic or control adjustments, changed
-dispatch and longer horizons keep independent completion costs.
+or cancellation. Externally timed fitting fees, current traffic or control adjustments,
+changed dispatch and longer horizons keep independent completion costs.
 Own-lap tables retain their exact cumulative weather cadence and prescribed
-schedule. Native running costs also share identical compound, age, fuel lap,
+schedule, with distinct fitting profiles kept separate. A ready retained set
+pays no fitting fee, including at age zero. Native running costs also share identical compound, age, fuel lap,
 complete surface, traffic and aero inputs within the decision's bounded lap
 memo. Actual custom weather objects and instance hooks bypass that memo,
 including when their serialized fields match a previously evaluated surface.
@@ -334,7 +337,12 @@ exhausted. The first-service bound additionally retains the current set's exact
 delayed surface timeline until that stop. Taking the stronger bound avoids expanding
 unnecessary full-distance stint combinations without approximating tyre ages,
 weather timing or the selected strategy. Free restart fits add no elapsed pit
-time; future paid stops still advance their weather forecast. Native callers
+time; future paid stops still advance their weather forecast. With native clocks
+and at most 100 own laps, fitting fees widen each entry's possible surfaces only
+by the fees that previous own laps could have accumulated. This includes pending
+and free initial fits; the current entry receives no new fitting fee. Every
+intermediate weather count remains available to the bound. Custom clocks and
+longer fee-bearing forecasts retain the full surface envelope. Native callers
 reserve the dry and rain stop envelopes for those delayed branches while the
 planner continues to enforce the damp or dry allowance at the surface where
 each stop occurs.

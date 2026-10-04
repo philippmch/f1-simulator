@@ -204,7 +204,8 @@ def _bounded_inventory_suffix(initial, solved, excluded, actions_for, terminal):
 
 
 def _fresh_inventory_completion_bound(horizon, compounds, running, eligible,
-                                      advance, canonical, green_stop, *, solved=None):
+                                      advance, canonical, green_stop, *, solved=None,
+                                      fitted_running=None):
     """Relax physical stock to unlimited fresh sets, retaining paid weather time.
 
     Native wear cannot improve a set over a fresh copy. Allowing every future
@@ -255,7 +256,9 @@ def _fresh_inventory_completion_bound(horizon, compounds, running, eligible,
                 # entries see its paid delay, just as in the physical search.
                 if number > offset and not eligible(number, compound, after):
                     break
-                total = nextafter(total + running(number, compound, number - offset, after), -inf)
+                evaluate = (fitted_running if number == offset and fitted_running is not None
+                            else running)
+                total = nextafter(total + evaluate(number, compound, number - offset, after), -inf)
                 suffix = (0. if number + 1 == horizon else
                           (yield (number + 1, canonical(number + 1, after))))
                 best = min(best, nextafter(total + suffix, -inf))
@@ -275,6 +278,38 @@ def _fresh_inventory_completion_bound(horizon, compounds, running, eligible,
         return best
 
     return bound
+
+
+def _inventory_clock_surfaces(horizon, clock, warmup, max_paid_stops, *, native=False):
+    """Bound reachable entry surfaces without constraining any physical plan.
+
+    Each previous own lap can contribute at most one fitting cost. Repeated
+    addition of the largest configured fee bounds every actual cumulative fee,
+    including a pending or free initial fit. The current entry sees no new fee.
+    Preserve the full surface envelope for custom clocks and larger horizons.
+    """
+    rows = {}
+    bounded_fit = bool(warmup) and native and horizon <= 100
+    max_fit_delay = 0.
+    max_fit_cost = max(warmup.values(), default=0.)
+    for offset in range(horizon):
+        cancellation_checkpoint()
+        if warmup and not bounded_fit:
+            rows[offset] = tuple(range(clock.max_updates + 1))
+            continue
+        observations = set()
+        for paid in range(min(offset + 1, max_paid_stops) + 1):
+            for stopped in ((False,) if paid == 0 else
+                            ((False, True) if paid <= offset else (True,))):
+                first = clock.updates(offset, paid, stopped)
+                last = (clock.updates(offset, paid, stopped, fit_delay=max_fit_delay)
+                        if bounded_fit else first)
+                # Every integer event count between the endpoint delays is a
+                # superset of all compound-specific fitting histories.
+                observations.update(range(first, last + 1))
+        rows[offset] = tuple(observations)
+        max_fit_delay += max_fit_cost
+    return rows
 
 
 def _clock_inventory_strategy(
@@ -632,24 +667,8 @@ def _clock_inventory_strategy(
     max_paid_stops = remaining_stops + rule_stops + 1 + critical_changes
     if any(item.remaining_laps is not None for item in inventory.sets.values()):
         max_paid_stops = horizon  # Usage expiry can compel one paid fit per own lap.
-    clock_surfaces = {}
-    for offset in range(horizon):
-        cancellation_checkpoint()
-        if warmup:
-            # The lower bound may ignore nonnegative fit costs, but it must
-            # remain optimistic across surfaces advanced by those costs.
-            clock_surfaces[offset] = tuple(range(weather_clock.max_updates + 1))
-        else:
-            clock_surfaces[offset] = tuple({
-                updates(offset, paid_stops, stopped_first)
-                # A strategy can pay at most once per started lap, including the
-                # current one. Keep only reachable clock states in the relaxation.
-                for paid_stops in range(min(offset + 1, max_paid_stops) + 1)
-                for stopped_first in (
-                    (False,) if paid_stops == 0 else
-                    ((False, True) if paid_stops <= offset else (True,))
-                )
-            })
+    clock_surfaces = _inventory_clock_surfaces(
+        horizon, weather_clock, warmup, max_paid_stops, native=native_clock)
     if native_clock:
         # Include every before/after-service clock allowed by the relaxation.
         # Removing a compound requires it to remain critical throughout this
@@ -1021,20 +1040,23 @@ def plan_inventory_strategy(
 
     solved, excluded = {}, {}
     fresh_bound = None
-    if native and forecast_context is not None and not tire_warmup:
+    if native and forecast_context is not None:
         shared_services = None
         if (shared_laps is not None and horizon <= 100 and safety_car is None
                 and current_lap_time_modifier == 1. and active_aero_enabled and gaps is None):
             # The leading candidate supplies its own weather cadence. Only
             # fresh future service ignores the physical pool; retained wear,
             # usage expiry and executable suffix costs remain local.
-            key = ("own", current_lap, horizon, forecast_json(weather), intervals, green_stop)
+            key = ("own", current_lap, horizon, forecast_json(weather), intervals, green_stop,
+                   tuple(sorted(tire_warmup.items())))
             shared_services = control_relaxation_memo(shared_laps, key)
         fresh_bound = _fresh_inventory_completion_bound(
             horizon, tuple(compound.value for compound in TireCompound),
             lambda offset, compound, age, clock: run(offset, compound, age),
             lambda offset, compound, clock: not critical[compound][offset],
-            lambda clock: clock, lambda offset, clock: clock, green_stop, solved=shared_services)
+            lambda clock: clock, lambda offset, clock: clock, green_stop, solved=shared_services,
+            fitted_running=(lambda offset, compound, age, clock:
+                            run(offset, compound, age, fitted=True)) if tire_warmup else None)
 
     @lru_cache(maxsize=None)
     def retained_tail(offset, compound, age):
@@ -1500,6 +1522,7 @@ register_forecast_helpers(globals(), (
     "ObservedStandardField", "StrategyControlContext", "ProjectedControlCost",
     "StrategyWeatherClock", "observed_control_key", "native_physics",
     "_floor_tables", "forecast_json", "minimum_lap_time",
+    "_inventory_clock_surfaces",
     "isolated_strategy_lap", "plan_controlled_weather", "usable_weather_control",
     "control_lap_memo", "memoized_control_lap", "control_wear_bound",
     "control_relaxation_memo", "_green_weather_clock_key",

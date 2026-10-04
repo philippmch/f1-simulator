@@ -3,7 +3,7 @@
 The synthetic field holds observed rival pace and has no future incidents or
 unannounced tyre decisions. This isolates the strategy search from race setup
 and RNG draws. Compare outcome digests before interpreting timings. --profile
-also counts green suffix calls and fresh-service search-frame visits.
+also counts green suffix calls, fresh-service frames and inventory expansions.
 """
 
 import argparse
@@ -23,10 +23,12 @@ from f1sim.simulation.pit_strategy import expected_stationary_time
 from f1sim.simulation.race_timing import RaceFinishTimeline
 from f1sim.simulation.strategy_control_clock import StrategyControlContext
 from f1sim.simulation.tire_inventory import TireInventory
+from f1sim.simulation.warmup import parse_tire_warmup_spec, validate_tire_warmup
 from f1sim.simulation.weather_schedule import WeatherForecastContext
 
 
-def benchmark(control="sc", intervals=5, laps=53, drivers=22, profile=False, leader=False):
+def benchmark(control="sc", intervals=5, laps=53, drivers=22, profile=False, leader=False,
+              tire_warmup=None):
     """Return the immutable scenario, exact decision and search measurements."""
     for value, low, high, name in ((intervals, 1, 8, "intervals"), (laps, 8, 100, "laps"),
                                   (drivers, 2, 22, "drivers")):
@@ -38,6 +40,7 @@ def benchmark(control="sc", intervals=5, laps=53, drivers=22, profile=False, lea
         raise ValueError("profile must be a boolean")
     if type(leader) is not bool:
         raise ValueError("leader must be a boolean")
+    tire_warmup = validate_tire_warmup(tire_warmup)
     driver = Driver(id="A", name="Synthetic", team_id="T", skill_rating=.832,
                     tire_management=.832)
     car = Car(team_id="T", team_name="Synthetic", base_pace=.83, tire_degradation_factor=.98)
@@ -89,7 +92,7 @@ def benchmark(control="sc", intervals=5, laps=53, drivers=22, profile=False, lea
             driver, car, track, weather, inventory, current_lap, tire_age=current_lap - 1,
             remaining_stops=4, remaining_dry_stops=3, remaining_damp_stops=2,
             used_compounds=("medium",), physical_total_laps=laps,
-            forecast_context=forecast, control_context=context)
+            forecast_context=forecast, control_context=context, tire_warmup=tire_warmup)
     finally:
         if profiler is not None:
             profiler.disable()
@@ -99,6 +102,7 @@ def benchmark(control="sc", intervals=5, laps=53, drivers=22, profile=False, lea
     decision["should_pit"] = result.should_pit()
     encoded = json.dumps(decision, sort_keys=True, allow_nan=False).encode()
     green_suffixes = fresh_service_visits = native_lap_evaluations = None
+    inventory_expansions = None
     if profiler is not None:
         profiler.create_stats()
         green_suffixes = sum(value[1] for key, value in profiler.stats.items()
@@ -107,16 +111,20 @@ def benchmark(control="sc", intervals=5, laps=53, drivers=22, profile=False, lea
                                    if key[2] == "service_frame")
         native_lap_evaluations = sum(value[1] for key, value in profiler.stats.items()
                                      if key[2] == "evaluate" and Path(key[0]).name == "lap.py")
+        inventory_expansions = sum(value[1] for key, value in profiler.stats.items()
+                                   if key[2] == "make_actions")
     return dict(
-        benchmark_version=3, native=native, control=control, intervals=intervals, leader=leader,
+        benchmark_version=4, native=native, control=control, intervals=intervals, leader=leader,
         laps=laps, drivers=drivers, current_lap=current_lap, now=now,
         driver=driver.model_dump(mode="json"), car=car.model_dump(mode="json"),
         track=track.model_dump(mode="json"), weather=weather.model_dump(mode="json"),
         weather_schedule=schedule, leading_lap=leading_lap, paces=paces, order=order,
         rivals=[asdict(row) for row in rivals], tire_inventory=records,
+        tire_warmup=tire_warmup,
         seconds=seconds, profiled=profile, green_suffix_evaluations=green_suffixes,
         fresh_service_frame_visits=fresh_service_visits,
         native_lap_evaluations=native_lap_evaluations,
+        inventory_state_expansions=inventory_expansions,
         decision=decision, outcome_sha256=hashlib.sha256(encoded).hexdigest(),
     )
 
@@ -130,6 +138,8 @@ def main():
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--leader", action="store_true",
                         help="Place the candidate at the head of the synthetic field")
+    parser.add_argument("--tire-warmup", type=parse_tire_warmup_spec,
+                        help="Post-fit seconds per compound, e.g. intermediate=0.5,wet=0.5")
     try:
         result = benchmark(**vars(parser.parse_args()))
     except ValueError as error:
