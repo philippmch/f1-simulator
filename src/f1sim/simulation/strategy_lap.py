@@ -1,5 +1,6 @@
 """Isolated mean lap calls for forecast models with behavioral extensions."""
 
+from collections import OrderedDict
 from contextvars import ContextVar
 from functools import wraps
 
@@ -8,13 +9,14 @@ from f1sim.models.tire import TIRE_COMPOUNDS
 
 _CONTROL_LAPS = ContextVar("controlled_strategy_laps", default=None)
 _CONTROL_LAP_LIMIT = 65_536
+_CONTROL_RELAXATION_LIMIT = 32
 
 
 def control_lap_scope(function):
     """Share bounded scalar mean laps only within one field decision."""
     @wraps(function)
     def wrapped(*args, **kwargs):
-        token = _CONTROL_LAPS.set(({}, [0], {}))
+        token = _CONTROL_LAPS.set(({}, [0], {}, OrderedDict()))
         try:
             return function(*args, **kwargs)
         finally:
@@ -33,8 +35,29 @@ def control_lap_memo(driver, car, track, physical_total_laps):
     if memo is None or not native_physics(driver, car, track):
         return None
     package = _control_lap_package(driver, car, track, physical_total_laps)
-    packages, count, _ = memo
+    packages, count = memo[:2]
     return packages.setdefault(package, {}), packages, count
+
+
+def control_relaxation_memo(cache, key):
+    """Share completed fresh-service scalars within one native field decision.
+
+    The lap memo owns its exact physics package for the scope's lifetime.
+    Keep at most 32 forecast tables; callers bound each table's own horizon.
+    No stock, model, callback or unfinished search frame enters this cache.
+    """
+    scope = _CONTROL_LAPS.get()
+    if scope is None or cache is None:
+        return None
+    tables = scope[3]
+    key = id(cache[0]), key
+    if key not in tables:
+        if len(tables) >= _CONTROL_RELAXATION_LIMIT:
+            tables.popitem(last=False)
+        tables[key] = {}
+    else:
+        tables.move_to_end(key)
+    return tables[key]
 
 
 def install_control_wear_bound(driver, car, track, physical, current_lap, calculate):
@@ -103,4 +126,5 @@ register_forecast_helpers(globals(), (
     "isolated_strategy_lap", "strategy_projection_models", "native_physics",
     "control_lap_scope", "control_lap_memo", "memoized_control_lap", "forecast_json",
     "install_control_wear_bound", "control_wear_bound", "_control_lap_package",
+    "control_relaxation_memo",
 ))

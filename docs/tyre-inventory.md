@@ -312,6 +312,16 @@ fresh copy. Ignoring finite availability, stop allowances and compound obligatio
 therefore yields another completion bound. It prices later service visits that
 the conserved-wear bound omits; neither relaxation supplies an executable plan.
 
+Within one native SC/VSC field decision, externally timed green continuations
+of up to 100 own laps can share completed fresh-service costs across different
+physical-pool histories. Reuse requires the same native physics, fuel laps,
+complete starting weather, prescribed forecast and reachable paid-stop weather
+observations. The retained set's age and usage expiry stay in its own bound;
+the exact physical search still enforces stock, allowances and compound rules.
+At most 32 forecast tables remain in the decision's LRU, which resets on return
+or cancellation. Fitting fees, current traffic or control adjustments, changed
+dispatch and longer horizons keep independent completion costs.
+
 For externally timed chronological weather, each paid stop also advances the
 candidate's weather clock. The running-cost bound considers the reachable
 delayed surfaces, including compulsory stops after the elective allowance is

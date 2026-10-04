@@ -1733,6 +1733,13 @@ rather than exact results. For prescribed forecasts without fitting fees, an
 unlimited fresh-set relaxation also prices future service and ageing. Its
 service dependencies use an explicit stack and decision-local completed costs,
 preserving the original downward rounding without recursive cache calls.
+Externally timed native green continuations of up to 100 own laps share these
+completed fresh-service costs across physical-pool histories within one field
+decision. Exact physics, fuel laps, starting weather, prescribed schedule and
+reachable paid-stop weather observations separate the tables. The retained
+tyre's actual age and expiry remain local. A 32-table LRU bounds reuse and resets
+after the decision, including cancellation; fitting fees and current traffic or
+control adjustments retain independent calculations.
 Changing surfaces and custom physics keep their branch-dependent state. The synthetic
 `examples/benchmark_inventory_retirement.py` diagnostic compares conditional
 distance, retirement time and decisions independently of its timings.
@@ -1757,8 +1764,9 @@ isolates a finite-stock decision on a changing surface in a synthetic 22-car,
 53-lap field. It includes all remaining known control intervals and the native
 green continuation. JSON records the field observations, seven physical sets,
 exact decision and its outcome digest. `--profile` additionally counts green
-suffix evaluations; compare those counts and matching digests across revisions
-before measuring unprofiled timings. This diagnostic holds rival pace and does
+suffix evaluations and fresh-service frame visits, including resumes after a
+missing dependency completes. Compare these counts and matching digests across
+revisions before measuring unprofiled timings. This diagnostic holds rival pace and does
 not simulate unknown incidents or sample randomness.
 
 The transition solver suspends a stint while evaluating a missing future cost

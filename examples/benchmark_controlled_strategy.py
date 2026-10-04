@@ -3,7 +3,7 @@
 The synthetic field holds observed rival pace and has no future incidents or
 unannounced tyre decisions. This isolates the strategy search from race setup
 and RNG draws. Compare outcome digests before interpreting timings. --profile
-also records green suffix evaluations for comparisons independent of hardware.
+also counts green suffix calls and fresh-service search-frame visits.
 """
 
 import argparse
@@ -94,19 +94,22 @@ def benchmark(control="sc", intervals=5, laps=53, drivers=22, profile=False):
                 for key, value in asdict(result).items()}
     decision["should_pit"] = result.should_pit()
     encoded = json.dumps(decision, sort_keys=True, allow_nan=False).encode()
-    green_suffixes = None
+    green_suffixes = fresh_service_visits = None
     if profiler is not None:
         profiler.create_stats()
         green_suffixes = sum(value[1] for key, value in profiler.stats.items()
                              if key[2] == "plan_inventory_strategy") - 1
+        fresh_service_visits = sum(value[1] for key, value in profiler.stats.items()
+                                   if key[2] == "service_frame")
     return dict(
-        benchmark_version=1, native=native, control=control, intervals=intervals,
+        benchmark_version=2, native=native, control=control, intervals=intervals,
         laps=laps, drivers=drivers, current_lap=current_lap, now=now,
         driver=driver.model_dump(mode="json"), car=car.model_dump(mode="json"),
         track=track.model_dump(mode="json"), weather=weather.model_dump(mode="json"),
         weather_schedule=schedule, leading_lap=leading_lap, paces=paces, order=order,
         rivals=[asdict(row) for row in rivals], tire_inventory=records,
         seconds=seconds, profiled=profile, green_suffix_evaluations=green_suffixes,
+        fresh_service_frame_visits=fresh_service_visits,
         decision=decision, outcome_sha256=hashlib.sha256(encoded).hexdigest(),
     )
 

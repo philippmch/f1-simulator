@@ -12,6 +12,7 @@ from f1sim.cancellation import cancellation_checkpoint
 from f1sim.models._native import forecast_json, native_physics, register_forecast_helpers
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
 from f1sim.simulation.controlled_weather_strategy import (
+    _green_weather_clock_key,
     plan_controlled_weather,
     usable_weather_control,
 )
@@ -25,6 +26,7 @@ from f1sim.simulation.strategy_control_clock import (
 )
 from f1sim.simulation.strategy_lap import (
     control_lap_memo,
+    control_relaxation_memo,
     control_wear_bound,
     isolated_strategy_lap,
     memoized_control_lap,
@@ -202,7 +204,7 @@ def _bounded_inventory_suffix(initial, solved, excluded, actions_for, terminal):
 
 
 def _fresh_inventory_completion_bound(horizon, compounds, running, eligible,
-                                      advance, canonical, green_stop):
+                                      advance, canonical, green_stop, *, solved=None):
     """Relax physical stock to unlimited fresh sets, retaining paid weather time.
 
     Native wear cannot improve a set over a fresh copy. Allowing every future
@@ -210,7 +212,8 @@ def _fresh_inventory_completion_bound(horizon, compounds, running, eligible,
     therefore lowers completion cost. Every fitted stint still ages, pays its
     entry and observes the same weather clock. This is never an executable plan.
     """
-    solved = {}
+    if solved is None:
+        solved = {}
 
     def service(offset, clock):
         if offset >= horizon:
@@ -658,6 +661,15 @@ def _clock_inventory_strategy(
             for compound in TireCompound
         })
         if forecast_context is not None and not warmup:
+            shared_services = None
+            if (shared_laps is not None and horizon <= 100 and safety_car is None
+                    and current_lap_time_modifier == 1. and active_aero_enabled and gaps is None):
+                # Unlimited fresh service ignores physical pool, allowance
+                # and rule histories. Its weather observations and native
+                # physics remain exact; the initial retained tyre stays local.
+                key = (current_lap, horizon, forecast_json(weather), forecast_context,
+                       _green_weather_clock_key(weather_clock, warmup), green_stop)
+                shared_services = control_relaxation_memo(shared_laps, key)
             fresh_bound = _fresh_inventory_completion_bound(
                 horizon, tuple(compound.value for compound in TireCompound),
                 lambda offset, compound, age, clock: run(
@@ -665,7 +677,7 @@ def _clock_inventory_strategy(
                 lambda offset, compound, clock: not critical_at(updates(offset, *clock), compound),
                 lambda clock: (clock[0] + 1, clock[1]),
                 lambda offset, clock: canonical_clock_state(offset, *clock, 0.)[:2],
-                green_stop)
+                green_stop, solved=shared_services)
 
     @lru_cache(maxsize=None)
     def lower_running(offset, compound, age):
@@ -1477,6 +1489,7 @@ register_forecast_helpers(globals(), (
     "_floor_tables", "forecast_json", "minimum_lap_time",
     "isolated_strategy_lap", "plan_controlled_weather", "usable_weather_control",
     "control_lap_memo", "memoized_control_lap", "control_wear_bound",
+    "control_relaxation_memo", "_green_weather_clock_key",
     "exchange_tire_slots", "tire_set_slot", "tire_slot_usable",
     "_expired_inventory_state",
     "_canonical_inventory_state", "_dead_inventory_compounds",
