@@ -33,6 +33,7 @@ from f1sim.analysis import (
 from f1sim.data import CurrentSeasonDataLoader
 from f1sim.models import Weather, WeatherCondition
 from f1sim.output import ConsoleOutput, Exporter
+from f1sim.simulation.control_schedule import parse_control_schedule_spec, validate_control_schedule
 from f1sim.simulation.execution import (
     DEFAULT_RACE_ENGINE,
     RACE_ENGINES,
@@ -161,6 +162,13 @@ def _rainfall_step(value: str) -> dict:
         raise argparse.ArgumentTypeError(f"rainfall step: {exc}") from exc
 
 
+def _control_schedule(value):
+    try:
+        return parse_control_schedule_spec(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Simulate F1 race with Monte Carlo")
     parser.add_argument(
@@ -264,10 +272,17 @@ def main() -> int:
         help="Known shared leading-lap atmosphere: LAP=RAIN[:CONDITION], repeat in lap order. "
              "Lap 2 onwards; surface wetness keeps evolving. Overrides atmospheric randomness.",
     )
+    parser.add_argument(
+        "--control-schedule", type=_control_schedule,
+        help="Assumed SC/VSC announcements after leading crossings: 12:sc:4,26:vsc:2. "
+             "Use none to disable random SC/VSC; omit for automatic race control. "
+             "Future announcements are unknown to strategy; red flags retain priority.",
+    )
     args = parser.parse_args()
     from f1sim.simulation.tire_inventory import validate_tire_inventory
     try:
         weather_schedule = validate_weather_schedule(args.rainfall_step)
+        control_schedule = validate_control_schedule(args.control_schedule)
         compounds, ages = args.starting_tires or ({}, {})
         validate_tire_inventory(args.tire_inventory, compounds, ages)
     except ValueError as exc:
@@ -354,6 +369,7 @@ def main() -> int:
     track = loader.create_track_from_stats(track_stats)
     try:
         weather_schedule = validate_weather_schedule(weather_schedule, total_laps=track.total_laps)
+        control_schedule = validate_control_schedule(control_schedule, total_laps=track.total_laps)
         from f1sim.simulation.pit_plans import validate_pit_plans
 
         pit_plans = validate_pit_plans(
@@ -413,6 +429,7 @@ def main() -> int:
             **({"tire_warmup": args.tire_warmup} if args.tire_warmup else {}),
             **({"qualifying_weather": args.qualifying_weather} if args.qualifying_weather else {}),
             **({"weather_schedule": weather_schedule} if weather_schedule else {}),
+            **({"control_schedule": control_schedule} if control_schedule is not None else {}),
         )
 
         scenario_result = runner.run(

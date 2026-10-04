@@ -1,5 +1,14 @@
 # Selecting a pit plan across weather and rival strategies
 
+Scenarios can also supply a [control schedule](control-schedules.md), such as
+`"control_schedule": [{"lap": 12, "control": "safety_car", "duration_laps": 4}]`.
+Omission or `null` inherits the saved source; `[]` disables random SC/VSC
+announcements. The dashboard's **Override SC/VSC scenario** editor has the
+same distinction. Each scenario's effective inputs are frozen before training;
+future announcements are unknown to strategies, and red flags retain priority.
+Qualifying conditions remain shared. Selection reports retain these assumptions,
+while scenario JSON and HTML detail reports retain actual global outcome evidence.
+
 The rival-strategy workflow selects one target pit plan across a set of
 predeclared race-weather and opponent-plan scenarios, then evaluates that frozen choice on a
 disjoint seed range. Choose the candidate plans, rival scenarios, and scenario

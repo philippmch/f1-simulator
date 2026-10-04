@@ -14,7 +14,7 @@ def qualifying_weather_context(snapshot) -> str:
         if not overrides:
             return ""
         if (type(snapshot.get("schema_version")) is not int
-                or snapshot["schema_version"] not in (7, 8, 9, 10)):
+                or snapshot["schema_version"] not in (7, 8, 9, 10, 11)):
             return "Qualifying weather: unrecognized saved schema."
         effective = effective_qualifying_weather(snapshot.get("weather"), overrides)
     except (TypeError, ValueError):

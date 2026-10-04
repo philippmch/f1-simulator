@@ -8,6 +8,10 @@ from numbers import Integral, Real
 
 from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.analysis.paired_comparison import paired_comparison_statistics
+from f1sim.output.control_schedule_context import (
+    control_schedule_context,
+    control_schedule_statistics_html,
+)
 from f1sim.output.export import Exporter
 from f1sim.output.paired_context import (
     FINISHED_TIME_NOTE,
@@ -556,7 +560,8 @@ def _weather(result: SimulationResults) -> str:
             + atmosphere
             + (f"; {context}" if (context := warmup_context(snapshot)) else "")
             + (f"; {context}" if (context := qualifying_weather_context(snapshot)) else "")
-            + (f"; {schedule}" if schedule else ""))
+            + (f"; {schedule}" if schedule else "")
+            + (f"; {context}" if (context := control_schedule_context(snapshot)) else ""))
 
 
 def _paired_driver_table(driver_id: str, paired: dict | None) -> str:
@@ -1146,6 +1151,11 @@ def render_comparison_report(
             '</details></section>'
         )
     plan_sections = ''.join(plan_sections)
+    control_sections = ''.join(
+        f'<h3>{_text(name)}</h3>{section}'
+        for name, result in scenario_results.items()
+        if (section := control_schedule_statistics_html(result, name))
+    )
     return """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1268,6 +1278,8 @@ failures; other race processes continue sharing the race stream.</p>""" + (
         '<h2>Race tyre set ledgers</h2>' + inventory_sections if inventory_sections else ''
     ) + (
         '<h2>Custom pit-plan execution</h2>' + plan_sections if plan_sections else ''
+    ) + (
+        '<h2>SC/VSC scenario execution</h2>' + control_sections if control_sections else ''
     ) + _selection_objective_html(selection or {}) + "</main></body></html>"
 
 
@@ -1527,12 +1539,17 @@ def render_rival_strategy_selection_report(manifest: dict) -> str:
     race_engine = report_context.get("race_engine", "Not recorded")
     frozen_qualifying = selection.get("frozen_qualifying_weather")
     weather_active = isinstance(frozen_qualifying, dict)
+    control_active = any(isinstance(row, dict) and "control_schedule" in row
+                         for row in selection.get("rival_scenarios", []))
     weather_heading = "Weather and rival assumptions" if weather_active else "Rival assumptions"
     minimax = selection.get("selection_method") == "minimax_regret"
     choice_name = "Minimax regret" if minimax else "Weighted"
     title = f"{choice_name} weather and rival strategy selection" if weather_active else (
         f"{choice_name} rival strategy selection"
     )
+    if control_active:
+        weather_heading = "Race control, weather and rival assumptions"
+        title = f"{choice_name} race scenario strategy selection"
     weather_context = (
         '<p>One frozen target plan applies across all race weather cases below. '
         'Partial weather inputs inherit source values; the table records their full effective '
@@ -1541,6 +1558,13 @@ def render_rival_strategy_selection_report(manifest: dict) -> str:
         + _text(json.dumps(frozen_qualifying, ensure_ascii=False, sort_keys=True))
         + '</code></details>'
     ) if weather_active else ""
+    if control_active:
+        weather_context += (
+            '<p>SC/VSC announcements are observed only at their crossings. '
+            'Future deployments are unknown to strategy forecasts. '
+            'An empty schedule disables random SC/VSC; null means automatic race control. '
+            'Red flags retain priority.</p>'
+        )
     qualifying_context = report_context.get("qualifying_weather_context")
     qualifying_html = (f"<p>{_text(qualifying_context)}</p>"
                        if isinstance(qualifying_context, str) and qualifying_context else "")
@@ -1548,6 +1572,9 @@ def render_rival_strategy_selection_report(manifest: dict) -> str:
     schedule_html = (f"<p>{_text(schedule_context)}</p>"
                      if not weather_active and isinstance(schedule_context, str)
                      and schedule_context else "")
+    control_context = report_context.get("control_schedule_context")
+    control_html = (f"<p>{_text(control_context)}</p>"
+                    if isinstance(control_context, str) and control_context else "")
     members = selection.get("target_member_ids", [])
     members_text = ", ".join(str(member) for member in members) if members else "Not recorded"
     target_plans = manifest.get("target_plans", {})
@@ -1634,9 +1661,12 @@ def render_rival_strategy_selection_report(manifest: dict) -> str:
             weather_text = json.dumps(scenario.get("weather", {}), ensure_ascii=False,
                                       sort_keys=True)
             schedule_text = json.dumps(scenario.get("weather_schedule", []), ensure_ascii=False)
+            control_text = json.dumps(scenario.get("control_schedule"), ensure_ascii=False)
             weather_cell = (
                 f'<td>Initial race weather: <code>{_text(weather_text)}</code><br>'
-                f'Known rainfall steps: <code>{_text(schedule_text)}</code></td>'
+                f'Known rainfall steps: <code>{_text(schedule_text)}</code>'
+                + (f'<br>SC/VSC schedule: <code>{_text(control_text)}</code>'
+                   if "control_schedule" in scenario else "") + '</td>'
             )
         rival_rows.append(
             f'<tr><th scope="row">{_text(name)}</th>'
@@ -1795,6 +1825,7 @@ not probabilities learned from race data. Held-out results do not feed back into
 <p>Track: {_text(track_name)}. Race engine: {_text(race_engine)}.</p>
 {qualifying_html}
 {schedule_html}
+{control_html}
 <p class="scroll-hint">Scroll tables sideways to see every column.</p>
 <h2>Frozen target plans</h2>
 <p>Target: {_text(target_mode)} {_text(target_id)}. Member driver IDs: {_text(members_text)}.

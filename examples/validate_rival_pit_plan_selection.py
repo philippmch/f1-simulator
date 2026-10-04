@@ -22,6 +22,7 @@ from f1sim.analysis.rival_strategy_selection import (
 )
 from f1sim.analysis.strategy_selection import SELECTION_OBJECTIVES
 from f1sim.output import Exporter
+from f1sim.output.control_schedule_context import control_schedule_context
 from f1sim.output.qualifying_context import qualifying_weather_context
 from f1sim.output.weather_schedule_context import weather_schedule_context
 from f1sim.simulation.randomness import RNG_POLICIES
@@ -465,6 +466,8 @@ def main() -> int:
             }
             if context := weather_schedule_context(first.input_snapshot):
                 manifest["report_context"]["weather_schedule_context"] = context
+            if context := control_schedule_context(first.input_snapshot):
+                manifest["report_context"]["control_schedule_context"] = context
             if context := qualifying_weather_context(first.input_snapshot):
                 manifest["report_context"]["qualifying_weather_context"] = context
             report_path = exporter.export_rival_strategy_selection_html(

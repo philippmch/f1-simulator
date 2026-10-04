@@ -4,6 +4,10 @@ from math import isfinite
 
 from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.analysis.paired_comparison import paired_comparison_statistics
+from f1sim.output.control_schedule_context import (
+    control_schedule_context,
+    control_schedule_evidence_text,
+)
 from f1sim.output.paired_context import (
     FINISHED_TIME_NOTE,
     finished_race_time_text,
@@ -244,6 +248,9 @@ class ConsoleOutput:
                 print(f"  {context}")
             if context := weather_schedule_context(results[label].input_snapshot):
                 print(f"  {context}")
+            if context := control_schedule_context(results[label].input_snapshot):
+                print(f"  {context}")
+                print(f"  {control_schedule_evidence_text(results[label])}")
             if comparison["status"] == "unavailable":
                 print(f"  Unavailable: {comparison['reason']}")
                 continue
@@ -407,6 +414,9 @@ class ConsoleOutput:
             print(context)
         if context := weather_schedule_context(results.input_snapshot):
             print(context)
+        if context := control_schedule_context(results.input_snapshot):
+            print(context)
+            print(control_schedule_evidence_text(results))
         if results.seed is not None:
             print(
                 f"seed={results.seed} "
@@ -654,6 +664,9 @@ class ConsoleOutput:
                 print(f"{label}: {context}")
             if context := weather_schedule_context(result.input_snapshot):
                 print(f"{label}: {context}")
+            if context := control_schedule_context(result.input_snapshot):
+                print(f"{label}: {context}")
+                print(f"{label}: {control_schedule_evidence_text(result)}")
         print("=" * 80)
 
         scenario_names = list(scenario_results.keys())

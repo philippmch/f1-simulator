@@ -10,6 +10,7 @@ from urllib.parse import quote
 from uuid import uuid4
 
 from f1sim.analysis.montecarlo import SimulationResults
+from f1sim.output.control_schedule_context import control_schedule_statistics_html
 from f1sim.output.qualifying_context import qualifying_weather_context
 from f1sim.output.timing import (
     csv_time,
@@ -19,6 +20,7 @@ from f1sim.output.timing import (
 )
 from f1sim.output.warmup_context import warmup_context
 from f1sim.output.weather_schedule_context import weather_schedule_context
+from f1sim.simulation.control_schedule import validate_control_schedule_history
 from f1sim.simulation.race import result_is_classified
 from f1sim.simulation.race_points import points_for_result
 
@@ -290,6 +292,43 @@ class Exporter:
             for index, race in enumerate(results.race_results, start=1) for result in race
         ]
 
+    def export_control_schedule_history_csv(
+        self, results: SimulationResults, filename: str = "control_schedule_history.csv",
+    ) -> Path:
+        """Export global SC/VSC evidence once per trial, including coverage gaps."""
+        filepath = self.output_dir / filename
+        stats = results.get_control_schedule_statistics()
+        schedule = stats["requested_schedule"]
+        histories = results.control_schedule_histories
+        with filepath.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["simulation", "race_engine", "history_status", "lap", "control",
+                             "duration_laps", "status", "reason"])
+            if stats["source"] != "controlled":
+                return filepath
+            for index in range(len(results.race_results)):
+                prefix = [index + 1, results.race_engine]
+                if histories is not None and not isinstance(histories, list):
+                    writer.writerow(prefix + ["invalid", "", "", "", "", ""])
+                    continue
+                history = (histories[index] if isinstance(histories, list)
+                           and index < len(histories) else None)
+                if history is None:
+                    writer.writerow(prefix + ["missing", "", "", "", "", ""])
+                    continue
+                try:
+                    rows = validate_control_schedule_history(history, schedule)
+                except (TypeError, ValueError):
+                    writer.writerow(prefix + ["invalid", "", "", "", "", ""])
+                    continue
+                if not rows:
+                    writer.writerow(prefix + ["complete", "", "", "", "no_requests", ""])
+                for row in rows:
+                    writer.writerow(prefix + ["complete"] + [row[key] for key in (
+                        "lap", "control", "duration_laps", "status", "reason",
+                    )])
+        return filepath
+
     @staticmethod
     def _tire_set_ledgers(results: SimulationResults) -> list[dict]:
         return [
@@ -389,6 +428,8 @@ class Exporter:
         stats_dict: dict[str, Any] = {
             "simulation_inputs": results.input_snapshot,
             "weather_histories": results.weather_histories,
+            "control_schedule_histories": results.control_schedule_histories,
+            "control_schedule_statistics": results.get_control_schedule_statistics(),
             "pit_stop_details": self._pit_stop_details(results),
             "tire_set_ledgers": self._tire_set_ledgers(results),
             "pit_plan_histories": self._pit_plan_histories(results),
@@ -507,6 +548,8 @@ class Exporter:
                 "race_distance_statistics": results.get_race_distance_statistics(),
                 "suspension_statistics": suspension_statistics(results),
                 "weather_histories": results.weather_histories,
+                "control_schedule_histories": results.control_schedule_histories,
+                "control_schedule_statistics": results.get_control_schedule_statistics(),
                 "pit_stop_details": self._pit_stop_details(results),
                 "tire_set_ledgers": self._tire_set_ledgers(results),
                 "pit_plan_histories": self._pit_plan_histories(results),
@@ -612,6 +655,7 @@ class Exporter:
         qualifying_html = f"<p>{qualifying_text}</p>" if qualifying_text else ""
         schedule_text = escape(weather_schedule_context(results.input_snapshot))
         schedule_html = f"<p>{schedule_text}</p>" if schedule_text else ""
+        control_html = control_schedule_statistics_html(results)
         pit_plan_text = escape(_pit_plans(results))
         pit_plan_statistics = _pit_plan_statistics_html(results, "run")
         pit_plan_history = _pit_plan_history_html(results, "run")
@@ -678,13 +722,14 @@ class Exporter:
       background: #0f1220;
       color: #e8ebff;
     }}
-    .grid {{ display: grid; grid-template-columns: 1fr; gap: 20px; }}
-    .card {{ background: #181c30; border: 1px solid #2a3156; border-radius: 12px; padding: 16px; }}
+    .grid {{ display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }}
+    .card {{ background: #181c30; border: 1px solid #2a3156; border-radius: 12px;
+      padding: 16px; min-width: 0; }}
     h1, h2 {{ margin: 0 0 12px; }}
-    .meta {{ color: #b6c0ff; margin-bottom: 16px; }}
+    .meta {{ color: #b6c0ff; margin-bottom: 16px; overflow-wrap: anywhere; }}
     details {{ margin: 12px 0; }}
     summary {{ cursor: pointer; }}
-    .table-wrap {{ overflow-x: auto; }}
+    .table-wrap {{ overflow-x: auto; max-width: 100%; }}
     table {{ width: 100%; border-collapse: collapse; text-align: left; }}
     th, td {{ padding: 8px; border-bottom: 1px solid #2a3156; }}
   </style>
@@ -699,6 +744,7 @@ class Exporter:
     {warmup_html}
     {qualifying_html}
     {schedule_html}
+    {control_html}
     Input race set pools:
     {escape(json.dumps((results.input_snapshot or {}).get('tire_inventory', {})))}
   </div>
@@ -796,6 +842,9 @@ class Exporter:
             "weather_csv": self.export_weather_history_csv(
                 results, f"{filename_prefix}weather_history.csv"
             ),
+            **({"control_schedule_csv": self.export_control_schedule_history_csv(
+                results, f"{filename_prefix}control_schedule_history.csv",
+            )} if results.control_schedule_histories is not None else {}),
             "pit_stops_csv": self.export_pit_stop_details_csv(
                 results, f"{filename_prefix}pit_stops.csv"
             ),

@@ -265,6 +265,9 @@ empty plans. Optional per-set usage limits use version 9 and
 `tire_usage_policy="completed_race_laps_v1"`, preserving the other selected inputs.
 Conditional pit windows use version 10 and
 `pit_plan_policy="neutralized_window_deadline_v1"`, retaining tyre and weather settings.
+Explicit [SC/VSC scenario schedules](docs/control-schedules.md), including an
+empty schedule, use version 11 and `control_schedule_policy="observed_control_schedule_v1"`.
+They retain the other configured inputs and their policy markers.
 All current snapshots require
 `rng_policy`, with new runs using `isolated_weather_v1`. Earlier installations
 reject unsupported schemas. Version 1 snapshots without a policy replay with
@@ -519,6 +522,15 @@ the API. The automatic tyre policy knows the same future sequence used by race
 execution. Changes occur at shared leading laps and preserve existing surface
 water. See [prescribed race rainfall](docs/weather-schedule.md) for input format,
 replay and the conditional forecast limits.
+
+For a controlled SC/VSC experiment, choose **Assumed announcements** in the
+dashboard or pass `--control-schedule 12:sc:4,26:vsc:2` in the CLI. Strategies
+observe these announcements at their crossings; future deployments are unknown
+to forecasts. An empty assumed schedule (`--control-schedule none`) disables
+random SC/VSC, while red flags retain priority. Saved reports distinguish
+requested announcements from complete recorded execution evidence. See
+[SC/VSC scenarios](docs/control-schedules.md) for replay, pit-window examples
+and weighted scenario overrides.
 
 ## Server capacity
 

@@ -45,9 +45,11 @@ from f1sim.output.comparison import (
     render_comparison_report,
     render_rival_strategy_selection_report,
 )
+from f1sim.output.control_schedule_context import control_schedule_context
 from f1sim.output.qualifying_context import qualifying_weather_context
 from f1sim.output.timing import finite_time, suspension_statistics
 from f1sim.output.weather_schedule_context import weather_schedule_context
+from f1sim.simulation.control_schedule import CONTROL_SCHEDULE_POLICY, validate_control_schedule
 from f1sim.simulation.execution import (
     DEFAULT_RACE_ENGINE,
     validate_race_engine,
@@ -96,6 +98,7 @@ class DashboardRivalScenario(BaseModel):
     pit_plans: dict[StrictStr, Any]
     weather: dict[StrictStr, Any] | None = None
     weather_schedule: Any = None
+    control_schedule: Any = None
 
 
 class DashboardPitPlanSelectionRequest(BaseModel):
@@ -160,6 +163,7 @@ class DashboardRunRequest:
     pit_plan_selection: DashboardPitPlanSelectionRequest | None = None
     qualifying_weather: Any = None
     weather_schedule: Any = None
+    control_schedule: Any = None
 
 
 def _pit_plan_selection_request(
@@ -176,6 +180,7 @@ def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
     """Validate resource bounds and return all scenarios before live I/O."""
 
     validate_weather_mode(request.weather_mode)
+    validate_control_schedule(request.control_schedule)
     validate_weather_schedule(request.weather_schedule)
     validate_qualifying_weather(request.qualifying_weather)
     validate_race_engine(request.race_engine)
@@ -565,6 +570,13 @@ def _summarize_scenario_results(
             ) or {},
             "suspension_statistics": suspension_statistics(results),
             "simulation_inputs": getattr(results, "input_snapshot", None),
+            "control_schedule_statistics": _safe_call(
+                results, "get_control_schedule_statistics", default={},
+            ) or {},
+            "control_schedule_histories": getattr(results, "control_schedule_histories", None),
+            **({"control_schedule_context": context} if (context := control_schedule_context(
+                getattr(results, "input_snapshot", None),
+            )) else {}),
             **({"weather_schedule_context": schedule_context}
                if (schedule_context := weather_schedule_context(
                    getattr(results, "input_snapshot", None),
@@ -609,6 +621,11 @@ def _summarize_scenario_results(
             "sample_weather_history": (
                 results.weather_histories[sample_index]
                 if sample_index < len(getattr(results, "weather_histories", [])) else []
+            ),
+            "sample_control_schedule_history": (
+                histories[sample_index] if isinstance(histories := getattr(
+                    results, "control_schedule_histories", None,
+                ), list) and sample_index < len(histories) else None
             ),
             "sample_qualifying": _serialize_sample_qualifying(results, sample_index),
             "race_engine": getattr(results, "race_engine", "standard"),
@@ -667,6 +684,11 @@ def _dashboard_runner(
     )
     if weather_schedule:
         kwargs["weather_schedule"] = weather_schedule
+    control_schedule = validate_control_schedule(
+        request.control_schedule, total_laps=getattr(track, "total_laps", None),
+    )
+    if control_schedule is not None:
+        kwargs["control_schedule"] = control_schedule
     qualifying_weather = validate_qualifying_weather(request.qualifying_weather)
     if qualifying_weather:
         kwargs["qualifying_weather"] = qualifying_weather
@@ -719,6 +741,10 @@ def _dashboard_request_metadata(
     }
     if weather_schedule := validate_weather_schedule(request.weather_schedule):
         metadata["weather_schedule"] = weather_schedule
+    control_schedule = validate_control_schedule(request.control_schedule)
+    if control_schedule is not None:
+        metadata["control_schedule"] = control_schedule
+        metadata["control_schedule_policy"] = CONTROL_SCHEDULE_POLICY
     if qualifying_weather := validate_qualifying_weather(request.qualifying_weather):
         metadata["qualifying_weather"] = qualifying_weather
     if selection := _pit_plan_selection_request(request.pit_plan_selection):
@@ -727,7 +753,7 @@ def _dashboard_request_metadata(
             selection_metadata.pop("rival_scenarios", None)
         else:
             for assumption in selection_metadata["rival_scenarios"].values():
-                for optional in ("weather", "weather_schedule"):
+                for optional in ("weather", "weather_schedule", "control_schedule"):
                     if assumption[optional] is None:
                         assumption.pop(optional)
         metadata["pit_plan_selection"] = selection_metadata
@@ -788,6 +814,7 @@ def run_dashboard_simulation(
     _check_dashboard_cancellation(cancel_requested)
     track = loader.create_track_from_stats(track_stats)
     validate_weather_schedule(request.weather_schedule, total_laps=track.total_laps)
+    validate_control_schedule(request.control_schedule, total_laps=track.total_laps)
     from f1sim.simulation.pit_plans import validate_pit_plans
 
     pit_plans = validate_pit_plans(
@@ -982,6 +1009,8 @@ def run_dashboard_simulation(
                         "report_context": {
                             "track_name": track.name,
                             "race_engine": runner.race_engine,
+                            **({"control_schedule_context": context} if (context :=
+                               control_schedule_context(result.input_snapshot)) else {}),
                             **({"weather_schedule_context": schedule_context}
                                if (schedule_context := weather_schedule_context(
                                    result.input_snapshot,

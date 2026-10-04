@@ -13,6 +13,7 @@ from f1sim.cancellation import raise_if_cancelled
 from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather
 from f1sim.models._native import register_forecast_helpers
 from f1sim.models.tire import TIRE_COMPOUNDS
+from f1sim.simulation.control_schedule import validate_control_schedule
 from f1sim.simulation.custom_pit_strategy import (
     CustomPitFinishContext,
     choose_custom_pit_replacement,
@@ -287,6 +288,7 @@ class RaceSimulator(InventoryStrategyMixin):
         driver_rng_factory: DriverRngFactory | None = None,
         red_flag_pause_seconds: float = 600.0,
         tire_warmup: dict[str, float] | None = None,
+        control_schedule=None,
     ):
         """Initialize race simulator.
 
@@ -298,6 +300,7 @@ class RaceSimulator(InventoryStrategyMixin):
             driver_rng_factory: Optional independent native driver/purpose streams
             red_flag_pause_seconds: Suspension pause after field collection
             tire_warmup: Optional absolute cost on the first running lap after a fit
+            control_schedule: Optional SC/VSC scenario announcements; [] disables random deployments
         """
         if (isinstance(red_flag_pause_seconds, bool)
                 or not isinstance(red_flag_pause_seconds, Real)
@@ -321,6 +324,8 @@ class RaceSimulator(InventoryStrategyMixin):
         }
         if mechanical_rng_factory is not None:
             event_manager_kwargs["mechanical_rng_factory"] = mechanical_rng_factory
+        if control_schedule is not None:
+            event_manager_kwargs["control_schedule"] = control_schedule
         self.event_manager = EventManager(**event_manager_kwargs)
         self.strategy_tuning = {
             "conservative_switch_gap": 2.0,
@@ -448,6 +453,11 @@ class RaceSimulator(InventoryStrategyMixin):
         # Validate explicit plans against the scheduled distance before any
         # mutable driver/event state is reset or any strategy RNG is consumed.
         schedule = validate_weather_schedule(weather_schedule, total_laps=track.total_laps)
+        control_schedule = getattr(self.event_manager, "control_schedule", None)
+        if control_schedule is not None:
+            validate_control_schedule(control_schedule, total_laps=track.total_laps)
+            if self.event_manager.forced_safety_car_laps:
+                raise ValueError("control_schedule cannot be combined with forced safety-car laps")
         driver_ids = tuple(driver.id for driver in drivers)
         normalized_pit_plans = validate_pit_plans(
             pit_plans,

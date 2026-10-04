@@ -2038,6 +2038,19 @@ input:focus-visible {
         <p class="pit-plan-help" id="weatherScheduleHelp">One LAP=RAIN[:CONDITION] per line, for example 2=0.8:heavy_rain then 4=0:dry. Use ascending shared leading laps from 2 onwards and rainfall 0–1. Strategy knows this scenario; atmospheric randomness is disabled and surface water continues to evolve.</p>
         <textarea id="weatherScheduleInput" rows="3" aria-describedby="weatherScheduleHelp" placeholder="2=0.8:heavy_rain&#10;4=0:dry"></textarea>
       </div>
+      <div class="control-group control-group-scenarios">
+        <label class="control-label" for="controlSourceSelect">SC/VSC scenario</label>
+        <select id="controlSourceSelect" aria-describedby="controlScheduleHelp" onchange="updateControlScheduleControls()">
+          <option value="automatic">Automatic race control</option>
+          <option value="scheduled">Assumed announcements</option>
+        </select>
+        <p class="pit-plan-help" id="controlScheduleHelp">Assumptions for strategy comparisons. Announcements occur after the chosen leading crossing; strategies cannot see them in advance. Random SC/VSC deployments are disabled in an assumed scenario; red flags retain priority.</p>
+        <div id="controlScheduleEditor" hidden>
+          <label class="control-label" for="controlScheduleInput">Leading lap:sc/vsc:duration</label>
+          <textarea id="controlScheduleInput" rows="3" maxlength="1000" aria-describedby="controlScheduleFormat" placeholder="12:sc:4&#10;26:vsc:2"></textarea>
+          <p class="pit-plan-help" id="controlScheduleFormat">One request per line, up to 20. Laps 1–1000, duration 1–6 laps. Each announcement must follow the previous clearance lap. Leave blank for no SC/VSC announcements.</p>
+        </div>
+      </div>
       <div class="control-group control-group-scenarios" role="group" aria-labelledby="qualifyingWeatherLabel">
         <span class="control-label" id="qualifyingWeatherLabel">Qualifying session weather (optional)</span>
         <p class="pit-plan-help" id="qualifyingWeatherHelp">Weather stays fixed within each session. Unchanged sessions use each race scenario weather; explicit sessions apply across the whole scenario set.</p>
@@ -3106,6 +3119,8 @@ function saveUiPrefs() {
   };
   const scheduleText = document.getElementById('weatherScheduleInput').value.trim();
   if (scheduleText) payload.weatherSchedule = scheduleText;
+  payload.controlSource = document.getElementById('controlSourceSelect').value;
+  payload.controlSchedule = document.getElementById('controlScheduleInput').value;
   writeOptionalStorage(PREFS_KEY, JSON.stringify(payload));
 }
 
@@ -3119,6 +3134,12 @@ function loadUiPrefs() {
     }
     if (typeof prefs.weatherSchedule === 'string') {
       document.getElementById('weatherScheduleInput').value = prefs.weatherSchedule;
+    }
+    if (['automatic', 'scheduled'].includes(prefs.controlSource)) {
+      document.getElementById('controlSourceSelect').value = prefs.controlSource;
+    }
+    if (typeof prefs.controlSchedule === 'string') {
+      document.getElementById('controlScheduleInput').value = prefs.controlSchedule;
     }
     if (typeof prefs.focusScenario === 'string') {
       weatherSelectEl.value = prefs.focusScenario;
@@ -3601,6 +3622,10 @@ function addPitRivalScenario() {
     <div class="pit-rival-schedule-editor" hidden><label for="rival-schedule-${id}">Known rainfall steps (LAP=RAIN[:CONDITION])</label>
     <textarea id="rival-schedule-${id}" class="pit-rival-schedule" rows="3" aria-describedby="rival-schedule-help-${id}" placeholder="2=0.8:heavy_rain&#10;4=0:dry"></textarea>
     <p class="pit-plan-help" id="rival-schedule-help-${id}">Ascending leading laps from 2, rainfall 0–1. An empty override clears the source schedule. Otherwise the source schedule is inherited. The initial weather uses the run's rainfall mode; known steps disable atmospheric randomness.</p></div>
+    <label><input type="checkbox" class="pit-rival-control-enabled"> Override SC/VSC scenario</label>
+    <div class="pit-rival-control-editor" hidden><label for="rival-control-${id}">Leading lap:sc/vsc:duration</label>
+    <textarea id="rival-control-${id}" class="pit-rival-control" rows="3" maxlength="1000" aria-describedby="rival-control-help-${id}" placeholder="12:sc:4&#10;26:vsc:2"></textarea>
+    <p class="pit-plan-help" id="rival-control-help-${id}">Leave blank for no SC/VSC announcements. Unchecked inherits the source. Strategies observe announcements at their crossings; red flags retain priority.</p></div>
     <div class="pit-rival-overrides"></div>
     <button type="button" class="scenario-preset" data-add-rival-driver>Add driver override</button>`;
   row.querySelector('[data-remove-rival]').addEventListener('click', () => {
@@ -3610,6 +3635,9 @@ function addPitRivalScenario() {
   row.querySelector('[data-add-rival-driver]').addEventListener('click', () => addPitRivalOverride(row));
   row.querySelector('.pit-rival-schedule-enabled').addEventListener('change', event => {
     row.querySelector('.pit-rival-schedule-editor').hidden = !event.target.checked;
+  });
+  row.querySelector('.pit-rival-control-enabled').addEventListener('change', event => {
+    row.querySelector('.pit-rival-control-editor').hidden = !event.target.checked;
   });
   document.getElementById('pitRivalScenarios').append(row);
   syncPitRivalControls();
@@ -3685,6 +3713,11 @@ function buildPitRivalScenarios() {
       const parsed = parseWeatherScheduleInputs(row.querySelector('.pit-rival-schedule'));
       if (!parsed.ok) return fail(parsed.message, parsed.input);
       assumption.weather_schedule = parsed.schedule;
+    }
+    if (row.querySelector('.pit-rival-control-enabled').checked) {
+      const parsed = parseControlScheduleInputs(row.querySelector('.pit-rival-control'));
+      if (!parsed.ok) return fail(parsed.message, parsed.input);
+      assumption.control_schedule = parsed.schedule;
     }
     scenarios[name] = assumption;
   }
@@ -4645,6 +4678,28 @@ function parseWeatherScheduleInputs(input = document.getElementById('weatherSche
   return {ok: true, schedule};
 }
 
+function updateControlScheduleControls() {
+  document.getElementById('controlScheduleEditor').hidden = document.getElementById('controlSourceSelect').value !== 'scheduled';
+}
+
+function parseControlScheduleInputs(input = document.getElementById('controlScheduleInput')) {
+  const tokens = input.value.trim() ? input.value.trim().split(/,|\r?\n/) : [];
+  if (tokens.length > 20) return {ok: false, input, message: 'SC/VSC schedules allow at most 20 announcements.'};
+  const schedule = [];
+  let previousEnd = 0;
+  for (const token of tokens) {
+    const match = /^([0-9]+):(sc|vsc):([0-9]+)$/.exec(token.trim());
+    if (!match) return {ok: false, input, message: 'SC/VSC requests must use LAP:sc/vsc:DURATION, one per line.'};
+    const lap = Number(match[1]), duration = Number(match[3]);
+    if (!Number.isSafeInteger(lap) || lap < 1 || lap > 1000 || !Number.isSafeInteger(duration) || duration < 1 || duration > 6 || lap <= previousEnd) {
+      return {ok: false, input, message: 'SC/VSC requests need laps 1–1000, duration 1–6, and an announcement after the previous clearance lap.'};
+    }
+    schedule.push({lap, control: match[2] === 'sc' ? 'safety_car' : 'vsc', duration_laps: duration});
+    previousEnd = lap + duration;
+  }
+  return {ok: true, schedule};
+}
+
 function buildRunPayload() {
   const selectedRace = document.getElementById('trackSelect').value;
   const simulationsInput = document.getElementById('simCount');
@@ -4708,6 +4763,13 @@ function buildRunPayload() {
     weatherScheduleSetup.input.focus();
     return null;
   }
+  const controlScheduleSetup = document.getElementById('controlSourceSelect').value === 'scheduled'
+    ? parseControlScheduleInputs() : {ok: true, schedule: null};
+  if (!controlScheduleSetup.ok) {
+    setStatusMessage(controlScheduleSetup.message, 'error');
+    controlScheduleSetup.input.focus();
+    return null;
+  }
   const qualifyingWeatherSetup = parseQualifyingWeatherInputs();
   if (!qualifyingWeatherSetup.ok) {
     setStatusMessage(qualifyingWeatherSetup.message, 'error');
@@ -4756,6 +4818,7 @@ function buildRunPayload() {
     compare_automatic: compareAutomatic,
   };
   if (weatherScheduleSetup.schedule.length) payload.weather_schedule = weatherScheduleSetup.schedule;
+  if (controlScheduleSetup.schedule !== null) payload.control_schedule = controlScheduleSetup.schedule;
   if (Object.keys(qualifyingWeatherSetup.profile).length) payload.qualifying_weather = qualifyingWeatherSetup.profile;
   if (Object.keys(warmupSetup.profile).length) payload.tire_warmup = warmupSetup.profile;
   if (pitPlanSetup.pitPlans !== null) payload.pit_plans = pitPlanSetup.pitPlans;
@@ -4908,6 +4971,18 @@ function savedWeatherBehavior(scenario) {
 function renderWeatherScheduleSnapshot(scenario) {
   const saved = scenario?.weather_schedule_context;
   return typeof saved === 'string' && saved ? `<div class="race-meta">${escapeHtml(saved)}</div>` : '';
+}
+
+function renderControlScheduleEvidence(scenario) {
+  const context = scenario?.control_schedule_context;
+  const stats = scenario?.control_schedule_statistics;
+  if (typeof context !== 'string' || !context) return '';
+  const source = `<div class="race-meta">${escapeHtml(context)}</div>`;
+  if (stats?.source !== 'controlled') return source;
+  const count = key => Number.isSafeInteger(stats[key]) && stats[key] >= 0 ? stats[key] : 'Not recorded';
+  const coverage = `${count('valid_history_races')} complete, ${count('missing_history_races')} missing, ${count('invalid_history_races')} invalid of ${count('recorded_races')} recorded trials; ${count('unrecorded_races')} unrecorded trials; ${count('unexpected_histories')} unexpected histories.`;
+  const rows = Array.isArray(stats.entries) ? stats.entries.filter(row => row && typeof row === 'object' && !Array.isArray(row)).map(row => `<tr><th scope="row">After lap ${escapeHtml(row.lap)}</th><td>${escapeHtml(row.control === 'safety_car' ? 'SC' : row.control)}</td><td>${escapeHtml(row.duration_laps)}</td><td>${escapeHtml(row.applied)}</td><td>${escapeHtml(row.suppressed)}</td><td>${escapeHtml(row.not_reached)}</td></tr>`).join('') : '';
+  return `${source}<details class="weather-history control-schedule-history"><summary>SC/VSC execution evidence</summary><p>${escapeHtml(coverage)}</p><p>Counts use complete histories. Applied means announced; later suspensions or the finish can interrupt the requested duration.</p>${rows ? `<div class="results-table" tabindex="0" role="region" aria-label="SC/VSC execution"><table class="matrix-table"><caption>SC/VSC requests in complete trial histories</caption><thead><tr><th scope="col">Announcement</th><th scope="col">Control</th><th scope="col">Requested laps</th><th scope="col">Applied</th><th scope="col">Suppressed</th><th scope="col">Not reached</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p>No SC/VSC announcements were requested.</p>'}</details>`;
 }
 
 function renderQualifyingWeatherSnapshot(scenario) {
@@ -5509,6 +5584,7 @@ function renderRace() {
     </div>
     ${timeLimited ? '<div class="inline-note time-limit-note" role="note">Race shortened by the two-hour limit. Points reflect completed distance and green running.</div>' : ''}
     ${renderWeatherHistory(scenario)}
+    ${renderControlScheduleEvidence(scenario)}
     ${renderStrategyComparison(name)}
     <div class="results-table" tabindex="0" role="region" aria-label="Race classification">
     <div class="timing-header">
@@ -6434,6 +6510,46 @@ function downloadResultJson(data) {
   URL.revokeObjectURL(url);
 }
 
+function downloadControlScheduleCsv(data) {
+  const rows = [['scenario', 'simulation', 'race_engine', 'history_status', 'lap', 'control', 'duration_laps', 'status', 'reason']];
+  for (const [name, scenario] of Object.entries(data?.scenarios || {})) {
+    const stats = scenario?.control_schedule_statistics;
+    if (stats?.source !== 'controlled') continue;
+    const requests = stats.requested_schedule;
+    const histories = scenario.control_schedule_histories;
+    if (!Array.isArray(requests) || !Number.isSafeInteger(stats.recorded_races) || stats.recorded_races < 0) continue;
+    for (let trial = 0; trial < stats.recorded_races; trial++) {
+      const prefix = [name, trial + 1, scenario.race_engine];
+      if (histories != null && !Array.isArray(histories)) {
+        rows.push([...prefix, 'invalid', '', '', '', '', '']);
+        continue;
+      }
+      const history = Array.isArray(histories) ? histories[trial] : null;
+      if (history == null) {
+        rows.push([...prefix, 'missing', '', '', '', '', '']);
+        continue;
+      }
+      const reasons = {applied: ['scheduled_announcement'], suppressed: ['red_flag', 'no_survivors', 'existing_neutralization'], not_reached: ['race_ended_before_request']};
+      const valid = Array.isArray(history) && history.length === requests.length && history.every((row, index) => row && typeof row === 'object' && Object.keys(row).sort().join(',') === 'control,duration_laps,lap,reason,status' && ['lap', 'control', 'duration_laps'].every(key => row[key] === requests[index][key]) && Object.hasOwn(reasons, row.status) && reasons[row.status].includes(row.reason));
+      if (!valid) {
+        rows.push([...prefix, 'invalid', '', '', '', '', '']);
+        continue;
+      }
+      if (!history.length) rows.push([...prefix, 'complete', '', '', '', 'no_requests', '']);
+      for (const row of history) rows.push([...prefix, 'complete', row.lap, row.control, row.duration_laps, row.status, row.reason]);
+    }
+  }
+  const blob = new Blob([rows.map(row => row.map(csvCell).join(',')).join('\r\n')], {type: 'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'control_schedule_history.csv';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function downloadAutomaticReferenceJson(data) {
   const reference = data?.automatic_reference;
   if (!reference || typeof reference !== 'object' || Array.isArray(reference)) return;
@@ -6621,7 +6737,7 @@ function renderPitRivalEvidence(selection, identity) {
   const weatherCell = scenario => {
     const weather = selectionRecord(scenario.weather);
     const summary = `${weather.condition || 'Not recorded'}; rain ${selectionNumber(weather.rain_intensity)}; surface water ${selectionNumber(weather.track_wetness)}`;
-    return `<td class="pit-selection-weather"><details><summary>${escapeHtml(summary)}</summary><p>Initial race weather: <code>${escapeHtml(JSON.stringify(weather))}</code></p><p>Known rainfall steps: <code>${escapeHtml(JSON.stringify(scenario.weather_schedule ?? []))}</code></p></details></td>`;
+    return `<td class="pit-selection-weather"><details><summary>${escapeHtml(summary)}</summary><p>Initial race weather: <code>${escapeHtml(JSON.stringify(weather))}</code></p><p>Known rainfall steps: <code>${escapeHtml(JSON.stringify(scenario.weather_schedule ?? []))}</code></p>${Object.hasOwn(scenario, 'control_schedule') ? `<p>SC/VSC schedule: <code>${escapeHtml(scenario.control_schedule === null ? 'Automatic race control' : JSON.stringify(scenario.control_schedule))}</code></p>` : ''}</details></td>`;
   };
   const qualifying = weatherActive
     ? `<details class="pit-selection-weather"><summary>Shared qualifying weather (frozen)</summary><code>${escapeHtml(JSON.stringify(selectionRecord(selection.frozen_qualifying_weather)))}</code></details><p>One target plan is chosen across these race weather and rival cases. The source race charts retain their original conditions.</p>` : '';
@@ -6645,7 +6761,8 @@ function renderPitRivalEvidence(selection, identity) {
       <div class="pit-selection-result-table-wrap" tabindex="0" role="region" aria-label="Per-scenario training scores">
       <table class="matrix-table pit-selection-result-table"><thead><tr><th>Candidate</th><th>Training mean points</th><th>Trials</th></tr></thead><tbody>${scoreRows || '<tr><td colspan="3">Training scores not recorded.</td></tr>'}</tbody></table></div>${heldOut}</details>`;
   }).join('');
-  return `<h4>Frozen ${weatherActive ? 'weather and rival' : 'rival'} assumptions</h4><p>Weights are supplied assumptions, not calibrated probabilities. Aggregate scores combine scenarios within each seed; scenarios do not count as independent trials. Unlisted rivals retain their saved plan.</p>${qualifying}
+  const controlActive = scenarios.some(scenario => Object.hasOwn(scenario, 'control_schedule'));
+  return `<h4>Frozen ${controlActive ? 'race control, weather and rival' : weatherActive ? 'weather and rival' : 'rival'} assumptions</h4><p>Weights are supplied assumptions, not calibrated probabilities. Aggregate scores combine scenarios within each seed; scenarios do not count as independent trials. Unlisted rivals retain their saved plan.</p>${qualifying}
     <div class="pit-selection-result-table-wrap" tabindex="0" role="region" aria-label="Frozen rival plans and weights"><table class="matrix-table pit-selection-result-table"><thead><tr><th>Scenario</th><th>Supplied weight</th><th>Normalized weight</th><th>Overrides</th>${weatherActive ? '<th>Race weather and schedule</th>' : ''}</tr></thead><tbody>${rows}</tbody></table></div>${details}`;
 }
 
@@ -6957,6 +7074,7 @@ function renderScenarioLab() {
       <button class="btn-simulate" type="button" id="downloadScenarioReportBtn">Download comparison report</button>
       <button class="btn-simulate" type="button" id="downloadStrategyReportBtn" disabled>Download strategy report</button>
       <button class="btn-simulate" type="button" id="downloadScenarioMatrixBtn">Export Matrix CSV</button>
+      <button class="btn-simulate" type="button" id="downloadControlScheduleBtn">Download SC/VSC history CSV</button>
       <label class="control-label" style="display:flex;align-items:center;gap:0.45rem;margin:0 0 0 0.25rem;">
         <input type="checkbox" id="compareMatrixHighlight" checked>
         Highlight highest estimate
@@ -7015,6 +7133,7 @@ function renderScenarioLab() {
     else if (button.id === 'downloadPitSelectionReportBtn') downloadPitSelectionValidationReport(simResults);
   });
   exportMatrixBtn.addEventListener('click', () => exportScenarioMatrixCsv(simResults));
+  document.getElementById('downloadControlScheduleBtn').addEventListener('click', () => downloadControlScheduleCsv(simResults));
   controlIds.forEach(id => {
     const el = document.getElementById(id);
     if (el) {
@@ -7030,6 +7149,7 @@ function renderScenarioLab() {
 (async function init() {
   populateYearSelect();
   loadUiPrefs();
+  updateControlScheduleControls();
   initTyreEditor();
   initPitPlanSelection();
   renderScenarioControlMounts();
@@ -7044,6 +7164,8 @@ function renderScenarioLab() {
 
   document.getElementById('weatherModeSelect').addEventListener('change', saveUiPrefs);
   document.getElementById('weatherScheduleInput').addEventListener('change', saveUiPrefs);
+  document.getElementById('controlSourceSelect').addEventListener('change', saveUiPrefs);
+  document.getElementById('controlScheduleInput').addEventListener('change', saveUiPrefs);
   document.getElementById('compareAutomaticInput').addEventListener('change', saveUiPrefs);
   weatherSelectEl.addEventListener('change', () => {
     const focusedScenario = WEATHER_TO_SCENARIO[weatherSelectEl.value] || 'dry';

@@ -9,6 +9,7 @@ const { performance } = require('node:perf_hooks');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const { checkControlNavigation } = require('./browser_control_navigation.cjs');
 const { checkPitWindows } = require('./browser_pit_windows.cjs');
+const { checkControlSchedules } = require('./browser_control_schedules.cjs');
 
 (async () => {
   const offline = process.env.F1SIM_OFFLINE === '1';
@@ -298,6 +299,7 @@ const { checkPitWindows } = require('./browser_pit_windows.cjs');
     assert(await page.locator('#btnTyreSetup').isEnabled(), 'Tyre setup editor must be available');
     await checkControlNavigation(page);
     await checkPitWindows(page);
+    if (offline) await checkControlSchedules(page);
 
     if (offline) {
       const trackSelect = page.locator('#trackSelect');

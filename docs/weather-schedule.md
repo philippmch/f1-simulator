@@ -103,3 +103,8 @@ worker behavior, with ordinary evolving or fixed rainfall. Automatic paid tyre
 choices use the same safety-based candidate rules with and without a schedule;
 without one, the forecast assumes the observed rainfall persists. Earlier input
 schemas remain replayable and cannot claim the new schedule field.
+
+A nonempty rainfall schedule can also be retained in schema 9, 10 or 11 when
+usage limits, conditional pit windows or an explicit
+[SC/VSC source](control-schedules.md) require a newer input schema. Rainfall
+remains known to strategy; future SC/VSC announcements are observed only when due.

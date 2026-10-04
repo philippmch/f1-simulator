@@ -15,6 +15,7 @@ from typing import Callable
 
 import numpy as np
 
+from f1sim.analysis.control_schedule_statistics import control_schedule_statistics
 from f1sim.analysis.provenance import simulation_runtime
 from f1sim.cancellation import (
     cancellation_scope,
@@ -25,6 +26,7 @@ from f1sim.cancellation import (
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.models.tire import TireCompound
 from f1sim.simulation.chronological_race import ChronologicalRace
+from f1sim.simulation.control_schedule import CONTROL_SCHEDULE_POLICY, validate_control_schedule
 from f1sim.simulation.events import EventType
 from f1sim.simulation.execution import (
     DEFAULT_RACE_ENGINE,
@@ -288,6 +290,14 @@ class SimulationResults:
     race_engine: str = "standard"
     input_snapshot: dict | None = None
     weather_histories: list[list[dict]] = field(default_factory=list)
+    control_schedule_histories: list[list[dict] | None] | None = None
+
+    def get_control_schedule_statistics(self) -> dict:
+        """Describe assumptions separately from complete recorded execution evidence."""
+        return control_schedule_statistics(
+            self.input_snapshot, self.control_schedule_histories,
+            len(self.race_results), self.num_simulations,
+        )
 
     def get_race_distance_statistics(self) -> dict[str, int | float | None]:
         """Summarize recorded distances, with rates as fractions in [0, 1].
@@ -1034,8 +1044,9 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     Args:
         args: Tuple of (drivers_data, cars_data, track_data, weather_data, seed,
             race_engine, starting_tires, rng_policy, starting_tire_ages, tire_inventory,
-            pit_plans, tire_warmup, qualifying_weather, weather_schedule).
+            pit_plans, tire_warmup, qualifying_weather, weather_schedule, control_schedule).
             The fourteenth item is used only for a nonempty race schedule.
+            Fifteen-item calls require an explicit control schedule, including [].
             Legacy five through thirteen-item calls remain supported; five/six/seven-item
             calls retain the shared random stream.
 
@@ -1049,6 +1060,7 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     tire_warmup = None
     qualifying_weather = None
     weather_schedule = None
+    control_schedule = None
     rng_policy = "shared_v1"
     if len(args) == 5:
         drivers_data, cars_data, track_data, weather_data, seed = args
@@ -1089,10 +1101,18 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
                 "Simulation worker inputs must contain 5 through 13 items, "
                 "or 14 with a nonempty weather_schedule"
             )
+    elif len(args) == 15:
+        (drivers_data, cars_data, track_data, weather_data, seed,
+         race_engine, starting_tires, rng_policy, starting_tire_ages,
+         tire_inventory, pit_plans, tire_warmup, qualifying_weather,
+         weather_schedule, control_schedule) = args
+        if control_schedule is None:
+            raise ValueError("Fifteen-item simulation worker inputs require control_schedule")
+        control_schedule = validate_control_schedule(control_schedule)
     else:
         raise ValueError(
             "Simulation worker inputs must contain 5 through 13 items, "
-            "or 14 with a nonempty weather_schedule"
+            "14 with a nonempty weather_schedule, or 15 with control_schedule"
         )
     qualifying_weather = validate_qualifying_weather(qualifying_weather)
     tire_warmup = validate_tire_warmup(tire_warmup)
@@ -1111,6 +1131,7 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
                                         (d.id for d in drivers))
     cars = {k: Car.model_validate(v) for k, v in cars_data.items()}
     track = Track.model_validate(track_data)
+    control_schedule = validate_control_schedule(control_schedule, total_laps=track.total_laps)
     weather_schedule = validate_weather_schedule(weather_schedule, total_laps=track.total_laps)
     weather = Weather.model_validate(weather_data)
     pit_plans = _validate_pit_plans(
@@ -1147,6 +1168,8 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
         race_kwargs["mechanical_rng_factory"] = mechanical_rng_factory
     if tire_warmup:
         race_kwargs["tire_warmup"] = tire_warmup
+    if control_schedule is not None:
+        race_kwargs["control_schedule"] = control_schedule
     race_sim = RaceSimulator(**race_kwargs)
     simulate = (
         ChronologicalRace(race_sim).run
@@ -1196,6 +1219,10 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
         "mechanical_failure_breakdown": dict(mech_breakdown),
         "weather_history": race_sim.weather_history,
     }
+    if control_schedule is not None:
+        event_counts["control_schedule_history"] = (
+            race_sim.event_manager.get_control_schedule_history()
+        )
 
     return race_results, quali_results, event_counts
 
@@ -1220,6 +1247,7 @@ class MonteCarloRunner:
         qualifying_weather: dict | None = None,
         *,
         weather_schedule: list[dict] | None = None,
+        control_schedule: list[dict] | None = None,
     ):
         """Initialize Monte Carlo runner.
 
@@ -1237,9 +1265,14 @@ class MonteCarloRunner:
                 explicit empty lists disable elective stops.
             qualifying_weather: Fixed Q1/Q2/Q3 overrides; omitted sessions use race weather.
             weather_schedule: Known atmosphere changes at shared leading laps; surface evolves.
+            control_schedule: Assumed SC/VSC announcements, observed only at their crossings;
+                None keeps automatic control, [] disables random SC/VSC deployments.
             tire_warmup: Optional assumed seconds on the first running lap after each fitting.
                 Openings and qualifying are ready; zero disables the sensitivity overlay.
         """
+        self.control_schedule = validate_control_schedule(
+            control_schedule, total_laps=getattr(track, "total_laps", None),
+        )
         self.weather_schedule = validate_weather_schedule(
             weather_schedule, total_laps=getattr(track, "total_laps", None),
         )
@@ -1314,6 +1347,9 @@ class MonteCarloRunner:
 
         _raise_if_cancelled(cancel_requested)
         validate_unique_ids((driver.id for driver in self.drivers), "drivers")
+        control_schedule = validate_control_schedule(
+            self.control_schedule, total_laps=self.track.total_laps,
+        )
         weather_schedule = validate_weather_schedule(
             self.weather_schedule, total_laps=self.track.total_laps,
         )
@@ -1341,7 +1377,8 @@ class MonteCarloRunner:
         track_data = self.track.model_dump()
         weather_data = self.weather.model_dump()
         input_snapshot = {
-            "schema_version": (10 if has_pit_plan_windows(pit_plans)
+            "schema_version": (11 if control_schedule is not None
+                               else 10 if has_pit_plan_windows(pit_plans)
                                else 9 if has_tire_usage_limits(inventory)
                                else 8 if weather_schedule else 7 if qualifying_weather
                                else 6 if tire_warmup else 5 if pit_plans
@@ -1355,6 +1392,9 @@ class MonteCarloRunner:
             "runtime": simulation_runtime(),
         }
 
+        if control_schedule is not None:
+            input_snapshot["control_schedule"] = deepcopy(control_schedule)
+            input_snapshot["control_schedule_policy"] = CONTROL_SCHEDULE_POLICY
         if weather_schedule:
             input_snapshot["weather_schedule"] = deepcopy(weather_schedule)
         if qualifying_weather:
@@ -1379,6 +1419,8 @@ class MonteCarloRunner:
             (drivers_data, cars_data, track_data, weather_data, seed,
              self.race_engine, starting_tires, rng_policy, ages, deepcopy(inventory),
              deepcopy(pit_plans)) + (
+                 (tire_warmup.copy(), deepcopy(qualifying_weather), deepcopy(weather_schedule),
+                  deepcopy(control_schedule)) if control_schedule is not None else
                  (tire_warmup.copy(), deepcopy(qualifying_weather), deepcopy(weather_schedule))
                  if weather_schedule else
                  (tire_warmup.copy(), deepcopy(qualifying_weather)) if qualifying_weather
@@ -1456,6 +1498,10 @@ class MonteCarloRunner:
             race_engine=self.race_engine,
             input_snapshot=input_snapshot,
             weather_histories=[counts.get("weather_history", []) for counts in all_event_counts],
+            control_schedule_histories=(
+                [counts.get("control_schedule_history") for counts in all_event_counts]
+                if control_schedule is not None else None
+            ),
         )
 
     def _aggregate_statistics(

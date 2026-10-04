@@ -32,6 +32,7 @@ from f1sim.analysis.strategy_selection import (
     validate_pit_plan_selection_request,
 )
 from f1sim.models import Weather
+from f1sim.simulation.control_schedule import validate_control_schedule
 from f1sim.simulation.qualifying_weather import (
     effective_qualifying_weather,
     validate_qualifying_weather,
@@ -72,6 +73,7 @@ def _validate_rival_scenarios(rival_scenarios: Mapping) -> tuple[list[str], dict
     rival_plans = {}
     weather_overrides = {}
     weather_schedules = {}
+    control_schedules = {}
     for name, scenario in rival_scenarios.items():
         if not isinstance(name, str) or not name.strip() or len(name) > 80:
             raise ValueError(
@@ -79,10 +81,10 @@ def _validate_rival_scenarios(rival_scenarios: Mapping) -> tuple[list[str], dict
             )
         required = {"weight", "pit_plans"}
         if (not isinstance(scenario, Mapping) or not required <= set(scenario)
-                or set(scenario) - required - {"weather", "weather_schedule"}):
+                or set(scenario) - required - {"weather", "weather_schedule", "control_schedule"}):
             raise ValueError(
                 f"rival scenario {name!r} must contain weight and pit_plans, "
-                "with optional weather and weather_schedule",
+                "with optional weather, weather_schedule and control_schedule",
             )
         weather = scenario.get("weather")
         try:
@@ -99,6 +101,7 @@ def _validate_rival_scenarios(rival_scenarios: Mapping) -> tuple[list[str], dict
             raise ValueError(f"Invalid race weather for scenario {name!r}: {exc}") from exc
         weather_overrides[name] = deepcopy(weather)
         weather_schedules[name] = deepcopy(schedule)
+        control_schedules[name] = validate_control_schedule(scenario.get("control_schedule"))
         supplied_weights[name] = _weight_number(
             scenario["weight"], f"weight for rival scenario {name!r}",
         )
@@ -134,7 +137,8 @@ def _validate_rival_scenarios(rival_scenarios: Mapping) -> tuple[list[str], dict
         raise ValueError("rival scenario weights are too far apart to normalize safely")
     return names, supplied_weights, {"plans": rival_plans, "weights": normalized,
                                     "weather": weather_overrides,
-                                    "weather_schedule": weather_schedules}
+                                    "weather_schedule": weather_schedules,
+                                    "control_schedule": control_schedules}
 
 
 def validate_rival_pit_plan_selection_request(rival_scenarios: Mapping) -> None:
@@ -203,8 +207,14 @@ def _check_scenario_cohort(
             raise ValueError(f"{phase} {name!r} used different frozen race weather inputs")
         if values["qualifying_weather"] != frozen_qualifying:
             raise ValueError(f"{phase} {name!r} used different frozen qualifying weather inputs")
+        if ("control_schedule" in expected
+                and values["control_schedule"] != expected["control_schedule"]):
+            raise ValueError(f"{phase} {name!r} used different frozen control schedule inputs")
+        varied = {"weather", "weather_schedule"}
+        if "control_schedule" in expected:
+            varied.add("control_schedule")
         return ({key: value for key, value in values.items()
-                 if key not in ("weather", "weather_schedule")}, *snapshot[1:])
+                 if key not in varied}, *snapshot[1:])
 
     baseline_snapshot = comparable_snapshot(
         baseline_result, next(iter(scenario_results)),
@@ -369,6 +379,8 @@ def prepare_rival_pit_plan_selection(
     scenario_plans = scenario_data["plans"]
     weather_overrides = scenario_data["weather"]
     schedule_overrides = scenario_data["weather_schedule"]
+    control_overrides = scenario_data["control_schedule"]
+    control_assumptions = any(control_overrides[name] is not None for name in scenario_names)
     weather_assumptions = any(
         weather_overrides[name] or schedule_overrides[name] is not None
         for name in scenario_names
@@ -376,8 +388,8 @@ def prepare_rival_pit_plan_selection(
     # Race uncertainty must not silently change the qualifying experiment.
     frozen_qualifying = effective_qualifying_weather(
         runner.weather, getattr(runner, "qualifying_weather", None),
-    ) if weather_assumptions else None
-    weather_contexts = {} if weather_assumptions else None
+    ) if weather_assumptions or control_assumptions else None
+    weather_contexts = {} if weather_assumptions or control_assumptions else None
     candidate_definitions = deepcopy(dict(plans))
 
     if driver_id is not None:
@@ -417,7 +429,7 @@ def prepare_rival_pit_plan_selection(
     for scenario_name in scenario_names:
         _check_cancelled(cancel_requested)
         assumption_runner = runner
-        if weather_assumptions:
+        if weather_assumptions or control_assumptions:
             weather = validate_qualifying_weather({"Q1": {
                 **runner.weather.model_dump(mode="json"),
                 **(weather_overrides[scenario_name] or {}),
@@ -435,6 +447,15 @@ def prepare_rival_pit_plan_selection(
                 qualifying_weather=frozen_qualifying, weather_schedule=schedule,
             )
             weather_contexts[scenario_name] = {"weather": weather, "weather_schedule": schedule}
+            if control_assumptions:
+                control = validate_control_schedule(
+                    getattr(runner, "control_schedule", None)
+                    if control_overrides[scenario_name] is None
+                    else control_overrides[scenario_name],
+                    total_laps=runner.track.total_laps,
+                )
+                assumption_runner = _runner_variant(assumption_runner, control_schedule=control)
+                weather_contexts[scenario_name]["control_schedule"] = control
         base_plans = _apply_rival_overrides(
             assumption_runner, scenario_plans[scenario_name],
             target_members=target_member_set, runnable_ids=runnable_ids,
@@ -484,6 +505,7 @@ def prepare_rival_pit_plan_selection(
         "supplied_weights": supplied_weights,
         "normalized_weights": normalized_weights,
         "weather_contexts": weather_contexts,
+        "control_assumptions": control_assumptions,
         "frozen_qualifying_weather": frozen_qualifying,
         "scenario_plans": scenario_plans,
         "plans": candidate_definitions,
@@ -805,6 +827,17 @@ def evaluate_prepared_rival_pit_plan_selection(
             "minimax_regret_weather_and_rival_training_then_disjoint_seed_validation"
             if weather_contexts is not None else
             "minimax_regret_rival_training_then_disjoint_seed_validation"
+        )
+    if prepared.get("control_assumptions"):
+        selection["method"] = (
+            "minimax_regret_race_scenario_training_then_disjoint_seed_validation"
+            if regret_table is not None else
+            "weighted_race_scenario_training_then_disjoint_seed_validation"
+        )
+        selection["methodology_limits"].append(
+            "SC/VSC schedules are supplied scenario assumptions. Strategies observe each "
+            "announcement only at its crossing; future deployments are not known to forecasts. "
+            "Red flags can suppress requests, and a race can finish before later requests.",
         )
     return {
         "selection": selection,

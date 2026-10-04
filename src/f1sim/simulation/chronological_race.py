@@ -25,6 +25,7 @@ from f1sim.simulation.chronological_finish import (
     evaluate_chronological_finish_protection,
     project_observed_chronological_clock,
 )
+from f1sim.simulation.control_schedule import validate_control_schedule
 from f1sim.simulation.custom_pit_strategy import CustomPitFinishContext
 from f1sim.simulation.events import EventManager, EventType, RaceEvent
 from f1sim.simulation.execution import validate_starting_tire_ages, validate_starting_tires
@@ -138,6 +139,11 @@ class ChronologicalRace:
     def run(self, drivers, cars, track, weather, starting_grid, *, starting_tires=None,
             starting_tire_ages=None, tire_inventory=None, pit_plans=None, weather_schedule=None):
         schedule = validate_weather_schedule(weather_schedule, total_laps=track.total_laps)
+        control_schedule = getattr(self.simulator.event_manager, "control_schedule", None)
+        if control_schedule is not None:
+            validate_control_schedule(control_schedule, total_laps=track.total_laps)
+            if self.simulator.event_manager.forced_safety_car_laps:
+                raise ValueError("control_schedule cannot be combined with forced safety-car laps")
         driver_ids = tuple(driver.id for driver in drivers)
         normalized_pit_plans = validate_pit_plans(
             pit_plans,

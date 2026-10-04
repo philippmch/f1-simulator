@@ -6,6 +6,7 @@ from enum import Enum
 import numpy as np
 
 from f1sim.models import Car, Driver, Track, Weather
+from f1sim.simulation.control_schedule import validate_control_schedule
 from f1sim.simulation.randomness import MechanicalRngFactory
 
 # Broad model priors, not precise estimates from the small observed race sample.
@@ -55,6 +56,7 @@ class EventManager:
         rng: np.random.Generator | None = None,
         *,
         mechanical_rng_factory: MechanicalRngFactory | None = None,
+        control_schedule=None,
     ):
         """Initialize the event manager.
 
@@ -89,6 +91,65 @@ class EventManager:
         self.safety_car_deployments = 0
         self.vsc_deployments = 0
         self.red_flag_deployments = 0
+        self.set_control_schedule(control_schedule)
+
+    def set_control_schedule(self, value, *, total_laps=None):
+        """Configure an isolated source; future entries never inform forecasts."""
+        schedule = validate_control_schedule(value, total_laps=total_laps)
+        if schedule is not None and self.forced_safety_car_laps:
+            raise ValueError("control_schedule cannot be combined with forced safety-car laps")
+        self.control_schedule = schedule
+        self.control_schedule_history = (None if schedule is None else [
+            item | {"status": None, "reason": None} for item in schedule
+        ])
+
+    def _record_scheduled_control(self, lap, status, reason):
+        if self.control_schedule_history is not None:
+            for item in self.control_schedule_history:
+                if item["lap"] == lap and item["status"] is None:
+                    item.update(status=status, reason=reason)
+                    break
+
+    def get_control_schedule_history(self):
+        """Return completed outcome evidence without mutating configured state."""
+        if self.control_schedule_history is None:
+            return None
+        return [item | ({"status": "not_reached", "reason": "race_ended_before_request"}
+                        if item["status"] is None else {})
+                for item in self.control_schedule_history]
+
+    def _process_scheduled_control(self, lap, track, weather, incidents):
+        """Observe only this announcement, preserving suspension priority."""
+        event = None
+        if (not self._lap_started_neutralized and not self.safety_car_active
+                and not self.vsc_active and not self.red_flag_active):
+            event = self._check_red_flag_conditions(
+                lap, incidents, weather, total_laps=track.total_laps,
+            )
+        if self.red_flag_active:
+            self._record_scheduled_control(lap, "suppressed", "red_flag")
+            return event
+        entry = next((item for item in self.control_schedule_history
+                      if item["lap"] == lap and item["status"] is None), None)
+        if entry is None:
+            return event
+        if self._lap_started_neutralized or self.safety_car_active or self.vsc_active:
+            self._record_scheduled_control(lap, "suppressed", "existing_neutralization")
+            return event
+        duration = entry["duration_laps"]
+        if entry["control"] == "safety_car":
+            self.safety_car_active, self.safety_car_laps_remaining = True, duration
+            self.safety_car_deployments += 1
+            self.sc_just_ended = False
+            self.sc_restart_lap_number = None
+            kind, description = EventType.SAFETY_CAR, "Safety car"
+        else:
+            self.vsc_active, self.vsc_laps_remaining = True, duration
+            self.vsc_deployments += 1
+            kind, description = EventType.VIRTUAL_SAFETY_CAR, "Virtual safety car"
+        self._record_scheduled_control(lap, "applied", "scheduled_announcement")
+        return RaceEvent(event_type=kind, lap=lap, duration_laps=duration,
+                         description=f"{description} deployed (scheduled scenario)")
 
     def reset(self) -> None:
         """Reset event state for new race."""
@@ -112,6 +173,7 @@ class EventManager:
         self.safety_car_deployments = 0
         self.vsc_deployments = 0
         self.red_flag_deployments = 0
+        self.set_control_schedule(self.control_schedule)
         # Note: forced laps are NOT reset - they persist across races
 
     def set_forced_red_flag(self, laps: list[int] | int) -> None:
@@ -131,6 +193,8 @@ class EventManager:
         Args:
             laps: Single lap number or list of lap numbers to force safety cars
         """
+        if self.control_schedule is not None:
+            raise ValueError("control_schedule cannot be combined with forced safety-car laps")
         if isinstance(laps, int):
             self.forced_safety_car_laps.add(laps)
         else:
@@ -190,6 +254,7 @@ class EventManager:
         # If red flag is active, race is suspended - no events processed
         # Red flag ending is handled externally by RaceSimulator
         if self.red_flag_active:
+            self._record_scheduled_control(lap, "suppressed", "red_flag")
             return lap_events
 
         # Update active safety car/VSC
@@ -235,6 +300,7 @@ class EventManager:
         # track. An empty input is the chronological engine's intentional
         # control-only call; that caller owns its individual retirement checks.
         if drivers and not any(not driver.dnf for driver in drivers):
+            self._record_scheduled_control(lap, "suppressed", "no_survivors")
             self.events.extend(lap_events)
             return lap_events
 
@@ -244,6 +310,7 @@ class EventManager:
             and not self.red_flag_active
         ):
             red_flag_event = self.deploy_red_flag(lap, "Manual trigger")
+            self._record_scheduled_control(lap, "suppressed", "red_flag")
             lap_events.append(red_flag_event)
             self.events.extend(lap_events)
             return lap_events
@@ -255,6 +322,15 @@ class EventManager:
             red_flag_event = self._check_severe_weather_red_flag(lap, weather)
             if red_flag_event:
                 lap_events.append(red_flag_event)
+
+        if self.control_schedule is not None:
+            scheduled_event = self._process_scheduled_control(
+                lap, track, weather, incidents_this_lap,
+            )
+            if scheduled_event:
+                lap_events.append(scheduled_event)
+            self.events.extend(lap_events)
+            return lap_events
 
         # Check for forced safety car
         if (
