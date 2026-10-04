@@ -101,6 +101,7 @@ def offline_loader(monkeypatch):
         (None, DEFAULT_RNG_POLICY),
         ("shared_v1", "shared_v1"),
         ("isolated_weather_mechanical_v1", "isolated_weather_mechanical_v1"),
+        ("isolated_race_v1", "isolated_race_v1"),
     ],
 )
 def test_comparison_runs_one_provider_snapshot_and_keeps_replayable_variants(

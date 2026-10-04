@@ -8,6 +8,7 @@ import numpy as np
 from f1sim.models import Car, Driver, Tire, Track, Weather
 from f1sim.models._native import native_model
 from f1sim.models.tire import TireCompound
+from f1sim.simulation.randomness import DriverRngFactory
 from f1sim.simulation.surface_projection import projected_surfaces
 
 # The execution floor is an absolute fraction of the circuit reference lap.
@@ -104,13 +105,19 @@ class LapSimulator:
         TireCompound.WET: 0.010,
     }
 
-    def __init__(self, rng: np.random.Generator | None = None):
+    def __init__(self, rng: np.random.Generator | None = None, *,
+                 driver_rng_factory: DriverRngFactory | None = None):
         """Initialize the lap simulator.
 
         Args:
             rng: Random number generator (creates new if None)
         """
         self.rng = rng if rng is not None else np.random.default_rng()
+        self.driver_rng_factory = driver_rng_factory
+
+    def _driver_rng(self, driver_id: str, purpose: str) -> np.random.Generator:
+        return (self.driver_rng_factory(driver_id, purpose)
+                if self.driver_rng_factory is not None else self.rng)
 
     @staticmethod
     def traffic_pace_contribution(gap: float | None) -> float:
@@ -166,7 +173,8 @@ class LapSimulator:
 
         # Random variation based on driver consistency
         variation_std = driver.lap_time_variation_std(base_std=0.25)
-        random_variation = self.rng.normal(0, variation_std) if sample_variation else 0.0
+        random_variation = (self._driver_rng(driver.id, "race_lap").normal(0, variation_std)
+                            if sample_variation else 0.0)
 
         tire_delta = self.tire_pace_contribution(
             driver, car, track, tire, driver.current_tire_laps
@@ -612,15 +620,16 @@ class LapSimulator:
         # Push level variation (higher push = more risk of mistakes)
         risk_factor = push_level * 0.3
         variation_std = driver.lap_time_variation_std(base_std=0.15)
-        random_variation = self.rng.normal(0, variation_std) if sample_variation else 0.0
+        rng = self._driver_rng(driver.id, "qualifying_lap") if sample_variation else None
+        random_variation = rng.normal(0, variation_std) if sample_variation else 0.0
 
         # Mistake chance increases with push
-        if sample_variation and self.rng.random() < risk_factor * 0.1:
+        if sample_variation and rng.random() < risk_factor * 0.1:
             # Small mistake
-            random_variation += self.rng.uniform(0.2, 1.0)
-        elif sample_variation and self.rng.random() < risk_factor * 0.02:
+            random_variation += rng.uniform(0.2, 1.0)
+        elif sample_variation and rng.random() < risk_factor * 0.02:
             # Big mistake (ruined lap)
-            random_variation += self.rng.uniform(3.0, 10.0)
+            random_variation += rng.uniform(3.0, 10.0)
 
         # Fresh-set grip, including rain compounds when required.
         tire_bonus = (tire.initial_grip - 1.0) * 0.5  # Bonus from soft tire grip

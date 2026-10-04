@@ -3,18 +3,21 @@
 import numpy as np
 
 from f1sim.models import Car, Driver, Track
+from f1sim.simulation.randomness import DriverRngFactory
 
 
 class OvertakingModel:
     """Models overtaking attempts and success probability."""
 
-    def __init__(self, rng: np.random.Generator | None = None):
+    def __init__(self, rng: np.random.Generator | None = None, *,
+                 driver_rng_factory: DriverRngFactory | None = None):
         """Initialize the overtaking model.
 
         Args:
             rng: Random number generator
         """
         self.rng = rng if rng is not None else np.random.default_rng()
+        self.driver_rng_factory = driver_rng_factory
 
     @staticmethod
     def _maximum_attempt_gap(restart_boost: bool) -> float:
@@ -84,7 +87,9 @@ class OvertakingModel:
         )
 
         # Attempt the overtake
-        roll = self.rng.random()
+        rng = (self.driver_rng_factory(attacker.id, "overtake_attempt")
+               if self.driver_rng_factory is not None else self.rng)
+        roll = rng.random()
 
         if roll < prob:
             # Successful overtake

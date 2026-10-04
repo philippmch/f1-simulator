@@ -13,11 +13,12 @@ from f1sim.simulation.randomness import (
 )
 
 
-def test_mechanical_factory_freezes_sha256_seedsequence_layout():
+@pytest.mark.parametrize("policy", ["isolated_weather_mechanical_v1", "isolated_race_v1"])
+def test_mechanical_factory_freezes_sha256_seedsequence_layout(policy):
     seed = 37
     driver_id = "Å-7"
     lap = 12
-    factory = mechanical_rng_factory_for_trial(seed, "isolated_weather_mechanical_v1")
+    factory = mechanical_rng_factory_for_trial(seed, policy)
     assert factory is not None
 
     digest = hashlib.sha256(driver_id.encode("utf-8")).digest()

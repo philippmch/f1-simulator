@@ -112,16 +112,16 @@ def build_fixture(*, progress=False) -> dict:
             "starting_tires": {"S00": "hard", "S01": "soft"},
             "starting_tire_ages": {"S00": 5},
             "tire_inventory": inventory,
-            "rng_policy": "isolated_weather_mechanical_v1",
+            "rng_policy": "isolated_race_v1",
         }
         automatic_result = run_fixture(MonteCarloRunner(
             drivers, cars, track, weather[label], **common,
-        ), f"{label} mechanical automatic")
+        ), f"{label} driver streams automatic")
         custom_result = run_fixture(MonteCarloRunner(
             drivers, cars, track, weather[label],
             pit_plans={"S00": [{"lap": 4, "compound": "hard"}], "S01": []},
             **common,
-        ), f"{label} mechanical custom")
+        ), f"{label} driver streams custom")
         for result in (automatic_result, custom_result):
             result.event_stats.mechanical_failure_breakdown = {
                 "engine": 2,
@@ -135,7 +135,7 @@ def build_fixture(*, progress=False) -> dict:
         **comparison_payload["request"],
         "pit_plans": {"S00": [{"lap": 4, "compound": "hard"}], "S01": []},
         "compare_automatic": True,
-        "rng_policy": "isolated_weather_mechanical_v1",
+        "rng_policy": "isolated_race_v1",
     }
     comparison_payload["scenarios"] = _summarize_scenario_results(
         comparison_custom_results, scenario_weather=weather,
@@ -149,7 +149,7 @@ def build_fixture(*, progress=False) -> dict:
         **automatic_reference["request"],
         "pit_plans": {},
         "compare_automatic": False,
-        "rng_policy": "isolated_weather_mechanical_v1",
+        "rng_policy": "isolated_race_v1",
     }
     comparison_payload["automatic_reference"] = automatic_reference
     comparison_payload["strategy_comparisons"] = {}

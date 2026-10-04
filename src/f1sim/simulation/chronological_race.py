@@ -1651,8 +1651,9 @@ class ChronologicalRace:
                 self.order[index - 1], self.order[index] = driver_id, defender_id
                 continue
             if incident:
-                losses = {driver_id: float(self.simulator.rng.uniform(1, 3)),
-                          defender_id: float(self.simulator.rng.uniform(0.5, 2))}
+                collision_rng = self.simulator._driver_rng(driver_id, "collision_loss")
+                losses = {driver_id: float(collision_rng.uniform(1, 3)),
+                          defender_id: float(collision_rng.uniform(0.5, 2))}
                 self.simulator.event_manager.events.append(RaceEvent(
                     EventType.COLLISION, pending.lap, [driver_id, defender_id],
                     description="Contact during chronological passing attempt",

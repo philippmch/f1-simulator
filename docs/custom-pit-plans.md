@@ -198,6 +198,14 @@ elapsed seconds. Changed heat, risk or laps driven can still change failures;
 other incidents, battles and pit service can also differ. This option does not
 guarantee lower sampling uncertainty or isolate every effect of a strategy.
 
+Choosing **Driver and purpose streams** additionally separates native
+qualifying, lap variation, pit service, stochastic choices and passing draws
+by driver and purpose, with a separate field event stream. An extra service
+call cannot shift an unrelated car's pace noise. Draws still advance within
+each purpose, so changed sampling opportunities and physical interactions
+can change outcomes. Offline comparisons can select the same policy with
+`--rng-policy isolated_race_v1`. See [random streams](random-streams.md).
+
 Download the automatic reference separately to replay it using the existing
 saved-input workflow. Both alternatives retain their own input snapshots; edits
 to the form after a run do not change the results or downloaded inputs.

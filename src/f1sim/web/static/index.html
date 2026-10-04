@@ -2121,8 +2121,9 @@ input:focus-visible {
           <select id="rngPolicySelect" aria-describedby="rngPolicyHelp">
             <option value="isolated_weather_v1" selected>Weather (default)</option>
             <option value="isolated_weather_mechanical_v1">Weather and mechanical checks</option>
+            <option value="isolated_race_v1">Driver and purpose streams</option>
           </select>
-          <p class="pit-plan-help" id="rngPolicyHelp">Both options keep weather draws aligned. The second also isolates mechanical checks by driver and lap. Failures can still differ when heat, risk, or laps driven differ; other events may vary.</p>
+          <p class="pit-plan-help" id="rngPolicyHelp">All options align weather draws. Mechanical checks can also match by driver and lap. Driver and purpose streams additionally separate pace, qualifying, service and battle draws. Changed risks, opportunities or laps driven can still change outcomes.</p>
         </div>
       </div>
       <button class="scenario-preset tyre-editor-trigger" type="button" id="btnTyreSetup"
@@ -4617,7 +4618,7 @@ function buildRunPayload() {
     return null;
   }
   const rngPolicy = rngPolicyInput?.value;
-  if (!['isolated_weather_v1', 'isolated_weather_mechanical_v1'].includes(rngPolicy)) {
+  if (!['isolated_weather_v1', 'isolated_weather_mechanical_v1', 'isolated_race_v1'].includes(rngPolicy)) {
     setStatusMessage('Choose a valid random draw matching policy.', 'error');
     rngPolicyInput?.focus();
     return null;
@@ -4908,6 +4909,7 @@ function renderRngPolicySnapshot(scenario) {
     shared_v1: 'Shared random stream (legacy)',
     isolated_weather_v1: 'Weather (default)',
     isolated_weather_mechanical_v1: 'Weather and mechanical checks',
+    isolated_race_v1: 'Driver and purpose streams',
   };
   const label = typeof policy === 'string'
     ? Object.hasOwn(labels, policy)

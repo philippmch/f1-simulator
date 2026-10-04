@@ -268,6 +268,10 @@ the former shared weather/race draw sequence. Python callers can select a policy
 with `MonteCarloRunner(..., rng_policy=...)`. The opt-in
 `isolated_weather_mechanical_v1` policy also holds mechanical draws stable for
 each trial seed, driver ID and own lap. It leaves the default policy unchanged.
+The optional [`isolated_race_v1` policy](docs/random-streams.md) additionally
+separates native driver/purpose streams for qualifying, pace, service and
+battles, with a separate field event stream. Choose **Driver and purpose
+streams** in the dashboard to use it.
 
 Compare one driver's opening choices against the same saved inputs, offline:
 
@@ -354,12 +358,15 @@ independent weather draws. The policy applies to every variant and is recorded
 in each exported snapshot; the source file is unchanged. Python comparison
 functions accept `rng_policy="isolated_weather_v1"` for the same override.
 Use `--rng-policy isolated_weather_mechanical_v1` to isolate both weather and
-mechanical draws, or `--rng-policy` with either older policy to select it
-explicitly. This option and `--independent-weather` are mutually exclusive.
+mechanical draws, or `--rng-policy isolated_race_v1` to separate native driver
+and purpose streams as well. This option and `--independent-weather` are mutually exclusive.
 The console and HTML report identify the draw behavior. Stable mechanical draws
 do not guarantee identical failures: heat, risk inputs and laps actually driven
-still matter. Pace, incidents, battles and pit-service draws remain coupled to
-race decisions; this is not a way to freeze every event between strategies.
+still matter. Under the older policies, pace, incidents, battles and pit-service
+draws remain coupled to race decisions. Under `isolated_race_v1`, changed sampling
+opportunities can still shift later draws within the same purpose; physical
+interactions and risk inputs still change outcomes. No policy freezes every
+event between strategies. See [draw ownership and limits](docs/random-streams.md).
 
 ```powershell
 python examples/compare_starting_tyres.py output/saved_statistics.json --driver VER --compounds soft,hard --rng-policy isolated_weather_mechanical_v1 --export

@@ -85,6 +85,9 @@ same retirement when a strategy changes those inputs. It changes neither the
 reliability assumptions nor their empirical support. The default
 `isolated_weather_v1` and legacy `shared_v1` policies retain their existing draw
 ownership for replay compatibility.
+The broader optional [`isolated_race_v1` policy](random-streams.md) uses that
+same mechanical layout and additionally separates native driver/purpose and
+field event streams. Its mechanical assumptions and limits are identical.
 
 ## Component attribution and reporting
 

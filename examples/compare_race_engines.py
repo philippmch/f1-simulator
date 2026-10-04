@@ -86,6 +86,12 @@ def main() -> int:
                 "Heat, risk inputs and exposure can still change failures; other events "
                 "share the race stream."
             )
+        elif isinstance(policy, str) and policy == "isolated_race_v1":
+            weather_draws = (
+                "independent of race decisions; separate driver and purpose streams; "
+                "stable per-driver mechanical draws by lap; field events use their own stream. "
+                "Changed risks or sampling opportunities can still change outcomes."
+            )
         elif isinstance(policy, str) and policy == "shared_v1":
             weather_draws = (
                 "shared with race events (legacy); engine decisions can change later weather."

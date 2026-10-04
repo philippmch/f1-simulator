@@ -9,6 +9,7 @@ from f1sim.models import Car, Driver, TireCompound, Track, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.qualifying_weather import validate_qualifying_weather
+from f1sim.simulation.randomness import DriverRngFactory
 from f1sim.simulation.validation import validate_unique_ids
 
 
@@ -31,14 +32,17 @@ class QualifyingSimulator:
 
     Q3_FIELD_SIZE = 10
 
-    def __init__(self, rng: np.random.Generator | None = None):
+    def __init__(self, rng: np.random.Generator | None = None, *,
+                 driver_rng_factory: DriverRngFactory | None = None):
         """Initialize qualifying simulator.
 
         Args:
             rng: Random number generator
         """
         self.rng = rng if rng is not None else np.random.default_rng()
-        self.lap_simulator = LapSimulator(rng=self.rng)
+        kwargs = ({"driver_rng_factory": driver_rng_factory}
+                  if driver_rng_factory is not None else {})
+        self.lap_simulator = LapSimulator(rng=self.rng, **kwargs)
 
     def simulate_qualifying(
         self,

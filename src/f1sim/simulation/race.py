@@ -49,7 +49,7 @@ from f1sim.simulation.pit_strategy import expected_stationary_time, plan_dry_sto
 from f1sim.simulation.race_points import points_for_classification
 from f1sim.simulation.race_timing import RaceFinishClock, forecast_final_lap
 from f1sim.simulation.rain_strategy import RainStopDecision, plan_rain_stop, plan_rain_transition
-from f1sim.simulation.randomness import MechanicalRngFactory
+from f1sim.simulation.randomness import DriverRngFactory, MechanicalRngFactory
 from f1sim.simulation.strategy_control_clock import StandardControlContext, StrategyControlContext
 from f1sim.simulation.strategy_neutralization import (
     SafetyCarBranch,
@@ -283,6 +283,7 @@ class RaceSimulator(InventoryStrategyMixin):
         *,
         weather_rng: np.random.Generator | None = None,
         mechanical_rng_factory: MechanicalRngFactory | None = None,
+        driver_rng_factory: DriverRngFactory | None = None,
         red_flag_pause_seconds: float = 600.0,
         tire_warmup: dict[str, float] | None = None,
     ):
@@ -293,6 +294,7 @@ class RaceSimulator(InventoryStrategyMixin):
             strategy_tuning: Optional strategy threshold overrides
             weather_rng: Independent weather stream; omitted callers share rng
             mechanical_rng_factory: Optional per-driver/per-lap mechanical stream factory
+            driver_rng_factory: Optional independent native driver/purpose streams
             red_flag_pause_seconds: Suspension pause after field collection
             tire_warmup: Optional absolute cost on the first running lap after a fit
         """
@@ -301,15 +303,21 @@ class RaceSimulator(InventoryStrategyMixin):
                 or not isfinite(red_flag_pause_seconds) or red_flag_pause_seconds < 0):
             raise ValueError("red_flag_pause_seconds must be finite and nonnegative")
         self.rng = rng if rng is not None else np.random.default_rng()
+        self.driver_rng_factory = driver_rng_factory
         self.weather_rng = weather_rng if weather_rng is not None else self.rng
         self.red_flag_pause_seconds = float(red_flag_pause_seconds)
         self.tire_warmup = validate_tire_warmup(tire_warmup)
         self.suspensions: list[tuple[float, float, tuple[str, ...]]] = []
         self.weather_history: list[dict] = []
         self.weather_forecast_context = None
-        self.lap_simulator = LapSimulator(rng=self.rng)
-        self.overtaking_model = OvertakingModel(rng=self.rng)
-        event_manager_kwargs = {"rng": self.rng}
+        driver_rng_kwargs = ({"driver_rng_factory": driver_rng_factory}
+                             if driver_rng_factory is not None else {})
+        self.lap_simulator = LapSimulator(rng=self.rng, **driver_rng_kwargs)
+        self.overtaking_model = OvertakingModel(rng=self.rng, **driver_rng_kwargs)
+        event_manager_kwargs = {
+            "rng": driver_rng_factory("", "race_events")
+            if driver_rng_factory is not None else self.rng,
+        }
         if mechanical_rng_factory is not None:
             event_manager_kwargs["mechanical_rng_factory"] = mechanical_rng_factory
         self.event_manager = EventManager(**event_manager_kwargs)
@@ -1136,7 +1144,9 @@ class RaceSimulator(InventoryStrategyMixin):
             TireCompound.MEDIUM.value,
             TireCompound.HARD.value,
         ]
-        selected = self.rng.choice(compounds, p=weights)
+        selected = self._driver_rng(
+            driver.id if driver is not None else None, "opening_choice",
+        ).choice(compounds, p=weights)
         if isinstance(selected, TireCompound):
             return selected
         return TireCompound(str(selected))
@@ -2096,7 +2106,7 @@ class RaceSimulator(InventoryStrategyMixin):
                     )
                 ):
                     return False
-                if self.rng.random() < 0.7:
+                if self._driver_rng(state.driver.id, "strategy").random() < 0.7:
                     self._capture_pit_decision_context(state, lap, "weather_reaction")
                     return True  # Should pit soon
 
@@ -2324,7 +2334,7 @@ class RaceSimulator(InventoryStrategyMixin):
                     )
                 return accepted
             window_prob = np.clip(0.85 + strategy_bias, 0.55, 0.98)
-            if self.rng.random() < window_prob:
+            if self._driver_rng(state.driver.id, "strategy").random() < window_prob:
                 accepted = wet_stop_can_pay()
                 if accepted:
                     self._capture_pit_decision_context(
@@ -2417,7 +2427,7 @@ class RaceSimulator(InventoryStrategyMixin):
             ):
                 adjusted_prob += 0.08
 
-            if self.rng.random() < np.clip(
+            if self._driver_rng(state.driver.id, "strategy").random() < np.clip(
                 adjusted_prob,
                 self.strategy_tuning["pit_prob_min"],
                 self.strategy_tuning["pit_prob_max"],
@@ -2704,12 +2714,34 @@ class RaceSimulator(InventoryStrategyMixin):
         if target_stint >= 12:
             if current == TireCompound.HARD:
                 return TireCompound.MEDIUM
-            return TireCompound.MEDIUM if self.rng.random() < medium_prob else TireCompound.SOFT
+            return (TireCompound.MEDIUM if self._driver_rng(
+                state.driver.id, "replacement_choice",
+            ).random() < medium_prob else TireCompound.SOFT)
 
         # Short sprint stint => soft bias.
         if current == TireCompound.HARD:
             return TireCompound.SOFT
-        return TireCompound.SOFT if self.rng.random() < sprint_soft_prob else TireCompound.MEDIUM
+        return (TireCompound.SOFT if self._driver_rng(
+            state.driver.id, "replacement_choice",
+        ).random() < sprint_soft_prob else TireCompound.MEDIUM)
+
+    def _driver_rng(self, driver_id: str | None, purpose: str) -> np.random.Generator:
+        if self.driver_rng_factory is None or driver_id is None:
+            return self.rng
+        return self.driver_rng_factory(driver_id, purpose)
+
+    def _sample_pit_service(self, state: DriverRaceState) -> float:
+        if self.driver_rng_factory is None:
+            return self.lap_simulator.calculate_pit_stop_time(state.car)
+        # Keep the public sampler's signature and custom hook dispatch. Restore
+        # its ordinary generator even when a sampler raises. Mean forecasts
+        # never enter this method and therefore cannot consume service draws.
+        previous_rng = self.lap_simulator.rng
+        try:
+            self.lap_simulator.rng = self._driver_rng(state.driver.id, "pit_service")
+            return self.lap_simulator.calculate_pit_stop_time(state.car)
+        finally:
+            self.lap_simulator.rng = previous_rng
 
     def _pit_lane_factor(self) -> float:
         """Relative lane loss shared by execution and current-stop planning."""
@@ -2849,7 +2881,7 @@ class RaceSimulator(InventoryStrategyMixin):
         # materially smaller; VSC provides a moderate reduction.  Stationary
         # service remains unchanged and is sampled per team/car in actual races.
         pit_lane_time = track.pit_lane_delta * self._pit_lane_factor()
-        stationary_time = (self.lap_simulator.calculate_pit_stop_time(state.car)
+        stationary_time = (self._sample_pit_service(state)
                            if sample_service else expected_stationary_time(state.car))
         queue_time = 0.0
         if pit_box_releases is not None:
@@ -3226,8 +3258,9 @@ class RaceSimulator(InventoryStrategyMixin):
             if incident:
                 incidents += 1
                 # Small time loss for both drivers
-                attacker_loss = float(self.rng.uniform(1, 3))
-                defender_loss = float(self.rng.uniform(0.5, 2))
+                collision_rng = self._driver_rng(attacker.driver.id, "collision_loss")
+                attacker_loss = float(collision_rng.uniform(1, 3))
+                defender_loss = float(collision_rng.uniform(0.5, 2))
                 attacker.total_time += attacker_loss
                 defender.total_time += defender_loss
                 attacker.last_lap_time += attacker_loss

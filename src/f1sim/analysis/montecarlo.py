@@ -45,6 +45,7 @@ from f1sim.simulation.race_points import POINTS_SYSTEM as POINTS_SYSTEM
 from f1sim.simulation.race_points import points_for_result
 from f1sim.simulation.randomness import (
     DEFAULT_RNG_POLICY,
+    driver_rng_factory_for_trial,
     mechanical_rng_factory_for_trial,
     validate_rng_policy,
     weather_rng_for_trial,
@@ -1080,9 +1081,12 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
 
     # Create RNG with seed
     rng = np.random.default_rng(seed)
+    driver_rng_factory = driver_rng_factory_for_trial(seed, rng_policy)
+    driver_rng_kwargs = ({"driver_rng_factory": driver_rng_factory}
+                         if driver_rng_factory is not None else {})
 
     # Every run receives a newly simulated qualifying session.
-    quali_sim = QualifyingSimulator(rng=rng)
+    quali_sim = QualifyingSimulator(rng=rng, **driver_rng_kwargs)
     qualifying_kwargs = {"qualifying_weather": qualifying_weather} if qualifying_weather else {}
     quali_results = quali_sim.simulate_qualifying(
         drivers, cars, track, weather, **qualifying_kwargs,
@@ -1093,6 +1097,7 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     race_kwargs = {
         "rng": rng,
         "weather_rng": weather_rng_for_trial(seed, rng, rng_policy),
+        **driver_rng_kwargs,
     }
     mechanical_rng_factory = mechanical_rng_factory_for_trial(seed, rng_policy)
     if mechanical_rng_factory is not None:

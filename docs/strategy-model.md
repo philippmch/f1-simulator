@@ -372,6 +372,13 @@ still change failures. Other race processes continue to share the race stream,
 so this does not isolate all causes of a strategy's outcome or guarantee a lower
 sampling error. Existing policies and the default remain unchanged.
 
+The optional [`isolated_race_v1` policy](random-streams.md) also separates
+native driver/purpose streams, including qualifying, pace, service, stochastic
+choices and passing attempts, with one separate stream for field events.
+Additional service draws cannot shift another driver's pace. The streams
+advance with actual samples within each purpose; changed opportunities,
+physical interactions and risk inputs can still change outcomes.
+
 Comparisons inherit the saved policy unless `--rng-policy`,
 `--independent-weather` (the convenience option for `isolated_weather_v1`), or
 the Python `rng_policy` override is supplied. The two CLI options are mutually

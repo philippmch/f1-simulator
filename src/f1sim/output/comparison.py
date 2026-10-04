@@ -508,6 +508,12 @@ def _weather(result: SimulationResults) -> str:
             "independent of race decisions; stable per-driver mechanical draws; changed heat, "
             "risk or exposure can change failures; other events share the race stream"
         )
+    elif isinstance(policy, str) and policy == "isolated_race_v1":
+        randomness = (
+            "independent of race decisions; separate driver and purpose streams; "
+            "stable per-driver mechanical draws by lap; field events use their own stream; "
+            "changed risks or sampling opportunities can still change outcomes"
+        )
     elif isinstance(policy, str) and policy == "shared_v1":
         randomness = "shared with race events (legacy)"
     else:
@@ -516,6 +522,11 @@ def _weather(result: SimulationResults) -> str:
     atmosphere = ("random atmosphere changes disabled" if schedule else
                   f'weather change {percent("change_probability")}/lap; '
                   f'weather draws {randomness}')
+    if schedule and isinstance(policy, str) and policy == "isolated_race_v1":
+        atmosphere += (
+            "; separate driver and purpose streams; field events use their own stream; "
+            "changed risks or sampling opportunities can still change outcomes"
+        )
     return (f'{condition}; rain {percent("rain_intensity")}; '
             f'surface wetness {percent("track_wetness")}; '
             + atmosphere
