@@ -55,6 +55,7 @@ def choose_custom_pit_replacement(
     weather_clock=None, additional_current_stop_cost=0., tire_warmup=None,
     current_traffic_gaps=None, forecast_context=None, finish_context=None,
     safety_car=None,
+    resolve_current_request=False,
 ):
     """Price a committed paid replacement or a free restart fit without mutation.
 
@@ -106,8 +107,11 @@ def choose_custom_pit_replacement(
     current_stop = (track.pit_lane_delta * pit_lane_factor
                     + expected_stationary_time(car) + additional_current_stop_cost)
     green_stop = track.pit_lane_delta + expected_stationary_time(car)
+    remaining_plan = pit_plan[pit_plan_index + int(resolve_current_request and not free_fit):]
+    # Unobserved future neutralizations are not predicted. Windows use their
+    # deadlines; a service fulfilling an early request must remove that deadline.
     requests = {item["lap"]: TireCompound(item["compound"])
-                for item in pit_plan[pit_plan_index:]
+                for item in remaining_plan
                 if current_lap <= item["lap"] <= track.total_laps}
     if not free_fit:
         # This committed service resolves any overridden request on this lap.

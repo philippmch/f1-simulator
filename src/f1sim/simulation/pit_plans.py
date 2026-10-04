@@ -15,6 +15,9 @@ from copy import deepcopy
 from f1sim.models.tire import TireCompound
 
 _PLAN_KEYS = frozenset(("lap", "compound"))
+_WINDOW_KEYS = _PLAN_KEYS | {"earliest_lap", "trigger"}
+PIT_PLAN_WINDOW_POLICY = "neutralized_window_deadline_v1"
+PIT_PLAN_TRIGGERS = {"sc": "safety_car", "vsc": "vsc", "neutralized": "neutralized"}
 _OUTCOME_KEYS = (
     "lap",
     "compound",
@@ -117,20 +120,36 @@ def validate_pit_plans(
         previous_lap = None
         pool = available.get(driver)
         for record in records:
-            if not isinstance(record, dict) or set(record) != _PLAN_KEYS:
-                raise ValueError("each pit plan instruction must contain exactly lap and compound")
+            if not isinstance(record, dict) or set(record) not in (_PLAN_KEYS, _WINDOW_KEYS):
+                raise ValueError(
+                    "each pit plan instruction must contain lap and compound, "
+                    "with both earliest_lap and trigger for a pit window",
+                )
             lap = _strict_lap(record["lap"])
             if total_laps is not None and lap > total_laps:
                 raise ValueError("pit plan laps must not exceed total_laps")
+            earliest = _strict_lap(record["earliest_lap"]) if "earliest_lap" in record else lap
+            if "earliest_lap" in record:
+                if earliest >= lap:
+                    raise ValueError("pit window earliest_lap must precede its deadline lap")
+                if not isinstance(record["trigger"], str) or record["trigger"] not in {
+                    "safety_car", "vsc", "neutralized",
+                }:
+                    raise ValueError("pit window trigger must be safety_car, vsc or neutralized")
             if previous_lap is not None and lap <= previous_lap:
                 raise ValueError("pit plan laps must be strictly increasing")
+            if previous_lap is not None and earliest <= previous_lap:
+                raise ValueError("pit windows must start after the previous instruction deadline")
             previous_lap = lap
             compound = _canonical_compound(record["compound"])
             if pool is not None and compound not in pool:
                 raise ValueError(
                     f"pit plan compound {compound!r} is absent from {driver}'s tire inventory",
                 )
-            normalized.append({"lap": lap, "compound": compound})
+            instruction = {"lap": lap, "compound": compound}
+            if "earliest_lap" in record:
+                instruction.update(earliest_lap=earliest, trigger=record["trigger"])
+            normalized.append(instruction)
         result[driver] = normalized
     return result
 
@@ -165,9 +184,19 @@ def parse_pit_plan_spec(text: str) -> dict[str, list[dict]]:
             if len(fields) != 2 or not fields[0] or not fields[1]:
                 raise ValueError("pit plans expect DRIVER=lap:compound,...")
             lap_token, compound = fields
-            if not lap_token.isascii() or not lap_token.isdigit():
-                raise ValueError("pit plan laps must be decimal integers")
-            instructions.append({"lap": int(lap_token), "compound": compound})
+            if lap_token.isascii() and lap_token.isdigit():
+                instruction = {"lap": int(lap_token), "compound": compound}
+            else:
+                window = re.fullmatch(r"([0-9]+)-([0-9]+)@(sc|vsc|neutralized)", lap_token)
+                if window is None:
+                    raise ValueError(
+                        "pit plan laps must be decimal integers or start-end@sc/vsc/neutralized",
+                    )
+                instruction = {
+                    "lap": int(window[2]), "compound": compound,
+                    "earliest_lap": int(window[1]), "trigger": PIT_PLAN_TRIGGERS[window[3]],
+                }
+            instructions.append(instruction)
         result[driver] = instructions
     return validate_pit_plans(result)
 
@@ -181,12 +210,12 @@ def initialize_pit_plan_state(state, plan: list[dict] | None) -> None:
         state.pit_plan = deepcopy(plan)
         state.pit_plan_history = [
             {
-                "lap": item["lap"],
-                "compound": item["compound"],
+                **item,
                 "status": None,
                 "reason": None,
                 "actual_compound": None,
                 "actual_set_id": None,
+                **({"actual_lap": None} if "earliest_lap" in item else {}),
             }
             for item in plan
         ]
@@ -197,20 +226,61 @@ def initialize_pit_plan_state(state, plan: list[dict] | None) -> None:
     state.pit_plan_override_reason = None
 
 
-def current_pit_plan_instruction(state, lap: int):
-    """Return the next unresolved instruction when it is due on ``lap``."""
+def current_pit_plan_instruction(state, lap: int, *, safety_car=False, vsc=False):
+    """Return a deadline request or a window opportunity using observed control only."""
     plan = getattr(state, "pit_plan", None)
     history = getattr(state, "pit_plan_history", None)
     index = getattr(state, "pit_plan_index", 0)
     if plan is None or history is None or index >= len(plan):
         return None
     item = plan[index]
-    if item["lap"] != lap or history[index]["status"] is not None:
+    if history[index]["status"] is not None:
         return None
-    return item
+    if item["lap"] == lap:
+        return item
+    if item.get("earliest_lap", item["lap"]) <= lap < item["lap"]:
+        trigger = item["trigger"]
+        if (trigger == "safety_car" and safety_car or trigger == "vsc" and vsc
+                or trigger == "neutralized" and (safety_car or vsc)):
+            return item
+    return None
 
 
-def _finish_instruction(state, *, status, reason, actual_compound=None, actual_set_id=None):
+def pit_plan_may_stop(state, lap: int):
+    """Conservatively guard field forecasts against unresolved rival pit windows."""
+    return current_pit_plan_instruction(state, lap, safety_car=True, vsc=True) is not None
+
+
+def has_pit_plan_windows(plans):
+    return any("earliest_lap" in item
+               for instructions in (plans or {}).values() for item in instructions)
+
+
+def format_pit_plan_instruction(instruction):
+    """Render a saved instruction in the same shorthand accepted by the CLI."""
+    lap = instruction.get("lap", "?")
+    if "earliest_lap" in instruction:
+        trigger = instruction.get("trigger")
+        code = next((key for key, value in PIT_PLAN_TRIGGERS.items() if value == trigger), "?")
+        lap = f"{instruction.get('earliest_lap', '?')}-{lap}@{code}"
+    return f"{lap}:{instruction.get('compound', '?')}"
+
+
+def validate_pit_plan_snapshot(snapshot, plans):
+    """Never reinterpret a conditional plan as a fixed stop in an older saved schema."""
+    windowed = has_pit_plan_windows(plans)
+    if snapshot.get("schema_version") == 10:
+        if not windowed or snapshot.get("pit_plan_policy") != PIT_PLAN_WINDOW_POLICY:
+            raise ValueError(
+                "Schema 10 requires windowed pit_plans and the supported pit_plan_policy",
+            )
+    elif windowed or "pit_plan_policy" in snapshot:
+        raise ValueError("Schemas 1-9 cannot contain pit windows or pit_plan_policy")
+
+
+def _finish_instruction(
+    state, *, status, reason, actual_compound=None, actual_set_id=None, actual_lap=None,
+):
     history = getattr(state, "pit_plan_history", None)
     index = getattr(state, "pit_plan_index", 0)
     if history is None or index >= len(history) or history[index]["status"] is not None:
@@ -222,6 +292,8 @@ def _finish_instruction(state, *, status, reason, actual_compound=None, actual_s
         actual_compound=actual_compound,
         actual_set_id=actual_set_id,
     )
+    if "earliest_lap" in record:
+        record["actual_lap"] = actual_lap if actual_compound is not None else None
     state.pit_plan_index = index + 1
     state.pit_plan_target = None
     state.pit_plan_target_set_id = None
@@ -231,7 +303,7 @@ def _finish_instruction(state, *, status, reason, actual_compound=None, actual_s
 
 
 def commit_pit_plan_service(
-    state, *, reason, actual_compound, actual_set_id=None, status=None,
+    state, *, reason, actual_compound, actual_set_id=None, status=None, actual_lap=None,
 ):
     """Mark a request after a paid service has committed."""
     if status is None:
@@ -244,6 +316,7 @@ def commit_pit_plan_service(
         reason=reason,
         actual_compound=actual_compound,
         actual_set_id=actual_set_id,
+        actual_lap=actual_lap,
     )
 
 

@@ -32,6 +32,7 @@ from f1sim.simulation.execution import (
     validate_starting_tire_ages,
     validate_starting_tires,
 )
+from f1sim.simulation.pit_plans import PIT_PLAN_WINDOW_POLICY, has_pit_plan_windows
 from f1sim.simulation.qualifying import QualifyingResult, QualifyingSimulator
 from f1sim.simulation.qualifying_weather import validate_qualifying_weather
 from f1sim.simulation.race import (
@@ -447,12 +448,12 @@ class SimulationResults:
                 "invalid_histories": 0,
                 "instructions": [
                     {
-                        "lap": instruction["lap"],
-                        "compound": instruction["compound"],
+                        **instruction,
                         "executed": 0,
                         "overridden": 0,
                         "skipped": 0,
                         "not_reached": 0,
+                        **({"service_laps": []} if "earliest_lap" in instruction else {}),
                     }
                     for instruction in plan
                 ],
@@ -502,6 +503,7 @@ class SimulationResults:
                     continue
 
                 statuses = []
+                service_laps = []
                 valid = True
                 for instruction, outcome in zip(plan, history):
                     if not isinstance(outcome, dict):
@@ -519,16 +521,55 @@ class SimulationResults:
                     ):
                         valid = False
                         break
+                    actual_lap = outcome.get("actual_lap")
+                    if "earliest_lap" in instruction:
+                        actual_compound = outcome.get("actual_compound")
+                        if (
+                            type(outcome.get("earliest_lap")) is not int
+                            or outcome.get("earliest_lap") != instruction["earliest_lap"]
+                            or outcome.get("trigger") != instruction["trigger"]
+                            or "actual_lap" not in outcome
+                            or actual_lap is not None and (
+                                type(actual_lap) is not int
+                                or not instruction["earliest_lap"] <= actual_lap <= lap
+                                or status not in {"executed", "overridden"}
+                                or status == "overridden" and actual_lap != lap
+                                or not isinstance(actual_compound, str)
+                                or actual_compound not in {item.value for item in TireCompound}
+                            )
+                            or actual_lap is None and (
+                                status == "executed" or actual_compound is not None
+                            )
+                            or status == "executed" and actual_compound != compound
+                        ):
+                            valid = False
+                            break
+                    elif any(key in outcome for key in ("earliest_lap", "trigger", "actual_lap")):
+                        valid = False
+                        break
                     statuses.append(status)
+                    service_laps.append(actual_lap)
                 if not valid:
                     driver_summary["invalid_histories"] += 1
                     continue
 
                 driver_summary["valid_histories"] += 1
-                for instruction_summary, status in zip(
-                    driver_summary["instructions"], statuses,
+                for instruction_summary, status, actual_lap in zip(
+                    driver_summary["instructions"], statuses, service_laps,
                 ):
                     instruction_summary[status] += 1
+                    if actual_lap is not None:
+                        counts = instruction_summary["service_laps"]
+                        existing = next((row for row in counts if row["lap"] == actual_lap), None)
+                        if existing is None:
+                            counts.append({"lap": actual_lap, "count": 1})
+                        else:
+                            existing["count"] += 1
+
+        for driver_summary in drivers:
+            for instruction in driver_summary["instructions"]:
+                if "service_laps" in instruction:
+                    instruction["service_laps"].sort(key=lambda row: row["lap"])
 
         return {
             "status": "available", "recorded_trials": recorded_trials,
@@ -1300,7 +1341,8 @@ class MonteCarloRunner:
         track_data = self.track.model_dump()
         weather_data = self.weather.model_dump()
         input_snapshot = {
-            "schema_version": (9 if has_tire_usage_limits(inventory)
+            "schema_version": (10 if has_pit_plan_windows(pit_plans)
+                               else 9 if has_tire_usage_limits(inventory)
                                else 8 if weather_schedule else 7 if qualifying_weather
                                else 6 if tire_warmup else 5 if pit_plans
                                else 4 if inventory else 3 if ages else 2),
@@ -1325,6 +1367,8 @@ class MonteCarloRunner:
             input_snapshot["starting_tire_ages"] = ages.copy()
         if pit_plans:
             input_snapshot["pit_plans"] = deepcopy(pit_plans)
+            if has_pit_plan_windows(pit_plans):
+                input_snapshot["pit_plan_policy"] = PIT_PLAN_WINDOW_POLICY
         if tire_warmup:
             input_snapshot["tire_warmup"] = tire_warmup.copy()
             input_snapshot["tire_warmup_policy"] = "post_fit_first_lap_v1"

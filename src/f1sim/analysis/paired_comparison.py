@@ -10,6 +10,7 @@ from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.analysis.saved_validation import validate_saved_model
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.simulation.execution import validate_starting_tire_ages
+from f1sim.simulation.pit_plans import validate_pit_plan_snapshot
 from f1sim.simulation.qualifying_weather import (
     effective_qualifying_weather,
     validate_qualifying_weather,
@@ -30,7 +31,7 @@ def _snapshot(result):
     if not isinstance(snapshot, dict):
         return None
     version = snapshot.get("schema_version")
-    if not _integer(version, 1) or version not in (1, 2, 3, 4, 5, 6, 7, 8, 9):
+    if not _integer(version, 1) or version not in range(1, 11):
         return None
     policy = snapshot.get("rng_policy", "shared_v1" if version == 1 else None)
     if policy not in RNG_POLICIES:
@@ -60,7 +61,7 @@ def _snapshot(result):
                 return None
             validate_saved_model(model, snapshot[key])
         weather_schedule = []
-        if version == 8 or version == 9 and "weather_schedule" in snapshot:
+        if version == 8 or version in (9, 10) and "weather_schedule" in snapshot:
             weather_schedule = validate_weather_schedule(
                 snapshot.get("weather_schedule"), total_laps=snapshot["track"]["total_laps"],
             )
@@ -69,7 +70,7 @@ def _snapshot(result):
         elif "weather_schedule" in snapshot:
             return None
         qualifying_weather = {}
-        if version in (7, 8, 9) and "qualifying_weather" in snapshot:
+        if version in (7, 8, 9, 10) and "qualifying_weather" in snapshot:
             qualifying_weather = validate_qualifying_weather(snapshot.get("qualifying_weather"))
             if not qualifying_weather:
                 return None
@@ -79,7 +80,7 @@ def _snapshot(result):
             return None
         effective_weather = effective_qualifying_weather(snapshot["weather"], qualifying_weather)
         tire_warmup = {}
-        if version == 6 or (version in (7, 8, 9) and (
+        if version == 6 or (version in (7, 8, 9, 10) and (
             "tire_warmup" in snapshot or "tire_warmup_policy" in snapshot
         )):
             if snapshot.get("tire_warmup_policy") != "post_fit_first_lap_v1":
@@ -107,6 +108,7 @@ def _snapshot(result):
             return None
         validate_starting_tire_ages(snapshot.get("starting_tire_ages"),
                                     snapshot.get("starting_tires"), ids)
+        plans = {}
         if version >= 5 and "pit_plans" in snapshot:
             from f1sim.simulation.pit_plans import validate_pit_plans
 
@@ -118,6 +120,7 @@ def _snapshot(result):
             )
             if not plans or plans != snapshot["pit_plans"]:
                 return None
+        validate_pit_plan_snapshot(snapshot, plans)
         if len(set(ids)) != len(ids) or any(not key for key in ids):
             return None
     except (ValidationError, TypeError, ValueError):

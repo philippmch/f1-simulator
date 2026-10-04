@@ -41,11 +41,69 @@ pit_plans = {
 }
 ```
 
-Instructions accept only `lap` and `compound`. Boolean, fractional and string
+Fixed instructions accept `lap` and `compound`. A control window also requires
+`earliest_lap` and `trigger`, together. Boolean, fractional and string
 lap values are rejected. Driver IDs are case-sensitive and must belong to the
 loaded roster. A requested compound must exist in that driver's finite input
 pool when one is supplied. Validation does not guarantee that the set will
 remain available after incidents or earlier use.
+
+## Safety-car and VSC windows
+
+Use a window to take a requested stop under observed neutralization, while
+retaining a deadline if that opportunity does not arise:
+
+```text
+VER=18-25@sc:hard,40:medium
+NOR=20-28@vsc:hard
+PIA=18-25@neutralized:hard
+```
+
+The first request tries to fit hards at the first safe safety-car pit entry
+on VER's own laps 18 through 24. Otherwise it attempts the stop at lap 25 under
+any control. `@vsc` responds only to VSC; `@neutralized` responds to either a
+safety car or VSC. An already active deployment can trigger a stop at the start
+of the window. Green running and a different control type do not trigger an
+early stop. Red-flag refits remain separate free fits.
+
+The equivalent JSON instruction is:
+
+```json
+{"lap": 25, "compound": "hard", "earliest_lap": 18, "trigger": "safety_car"}
+```
+
+JSON triggers are `safety_car`, `vsc` and `neutralized`. The earliest lap must
+be at least 2 and strictly precede the deadline. Each following instruction or
+window must start after the previous deadline, even if a request actually
+executes earlier. The deadline cannot exceed the original scheduled distance.
+
+An unsafe or unavailable early requested fit leaves the window pending. A
+compulsory repair can proceed without consuming that request when it cannot
+use the requested compound. At the deadline, the ordinary custom-stop rules
+apply: the request can execute, be overridden, or be skipped. A retirement or
+shortened finish can still leave it not reached. Executing an early request
+consumes it once; it does not cause another stop at the deadline.
+
+Opening and replacement forecasts use the window deadline for unobserved
+future control. They do not sample or predict future deployments. A paid
+service already fulfilling the current early request removes its deadline
+from that continuation. The observed control still prices the current paid
+service using the existing pit-lane and queue model.
+
+Window histories retain `earliest_lap` and `trigger`, plus `actual_lap` for a
+committed service. That lap is null when no service occurred. Aggregate
+`service_laps` lists the recorded lap and count of each paid service fulfilling
+or overriding the window, using complete valid histories only. Reports show
+these laps alongside status counts; the counts do not measure strategy quality.
+
+Saved window inputs use schema 10 with
+`pit_plan_policy="neutralized_window_deadline_v1"`. Replay and comparisons
+reject window fields in older schemas and reject unsupported policies. Existing
+fixed plans retain their earlier input schemas and history shape. Windows work
+with the standard and chronological engines, finite physical sets, warmup,
+qualifying weather and prescribed race rainfall.
+
+## Opening tyres and forecasts
 
 Opening tyres remain a separate input. Without an opening override, the
 automatic selector compares opening choices while executing this driver's
@@ -86,7 +144,8 @@ With a finite pool, an ordinary requested stop chooses the least-worn eligible
 replacement of the requested compound, breaking equal-age ties in input order.
 It cannot fabricate a set or select the currently fitted physical set. Without
 a compulsory stop, an unavailable or critically mismatched requested compound
-causes that instruction to be skipped. It is not silently deferred.
+causes a fixed or deadline instruction to be skipped. Early window opportunities
+remain pending until another eligible opportunity or their deadline.
 
 A free red-flag tyre change does not consume a scheduled paid-stop instruction.
 Earlier repairs and weather stops likewise do not consume future instructions.

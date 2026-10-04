@@ -197,11 +197,22 @@ def _pit_plans(result: SimulationResults) -> str:
             rendered.append(f"{driver}=not recorded")
             continue
         stops = ", ".join(
-            f"{item.get('lap', '—')} own lap: {item.get('compound', '—')}"
+            f"{_pit_plan_lap_text(item)}: {item.get('compound', '—')}"
             for item in instructions if isinstance(item, dict)
         )
         rendered.append(f"{driver}={stops or 'not recorded'}")
     return "; ".join(rendered) or "Automatic (no custom plans)"
+
+
+def _pit_plan_lap_text(instruction):
+    lap = instruction.get("lap", "—")
+    if "earliest_lap" not in instruction:
+        return f"{lap} own lap"
+    trigger = {"safety_car": "SC", "vsc": "VSC", "neutralized": "SC or VSC"}.get(
+        instruction.get("trigger") if isinstance(instruction.get("trigger"), str) else "",
+        "Unrecognized trigger",
+    )
+    return f"{instruction.get('earliest_lap', '—')}–{lap} own laps ({trigger}; deadline {lap})"
 
 
 def _pit_plan_history_display_row(
@@ -238,6 +249,8 @@ def _pit_plan_history_display_row(
             f"{requested_lap} (own lap)" if isinstance(requested_lap, int)
             and not isinstance(requested_lap, bool) else str(requested_lap)
         )
+        if "earliest_lap" in record:
+            requested_text = _pit_plan_lap_text(record)
         reason = record.get("reason")
         reason_text = (
             "—" if reason is None else _PIT_PLAN_REASON_LABELS.get(
@@ -245,11 +258,14 @@ def _pit_plan_history_display_row(
             ) if isinstance(reason, str) else str(reason)
         )
         actual_compound = record.get("actual_compound")
+        actual_fit = str(actual_compound if actual_compound is not None else "—")
+        if type(record.get("actual_lap")) is int:
+            actual_fit += f" (service own lap {record['actual_lap']})"
         actual_set_id = record.get("actual_set_id")
         rows.append([
             str(simulation), driver, requested_text,
             str(record.get("compound", "Not recorded")), str(status), str(reason_text),
-            str(actual_compound if actual_compound is not None else "—"),
+            actual_fit,
             str(actual_set_id if actual_set_id is not None else "—"),
         ])
     return rows
@@ -355,7 +371,7 @@ def _pit_plan_history_html(result: SimulationResults, scenario: str) -> str:
         '<th scope="col">Trial</th><th scope="col">Driver</th>'
         '<th scope="col">Requested lap</th><th scope="col">Requested compound</th>'
         '<th scope="col">Status</th><th scope="col">Reason</th>'
-        '<th scope="col">Actual compound</th><th scope="col">Actual set</th>'
+        '<th scope="col">Actual compound / lap</th><th scope="col">Actual set</th>'
         '</tr></thead><tbody>'
     )
     if not lazy:
@@ -461,6 +477,14 @@ def _pit_plan_statistics_html(result: SimulationResults, scenario: str) -> str:
             )
             continue
         for instruction in driver["instructions"]:
+            requested_lap = (_pit_plan_lap_text(instruction) if "earliest_lap" in instruction
+                             else f"{instruction['lap']} (own lap)")
+            service_laps = ""
+            if "service_laps" in instruction:
+                frequencies = ", ".join(
+                    f"L{row['lap']} × {row['count']}" for row in instruction["service_laps"]
+                ) or "None recorded"
+                service_laps = f"<br>Service laps: {_text(frequencies)}"
             counts = "".join(
                 f'<td>{instruction[key]}</td>'
                 for key in ("executed", "overridden", "skipped", "not_reached")
@@ -468,8 +492,8 @@ def _pit_plan_statistics_html(result: SimulationResults, scenario: str) -> str:
             rows.append(
                 f'<tr><th scope="row">{_text(driver["driver_id"])}</th>'
                 f'<td>{_text(coverage)}</td>'
-                f'<td>{instruction["lap"]} (own lap): '
-                f'{_text(instruction["compound"])}</td>{counts}</tr>'
+                f'<td>{_text(requested_lap)}: '
+                f'{_text(instruction["compound"])}{service_laps}</td>{counts}</tr>'
             )
     return (
         f'<p>Instruction counts use complete valid histories only. Coverage is '

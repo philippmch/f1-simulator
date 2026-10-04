@@ -246,7 +246,8 @@ def main() -> int:
     parser.add_argument(
         "--pit-plans", type=_pit_plans,
         help=("Optional custom stops using own-lap shorthand, e.g. "
-              "VER=18:medium,36:hard;NOR=none"),
+              "VER=18:medium,36:hard;NOR=none. A safety-car window uses "
+              "VER=18-25@sc:hard (also @vsc or @neutralized), otherwise stopping at its deadline."),
     )
     parser.add_argument(
         "--tire-warmup", type=_tire_warmup,

@@ -28,6 +28,24 @@ PLANS = ([], [{"lap": 4, "compound": "hard"}, {"lap": 7, "compound": "soft"}],
          [{"lap": 4, "compound": "wet"}, {"lap": 6, "compound": "medium"}])
 
 
+@pytest.mark.parametrize("finite", [False, True])
+@pytest.mark.parametrize("free", [False, True])
+@pytest.mark.parametrize("control", ["green", "safety_car", "vsc"])
+def test_future_window_forecast_matches_independent_deadline_execution(finite, free, control):
+    plan = [{"lap": 6, "compound": "hard", "earliest_lap": 4, "trigger": "neutralized"}]
+    simulator, state, track = inputs(finite, plan)
+    simulator.event_manager.safety_car_active = control == "safety_car"
+    simulator.event_manager.vsc_active = control == "vsc"
+    weather = Weather(change_probability=0)
+    options = dict(free_fit=free, physical_total_laps=40)
+    before = snapshot(state, simulator)
+    expected = execution_costs(simulator, deepcopy(state), track, weather, 3, **options)
+    choice = simulator._custom_plan_replacement_choice(state, track, weather, 3, **options)
+    assert choice.cost == pytest.approx(min(expected.values())[1], rel=0, abs=1.e-8)
+    assert expected[choice.set_id or choice.compound][1] == pytest.approx(choice.cost, abs=1.e-8)
+    assert snapshot(state, simulator) == before
+
+
 def snapshot(state, simulator):
     # TireInventory is a mutable ledger with identity equality. Compare its
     # records and cursor explicitly instead of comparing it with a deep copy.

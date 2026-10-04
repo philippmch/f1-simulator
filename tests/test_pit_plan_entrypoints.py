@@ -72,11 +72,26 @@ def test_dashboard_rejects_malformed_plan_before_live_io(monkeypatch):
         server.run_dashboard_simulation(request)
 
 
+@pytest.mark.parametrize("instruction", [
+    {"lap": 25, "compound": "hard", "earliest_lap": 18},
+    {"lap": 25, "compound": "hard", "earliest_lap": 18, "trigger": "green"},
+    {"lap": 25, "compound": "hard", "earliest_lap": 25, "trigger": "safety_car"},
+])
+def test_dashboard_rejects_invalid_windows_before_live_io(monkeypatch, instruction):
+    monkeypatch.setattr(server, "_get_loader", lambda: pytest.fail("live loading"))
+    with pytest.raises(ValueError, match="pit plan|pit window"):
+        server.run_dashboard_simulation(server.DashboardRunRequest(pit_plans={"A": [instruction]}))
+
+
 def test_cli_parser_and_duplicate_plan_json(tmp_path):
     module = runpy.run_path("examples/simulate_race.py")
     parse = module["_pit_plans"]
     assert parse("A=18:medium;B=none") == {
         "A": [{"lap": 18, "compound": "medium"}], "B": [],
+    }
+    assert parse("A=18-25@sc:hard;B=none") == {
+        "A": [{"lap": 25, "compound": "hard", "earliest_lap": 18, "trigger": "safety_car"}],
+        "B": [],
     }
     with pytest.raises(argparse.ArgumentTypeError):
         parse("A=1:soft")

@@ -42,6 +42,7 @@ from f1sim.simulation.pit_plans import (
     finalize_pit_plan,
     initialize_pit_plan_state,
     override_pit_plan_instruction,
+    pit_plan_may_stop,
     skip_pit_plan_instruction,
     validate_pit_plans,
 )
@@ -1296,7 +1297,10 @@ class RaceSimulator(InventoryStrategyMixin):
         ``True`` requests a paid service, ``False`` records a definitive skip,
         and ``None`` leaves the existing automatic/compulsory policy in charge.
         """
-        instruction = current_pit_plan_instruction(state, lap)
+        instruction = current_pit_plan_instruction(
+            state, lap, safety_car=self.event_manager.safety_car_active,
+            vsc=self.event_manager.vsc_active,
+        )
         if instruction is None or self.event_manager.red_flag_active:
             return None
         state.pit_plan_target = None
@@ -1310,6 +1314,10 @@ class RaceSimulator(InventoryStrategyMixin):
         compulsory = self._pit_plan_compulsory_reason(state, track, weather, lap)
         target, availability = self._pit_plan_replacement(state, compound, weather)
         if target is None:
+            if lap < instruction["lap"]:
+                # An unsafe or unavailable early opportunity leaves the deadline
+                # intact. A compulsory repair can proceed without consuming it.
+                return None if compulsory is not None else False
             if compulsory is not None:
                 state.pit_plan_override_reason = compulsory
                 return None
@@ -1320,6 +1328,8 @@ class RaceSimulator(InventoryStrategyMixin):
             and not self._pit_plan_satisfies_rule(state, compound)
         )
         if compound_requirement:
+            if lap < instruction["lap"]:
+                return None
             state.pit_plan_override_reason = compulsory or "compound_requirement"
             return None
         state.pit_plan_target = compound
@@ -1340,7 +1350,10 @@ class RaceSimulator(InventoryStrategyMixin):
         if requested is not None:
             return requested
         if (state.pit_plan is not None
-                and current_pit_plan_instruction(state, lap) is None
+                and current_pit_plan_instruction(
+                    state, lap, safety_car=self.event_manager.safety_car_active,
+                    vsc=self.event_manager.vsc_active,
+                ) is None
                 and not self.event_manager.red_flag_active
                 and self._pit_plan_compulsory_reason(state, track, weather, lap) is None):
             return False
@@ -1365,6 +1378,7 @@ class RaceSimulator(InventoryStrategyMixin):
             reason=reason,
             actual_compound=actual_compound,
             actual_set_id=actual_set_id,
+            actual_lap=details.get("lap"),
             status=status,
         )
 
@@ -1789,7 +1803,7 @@ class RaceSimulator(InventoryStrategyMixin):
         intervals = observed_control_intervals(self.event_manager)
         for rival in states:
             if rival is not state and rival.status == DriverStatus.RACING and any(
-                current_pit_plan_instruction(rival, lap + offset) is not None
+                pit_plan_may_stop(rival, lap + offset)
                 for offset in range(1, min(intervals, track.total_laps - lap + 1) + 1)
             ):
                 return None
@@ -1835,7 +1849,7 @@ class RaceSimulator(InventoryStrategyMixin):
                 continue
             if (rival.force_pit_next_lap
                     or weather.tire_mismatch(rival.current_tire.compound) == "critical"
-                    or current_pit_plan_instruction(rival, lap) is not None):
+                    or pit_plan_may_stop(rival, lap)):
                 # A known repair, weather emergency or due instruction must
                 # change the field; its entry/replacement is not resolved yet.
                 return None
@@ -3579,6 +3593,10 @@ class RaceSimulator(InventoryStrategyMixin):
             state.driver, state.car, track, weather, state.current_tire,
             state.tire_laps, lap, [] if state.pit_plan is None else state.pit_plan,
             pit_plan_index=state.pit_plan_index, inventory=state.tire_inventory,
+            **({"resolve_current_request": bool(
+                state.pit_plan_reason or state.pit_plan_override_reason,
+            )} if state.pit_plan is not None and state.pit_plan_index < len(state.pit_plan)
+               and "earliest_lap" in state.pit_plan[state.pit_plan_index] else {}),
             used_compounds=self._actually_used_compounds(state), free_fit=free_fit,
             current_fit_pending=state.fit_lap_pending,
             pit_lane_factor=self._pit_lane_factor(),
@@ -3805,6 +3823,7 @@ class RaceSimulator(InventoryStrategyMixin):
 
 register_forecast_helpers(globals(), (
     "has_prescribed_weather", "paid_compound_candidates", "current_pit_plan_instruction",
+    "pit_plan_may_stop",
     "skip_pit_plan_instruction", "override_pit_plan_instruction", "commit_pit_plan_service",
     "choose_custom_pit_replacement", "CustomPitFinishContext",
     "normalize_current_traffic_gaps",

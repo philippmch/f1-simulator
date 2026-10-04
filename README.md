@@ -167,6 +167,9 @@ own lap at pit entry, before running that lap. Unlisted drivers stay automatic;
 `none` disables elective stops while compulsory repairs and corrections remain
 active. [Custom pit plans](docs/custom-pit-plans.md) explains finite-pool
 selection, deviations, replay, and offline comparisons against automatic policy.
+Use `VER=18-25@sc:hard` to take a safe safety-car opportunity in a pit window,
+otherwise attempting the stop at lap 25. Windows also accept `@vsc` or
+`@neutralized` (either control); requests use observed conditions only.
 Enable **Compare with automatic strategy** to compare the submitted plans with
 an automatic reference for each weather scenario. Both alternatives use the same
 inputs and seed range, with up to 500 trials each. The dashboard shows paired
@@ -260,6 +263,8 @@ which retains any configured ages, inventory, and plans and requires
 records `tire_inventory`, and version 5 retains `pit_plans`, including explicit
 empty plans. Optional per-set usage limits use version 9 and
 `tire_usage_policy="completed_race_laps_v1"`, preserving the other selected inputs.
+Conditional pit windows use version 10 and
+`pit_plan_policy="neutralized_window_deadline_v1"`, retaining tyre and weather settings.
 All current snapshots require
 `rng_policy`, with new runs using `isolated_weather_v1`. Earlier installations
 reject unsupported schemas. Version 1 snapshots without a policy replay with

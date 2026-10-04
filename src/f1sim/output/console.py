@@ -20,6 +20,7 @@ from f1sim.output.timing import (
 )
 from f1sim.output.warmup_context import warmup_context
 from f1sim.output.weather_schedule_context import weather_schedule_context
+from f1sim.simulation.pit_plans import format_pit_plan_instruction
 from f1sim.simulation.qualifying import QualifyingResult
 from f1sim.simulation.race import RaceResult, result_is_classified
 from f1sim.simulation.race_points import points_for_result
@@ -425,7 +426,7 @@ class ConsoleOutput:
                     requested = "no elective stops"
                 else:
                     requested = ", ".join(
-                        f"{item['lap']}:{item['compound']}" for item in instructions
+                        format_pit_plan_instruction(item) for item in instructions
                     )
                 observed = ", ".join(
                     f"{status}={count}" for status, count in counts[driver].items()

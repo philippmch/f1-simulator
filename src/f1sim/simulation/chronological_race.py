@@ -36,10 +36,10 @@ from f1sim.simulation.finish_strategy import (
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.neutralization import safety_car_running_time
 from f1sim.simulation.pit_plans import (
-    current_pit_plan_instruction,
     finalize_pit_plan,
     initialize_pit_plan_state,
     override_pit_plan_instruction,
+    pit_plan_may_stop,
     validate_pit_plans,
 )
 from f1sim.simulation.pit_service import expected_remaining_service
@@ -964,7 +964,7 @@ class ChronologicalRace:
                 if (pending is None or pending.lap != other.laps_completed + 1
                         or key not in events or other.force_pit_next_lap
                         or self.weather.tire_mismatch(other.current_tire.compound) == "critical"
-                        or current_pit_plan_instruction(other, pending.lap + 1) is not None):
+                        or pit_plan_may_stop(other, pending.lap + 1)):
                     return None
                 pace = (pending.running if pending.on_track else self.running_paces.get(key))
                 ready = (pending.ready if pending.on_track else
@@ -1178,8 +1178,8 @@ class ChronologicalRace:
             if (context is not None and isinstance(context.own_pace, Real)
                     and not isinstance(context.own_pace, bool)
                     and isfinite(context.own_pace) and context.own_pace > 0 and not any(
-                current_pit_plan_instruction(
-                    self.states[row.identifier], row.completed_laps + offset + 1) is not None
+                pit_plan_may_stop(
+                    self.states[row.identifier], row.completed_laps + offset + 1)
                 for row in context.rivals
                 for offset in range(1, min(context.control_intervals,
                                            planning.total_laps - lap + 1) + 1)
@@ -1829,6 +1829,7 @@ register_forecast_helpers(globals(), (
     "StrategyControlContext",
     "native_physics",
     "_STRATEGY_VIEW_METHODS",
+    "pit_plan_may_stop",
 ))
 register_forecast_helpers(vars(ChronologicalRace), (
     "_chronological_finish_context", "_protect_neutralized_field_finish",

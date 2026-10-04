@@ -11,6 +11,7 @@ from f1sim.analysis.montecarlo import MonteCarloRunner, SimulationResults
 from f1sim.analysis.saved_validation import validate_saved_model as _validate_saved_model
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.simulation.execution import validate_race_engine
+from f1sim.simulation.pit_plans import validate_pit_plan_snapshot
 from f1sim.simulation.qualifying_weather import validate_qualifying_weather
 from f1sim.simulation.tire_inventory import validate_tire_inventory, validate_tire_usage_snapshot
 from f1sim.simulation.warmup import validate_tire_warmup
@@ -96,19 +97,19 @@ def _load_saved_runner(
     if not isinstance(inputs, dict):
         raise ValueError("simulation_inputs must be an object")
     version = inputs.get("schema_version")
-    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6, 7, 8, 9):
+    if type(version) is not int or version not in range(1, 11):
         raise ValueError(
-            "Unsupported simulation input schema_version; expected 1 through 9",
+            "Unsupported simulation input schema_version; expected 1 through 10",
         )
     weather_schedule = []
-    if version == 8 or version == 9 and "weather_schedule" in inputs:
+    if version == 8 or version in (9, 10) and "weather_schedule" in inputs:
         weather_schedule = validate_weather_schedule(inputs.get("weather_schedule"))
         if not weather_schedule:
             raise ValueError(f"Schema {version} requires nonempty weather_schedule when present")
     elif "weather_schedule" in inputs:
         raise ValueError("Schemas 1-7 cannot contain weather_schedule")
     qualifying_weather = {}
-    if version in (7, 8, 9) and "qualifying_weather" in inputs:
+    if version in (7, 8, 9, 10) and "qualifying_weather" in inputs:
         qualifying_weather = validate_qualifying_weather(inputs.get("qualifying_weather"))
         if not qualifying_weather:
             raise ValueError(f"Schema {version} requires nonempty qualifying_weather when present")
@@ -117,7 +118,7 @@ def _load_saved_runner(
     elif "qualifying_weather" in inputs:
         raise ValueError("Schemas 1-6 cannot contain qualifying_weather")
     tire_warmup = {}
-    if version == 6 or (version in (7, 8, 9) and (
+    if version == 6 or (version in (7, 8, 9, 10) and (
         "tire_warmup" in inputs or "tire_warmup_policy" in inputs
     )):
         if inputs.get("tire_warmup_policy") != "post_fit_first_lap_v1":
@@ -172,6 +173,7 @@ def _load_saved_runner(
         )
         if not pit_plans:
             raise ValueError("Schema 5 pit_plans must be a nonempty mapping")
+    validate_pit_plan_snapshot(inputs, pit_plans or {})
     return MonteCarloRunner(
         drivers, cars, track, weather, seed=seed,
         race_engine=engine,

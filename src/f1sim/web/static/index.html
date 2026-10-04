@@ -2101,8 +2101,8 @@ input:focus-visible {
         <textarea id="pitPlansInput" rows="2" maxlength="32768" spellcheck="false"
           placeholder="VER=18:medium,36:hard;NOR=none"
           aria-describedby="pitPlansHelp"
-          title="Explicit paid-stop instructions. Use DRIVER=lap:compound,...; use DRIVER=none to suppress elective stops for one driver."></textarea>
-        <p class="pit-plan-help" id="pitPlansHelp">Use <code>DRIVER=lap:compound,...</code> with laps at least 2, strictly increasing, and up to 20 instructions. Lap 18 means the stop is entered before that lap, after 17 completed laps. Unlisted drivers stay automatic; <code>none</code> keeps compulsory repairs and corrections.</p>
+          title="Paid stops: DRIVER=lap:compound or DRIVER=start-deadline@sc:compound. Use @vsc or @neutralized for other control windows; DRIVER=none suppresses elective stops."></textarea>
+        <p class="pit-plan-help" id="pitPlansHelp">Use <code>DRIVER=18:medium,36:hard</code> for fixed stops, or <code>DRIVER=18-25@sc:hard</code> to stop safely under a safety car from lap 18, otherwise at lap 25. Use <code>@vsc</code> for VSC or <code>@neutralized</code> for either. Laps are own pit-entry laps, at least 2; windows cannot overlap. Up to 20 instructions. Unlisted drivers stay automatic; <code>none</code> keeps compulsory stops.</p>
         <label class="pit-plan-compare" for="compareAutomaticInput">
           <input type="checkbox" id="compareAutomaticInput" aria-describedby="compareAutomaticHelp">
           <span>Compare with automatic strategy
@@ -2164,7 +2164,7 @@ input:focus-visible {
         <div class="empty-desc">Run the Python backend and start a simulation to see backend-generated race results</div>
       </div>
       <div class="pit-selection-panel" id="pitPlanSelectionPanel" hidden>
-        <p class="pit-selection-intro">Enter 2–10 named plans before running. Automatic uses the simulator plan; custom plans use lap:compound shorthand. Use <code>none</code> for explicit no-elective-stops.</p>
+        <p class="pit-selection-intro">Enter 2–10 named plans before running. Custom plans accept <code>18:hard</code> or a control window such as <code>18-25@sc:hard</code>. Automatic uses the simulator plan; <code>none</code> keeps compulsory stops only.</p>
         <div class="pit-selection-config">
           <label for="pitPlanSelectionTargetMode"><span>Target type</span>
             <select id="pitPlanSelectionTargetMode" aria-describedby="pitPlanSelectionStatus">
@@ -3210,7 +3210,43 @@ async function refreshLiveData() {
 
 const TYRE_INVENTORY_INPUT_ERROR = 'Race tyre sets: use VER=soft@5/20,medium/25,hard;NOR=soft,hard. Each driver needs 1–20 sets. Prior wear and optional remaining race laps must be integers 0–1000; at least one set needs a permitted lap.';
 const STARTING_TYRE_INPUT_ERROR = 'Starting tyres: use each driver once, e.g. VER=soft@5, NOR=hard. Prior laps must be 0–1000. Compounds: soft, medium, hard, intermediate, wet.';
-const PIT_PLAN_INPUT_ERROR = 'Custom pit plans: use VER=18:medium,36:hard;NOR=none. Laps must be whole numbers from 2 upward, strictly increasing, with canonical compounds (soft, medium, hard, intermediate, wet), and at most 20 instructions per driver.';
+const PIT_PLAN_INPUT_ERROR = 'Custom pit plans: use VER=18:medium,36:hard;NOR=none or VER=18-25@sc:hard. Windows accept @sc, @vsc or @neutralized, start before their deadline, and cannot overlap earlier deadlines. Use whole own laps from 2 upward, canonical compounds (soft, medium, hard, intermediate, wet), and at most 20 instructions per driver.';
+const PIT_PLAN_TRIGGERS = Object.freeze({sc: 'safety_car', vsc: 'vsc', neutralized: 'neutralized'});
+const PIT_PLAN_TRIGGER_LABELS = Object.freeze({safety_car: 'SC', vsc: 'VSC', neutralized: 'SC or VSC'});
+
+function pitPlanRequestedLapText(instruction, prefix = 'L') {
+  const lap = Number.isSafeInteger(instruction?.lap) && instruction.lap >= 2
+    ? `${prefix}${instruction.lap}` : 'Not recorded';
+  if (Object.hasOwn(instruction || {}, 'earliest_lap')) {
+    const start = Number.isSafeInteger(instruction.earliest_lap) && instruction.earliest_lap >= 2
+      ? `${prefix}${instruction.earliest_lap}` : 'Not recorded';
+    const trigger = Object.hasOwn(PIT_PLAN_TRIGGER_LABELS, instruction.trigger)
+      ? PIT_PLAN_TRIGGER_LABELS[instruction.trigger] : 'Not recorded';
+    return `${start}–${lap} (${trigger}; deadline ${lap})`;
+  }
+  return lap;
+}
+
+function pitPlanServiceLapsText(instruction) {
+  if (!Array.isArray(instruction.service_laps)
+      || !Number.isSafeInteger(instruction.earliest_lap) || instruction.earliest_lap < 2
+      || !Number.isSafeInteger(instruction.lap) || instruction.lap <= instruction.earliest_lap
+      || !Object.hasOwn(PIT_PLAN_TRIGGER_LABELS, instruction.trigger)) return 'Not recorded';
+  let previous = 0;
+  let total = 0;
+  for (const row of instruction.service_laps) {
+    if (!Number.isSafeInteger(row?.lap) || row.lap <= previous
+        || row.lap < instruction.earliest_lap || row.lap > instruction.lap
+        || !Number.isSafeInteger(row.count) || row.count < 1) return 'Not recorded';
+    previous = row.lap;
+    total += row.count;
+  }
+  if (!Number.isSafeInteger(total) || total < instruction.executed
+      || total > instruction.executed + instruction.overridden) return 'Not recorded';
+  return instruction.service_laps.length
+    ? instruction.service_laps.map(row => `L${row.lap} × ${row.count}`).join(', ')
+    : 'None recorded';
+}
 const PIT_PLAN_COMPOUNDS = new Set(['soft', 'medium', 'hard', 'intermediate', 'wet']);
 
 function tyreEditorCompoundOptions(selected, includeAutomatic = false) {
@@ -3254,16 +3290,23 @@ function parsePitPlanInstructions(raw, input = null) {
       if (fields.length !== 2 || !fields[0] || !fields[1]) throw new Error();
       const lapToken = fields[0];
       const compound = fields[1];
-      if (!/^[0-9]+$/.test(lapToken) || !PIT_PLAN_COMPOUNDS.has(compound)) {
+      if (!PIT_PLAN_COMPOUNDS.has(compound)) {
         throw new Error();
       }
-      const lap = Number(lapToken);
+      const window = lapToken.match(/^([0-9]+)-([0-9]+)@(sc|vsc|neutralized)$/);
+      if (!window && !/^[0-9]+$/.test(lapToken)) throw new Error();
+      const lap = Number(window ? window[2] : lapToken);
+      const earliest = Number(window ? window[1] : lapToken);
       if (!Number.isSafeInteger(lap) || lap < 2
+          || !Number.isSafeInteger(earliest) || earliest < 2
+          || (window && earliest >= lap)
+          || (previousLap !== null && earliest <= previousLap)
           || (previousLap !== null && lap <= previousLap)) {
         throw new Error();
       }
       previousLap = lap;
-      instructions.push({lap, compound});
+      instructions.push({lap, compound, ...(window
+        ? {earliest_lap: earliest, trigger: PIT_PLAN_TRIGGERS[window[3]]} : {})});
     }
     return {ok: true, instructions};
   } catch {
@@ -4947,7 +4990,7 @@ function renderPitPlanSnapshot(scenario) {
     if (!Array.isArray(instructions)) return `${safeId}: Not recorded`;
     if (!instructions.length) return `${safeId}: No elective stops`;
     const sequence = instructions.map(instruction => {
-      const lap = Number.isInteger(instruction?.lap) ? `L${instruction.lap}` : 'L—';
+      const lap = escapeHtml(pitPlanRequestedLapText(instruction));
       const compound = typeof instruction?.compound === 'string'
         ? titleFromKey(instruction.compound) : 'Not recorded';
       return `${lap} ${escapeHtml(compound)}`;
@@ -5038,7 +5081,9 @@ function renderPitPlanHistory(race) {
       return;
     }
     history.forEach(record => {
-      const lap = Number.isInteger(record?.lap) && record.lap >= 1 ? String(record.lap) : '&mdash;';
+      const lap = escapeHtml(pitPlanRequestedLapText(record, ''));
+      const serviceLap = Number.isSafeInteger(record?.actual_lap) && record.actual_lap >= 2
+        ? ` · service L${record.actual_lap}` : '';
       const status = escapeHtml(pitPlanDisplayLabel(PIT_PLAN_STATUS_LABELS, record?.status));
       const reason = escapeHtml(pitPlanDisplayLabel(PIT_PLAN_REASON_LABELS, record?.reason));
       rows.push(`<tr><th scope="row">${driverId}</th>
@@ -5046,7 +5091,7 @@ function renderPitPlanHistory(race) {
         <td>${pitPlanCompoundDisplay(record?.compound)}</td>
         <td>${status}</td>
         <td>${reason}</td>
-        <td>${pitPlanCompoundDisplay(record?.actual_compound)}</td>
+        <td>${pitPlanCompoundDisplay(record?.actual_compound)}${serviceLap}</td>
         <td>${pitPlanValueDisplay(record?.actual_set_id)}</td></tr>`);
     });
   });
@@ -5062,7 +5107,7 @@ function renderPitPlanHistory(race) {
       <table class="matrix-table"><caption>Submitted instruction outcomes</caption>
         <thead><tr><th scope="col">Driver</th><th scope="col">Requested lap</th>
           <th scope="col">Requested compound</th><th scope="col">Status</th><th scope="col">Reason</th>
-          <th scope="col">Actual compound</th><th scope="col">Actual set</th></tr></thead>
+          <th scope="col">Actual compound / lap</th><th scope="col">Actual set</th></tr></thead>
         <tbody>${rows.join('')}</tbody>
       </table>
     </div>
@@ -5760,8 +5805,7 @@ function renderPitPlanStatistics(statistics, scenario) {
         if (!instruction || typeof instruction !== 'object' || Array.isArray(instruction)) {
           return '<tr><th scope="row">Not recorded</th><td>Not recorded</td><td>Not recorded</td><td>Not recorded</td><td>Not recorded</td><td>Not recorded</td></tr>';
         }
-        const lap = Number.isSafeInteger(instruction.lap) && instruction.lap >= 1
-          ? `L${instruction.lap}` : 'Not recorded';
+        const lap = escapeHtml(pitPlanRequestedLapText(instruction));
         const compound = pitPlanCompoundDisplay(instruction.compound);
         const outcomes = [instruction.executed, instruction.overridden,
           instruction.skipped, instruction.not_reached];
@@ -5770,7 +5814,10 @@ function renderPitPlanStatistics(statistics, scenario) {
         const outcomeTotal = outcomesValid ? outcomes.reduce((total, value) => total + value, 0) : null;
         const outcomesRecorded = outcomesValid && Number.isSafeInteger(outcomeTotal)
           && outcomeTotal === driver.valid_histories;
-        return `<tr><th scope="row">${lap}</th><td>${compound}</td>
+        const serviceLaps = Object.hasOwn(instruction, 'earliest_lap')
+          ? `<br><small>Service laps: ${outcomesRecorded
+            ? pitPlanServiceLapsText(instruction) : 'Not recorded'}</small>` : '';
+        return `<tr><th scope="row">${lap}${serviceLaps}</th><td>${compound}</td>
           <td>${outcomesRecorded ? count(instruction.executed, driver.valid_histories) : 'Not recorded'}</td>
           <td>${outcomesRecorded ? count(instruction.overridden, driver.valid_histories) : 'Not recorded'}</td>
           <td>${outcomesRecorded ? count(instruction.skipped, driver.valid_histories) : 'Not recorded'}</td>
@@ -6492,7 +6539,11 @@ function frozenPitInstructionsText(instructions) {
   if (!instructions.length) return 'No elective stops';
   return instructions.map(item => {
     const instruction = selectionRecord(item);
-    return `${instruction.lap ?? '?'}:${instruction.compound ?? '?'}`;
+    const code = Object.entries(PIT_PLAN_TRIGGERS).find(([, value]) => value === instruction.trigger)?.[0];
+    const lap = Object.hasOwn(instruction, 'earliest_lap')
+      ? `${instruction.earliest_lap ?? '?'}-${instruction.lap ?? '?'}@${code || '?'}`
+      : instruction.lap ?? '?';
+    return `${lap}:${instruction.compound ?? '?'}`;
   }).join(', ');
 }
 
