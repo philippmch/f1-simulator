@@ -73,6 +73,8 @@ def test_pool_independent_costs_preserve_exact_controlled_decisions(
     independent, independent_visits = profiled_decision(models, options)
     assert shared == independent
     assert shared_visits <= independent_visits
+    if horizon == 14:
+        assert 0 < shared_visits < independent_visits
     assert models[:-1] == before[0][:-1]
     assert stock.__dict__ == before[0][-1].__dict__
     assert observed == before[1]
@@ -118,7 +120,7 @@ def test_external_controlled_clocks_reuse_complete_fresh_costs_across_pool_histo
     def execute():
         result = benchmark(laps=30, drivers=4, intervals=3, profile=True)
         assert result["native"]
-        assert result["benchmark_version"] == 2
+        assert result["benchmark_version"] == 3
         return result, result["fresh_service_frame_visits"]
 
     shared, shared_visits = execute()

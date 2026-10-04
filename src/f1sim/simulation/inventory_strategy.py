@@ -300,7 +300,7 @@ def _clock_inventory_strategy(
     absorbing_update = None
     dead_stock = None
     shared_laps = (control_lap_memo(driver, car, track, physical_total_laps)
-                   if prepared_lap_time is not None else None)
+                   if native else None)
     service = expected_stationary_time(car)
     green_stop = track.pit_lane_delta + service
     current_stop = track.pit_lane_delta * pit_lane_factor + service \
@@ -949,6 +949,7 @@ def plan_inventory_strategy(
         )
     prepared_lap_time = simulator.prepare_deterministic_lap_time(driver, car, track, physical)
     native = prepared_lap_time is not None and native_physics(driver, car, track, weather)
+    shared_laps = control_lap_memo(driver, car, track, physical) if native else None
     surfaces = tuple(projected_surfaces(weather, horizon, intervals))
     service = expected_stationary_time(car)
     green_stop = track.pit_lane_delta + service
@@ -982,7 +983,10 @@ def plan_inventory_strategy(
         tire = TIRE_COMPOUNDS[TireCompound(compound)]
         aero_enabled = active_aero_enabled if first else True
         gap = gaps[first_kind] if first and gaps is not None else None
-        if prepared_lap_time is None:
+        if shared_laps is not None:
+            value = memoized_control_lap(shared_laps, prepared_lap_time, tire, surfaces[offset],
+                                         current_lap + offset, age, gap, aero_enabled)
+        elif prepared_lap_time is None:
             value = isolated_strategy_lap(
                 simulator, driver, car, track, tire, surfaces[offset],
                 current_lap + offset, physical, tire_age=age,
@@ -1016,12 +1020,21 @@ def plan_inventory_strategy(
         return exchange_tire_slots(pool, index, current)
 
     solved, excluded = {}, {}
-    fresh_bound = (_fresh_inventory_completion_bound(
-        horizon, tuple(compound.value for compound in TireCompound),
-        lambda offset, compound, age, clock: run(offset, compound, age),
-        lambda offset, compound, clock: not critical[compound][offset],
-        lambda clock: clock, lambda offset, clock: clock, green_stop)
-        if native and forecast_context is not None and not tire_warmup else None)
+    fresh_bound = None
+    if native and forecast_context is not None and not tire_warmup:
+        shared_services = None
+        if (shared_laps is not None and horizon <= 100 and safety_car is None
+                and current_lap_time_modifier == 1. and active_aero_enabled and gaps is None):
+            # The leading candidate supplies its own weather cadence. Only
+            # fresh future service ignores the physical pool; retained wear,
+            # usage expiry and executable suffix costs remain local.
+            key = ("own", current_lap, horizon, forecast_json(weather), intervals, green_stop)
+            shared_services = control_relaxation_memo(shared_laps, key)
+        fresh_bound = _fresh_inventory_completion_bound(
+            horizon, tuple(compound.value for compound in TireCompound),
+            lambda offset, compound, age, clock: run(offset, compound, age),
+            lambda offset, compound, clock: not critical[compound][offset],
+            lambda clock: clock, lambda offset, clock: clock, green_stop, solved=shared_services)
 
     @lru_cache(maxsize=None)
     def retained_tail(offset, compound, age):

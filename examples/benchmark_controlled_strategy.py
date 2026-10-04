@@ -12,6 +12,7 @@ import hashlib
 import json
 from dataclasses import asdict
 from math import floor, isfinite
+from pathlib import Path
 from time import perf_counter
 
 from f1sim.models import Car, Driver, Track, Weather
@@ -25,7 +26,7 @@ from f1sim.simulation.tire_inventory import TireInventory
 from f1sim.simulation.weather_schedule import WeatherForecastContext
 
 
-def benchmark(control="sc", intervals=5, laps=53, drivers=22, profile=False):
+def benchmark(control="sc", intervals=5, laps=53, drivers=22, profile=False, leader=False):
     """Return the immutable scenario, exact decision and search measurements."""
     for value, low, high, name in ((intervals, 1, 8, "intervals"), (laps, 8, 100, "laps"),
                                   (drivers, 2, 22, "drivers")):
@@ -35,6 +36,8 @@ def benchmark(control="sc", intervals=5, laps=53, drivers=22, profile=False):
         raise ValueError("control must be sc or vsc")
     if type(profile) is not bool:
         raise ValueError("profile must be a boolean")
+    if type(leader) is not bool:
+        raise ValueError("leader must be a boolean")
     driver = Driver(id="A", name="Synthetic", team_id="T", skill_rating=.832,
                     tire_management=.832)
     car = Car(team_id="T", team_name="Synthetic", base_pace=.83, tire_degradation_factor=.98)
@@ -42,7 +45,8 @@ def benchmark(control="sc", intervals=5, laps=53, drivers=22, profile=False):
                   base_lap_time=90., pit_lane_delta=22.)
     current_lap = max(3, laps * 2 // 5)
     now = (current_lap - 1) * 105.
-    paces = {"A": 105., **{f"B{i:02}": 100. + i * .17 for i in range(drivers - 1)}}
+    paces = {"A": 105., **{f"B{i:02}": (110. if leader else 100.) + i * .17
+                          for i in range(drivers - 1)}}
     ledger = RaceFinishTimeline(laps, paces)
     observations = sorted((lap * pace, -lap, identifier)
                           for identifier, pace in paces.items()
@@ -94,15 +98,17 @@ def benchmark(control="sc", intervals=5, laps=53, drivers=22, profile=False):
                 for key, value in asdict(result).items()}
     decision["should_pit"] = result.should_pit()
     encoded = json.dumps(decision, sort_keys=True, allow_nan=False).encode()
-    green_suffixes = fresh_service_visits = None
+    green_suffixes = fresh_service_visits = native_lap_evaluations = None
     if profiler is not None:
         profiler.create_stats()
         green_suffixes = sum(value[1] for key, value in profiler.stats.items()
                              if key[2] == "plan_inventory_strategy") - 1
         fresh_service_visits = sum(value[1] for key, value in profiler.stats.items()
                                    if key[2] == "service_frame")
+        native_lap_evaluations = sum(value[1] for key, value in profiler.stats.items()
+                                     if key[2] == "evaluate" and Path(key[0]).name == "lap.py")
     return dict(
-        benchmark_version=2, native=native, control=control, intervals=intervals,
+        benchmark_version=3, native=native, control=control, intervals=intervals, leader=leader,
         laps=laps, drivers=drivers, current_lap=current_lap, now=now,
         driver=driver.model_dump(mode="json"), car=car.model_dump(mode="json"),
         track=track.model_dump(mode="json"), weather=weather.model_dump(mode="json"),
@@ -110,6 +116,7 @@ def benchmark(control="sc", intervals=5, laps=53, drivers=22, profile=False):
         rivals=[asdict(row) for row in rivals], tire_inventory=records,
         seconds=seconds, profiled=profile, green_suffix_evaluations=green_suffixes,
         fresh_service_frame_visits=fresh_service_visits,
+        native_lap_evaluations=native_lap_evaluations,
         decision=decision, outcome_sha256=hashlib.sha256(encoded).hexdigest(),
     )
 
@@ -121,6 +128,8 @@ def main():
     parser.add_argument("--laps", type=int, default=53)
     parser.add_argument("--drivers", type=int, default=22)
     parser.add_argument("--profile", action="store_true")
+    parser.add_argument("--leader", action="store_true",
+                        help="Place the candidate at the head of the synthetic field")
     try:
         result = benchmark(**vars(parser.parse_args()))
     except ValueError as error:
