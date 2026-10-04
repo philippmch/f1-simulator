@@ -171,7 +171,7 @@ Choose expected points, race win probability, or podium probability before
 training. For a constructor, win/podium probability counts a race once when at
 least one member achieves the classified result. CLI selectors accept
 `--objective points|win|podium`; the dashboard provides the same choice.
-For fixed, weighted rival-plan scenarios, see the [rival-plan selection
+For one frozen choice across weighted race-weather and rival-plan scenarios, see the [scenario selection
 workflow](docs/rival-strategy-selection.md).
 
 The same inputs and seed reproduce an overridden run, including across worker

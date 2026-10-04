@@ -31,7 +31,13 @@ from f1sim.analysis.strategy_selection import (
     _validate_seed_ranges,
     validate_pit_plan_selection_request,
 )
+from f1sim.models import Weather
+from f1sim.simulation.qualifying_weather import (
+    effective_qualifying_weather,
+    validate_qualifying_weather,
+)
 from f1sim.simulation.randomness import validate_rng_policy
+from f1sim.simulation.weather_schedule import validate_weather_schedule
 
 
 def _weight_number(value: object, name: str) -> int | float:
@@ -55,15 +61,35 @@ def _validate_rival_scenarios(rival_scenarios: Mapping) -> tuple[list[str], dict
     names = list(rival_scenarios)
     supplied_weights = {}
     rival_plans = {}
+    weather_overrides = {}
+    weather_schedules = {}
     for name, scenario in rival_scenarios.items():
         if not isinstance(name, str) or not name.strip() or len(name) > 80:
             raise ValueError(
                 "rival scenario names must be nonempty strings of at most 80 characters",
             )
-        if not isinstance(scenario, Mapping) or set(scenario) != {"weight", "pit_plans"}:
+        required = {"weight", "pit_plans"}
+        if (not isinstance(scenario, Mapping) or not required <= set(scenario)
+                or set(scenario) - required - {"weather", "weather_schedule"}):
             raise ValueError(
-                f"rival scenario {name!r} must contain exactly weight and pit_plans",
+                f"rival scenario {name!r} must contain weight and pit_plans, "
+                "with optional weather and weather_schedule",
             )
+        weather = scenario.get("weather")
+        try:
+            if weather is not None:
+                if not isinstance(weather, dict):
+                    raise ValueError("weather must be a field object or null")
+                validated = validate_qualifying_weather({"Q1": weather})["Q1"]
+                # Omitted fields inherit the source rather than Weather defaults.
+                weather = {key: validated[key] for key in weather}
+            schedule = scenario.get("weather_schedule")
+            if schedule is not None:
+                schedule = validate_weather_schedule(schedule)
+        except ValueError as exc:
+            raise ValueError(f"Invalid race weather for scenario {name!r}: {exc}") from exc
+        weather_overrides[name] = deepcopy(weather)
+        weather_schedules[name] = deepcopy(schedule)
         supplied_weights[name] = _weight_number(
             scenario["weight"], f"weight for rival scenario {name!r}",
         )
@@ -97,7 +123,9 @@ def _validate_rival_scenarios(rival_scenarios: Mapping) -> tuple[list[str], dict
     normalized = {name: scaled[index] / total for index, name in enumerate(names)}
     if any(value == 0 for value in normalized.values()):
         raise ValueError("rival scenario weights are too far apart to normalize safely")
-    return names, supplied_weights, {"plans": rival_plans, "weights": normalized}
+    return names, supplied_weights, {"plans": rival_plans, "weights": normalized,
+                                    "weather": weather_overrides,
+                                    "weather_schedule": weather_schedules}
 
 
 def validate_rival_pit_plan_selection_request(rival_scenarios: Mapping) -> None:
@@ -141,6 +169,8 @@ def _check_scenario_cohort(
     target_members: list[str],
     *,
     phase: str,
+    weather_contexts: Mapping[str, dict] | None = None,
+    frozen_qualifying: dict | None = None,
 ) -> None:
     """Require equal non-plan inputs and qualifying outcomes across scenarios."""
     baseline_result = next(iter(scenario_results.values()))[labels[0]]
@@ -153,9 +183,26 @@ def _check_scenario_cohort(
     baseline_qualifying = baseline_result.qualifying_results
     if baseline_snapshot is None:
         raise ValueError(f"{phase} scenario has invalid saved input evidence")
+    def comparable_snapshot(result, name):
+        snapshot = _snapshot(result)
+        if snapshot is None or weather_contexts is None:
+            return snapshot
+        expected = weather_contexts[name]
+        values = snapshot[0]
+        if (values["weather"] != expected["weather"]
+                or values["weather_schedule"] != expected["weather_schedule"]):
+            raise ValueError(f"{phase} {name!r} used different frozen race weather inputs")
+        if values["qualifying_weather"] != frozen_qualifying:
+            raise ValueError(f"{phase} {name!r} used different frozen qualifying weather inputs")
+        return ({key: value for key, value in values.items()
+                 if key not in ("weather", "weather_schedule")}, *snapshot[1:])
+
+    baseline_snapshot = comparable_snapshot(
+        baseline_result, next(iter(scenario_results)),
+    )
     for scenario_name, variants in scenario_results.items():
         result = variants[labels[0]]
-        if _snapshot(result) != baseline_snapshot:
+        if comparable_snapshot(result, scenario_name) != baseline_snapshot:
             raise ValueError(
                 f"{phase} scenarios have incompatible non-plan inputs or runtime provenance",
             )
@@ -273,6 +320,17 @@ def prepare_rival_pit_plan_selection(
     )
     normalized_weights = scenario_data["weights"]
     scenario_plans = scenario_data["plans"]
+    weather_overrides = scenario_data["weather"]
+    schedule_overrides = scenario_data["weather_schedule"]
+    weather_assumptions = any(
+        weather_overrides[name] or schedule_overrides[name] is not None
+        for name in scenario_names
+    )
+    # Race uncertainty must not silently change the qualifying experiment.
+    frozen_qualifying = effective_qualifying_weather(
+        runner.weather, getattr(runner, "qualifying_weather", None),
+    ) if weather_assumptions else None
+    weather_contexts = {} if weather_assumptions else None
     candidate_definitions = deepcopy(dict(plans))
 
     if driver_id is not None:
@@ -311,12 +369,31 @@ def prepare_rival_pit_plan_selection(
     plans_by_rival_scenario = {}
     for scenario_name in scenario_names:
         _check_cancelled(cancel_requested)
+        assumption_runner = runner
+        if weather_assumptions:
+            weather = validate_qualifying_weather({"Q1": {
+                **runner.weather.model_dump(mode="json"),
+                **(weather_overrides[scenario_name] or {}),
+            }})["Q1"]
+            schedule = validate_weather_schedule(
+                getattr(runner, "weather_schedule", None)
+                if schedule_overrides[scenario_name] is None else schedule_overrides[scenario_name],
+                total_laps=runner.track.total_laps,
+            )
+            canonical_weather = Weather.model_validate(weather)
+            assumption_runner = _runner_variant(
+                runner, weather=runner.weather.model_copy(deep=True, update={
+                    key: getattr(canonical_weather, key) for key in Weather.model_fields
+                }),
+                qualifying_weather=frozen_qualifying, weather_schedule=schedule,
+            )
+            weather_contexts[scenario_name] = {"weather": weather, "weather_schedule": schedule}
         base_plans = _apply_rival_overrides(
-            runner, scenario_plans[scenario_name],
+            assumption_runner, scenario_plans[scenario_name],
             target_members=target_member_set, runnable_ids=runnable_ids,
         )
         variants = _build_pit_plan_variant_runners(
-            runner, candidate_definitions,
+            assumption_runner, candidate_definitions,
             driver_id=driver_id,
             constructor_id=constructor_id,
             rng_policy=rng_policy,
@@ -358,6 +435,8 @@ def prepare_rival_pit_plan_selection(
         "scenario_names": scenario_names,
         "supplied_weights": supplied_weights,
         "normalized_weights": normalized_weights,
+        "weather_contexts": weather_contexts,
+        "frozen_qualifying_weather": frozen_qualifying,
         "scenario_plans": scenario_plans,
         "plans": candidate_definitions,
         "plans_by_rival_scenario": plans_by_rival_scenario,
@@ -391,6 +470,7 @@ def evaluate_prepared_rival_pit_plan_selection(
     scenario_names = prepared["scenario_names"]
     supplied_weights = prepared["supplied_weights"]
     normalized_weights = prepared["normalized_weights"]
+    weather_contexts = prepared.get("weather_contexts")
     exact_weights = {name: Fraction(normalized_weights[name]) for name in scenario_names}
     scenario_plans = prepared["scenario_plans"]
     training_runners = prepared["training_runners"]
@@ -419,6 +499,8 @@ def evaluate_prepared_rival_pit_plan_selection(
     _check_cancelled(cancel_requested)
     _check_scenario_cohort(
         training_results, labels, target_members, phase="training",
+        weather_contexts=weather_contexts,
+        frozen_qualifying=prepared.get("frozen_qualifying_weather"),
     )
 
     weighted_training_points = {
@@ -497,6 +579,8 @@ def evaluate_prepared_rival_pit_plan_selection(
     _check_cancelled(cancel_requested)
     _check_scenario_cohort(
         validation_results, validation_labels, target_members, phase="validation",
+        weather_contexts=weather_contexts,
+        frozen_qualifying=prepared.get("frozen_qualifying_weather"),
     )
 
     no_change = selected_label == reference_label
@@ -630,6 +714,15 @@ def evaluate_prepared_rival_pit_plan_selection(
             "Repeating the same request reuses the same validation seed range.",
         ],
     }
+    if weather_contexts is not None:
+        selection["method"] = "weighted_weather_and_rival_training_then_disjoint_seed_validation"
+        selection["frozen_qualifying_weather"] = deepcopy(prepared["frozen_qualifying_weather"])
+        for scenario in selection["rival_scenarios"]:
+            scenario.update(deepcopy(weather_contexts[scenario["name"]]))
+        selection["methodology_limits"].append(
+            "Race weather and rival plans are supplied joint assumptions. Qualifying weather "
+            "is shared from the source; their weights are not learned weather forecasts.",
+        )
     return {
         "selection": selection,
         "training_results": training_results,

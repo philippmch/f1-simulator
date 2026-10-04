@@ -35,8 +35,8 @@ source simulation count. Without optional rival scenarios, the budget is:
 source simulations + candidate count × training trials + 2 × validation trials ≤ 1,000
 ```
 
-To compare candidates across different opponent plans, open **Rival strategy
-assumptions**. The [weighted rival selection guide](rival-strategy-selection.md#use-the-dashboard)
+To choose one plan across possible race weather and opponent plans, open **Weather and rival
+assumptions**. The [weighted scenario selection guide](rival-strategy-selection.md#use-the-dashboard)
 explains the inputs and results. Each rival scenario adds its own candidate
 training and reference/winner validation runs, so the budget becomes source
 simulations plus rival-scenario count times the training and validation work

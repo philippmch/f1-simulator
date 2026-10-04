@@ -436,6 +436,8 @@ input[type="number"] { min-width: 80px; width: 80px; }
 }
 
 .pit-selection-result-table td:last-child { white-space: nowrap; }
+.pit-selection-result-table td.pit-selection-weather { white-space: normal; min-width: 240px; }
+.pit-selection-weather code { white-space: pre-wrap; overflow-wrap: anywhere; }
 .pit-selection-quiet { color: var(--text-muted); font-size: 0.7rem; }
 .pit-selection-result-table .pit-selection-quiet { display: block; margin-top: 2px; }
 
@@ -2195,11 +2197,11 @@ input:focus-visible {
           <p class="pit-selection-status" id="pitPlanSelectionStatus" role="status" aria-live="polite">Current driver and constructor IDs load from the selected race roster.</p>
         </div>
         <details id="pitRivalEditor">
-          <summary>Rival strategy assumptions (optional)</summary>
-          <p class="pit-selection-intro">Compare your candidates across rival plans. Weights express your assumptions, not measured probabilities. Drivers without an override retain their saved plan.</p>
-          <label><input type="checkbox" id="pitRivalEnabled"> Include weighted rival scenarios</label>
+          <summary>Weather and rival assumptions (optional)</summary>
+          <p class="pit-selection-intro">Choose one plan across possible race weather and rival plans. Weights express your assumptions, not measured probabilities. Qualifying stays shared across cases; drivers without an override retain their saved plan.</p>
+          <label><input type="checkbox" id="pitRivalEnabled"> Include weighted scenarios</label>
           <div id="pitRivalScenarios" class="pit-selection-candidate-list" hidden></div>
-          <button type="button" class="scenario-preset" id="addPitRivalScenario" hidden>Add rival scenario</button>
+          <button type="button" class="scenario-preset" id="addPitRivalScenario" hidden>Add scenario</button>
         </details>
         <p class="pit-selection-estimate" id="pitPlanSelectionEstimate" aria-live="polite">Worst-case budget: waiting for valid counts.</p>
       </div>
@@ -3542,7 +3544,12 @@ function addPitRivalScenario() {
   row.innerHTML = `<div class="pit-selection-config">
     <label for="rival-name-${id}"><span>Scenario name</span><input id="rival-name-${id}" class="pit-rival-name" type="text" maxlength="80" value="Rival scenario ${pitRivalRows().length + 1}"></label>
     <label for="rival-weight-${id}"><span>Relative weight</span><input id="rival-weight-${id}" class="pit-rival-weight" type="number" min="0" step="any" value="1"></label>
+    <label for="rival-weather-${id}"><span>Initial race weather</span><select id="rival-weather-${id}" class="pit-rival-weather"><option value="source">Inherit source weather</option><option value="dry">Dry (rain 0, water 0)</option><option value="cloudy">Cloudy (rain 0, water 0)</option><option value="light_rain">Light rain (rain 0.3, water 0.3)</option><option value="heavy_rain">Heavy rain (rain 0.8, water 0.8)</option></select></label>
     <button type="button" class="scenario-preset" data-remove-rival>Remove scenario</button></div>
+    <label><input type="checkbox" class="pit-rival-schedule-enabled"> Override known rainfall steps</label>
+    <div class="pit-rival-schedule-editor" hidden><label for="rival-schedule-${id}">Known rainfall steps (LAP=RAIN[:CONDITION])</label>
+    <textarea id="rival-schedule-${id}" class="pit-rival-schedule" rows="3" aria-describedby="rival-schedule-help-${id}" placeholder="2=0.8:heavy_rain&#10;4=0:dry"></textarea>
+    <p class="pit-plan-help" id="rival-schedule-help-${id}">Ascending leading laps from 2, rainfall 0–1. An empty override clears the source schedule. Otherwise the source schedule is inherited. The initial weather uses the run's rainfall mode; known steps disable atmospheric randomness.</p></div>
     <div class="pit-rival-overrides"></div>
     <button type="button" class="scenario-preset" data-add-rival-driver>Add driver override</button>`;
   row.querySelector('[data-remove-rival]').addEventListener('click', () => {
@@ -3550,6 +3557,9 @@ function addPitRivalScenario() {
     syncPitRivalControls();
   });
   row.querySelector('[data-add-rival-driver]').addEventListener('click', () => addPitRivalOverride(row));
+  row.querySelector('.pit-rival-schedule-enabled').addEventListener('change', event => {
+    row.querySelector('.pit-rival-schedule-editor').hidden = !event.target.checked;
+  });
   document.getElementById('pitRivalScenarios').append(row);
   syncPitRivalControls();
 }
@@ -3559,6 +3569,9 @@ function syncPitRivalControls() {
   const container = document.getElementById('pitRivalScenarios');
   const add = document.getElementById('addPitRivalScenario');
   if (container) container.hidden = !enabled;
+  container?.querySelectorAll('input, select, textarea, button').forEach(control => {
+    control.disabled = runInProgress || connectionRefreshInProgress;
+  });
   if (add) {
     add.hidden = !enabled;
     add.disabled = runInProgress || connectionRefreshInProgress || pitRivalRows().length >= 10;
@@ -3575,16 +3588,16 @@ function buildPitRivalScenarios() {
     return {ok: false};
   };
   const rows = pitRivalRows();
-  if (!rows.length || rows.length > 10) return fail('Add between 1 and 10 rival scenarios.', document.getElementById('addPitRivalScenario'));
+  if (!rows.length || rows.length > 10) return fail('Add between 1 and 10 weighted scenarios.', document.getElementById('addPitRivalScenario'));
   const scenarios = Object.create(null);
   const validIds = new Set(pitRivalDriverChoices().map(driver => driver.id));
   for (const row of rows) {
     const nameInput = row.querySelector('.pit-rival-name');
     const name = nameInput.value.trim();
-    if (!name || name.length > 80 || Object.hasOwn(scenarios, name)) return fail('Rival scenario names must be unique and contain 1–80 characters.', nameInput);
+    if (!name || name.length > 80 || Object.hasOwn(scenarios, name)) return fail('Scenario names must be unique and contain 1–80 characters.', nameInput);
     const weightInput = row.querySelector('.pit-rival-weight');
     const weight = Number(weightInput.value);
-    if (!weightInput.value.trim() || !Number.isFinite(weight) || weight <= 0) return fail('Each rival scenario needs a positive, finite weight.', weightInput);
+    if (!weightInput.value.trim() || !Number.isFinite(weight) || weight <= 0) return fail('Each weighted scenario needs a positive, finite weight.', weightInput);
     const plans = Object.create(null);
     const seen = new Set();
     for (const override of row.querySelectorAll('.pit-rival-override')) {
@@ -3603,7 +3616,20 @@ function buildPitRivalScenarios() {
         plans[driver] = parsed.instructions;
       } else return fail('Choose a valid rival plan assumption.', override.querySelector('.pit-rival-mode'));
     }
-    scenarios[name] = {weight, pit_plans: plans};
+    const assumption = {weight, pit_plans: plans};
+    const weatherInput = row.querySelector('.pit-rival-weather');
+    if (weatherInput.value !== 'source') {
+      const preset = {dry: [0, 0], cloudy: [0, 0], light_rain: [0.3, 0.3], heavy_rain: [0.8, 0.8]}[weatherInput.value];
+      if (!preset) return fail('Choose a valid initial race weather.', weatherInput);
+      assumption.weather = {condition: weatherInput.value, rain_intensity: preset[0], track_wetness: preset[1]};
+      if (document.getElementById('weatherModeSelect').value === 'fixed_rainfall') assumption.weather.change_probability = 0;
+    }
+    if (row.querySelector('.pit-rival-schedule-enabled').checked) {
+      const parsed = parseWeatherScheduleInputs(row.querySelector('.pit-rival-schedule'));
+      if (!parsed.ok) return fail(parsed.message, parsed.input);
+      assumption.weather_schedule = parsed.schedule;
+    }
+    scenarios[name] = assumption;
   }
   return {ok: true, scenarios};
 }
@@ -3663,7 +3689,7 @@ function updatePitSelectionEstimate() {
   estimate.classList.toggle('over-budget', valid
     && source + rivals * (candidates * training + 2 * validation) > 1000);
   estimate.textContent = valid
-    ? `Worst-case budget per weather: ${source + rivals * (candidates * training + 2 * validation)} trials (${source} source + ${rivals} rival contexts × [${candidates} candidates × ${training} training + 2 × ${validation} validation]). Limit: 1,000.`
+    ? `Worst-case budget per source weather: ${source + rivals * (candidates * training + 2 * validation)} trials (${source} source + ${rivals} assumption contexts × [${candidates} candidates × ${training} training + 2 × ${validation} validation]). Limit: 1,000.`
     : 'Worst-case budget per weather: enter whole-number source, training, and validation counts.';
 }
 
@@ -4532,8 +4558,7 @@ function parseQualifyingWeatherInputs() {
   return {ok: true, profile};
 }
 
-function parseWeatherScheduleInputs() {
-  const input = document.getElementById('weatherScheduleInput');
+function parseWeatherScheduleInputs(input = document.getElementById('weatherScheduleInput')) {
   const lines = input.value.trim() ? input.value.trim().split(/\r?\n/) : [];
   const schedule = [];
   const conditions = ['dry', 'cloudy', 'light_rain', 'heavy_rain'];
@@ -6489,13 +6514,21 @@ function renderPitRivalEvidence(selection, identity) {
   const weightText = value => typeof value === 'number' && Number.isFinite(value)
     ? Number(value.toPrecision(6)).toString() : 'Not recorded';
   const scenarios = selection.rival_scenarios.filter(item => item && typeof item === 'object');
+  const weatherActive = scenarios.some(scenario => scenario.weather && typeof scenario.weather === 'object');
+  const weatherCell = scenario => {
+    const weather = selectionRecord(scenario.weather);
+    const summary = `${weather.condition || 'Not recorded'}; rain ${selectionNumber(weather.rain_intensity)}; surface water ${selectionNumber(weather.track_wetness)}`;
+    return `<td class="pit-selection-weather"><details><summary>${escapeHtml(summary)}</summary><p>Initial race weather: <code>${escapeHtml(JSON.stringify(weather))}</code></p><p>Known rainfall steps: <code>${escapeHtml(JSON.stringify(scenario.weather_schedule ?? []))}</code></p></details></td>`;
+  };
+  const qualifying = weatherActive
+    ? `<details class="pit-selection-weather"><summary>Shared qualifying weather (frozen)</summary><code>${escapeHtml(JSON.stringify(selectionRecord(selection.frozen_qualifying_weather)))}</code></details><p>One target plan is chosen across these race weather and rival cases. The source race charts retain their original conditions.</p>` : '';
   const training = selectionRecord(selection.training_scenario_score_tables);
   const validation = selectionRecord(selection.validation_scenario_metrics);
   const rows = scenarios.map(scenario => {
     const plans = selectionRecord(scenario.rival_pit_plans);
     const description = Object.entries(plans).map(([driver, plan]) => `${driver}: ${frozenPitInstructionsText(plan)}`).join('; ')
       || 'All rivals inherit their saved plans';
-    return `<tr><th scope="row">${escapeHtml(scenario.name)}</th><td>${weightText(scenario.weight)}</td><td>${weightText(scenario.normalized_weight)}</td><td>${escapeHtml(description)}</td></tr>`;
+    return `<tr><th scope="row">${escapeHtml(scenario.name)}</th><td>${weightText(scenario.weight)}</td><td>${weightText(scenario.normalized_weight)}</td><td>${escapeHtml(description)}</td>${weatherActive ? weatherCell(scenario) : ''}</tr>`;
   }).join('');
   const details = scenarios.map(scenario => {
     const scoreTable = selectionRecord(training[scenario.name]);
@@ -6509,8 +6542,8 @@ function renderPitRivalEvidence(selection, identity) {
       <div class="pit-selection-result-table-wrap" tabindex="0" role="region" aria-label="Per-scenario training scores">
       <table class="matrix-table pit-selection-result-table"><thead><tr><th>Candidate</th><th>Training mean points</th><th>Trials</th></tr></thead><tbody>${scoreRows || '<tr><td colspan="3">Training scores not recorded.</td></tr>'}</tbody></table></div>${heldOut}</details>`;
   }).join('');
-  return `<h4>Frozen rival assumptions</h4><p>Weights are supplied assumptions, not calibrated probabilities. Aggregate scores combine rival scenarios within each seed; scenarios do not count as independent trials. Unlisted rivals retain their saved plan.</p>
-    <div class="pit-selection-result-table-wrap" tabindex="0" role="region" aria-label="Frozen rival plans and weights"><table class="matrix-table pit-selection-result-table"><thead><tr><th>Rival scenario</th><th>Supplied weight</th><th>Normalized weight</th><th>Overrides</th></tr></thead><tbody>${rows}</tbody></table></div>${details}`;
+  return `<h4>Frozen ${weatherActive ? 'weather and rival' : 'rival'} assumptions</h4><p>Weights are supplied assumptions, not calibrated probabilities. Aggregate scores combine scenarios within each seed; scenarios do not count as independent trials. Unlisted rivals retain their saved plan.</p>${qualifying}
+    <div class="pit-selection-result-table-wrap" tabindex="0" role="region" aria-label="Frozen rival plans and weights"><table class="matrix-table pit-selection-result-table"><thead><tr><th>Scenario</th><th>Supplied weight</th><th>Normalized weight</th><th>Overrides</th>${weatherActive ? '<th>Race weather and schedule</th>' : ''}</tr></thead><tbody>${rows}</tbody></table></div>${details}`;
 }
 
 function renderSelectionObjectiveEvidence(selection, identity) {

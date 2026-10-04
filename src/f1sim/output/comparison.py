@@ -1434,12 +1434,27 @@ def render_rival_strategy_selection_report(manifest: dict) -> str:
     report_context = report_context if isinstance(report_context, dict) else {}
     track_name = report_context.get("track_name", "Not recorded")
     race_engine = report_context.get("race_engine", "Not recorded")
+    frozen_qualifying = selection.get("frozen_qualifying_weather")
+    weather_active = isinstance(frozen_qualifying, dict)
+    weather_heading = "Weather and rival assumptions" if weather_active else "Rival assumptions"
+    title = "Weighted weather and rival strategy selection" if weather_active else (
+        "Weighted rival strategy selection"
+    )
+    weather_context = (
+        '<p>One frozen target plan applies across all race weather cases below. '
+        'Partial weather inputs inherit source values; the table records their full effective '
+        'values and schedules. Source race charts retain their original conditions.</p>'
+        '<details><summary>Shared qualifying weather (frozen)</summary><code>'
+        + _text(json.dumps(frozen_qualifying, ensure_ascii=False, sort_keys=True))
+        + '</code></details>'
+    ) if weather_active else ""
     qualifying_context = report_context.get("qualifying_weather_context")
     qualifying_html = (f"<p>{_text(qualifying_context)}</p>"
                        if isinstance(qualifying_context, str) and qualifying_context else "")
     schedule_context = report_context.get("weather_schedule_context")
     schedule_html = (f"<p>{_text(schedule_context)}</p>"
-                     if isinstance(schedule_context, str) and schedule_context else "")
+                     if not weather_active and isinstance(schedule_context, str)
+                     and schedule_context else "")
     members = selection.get("target_member_ids", [])
     members_text = ", ".join(str(member) for member in members) if members else "Not recorded"
     target_plans = manifest.get("target_plans", {})
@@ -1517,15 +1532,25 @@ def render_rival_strategy_selection_report(manifest: dict) -> str:
             _selection_report_link(files.get("training_comparison_json"), "Training replay JSON"),
             _selection_report_link(files.get("validation_comparison_json"), "Held-out replay JSON"),
         ))
+        weather_cell = ""
+        if weather_active:
+            weather_text = json.dumps(scenario.get("weather", {}), ensure_ascii=False,
+                                      sort_keys=True)
+            schedule_text = json.dumps(scenario.get("weather_schedule", []), ensure_ascii=False)
+            weather_cell = (
+                f'<td>Initial race weather: <code>{_text(weather_text)}</code><br>'
+                f'Known rainfall steps: <code>{_text(schedule_text)}</code></td>'
+            )
         rival_rows.append(
             f'<tr><th scope="row">{_text(name)}</th>'
             f'<td>{_selection_report_number(scenario.get("weight"))}</td>'
             f'<td>{_selection_report_number(scenario.get("normalized_weight"))}</td>'
-            f'<td><code>{_text(override_text)}</code></td><td>{detail_links}</td></tr>'
+            f'<td><code>{_text(override_text)}</code></td>{weather_cell}'
+            f'<td>{detail_links}</td></tr>'
         )
     rival_rows_html = (
         "".join(rival_rows)
-        or '<tr><td colspan="5">No rival assumptions recorded.</td></tr>'
+        or f'<tr><td colspan="{6 if weather_active else 5}">No assumptions recorded.</td></tr>'
     )
 
     target_metrics = selection.get("validation_target_metrics", {})
@@ -1659,7 +1684,7 @@ tbody th {{ font-weight: 600; }}
 code {{ white-space: pre-wrap; overflow-wrap: anywhere; color: #d7dcff; }}
 :focus-visible {{ outline: 3px solid #9cbbff; outline-offset: 2px; }}
 </style></head><body><main>
-<h1>Weighted rival strategy selection</h1>
+<h1>{title}</h1>
 <p>The target plan was chosen using weighted training results and then frozen for a
 separate held-out seed cohort. Supplied rival-scenario weights are analysis assumptions,
 not probabilities learned from race data. Held-out results do not feed back into selection.</p>
@@ -1685,14 +1710,16 @@ These training shortfalls are not fresh validation estimates.</p>
 <th scope="col">Mean points behind selected</th>
 <th scope="col">Training trials</th></tr></thead><tbody>{training_rows}</tbody></table></div>
 {rival_training_html}
-<h2>Rival assumptions</h2>
+<h2>{weather_heading}</h2>
 <p>Supplied weights are normalized to sum to one for the weighted result. A listed null
 override restores that rival driver to automatic policy; an empty list means no elective
 pit stops; an instruction list supplies the custom plan. Unlisted drivers keep their saved
 source pit-plan configuration. These weights describe assumptions for this comparison.</p>
+{weather_context}
 <div class="table-wrap context" tabindex="0" role="region" aria-label="Rival assumptions">
 <table><thead><tr><th scope="col">Rival scenario</th><th scope="col">Supplied weight</th>
 <th scope="col">Normalized weight</th><th scope="col">Rival driver overrides</th>
+{'<th scope="col">Race weather and schedule</th>' if weather_active else ''}
 <th scope="col">Detailed local exports</th></tr></thead>
 <tbody>{rival_rows_html}</tbody></table></div>
 <h2>Held-out validation</h2>

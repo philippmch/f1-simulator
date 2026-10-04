@@ -1,7 +1,7 @@
-# Selecting a pit plan across rival strategies
+# Selecting a pit plan across weather and rival strategies
 
 The rival-strategy workflow selects one target pit plan across a set of
-predeclared opponent-plan scenarios, then evaluates that frozen choice on a
+predeclared race-weather and opponent-plan scenarios, then evaluates that frozen choice on a
 disjoint seed range. Choose the candidate plans, rival scenarios, and scenario
 weights before looking at validation results. The supplied weights are explicit
 analysis assumptions; the simulator does not infer that they are real-world
@@ -15,11 +15,20 @@ competitor strategies, weather, or model assumptions.
 
 Enable pit-plan candidate selection, choose a driver or constructor and the
 selection objective, and enter
-the candidate plans and training/validation trial counts. Open **Rival strategy
-assumptions** and enable weighted rival scenarios. Add named scenarios with
+the candidate plans and training/validation trial counts. Open **Weather and rival
+assumptions** and enable weighted scenarios. Add named scenarios with
 positive relative weights, then add any rival-driver overrides. Drivers omitted
 from a scenario inherit their saved plan; the controls also offer automatic,
 no elective stops, and custom own-lap stops. Target members cannot be rivals.
+
+Each case can inherit the source race weather or choose dry, cloudy, light rain
+(rainfall and surface water 0.3), or heavy rain (both 0.8). The run's rainfall
+mode applies to the initial weather. Enable **Override known rainfall steps**
+to enter `LAP=RAIN[:CONDITION]` lines for that case, or leave its override empty
+to clear the source schedule. An unchecked override inherits the source schedule.
+Qualifying stays fixed to the source experiment across all cases. A single
+target plan is selected across the cases for each source weather entry; selecting
+several source weather entries still creates separate selection experiments.
 
 Each weather has a maximum workload of 1,000 races, including source trials,
 every candidate in every rival scenario for training, and both reference and
@@ -92,6 +101,57 @@ All target candidates, rival scenarios, plan overrides, and seed ranges are
 preflighted before simulation starts. Saved simulator models, engine, opening
 tyres, finite tyre pools, warm-up assumptions, and RNG policy are retained unless
 `--rng-policy` is supplied.
+
+## Joint weather and rival assumptions
+
+The same JSON format accepts optional `weather` and `weather_schedule` fields.
+For example, choose one target plan across a dry race and a race with known
+rainfall beginning on leading lap 12:
+
+```json
+{
+  "dry": {
+    "weight": 3,
+    "pit_plans": {},
+    "weather": {"condition": "dry", "rain_intensity": 0, "track_wetness": 0},
+    "weather_schedule": []
+  },
+  "rain at lap 12, rival stops at 13": {
+    "weight": 1,
+    "pit_plans": {"RIV": [{"lap": 13, "compound": "intermediate"}]},
+    "weather": {"condition": "dry", "rain_intensity": 0, "track_wetness": 0},
+    "weather_schedule": [
+      {"lap": 12, "rain_intensity": 0.8, "condition": "heavy_rain"}
+    ]
+  }
+}
+```
+
+`weather` is a partial Weather object. Omitted fields inherit the source,
+including temperatures, humidity, and `change_probability`. Omitted, `null`, or
+empty weather objects all inherit the source. Accepted fields are `condition`,
+`track_temperature`, `air_temperature`, `humidity`, `rain_intensity`,
+`track_wetness`, and `change_probability`, with the usual strict numeric bounds.
+Conditions are `dry`, `cloudy`, `light_rain`, and `heavy_rain`. A condition change
+alone does not replace inherited rainfall or surface water; supply those fields
+when you want them to change. Set `change_probability` to zero for fixed rainfall.
+
+Omitted or `null` `weather_schedule` inherits the source schedule. An explicit
+`[]` clears it. Nonempty schedules require ascending, unique leading laps from
+2 through the scheduled race distance and rainfall in 0–1; `condition` is optional.
+As with ordinary scheduled-weather runs, the strategy knows the schedule,
+atmospheric randomness is disabled, and surface water continues to evolve.
+
+Race-weather variation does not rerun qualifying under the changed weather.
+The effective Q1/Q2/Q3 weather from the source is frozen across every candidate,
+case, and phase. The selection metadata records `frozen_qualifying_weather`
+and each case's complete effective `weather` and `weather_schedule`; replay
+exports retain those same inputs. Native tests compare qualifying outcomes
+across cases and serial/process replay outcomes for both race engines.
+All other source controls, including finite tyre pools, opening tyre ages,
+fitting fees, and RNG policy, remain shared. Weighted cases express joint
+weather and rival-plan assumptions; their weights are not learned forecast
+probabilities. Rival-only requests retain their existing behavior and metadata.
 
 ## Scoring and validation
 

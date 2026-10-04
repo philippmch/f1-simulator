@@ -42,6 +42,7 @@ def _validate_comparison_bounds(num_simulations, max_workers):
 
 def _runner_variant(runner: MonteCarloRunner, **overrides) -> MonteCarloRunner:
     """Deep-copy saved runner inputs before running an offline variant."""
+    weather = overrides.pop("weather", runner.weather)
     values = {
         "seed": runner.base_seed,
         "race_engine": runner.race_engine,
@@ -60,7 +61,7 @@ def _runner_variant(runner: MonteCarloRunner, **overrides) -> MonteCarloRunner:
     return MonteCarloRunner(
         [driver.model_copy(deep=True) for driver in runner.drivers],
         {key: car.model_copy(deep=True) for key, car in runner.cars.items()},
-        runner.track.model_copy(deep=True), runner.weather.model_copy(deep=True),
+        runner.track.model_copy(deep=True), weather.model_copy(deep=True),
         **values,
     )
 

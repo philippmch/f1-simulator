@@ -151,6 +151,18 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
             name, weight: item.weight, normalized_weight: item.weight / totalWeight,
             rival_pit_plans: item.pit_plans,
           }));
+          const weatherActive = rivals.some(([, item]) =>
+            Object.keys(item.weather || {}).length || item.weather_schedule !== undefined);
+          if (weatherActive) {
+            metadata.method = 'weighted_weather_and_rival_training_then_disjoint_seed_validation';
+            metadata.frozen_qualifying_weather = Object.fromEntries(['Q1', 'Q2', 'Q3'].map(phase =>
+              [phase, {...scenario.simulation_inputs.weather, ...(requestPayload.qualifying_weather?.[phase] || {})}]));
+            metadata.rival_scenarios.forEach((row, index) => {
+              const item = rivals[index][1];
+              row.weather = {...scenario.simulation_inputs.weather, ...item.weather};
+              row.weather_schedule = item.weather_schedule ?? requestPayload.weather_schedule ?? [];
+            });
+          }
           metadata.training_scenario_score_tables = Object.fromEntries(rivals.map(([name, item]) => [name, {
             weight: item.weight, normalized_weight: item.weight / totalWeight, scores: candidateRows,
           }]));
@@ -172,6 +184,19 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
             }))]));
           entry.training_by_rival_scenario = Object.fromEntries(rivals.map(([name]) => [name, entry.training]));
           entry.validation_by_rival_scenario = Object.fromEntries(rivals.map(([name]) => [name, entry.validation]));
+          if (weatherActive) {
+            for (const row of metadata.rival_scenarios) {
+              for (const phase of ['training', 'validation']) {
+                const group = JSON.parse(JSON.stringify(entry[`${phase}_by_rival_scenario`][row.name]));
+                for (const saved of Object.values(group.scenarios)) {
+                  saved.simulation_inputs.weather = row.weather;
+                  saved.simulation_inputs.weather_schedule = row.weather_schedule;
+                  saved.simulation_inputs.qualifying_weather = metadata.frozen_qualifying_weather;
+                }
+                entry[`${phase}_by_rival_scenario`][row.name] = group;
+              }
+            }
+          }
           delete entry.training;
           delete entry.validation;
           entry.validation_report_html = '<!doctype html><title>Weighted rival selection</title><p>Frozen weighted validation evidence</p>';
@@ -2298,6 +2323,77 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         await page.locator('#tab-scenarios').click();
       }
       await page.locator('#tab-race').click();
+      const previousWeatherControls = await page.evaluate(() => ({
+        mode: document.getElementById('weatherModeSelect').value,
+        schedule: document.getElementById('weatherScheduleInput').value,
+      }));
+      await page.locator('#weatherModeSelect').selectOption('fixed_rainfall');
+      await page.locator('#weatherScheduleInput').fill('3=0.2:light_rain');
+      await weightedRows.first().locator('.pit-rival-name').fill('__proto__');
+      await weightedRows.first().locator('.pit-rival-weight').fill('1');
+      await weightedRows.first().locator('.pit-rival-weather').selectOption('dry');
+      await weightedRows.first().locator('.pit-rival-schedule-enabled').check();
+      await weightedRows.first().locator('.pit-rival-schedule').fill('');
+      await weightedRows.last().locator('.pit-rival-weather').selectOption('heavy_rain');
+      await weightedRows.last().locator('.pit-rival-schedule-enabled').check();
+      await weightedRows.last().locator('.pit-rival-schedule').fill('1=0.8:heavy_rain');
+      assert.equal(await page.evaluate(() => buildRunPayload()), null,
+        'Invalid case rainfall steps must be rejected before submission');
+      assert(await weightedRows.last().locator('.pit-rival-schedule').evaluate(node =>
+        document.activeElement === node));
+      await weightedRows.last().locator('.pit-rival-schedule').fill('2=0.8:heavy_rain\n4=0:dry');
+      const weatherResponsePromise = page.waitForResponse(response => response.url().endsWith('/api/run'));
+      await page.locator('#btnRun').click();
+      const weatherResponse = await weatherResponsePromise;
+      assert.equal(weatherResponse.status(), 200);
+      const weatherRequest = weatherResponse.request().postDataJSON();
+      assert.deepEqual(weatherRequest.pit_plan_selection.rival_scenarios.__proto__, {
+        weight: 1, pit_plans: {S02: [{lap: 18, compound: 'hard'}]}, weather: {condition: 'dry', rain_intensity: 0,
+          track_wetness: 0, change_probability: 0}, weather_schedule: [],
+      });
+      assert.deepEqual(Object.values(weatherRequest.pit_plan_selection.rival_scenarios)[1].weather_schedule,
+        [{lap: 2, rain_intensity: .8, condition: 'heavy_rain'}, {lap: 4, rain_intensity: 0, condition: 'dry'}]);
+      await page.waitForFunction(() => !runInProgress && simResults?.strategy_selections?.dry?.selection?.frozen_qualifying_weather);
+      await page.locator('#tab-scenarios').click();
+      await weightedResult.locator('details').evaluateAll(nodes => nodes.forEach(node => { node.open = true; }));
+      const weatherText = await weightedResult.innerText();
+      assert(weatherText.includes('Frozen weather and rival assumptions'));
+      assert(weatherText.includes('Shared qualifying weather (frozen)'));
+      assert(weatherText.includes('Initial race weather:') && weatherText.includes('Known rainfall steps:'));
+      assert.equal(await weightedResult.locator('[aria-label="Frozen rival plans and weights"] thead th').count(), 5);
+      assert.equal(await weightedResult.locator('img').count(), 0);
+      const frozenWeatherEntry = await page.evaluate(() => JSON.stringify(simResults.strategy_selections.dry));
+      await page.locator('#tab-race').click();
+      await weightedRows.first().locator('.pit-rival-weather').selectOption('light_rain');
+      await weightedRows.last().locator('.pit-rival-schedule').fill('2=0.1');
+      await page.locator('#tab-scenarios').click();
+      await page.evaluate(() => renderPitPlanSelectionResults(simResults));
+      assert.equal(await page.evaluate(() => JSON.stringify(simResults.strategy_selections.dry)), frozenWeatherEntry);
+      for (const phase of ['training', 'validation']) {
+        const downloadPromise = page.waitForEvent('download');
+        await page.locator(`#downloadPitSelection${phase === 'training' ? 'Training' : 'Validation'}Btn`).click();
+        const saved = JSON.parse(readFileSync(await (await downloadPromise).path(), 'utf8'));
+        assert.deepEqual(saved.selection, JSON.parse(frozenWeatherEntry).selection);
+        for (const item of saved.rival_scenario_index) {
+          const expected = saved.selection.rival_scenarios.find(row => row.name === item.rival_scenario);
+          const inputs = saved.scenarios[item.scenario_key].simulation_inputs;
+          assert.deepEqual(inputs.weather, expected.weather);
+          assert.deepEqual(inputs.weather_schedule, expected.weather_schedule);
+          assert.deepEqual(inputs.qualifying_weather, saved.selection.frozen_qualifying_weather);
+        }
+        await page.waitForTimeout(1100);
+      }
+      for (const width of [390, 1440]) {
+        await page.setViewportSize({width, height: 900});
+        await weightedResult.locator('details').evaluateAll(nodes => nodes.forEach(node => { node.open = true; }));
+        assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+          `Weather case evidence overflows at ${width}px`);
+      }
+      await page.locator('#tab-race').click();
+      await page.locator('#weatherModeSelect').selectOption(previousWeatherControls.mode);
+      await page.locator('#weatherScheduleInput').fill(previousWeatherControls.schedule);
+      await weightedRows.locator('.pit-rival-weather').evaluateAll(nodes => nodes.forEach(node => { node.value = 'source'; }));
+      for (const checkbox of await weightedRows.locator('.pit-rival-schedule-enabled').all()) await checkbox.uncheck();
       await page.locator('#pitRivalEnabled').uncheck();
       await page.locator('#pitRivalEditor').evaluate(node => { node.open = false; });
       const allCandidateRows = page.locator('#pitPlanSelectionCandidates .pit-selection-candidate');

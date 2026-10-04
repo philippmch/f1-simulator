@@ -40,6 +40,10 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
           return route.fulfill({contentType: 'text/html; charset=utf-8',
             body: fixture.rival_selection_report});
         }
+        if (name === 'weather-selection.html') {
+          return route.fulfill({contentType: 'text/html; charset=utf-8',
+            body: fixture.weather_selection_report});
+        }
         if (name === 'index.html' || name === fixture.filename) {
           return route.fulfill({contentType: 'text/html; charset=utf-8',
             body: name === 'index.html' ? fixture.index : fixture.report});
@@ -364,6 +368,27 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         await page.screenshot({path: path.join(process.env.F1SIM_SCREENSHOTS,
           `rival-selection-${width}.png`), fullPage: true});
       }
+    }
+    await page.goto('http://f1sim.test/weather-selection.html');
+    assert.equal(await page.getByRole('heading', {
+      name: 'Weighted weather and rival strategy selection', exact: true,
+    }).count(), 1);
+    const weatherAssumptions = page.getByRole('region', {name: 'Rival assumptions', exact: true});
+    assert.equal(await weatherAssumptions.locator('thead th').count(), 6);
+    const weatherText = await weatherAssumptions.innerText();
+    assert(weatherText.includes('light_rain') && weatherText.includes('heavy_rain'));
+    assert(weatherText.includes('Initial race weather:') && weatherText.includes('Known rainfall steps:'));
+    await page.locator('summary').filter({hasText: 'Shared qualifying weather (frozen)'}).click();
+    assert((await page.locator('body').innerText()).includes('Q1'));
+    assert((await page.locator('body').innerText()).includes('Q2'));
+    assert((await page.locator('body').innerText()).includes('Q3'));
+    assert.equal(await page.locator('script, img, svg, link').count(), 0);
+    assert.equal(await page.evaluate(() => Boolean(globalThis.reportInjected)), false);
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({width, height: 1000});
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+      await weatherAssumptions.focus();
+      assert(await weatherAssumptions.evaluate(node => document.activeElement === node));
     }
     assert.deepEqual(errors, []);
     assert.deepEqual(unexpected, []);

@@ -158,7 +158,15 @@ def test_weighted_budget_counts_every_assumption_before_live_loading(monkeypatch
         ))
 
 
-def test_http_rejects_invalid_rival_weight_before_capacity_admission(monkeypatch):
+@pytest.mark.parametrize("override,message", [
+    ({"weight": 0}, "positive finite"),
+    ({"weather": {"rain_intensity": True}}, "Invalid race weather"),
+    ({"weather": {"unknown": 1}}, "unknown"),
+    ({"weather_schedule": [{"lap": 1, "rain_intensity": .5}]}, "lap"),
+])
+def test_http_rejects_invalid_assumptions_before_capacity_admission(
+    monkeypatch, override, message,
+):
     pytest.importorskip("fastapi")
     from fastapi.testclient import TestClient
 
@@ -173,7 +181,7 @@ def test_http_rejects_invalid_rival_weight_before_capacity_admission(monkeypatch
     monkeypatch.setattr(server, "_current_season", lambda: 2026)
     monkeypatch.setattr(server, "RunCapacity", NoCapacity)
     selection = _selection(rival_scenarios={
-        "zero": {"weight": 0, "pit_plans": {}},
+        "invalid": {"weight": 1, "pit_plans": {}, **override},
     })
     with TestClient(server.build_fastapi_app()) as client:
         response = client.post("/api/run", json={
@@ -184,7 +192,58 @@ def test_http_rejects_invalid_rival_weight_before_capacity_admission(monkeypatch
         })
 
     assert response.status_code == 422
-    assert "positive finite" in response.text
+    assert message in response.text
+
+
+@pytest.mark.parametrize("engine", ["standard", "chronological"])
+def test_dashboard_weather_cases_freeze_qualifying_and_export_actual_inputs(monkeypatch, engine):
+    _install_loader(monkeypatch)
+    assumptions = {
+        "inherited": {"weight": 1, "pit_plans": {}},
+        "cleared dry": {"weight": 2, "pit_plans": {}, "weather_schedule": [],
+                        "weather": {"condition": "dry", "track_wetness": 0,
+                                    "rain_intensity": 0}},
+        "timed rain": {"weight": 1, "pit_plans": {"B": []},
+                       "weather": {"condition": "heavy_rain", "track_wetness": .8,
+                                   "rain_intensity": .8},
+                       "weather_schedule": [{"lap": 2, "rain_intensity": 0,
+                                             "condition": "dry"}]},
+    }
+    result = server.run_dashboard_simulation(_request(
+        race_engine=engine, scenarios="dry,light_rain", weather_mode="fixed_rainfall",
+        weather_schedule=[{"lap": 3, "rain_intensity": .5}],
+        qualifying_weather={"Q1": {"condition": "cloudy"}},
+        pit_plan_selection=_selection(rival_scenarios=assumptions),
+    ))
+    assert result["request"]["pit_plan_selection"]["rival_scenarios"] == assumptions
+    for entry in result["strategy_selections"].values():
+        selection = entry["selection"]
+        assert "weather_and_rival" in selection["method"]
+        assert selection["frozen_qualifying_weather"]["Q1"]["condition"] == "cloudy"
+        assert entry["source"]["simulation_inputs"]["weather_schedule"] == [
+            {"lap": 3, "rain_intensity": .5},
+        ]
+        for case in selection["rival_scenarios"]:
+            for phase in ("training", "validation"):
+                variants = entry[f"{phase}_by_rival_scenario"][case["name"]]["scenarios"]
+                for summary in variants.values():
+                    inputs = summary["simulation_inputs"]
+                    assert inputs["weather"] == case["weather"]
+                    assert inputs.get("weather_schedule", []) == case["weather_schedule"]
+                    assert inputs["qualifying_weather"] == selection["frozen_qualifying_weather"]
+        assert "Race weather and schedule" in entry["validation_report_html"]
+        assert "Shared qualifying weather (frozen)" in entry["validation_report_html"]
+
+
+def test_weather_distance_preflight_happens_before_source_trials(monkeypatch):
+    _install_loader(monkeypatch)
+    monkeypatch.setattr(server.MonteCarloRunner, "run", lambda *a, **kw: pytest.fail("trial work"))
+    with pytest.raises(ValueError, match="through the scheduled distance"):
+        server.run_dashboard_simulation(_request(pit_plan_selection=_selection(
+            rival_scenarios={"too late": {"weight": 1, "pit_plans": {},
+                                          "weather_schedule": [{"lap": 4,
+                                                                "rain_intensity": .8}]}},
+        )))
 
 
 @pytest.mark.parametrize(

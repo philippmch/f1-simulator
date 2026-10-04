@@ -15,7 +15,10 @@ from compare_pit_plans import _load_plans, _workers
 
 from f1sim.analysis.paired_comparison import paired_comparison_statistics
 from f1sim.analysis.provenance import format_saved_runtime_status, saved_runtime_status
-from f1sim.analysis.rival_strategy_selection import evaluate_saved_rival_pit_plan_selection
+from f1sim.analysis.rival_strategy_selection import (
+    evaluate_saved_rival_pit_plan_selection,
+    validate_rival_pit_plan_selection_request,
+)
 from f1sim.analysis.strategy_selection import SELECTION_OBJECTIVES
 from f1sim.output import Exporter
 from f1sim.output.qualifying_context import qualifying_weather_context
@@ -147,9 +150,12 @@ def _load_rival_scenarios(path: Path) -> dict:
             raise ValueError(
                 "rival scenario names must be nonempty strings of at most 80 characters",
             )
-        if not isinstance(definition, dict) or set(definition) != {"weight", "pit_plans"}:
+        required = {"weight", "pit_plans"}
+        if (not isinstance(definition, dict) or not required <= set(definition)
+                or set(definition) - required - {"weather", "weather_schedule"}):
             raise ValueError(
-                f"rival scenario {label!r} must contain exactly weight and pit_plans",
+                f"rival scenario {label!r} requires weight and pit_plans "
+                "with optional race weather",
             )
         weight = definition["weight"]
         try:
@@ -169,6 +175,7 @@ def _load_rival_scenarios(path: Path) -> dict:
                 raise ValueError(
                     f"rival scenario {label!r} plan for {driver_id!r} must be a list or null",
                 )
+    validate_rival_pit_plan_selection_request(value)
     return value
 
 
@@ -221,13 +228,15 @@ def _print_validation_scenarios(
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Select one pit plan across predeclared, weighted rival-plan scenarios, "
+            "Select one pit plan across predeclared, weighted weather and rival-plan scenarios, "
             "then validate the frozen choice on disjoint seeds."
         ),
         epilog=(
             "Rival-scenarios JSON maps names to {weight, pit_plans}; each pit_plans object "
             "maps rival driver IDs to null (automatic policy), [] (no elective stops), or "
-            "normal pit-plan instruction lists. Scenario weights are user-supplied analysis "
+            "normal pit-plan instruction lists. Optional weather fields inherit source values; "
+            "weather_schedule overrides known rainfall steps ([] clears them). Qualifying "
+            "weather stays shared. Scenario weights are user-supplied analysis "
             "assumptions, not probabilities learned from race data."
         ),
     )
@@ -243,7 +252,7 @@ def main() -> int:
                         help="Maximize expected points, race-win or podium probability")
     parser.add_argument(
         "--rival-scenarios", required=True, type=Path,
-        help="JSON file mapping scenario names to positive weights and rival plan overrides",
+        help="JSON file of weighted rival plans, optionally with weather and weather_schedule",
     )
     parser.add_argument("--scenario", help="Exact source scenario when the file contains several")
     parser.add_argument("--training-simulations", type=_phase_simulations, default=100,
@@ -313,6 +322,17 @@ def main() -> int:
                 f"  {label}: supplied {weight_text}, "
                 f"normalized {_selection_number(normalized_weights[label])}",
             )
+            if "weather" in scenario_metadata[label]:
+                print("    Frozen initial race weather: " + json.dumps(
+                    scenario_metadata[label]["weather"], ensure_ascii=False, sort_keys=True,
+                ))
+                print("    Frozen known rainfall steps: " + json.dumps(
+                    scenario_metadata[label]["weather_schedule"], ensure_ascii=False,
+                ))
+        if "frozen_qualifying_weather" in selection:
+            print("Shared qualifying weather (frozen): " + json.dumps(
+                selection["frozen_qualifying_weather"], ensure_ascii=False, sort_keys=True,
+            ))
         _print_objective_summary(selection)
         print("Weighted training mean points:")
         for row in selection["training_score_table"]:

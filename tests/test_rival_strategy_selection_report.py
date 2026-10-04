@@ -119,6 +119,26 @@ def test_report_shows_frozen_constructor_training_and_heldout_evidence_safely():
     assert all("/" not in href and "\\" not in href and ":" not in href for href in hrefs)
 
 
+def test_weather_report_uses_frozen_case_inputs_and_escapes_qualifying_metadata():
+    manifest = _manifest()
+    selection = manifest["selection"]
+    hostile = '</code><img src=x onerror="alert(1)">'
+    selection["frozen_qualifying_weather"] = {"Q1": {"condition": hostile}}
+    selection["rival_scenarios"][0].update({
+        "weather": {"condition": "light_rain", "track_wetness": .3, "rain_intensity": .4},
+        "weather_schedule": [{"lap": 4, "rain_intensity": .8, "condition": hostile}],
+    })
+    manifest["report_context"]["weather_schedule_context"] = "Only first case schedule"
+    report = render_rival_strategy_selection_report(manifest)
+    assert "Weighted weather and rival strategy selection" in report
+    assert "Race weather and schedule" in report and "Initial race weather:" in report
+    assert "Known rainfall steps:" in report and "light_rain" in report
+    assert "Shared qualifying weather (frozen)" in report
+    assert "Source race charts retain their original conditions" in report
+    assert "Only first case schedule" not in report
+    assert "&lt;img" in report and "<img" not in report and "<script>" not in report
+
+
 @pytest.mark.parametrize("gap,tied,expected", [
     (0, True, "0.000 (exact tie)"),
     (0, False, "Below numeric reporting precision"),

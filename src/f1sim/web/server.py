@@ -93,6 +93,8 @@ class DashboardRivalScenario(BaseModel):
 
     weight: StrictInt | StrictFloat
     pit_plans: dict[StrictStr, Any]
+    weather: dict[StrictStr, Any] | None = None
+    weather_schedule: Any = None
 
 
 class DashboardPitPlanSelectionRequest(BaseModel):
@@ -718,6 +720,11 @@ def _dashboard_request_metadata(
         selection_metadata = selection.model_dump(mode="json")
         if selection.rival_scenarios is None:
             selection_metadata.pop("rival_scenarios", None)
+        else:
+            for assumption in selection_metadata["rival_scenarios"].values():
+                for optional in ("weather", "weather_schedule"):
+                    if assumption[optional] is None:
+                        assumption.pop(optional)
         metadata["pit_plan_selection"] = selection_metadata
     return metadata
 

@@ -34,7 +34,7 @@ def _scalable_plan_result(driver_id, marker, *, hostile_last=False):
     )
 
 
-def _selection_report_fixture(exporter):
+def _selection_report_fixture(exporter, *, weather=False):
     name = "../cautious <rival>"
     # Paired changes [5, 5, 0, -2]: two gains, one tie, and one loss.
     outcome_profile = {
@@ -97,6 +97,18 @@ def _selection_report_fixture(exporter):
         }},
         "selection_report_html": f"rival_selection_{run_id}_summary.html",
     }
+    if weather:
+        selection = manifest["selection"]
+        selection["frozen_qualifying_weather"] = {
+            phase: Weather(change_probability=0).model_dump(mode="json")
+            for phase in ("Q1", "Q2", "Q3")
+        }
+        selection["rival_scenarios"][0].update({
+            "weather": Weather(condition="light_rain", rain_intensity=.3,
+                               track_wetness=.3, change_probability=0).model_dump(mode="json"),
+            "weather_schedule": [{"lap": 4, "rain_intensity": .8, "condition": "heavy_rain"}],
+        })
+        manifest["selection_report_html"] = f"rival_selection_{run_id}_weather_summary.html"
     return exporter.export_rival_strategy_selection_html(
         manifest, filename=manifest["selection_report_html"], manifest_filename=manifest_name,
     ).read_text(encoding="utf-8")
@@ -197,6 +209,7 @@ def build_fixture():
             scalable_first, filename="large-run.html",
         ).read_text(encoding="utf-8")
         rival_selection_report = _selection_report_fixture(exporter)
+        weather_selection_report = _selection_report_fixture(exporter, weather=True)
         exporter._write_history([{
             "timestamp": "<img src=x onerror=globalThis.exportInjected=true>",
             "track": track, "num_simulations": 1, "seed": 42,
@@ -208,6 +221,7 @@ def build_fixture():
             "scalable_plan_report": scalable_plan_report,
             "scalable_run_report": scalable_run_report,
             "rival_selection_report": rival_selection_report,
+            "weather_selection_report": weather_selection_report,
             "paired_stats": paired_stats["variants"]["soft"]["driver_statistics"]["A"],
             "paired_constructor_stats": paired_constructor_stats,
             "track": track, "driver": driver,

@@ -651,7 +651,7 @@ def test_constructor_target_sums_members_inside_each_seed_and_returns_scenario_r
         (_scenarios(float("nan"), 1), "positive finite"),
         (_scenarios(1e-300, 1e300), "normalize safely"),
         ({" ": {"weight": 1, "pit_plans": {}}}, "at most 80"),
-        ({"extra": {"weight": 1, "pit_plans": {}, "surprise": True}}, "exactly weight"),
+        ({"extra": {"weight": 1, "pit_plans": {}, "surprise": True}}, "must contain weight"),
     ],
 )
 def test_invalid_weights_and_scenario_definitions_fail_before_running(

@@ -161,6 +161,65 @@ def test_cli_invalid_objective_is_rejected_before_source_and_exports(tmp_path, m
     assert error.value.code == 2 and not output.exists()
 
 
+def test_cli_joint_weather_exports_replay_each_case_with_shared_qualifying(
+    tmp_path, monkeypatch, capsys,
+):
+    source = _saved(tmp_path)
+    before = source.read_bytes()
+    assumptions = {
+        "dry": {"weight": 2, "pit_plans": {}, "weather_schedule": []},
+        "rain <case>": {"weight": 1, "pit_plans": {"B": []},
+                        "weather": {"condition": "light_rain", "rain_intensity": .3,
+                                    "track_wetness": .3},
+                        "weather_schedule": [{"lap": 3, "rain_intensity": .8,
+                                              "condition": "heavy_rain"}]},
+    }
+    plans, scenarios = _write_inputs(tmp_path, json.dumps(assumptions))
+    output = tmp_path / "weather-selection"
+    assert _invoke(monkeypatch, source, plans, scenarios, output,
+                   "--objective", "win", "--export") == 0
+    text = capsys.readouterr().out
+    assert "Frozen initial race weather" in text and "Frozen known rainfall steps" in text
+    assert "Shared qualifying weather (frozen)" in text
+    manifest = json.loads(next(output.glob("rival_selection_manifest_*.json")).read_text(
+        encoding="utf-8",
+    ))
+    selection = manifest["selection"]
+    assert "weather_and_rival" in selection["method"]
+    assert "Race weather and schedule" in (output / manifest["selection_report_html"]).read_text(
+        encoding="utf-8",
+    )
+    for case in selection["rival_scenarios"]:
+        for phase in ("training", "validation"):
+            path = output / manifest["rival_scenarios"][case["name"]][f"{phase}_comparison_json"]
+            saved = json.loads(path.read_text(encoding="utf-8"))
+            for label in saved["scenarios"]:
+                replay = replay_saved_simulation(path, 1, scenario=label)
+                assert replay.seed == selection["seed_ranges"][phase]["first_seed"]
+                assert replay.input_snapshot["weather"] == case["weather"]
+                assert replay.input_snapshot.get("weather_schedule", []) == case["weather_schedule"]
+                assert replay.input_snapshot["qualifying_weather"] == (
+                    selection["frozen_qualifying_weather"]
+                )
+    assert source.read_bytes() == before
+
+
+@pytest.mark.parametrize("override", [
+    {"weather": {"humidity": "0.5"}},
+    {"weather_schedule": [{"lap": 2, "rain_intensity": True}]},
+])
+def test_cli_weather_preflight_rejects_before_source_loading_or_exports(
+    tmp_path, monkeypatch, override,
+):
+    plans, scenarios = _write_inputs(tmp_path, json.dumps({
+        "invalid": {"weight": 1, "pit_plans": {}, **override},
+    }))
+    output = tmp_path / "output"
+    with pytest.raises(SystemExit) as error:
+        _invoke(monkeypatch, tmp_path / "missing.json", plans, scenarios, output, "--export")
+    assert error.value.code == 2 and not output.exists()
+
+
 def test_cli_exports_weighted_selection_and_each_scenario_for_replay(
     tmp_path, monkeypatch, capsys,
 ):
