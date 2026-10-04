@@ -2200,6 +2200,13 @@ input:focus-visible {
           <summary>Weather and rival assumptions (optional)</summary>
           <p class="pit-selection-intro">Choose one plan across possible race weather and rival plans. Weights express your assumptions, not measured probabilities. Qualifying stays shared across cases; drivers without an override retain their saved plan.</p>
           <label><input type="checkbox" id="pitRivalEnabled"> Include weighted scenarios</label>
+          <label id="pitRivalSelectionMethodLabel" hidden><span>Choose across scenarios</span>
+            <select id="pitRivalSelectionMethod" disabled aria-describedby="pitRivalMethodHelp">
+              <option value="weighted_mean">Highest weighted average</option>
+              <option value="minimax_regret">Limit worst scenario shortfall</option>
+            </select>
+          </label>
+          <p class="pit-selection-intro" id="pitRivalMethodHelp" hidden>Maximum shortfall compares each plan with the best candidate mean in each scenario. This choice considers every supplied scenario; weights apply to aggregate results.</p>
           <div id="pitRivalScenarios" class="pit-selection-candidate-list" hidden></div>
           <button type="button" class="scenario-preset" id="addPitRivalScenario" hidden>Add scenario</button>
         </details>
@@ -3566,6 +3573,12 @@ function addPitRivalScenario() {
 
 function syncPitRivalControls() {
   const enabled = document.getElementById('pitRivalEnabled')?.checked;
+  const method = document.getElementById('pitRivalSelectionMethod');
+  if (method) method.disabled = !enabled || runInProgress || connectionRefreshInProgress;
+  const methodLabel = document.getElementById('pitRivalSelectionMethodLabel');
+  const methodHelp = document.getElementById('pitRivalMethodHelp');
+  if (methodLabel) methodLabel.hidden = !enabled;
+  if (methodHelp) methodHelp.hidden = !enabled;
   const container = document.getElementById('pitRivalScenarios');
   const add = document.getElementById('addPitRivalScenario');
   if (container) container.hidden = !enabled;
@@ -3966,7 +3979,19 @@ function buildPitPlanSelectionPayload(sourceSimulations) {
     validation_simulations: validationSimulations,
     objective,
   };
-  if (rivalResult.scenarios) selection.rival_scenarios = rivalResult.scenarios;
+  if (rivalResult.scenarios) {
+    const methodInput = document.getElementById('pitRivalSelectionMethod');
+    const method = methodInput.value;
+    if (!['weighted_mean', 'minimax_regret'].includes(method)) {
+      const message = 'Choose a weighted average or maximum scenario shortfall.';
+      setStatusMessage(message, 'error');
+      updatePitSelectionStatus(message);
+      methodInput.focus();
+      return {ok: false};
+    }
+    selection.rival_scenarios = rivalResult.scenarios;
+    selection.selection_method = method;
+  }
   return {ok: true, selection};
 }
 
@@ -6447,6 +6472,7 @@ function selectionTrainingShortfall(row, selectedLabel, objective = 'points') {
 
 function selectionReason(reason) {
   switch (reason) {
+    case 'unique_lowest_training_maximum_regret': return 'Unique lowest maximum training shortfall across scenarios.';
     case 'unique_highest_weighted_training_mean': return 'Unique highest weighted training score.';
     case 'reference_preferred_on_exact_tie': return 'Fixed reference preferred on an exact training tie.';
     case 'first_plan_order_on_exact_tie': return 'Candidate order decided an exact training tie.';
@@ -6507,6 +6533,30 @@ function selectionPointsOutcomeProfile(metrics, identity) {
       <tbody><tr><td>${selectionCount(profile.more_points_races)}</td><td>${selectionCount(profile.equal_points_races)}</td><td>${selectionCount(profile.fewer_points_races)}</td><td>${escapeHtml(conditional(profile.mean_points_gain_when_ahead, 'more_points_races', 'No gain trials'))}</td><td>${escapeHtml(conditional(profile.mean_points_loss_when_behind, 'fewer_points_races', 'No loss trials'))}</td></tr></tbody>
     </table>
   </div>`;
+}
+
+function renderSelectionRegretEvidence(selection) {
+  if (selection.selection_method !== 'minimax_regret') return '';
+  const probability = ['win', 'podium'].includes(selection.objective);
+  const unit = probability ? 'percentage points' : 'points';
+  const number = value => typeof value === 'number' && Number.isFinite(value)
+    ? selectionNumber(value * (probability ? 100 : 1)) : 'Not recorded';
+  const rows = [], details = [];
+  for (const row of Array.isArray(selection.training_regret_table) ? selection.training_regret_table : []) {
+    if (!row || typeof row !== 'object') continue;
+    const label = typeof row.label === 'string' ? row.label : 'Not recorded';
+    const worst = Array.isArray(row.worst_scenarios)
+      ? row.worst_scenarios.filter(name => typeof name === 'string').join(', ') : 'Not recorded';
+    rows.push(`<tr><th scope="row">${escapeHtml(label)}</th><td>${number(row.maximum_regret)}</td><td>${escapeHtml(worst)}</td><td>${selectionCount(row.trials_per_scenario)}</td></tr>`);
+    for (const [name, evidence] of Object.entries(selectionRecord(row.scenarios))) {
+      const value = selectionRecord(evidence);
+      details.push(`<tr><th scope="row">${escapeHtml(label)}</th><td>${escapeHtml(name)}</td><td>${number(value.mean_score)}</td><td>${number(value.best_candidate_mean_score)}</td><td>${number(value.regret)}</td></tr>`);
+    }
+  }
+  return `<section aria-label="Minimax regret training choice"><h4>Minimax regret training choice</h4>
+    <p>Choose the smallest maximum scenario shortfall from that scenario's best candidate mean. Weights do not affect the choice. These training means use ${unit}; the maximum is not a bound on individual races or unseen scenarios. Changing the candidates or scenarios can change the choice.</p>
+    <div class="pit-selection-result-table-wrap" tabindex="0" role="region" aria-label="Maximum training shortfalls"><table class="matrix-table pit-selection-result-table"><thead><tr><th>Candidate</th><th>Maximum shortfall</th><th>Worst scenarios</th><th>Trials per scenario</th></tr></thead><tbody>${rows.join('') || '<tr><td colspan="4">Training shortfalls not recorded.</td></tr>'}</tbody></table></div>
+    <div class="pit-selection-result-table-wrap" tabindex="0" role="region" aria-label="Scenario training shortfalls"><table class="matrix-table pit-selection-result-table"><thead><tr><th>Candidate</th><th>Scenario</th><th>Candidate mean</th><th>Best candidate mean</th><th>Shortfall</th></tr></thead><tbody>${details.join('') || '<tr><td colspan="5">Scenario shortfalls not recorded.</td></tr>'}</tbody></table></div></section>`;
 }
 
 function renderPitRivalEvidence(selection, identity) {
@@ -6612,6 +6662,7 @@ function renderPitPlanSelectionResults(data) {
   const sourceTrials = Number.isInteger(source.num_simulations) ? source.num_simulations : 'Not recorded';
   const weighted = Array.isArray(selection.rival_scenarios);
   const objective = selection.objective || 'points';
+  const minimax = selection.selection_method === 'minimax_regret';
   const scoreRows = Array.isArray(selection.training_score_table)
     ? selection.training_score_table.filter(row => row && typeof row === 'object').map(row => {
       const label = typeof row.label === 'string' ? row.label : 'Not recorded';
@@ -6619,7 +6670,7 @@ function renderPitPlanSelectionResults(data) {
         label === selectedLabel ? 'Chosen on training data' : '',
         label === referenceLabel ? 'Fixed reference' : '',
       ].filter(Boolean).join(' · ');
-      return `<tr><th scope="row">${escapeHtml(label)}${roles ? `<span class="pit-selection-quiet">${escapeHtml(roles)}</span>` : ''}</th><td>${selectionNumber(row.mean_points)}</td>${weighted ? `<td>${selectionTrainingShortfall(row, selectedLabel, objective)}</td>` : ''}<td>${selectionCount(row.trials)}</td></tr>`;
+      return `<tr><th scope="row">${escapeHtml(label)}${roles ? `<span class="pit-selection-quiet">${escapeHtml(roles)}</span>` : ''}</th><td>${selectionNumber(row.mean_points)}</td>${weighted ? `<td>${minimax ? selectionSignedNumber(row.mean_points_behind_selected) : selectionTrainingShortfall(row, selectedLabel, objective)}</td>` : ''}<td>${selectionCount(row.trials)}</td></tr>`;
     }).join('') : '';
   const planLabels = identity ? [selectedLabel || referenceLabel]
     : [selectedLabel, referenceLabel];
@@ -6651,12 +6702,13 @@ function renderPitPlanSelectionResults(data) {
       <button class="btn-simulate" type="button" id="downloadPitSelectionReportBtn" ${hasReport ? '' : 'disabled'}>Download validation report</button>
     </div>
     ${renderPitRivalEvidence(selection, identity)}
+    ${renderSelectionRegretEvidence(selection)}
     ${renderSelectionObjectiveEvidence(selection, identity)}
-    <h4>${Array.isArray(selection.rival_scenarios) ? 'Weighted training choice' : 'Training choice'}</h4>
-    <p>${objective === 'points' ? 'Candidate means below are training scores used to choose the plan.' : 'Candidate points below provide context. The objective probabilities above determine the training winner.'} They are separate from held-out validation estimates.</p>
+    <h4>${minimax ? 'Weighted training context' : weighted ? 'Weighted training choice' : 'Training choice'}</h4>
+    <p>${minimax ? 'Maximum scenario shortfall chose the plan. Weighted means below provide context; selected-minus-candidate differences can be negative.' : objective === 'points' ? 'Candidate means below are training scores used to choose the plan.' : 'Candidate points below provide context. The objective probabilities above determine the training winner.'} They are separate from held-out validation estimates.</p>
     ${weighted ? `<p>${selectionReason(selection.tiebreak_applied)} Displayed means are rounded; shortfalls and exact tie flags describe only the training cohort, not independent or calibrated advantages.</p>` : ''}
     <div class="pit-selection-result-table-wrap" tabindex="0" role="region" aria-label="Training scores for ${escapeHtml(weatherLabel)} weather">
-      <table class="matrix-table pit-selection-result-table"><thead><tr><th scope="col">Candidate plan</th><th scope="col">Mean target points</th>${weighted ? '<th scope="col">Mean points behind selected</th>' : ''}<th scope="col">Training trials</th></tr></thead><tbody>${scoreRows || `<tr><td colspan="${weighted ? 4 : 3}">Training scores not recorded.</td></tr>`}</tbody></table>
+      <table class="matrix-table pit-selection-result-table"><thead><tr><th scope="col">Candidate plan</th><th scope="col">Mean target points</th>${weighted ? `<th scope="col">${minimax ? 'Selected minus candidate mean points' : 'Mean points behind selected'}</th>` : ''}<th scope="col">Training trials</th></tr></thead><tbody>${scoreRows || `<tr><td colspan="${weighted ? 4 : 3}">Training scores not recorded.</td></tr>`}</tbody></table>
     </div>
     <h4>Frozen plans</h4>
     <div class="pit-selection-result-table-wrap" tabindex="0" role="region" aria-label="Frozen selected and reference plans">

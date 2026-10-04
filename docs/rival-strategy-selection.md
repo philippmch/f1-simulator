@@ -47,6 +47,80 @@ The HTML report includes the weighted and per-scenario
 evidence. Existing race and statistics charts continue to describe the source
 run, rather than a synthetic weighted race.
 
+## Limit scenario shortfall
+
+Under **Choose across scenarios**, the default **Highest weighted average**
+chooses the largest weighted mean of the selected points, win or podium objective.
+**Limit worst scenario shortfall** instead uses minimax regret: for each scenario,
+compare a candidate's training mean with the best training mean among the supplied
+candidates. Choose the candidate whose largest such shortfall is smallest.
+
+This is a decision preference for the supplied scenario and candidate sets. The
+[finite-scenario minimax-regret analysis by Anderson and Zachary](https://arxiv.org/html/2203.01420)
+defines regret relative to the best available decision in a scenario and explains
+why the choice can depend on the scenarios and alternatives included. It does not
+validate the simulator's scenarios or establish that this preference is best for
+a real race.
+
+For example, these illustrative mean driver points use favorable/adverse scenario
+weights of 9:1:
+
+| Candidate | Favorable mean | Adverse mean | Weighted mean | Largest scenario shortfall |
+|---|---:|---:|---:|---:|
+| Reference | 15 | 0 | 13.5 | 15 |
+| Risky | 25 | 0 | 22.5 | 15 |
+| Balanced | 18 | 15 | 17.7 | 7 |
+
+The weighted method chooses Risky. Minimax regret chooses Balanced, whose
+favorable-scenario shortfall is 25 − 18 = 7 and adverse-scenario shortfall is
+15 − 15 = 0. These are example inputs to explain the criterion, not predicted
+real-race points. The method can accept a lower weighted average to limit
+shortfall in a less heavily weighted scenario.
+
+Use the saved-input CLI with the same predeclared plans and scenarios:
+
+```powershell
+python examples/validate_rival_pit_plan_selection.py output/statistics.json --driver VER --plans target-plans.json --reference automatic --rival-scenarios rivals.json --selection-method minimax_regret --objective points --training-simulations 100 --validation-simulations 100 --export
+```
+
+The Python selector accepts `selection_method="minimax_regret"`; its default is
+`"weighted_mean"`. The HTTP `pit_plan_selection` object accepts the same field.
+Minimax regret requires scenario selection; requests without `rival_scenarios`
+are rejected. Unknown methods and invalid field types fail before live loading
+or simulation work. The existing scenario weights remain required positive
+numbers and are validated for safe normalization.
+
+For minimax regret, every supplied scenario contributes to the maximum regardless
+of its weight. Weights still determine displayed aggregate training means and
+held-out aggregate metrics. They do not affect selection or break regret ties.
+Exact ties prefer the fixed reference, then the first tied candidate in supplied
+plan order. The existing simulation budget is unchanged.
+
+Regret is computed from each scenario's candidate means, after averaging its
+training trials. It does not choose a different candidate with hindsight for
+each seed. Driver objectives use that driver's classified results; constructor
+points sum members, while constructor win/podium counts a race once when at least
+one member achieves the classified outcome. Selection and ties use exact rational
+arithmetic; conversion to JSON numbers occurs only for reporting.
+
+Minimax metadata uses selection schema 2 and records `selection_method`, the
+criterion description and `training_regret_table`. Each row includes
+`maximum_regret`, all `worst_scenarios`, `tied_for_best`, `trials_per_scenario`,
+and per-scenario candidate means, best candidate means and regrets. Probability
+scores are fractions in JSON and percentage points in the displayed shortfalls.
+The weighted score table provides context; its `mean_score_behind_selected` and
+`mean_points_behind_selected` are signed selected-minus-candidate differences and
+can be negative. Its `tied_for_best` flag follows the declared selection method.
+The default weighted method retains schema 1 and its existing selection behavior.
+
+The chosen plan remains frozen when validation performs worse. Validation runs
+only the reference and that choice on fresh disjoint seeds in each scenario,
+with the existing paired per-scenario and weighted estimates. It does not score
+unused candidates on validation seeds or estimate a new hindsight-optimal
+validation regret. Training regret is not a bound on individual races, unseen
+weather/rival assumptions, or sampling uncertainty. Changing the candidate or
+scenario set can change the choice; declare both and the method before training.
+
 ## Run a selection
 
 Start with saved statistics or a saved comparison JSON containing simulation
@@ -192,7 +266,7 @@ still used for display. The accepted weights remain floating-point values,
 including their binary representation, rather than reinterpreted decimal ratios.
 Weights that become zero during normalization are rejected.
 
-Weighted aggregate `training_score_table` rows include `mean_score_behind_selected`
+For the default weighted method, aggregate `training_score_table` rows include `mean_score_behind_selected`
 and `tied_for_best`. The objective shortfall is the exact best mean minus that candidate's
 exact mean, converted to a JSON number only after subtraction. The boolean
 records exact equality with the best objective mean. `mean_points_behind_selected`

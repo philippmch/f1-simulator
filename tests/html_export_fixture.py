@@ -34,7 +34,7 @@ def _scalable_plan_result(driver_id, marker, *, hostile_last=False):
     )
 
 
-def _selection_report_fixture(exporter, *, weather=False):
+def _selection_report_fixture(exporter, *, weather=False, regret_objective=None):
     name = "../cautious <rival>"
     # Paired changes [5, 5, 0, -2]: two gains, one tie, and one loss.
     outcome_profile = {
@@ -109,6 +109,57 @@ def _selection_report_fixture(exporter, *, weather=False):
             "weather_schedule": [{"lap": 4, "rain_intensity": .8, "condition": "heavy_rain"}],
         })
         manifest["selection_report_html"] = f"rival_selection_{run_id}_weather_summary.html"
+    if regret_objective is not None:
+        selection = manifest["selection"]
+        adverse = "adverse <script>globalThis.reportInjected=true</script>"
+        probability = regret_objective != "points"
+        selection.update(selection_method="minimax_regret", schema_version=2,
+                         objective=regret_objective,
+                         tiebreak_applied="unique_lowest_training_maximum_regret")
+        selection["rival_scenarios"][0].update(weight=9, normalized_weight=.9)
+        selection["rival_scenarios"].append({
+            "name": adverse, "weight": 1, "normalized_weight": .1, "rival_pit_plans": {},
+        })
+        point_means = {"Automatic": (10, 5), "Planned <plan>": (8, 8)}
+        score_means = {"Automatic": (1, 0), "Planned <plan>": (.75, .75)} \
+            if probability else point_means
+        names = (name, adverse)
+        selection["training_regret_table"] = []
+        for label in point_means:
+            regrets = {
+                case: max(values[index] for values in score_means.values())
+                - score_means[label][index] for index, case in enumerate(names)
+            }
+            worst = max(regrets.values())
+            selection["training_regret_table"].append({
+                "label": label, "maximum_regret": worst,
+                "worst_scenarios": [case for case in names if regrets[case] == worst],
+                "trials_per_scenario": 4, "tied_for_best": label == "Planned <plan>",
+                "scenarios": {
+                    case: {"mean_score": score_means[label][index],
+                           "best_candidate_mean_score": max(
+                               values[index] for values in score_means.values()),
+                           "regret": regrets[case]}
+                    for index, case in enumerate(names)
+                },
+            })
+        selection["training_score_table"] = [
+            {"label": label, "mean_points": .9 * values[0] + .1 * values[1],
+             "mean_points_behind_selected": 8 - (.9 * values[0] + .1 * values[1]),
+             "mean_score": .9 * score_means[label][0] + .1 * score_means[label][1],
+             "trials": 4, "tied_for_best": label == "Planned <plan>"}
+            for label, values in point_means.items()
+        ]
+        selection["training_scenario_score_tables"] = {
+            case: {"scores": [
+                {"label": label, "mean_points": point_means[label][index],
+                 "mean_score": score_means[label][index], "trials": 4}
+                for label in point_means
+            ]} for index, case in enumerate(names)
+        }
+        manifest["selection_report_html"] = (
+            f"rival_selection_{run_id}_{regret_objective}_regret.html"
+        )
     return exporter.export_rival_strategy_selection_html(
         manifest, filename=manifest["selection_report_html"], manifest_filename=manifest_name,
     ).read_text(encoding="utf-8")
@@ -210,6 +261,8 @@ def build_fixture():
         ).read_text(encoding="utf-8")
         rival_selection_report = _selection_report_fixture(exporter)
         weather_selection_report = _selection_report_fixture(exporter, weather=True)
+        regret_selection_report = _selection_report_fixture(exporter, regret_objective="points")
+        regret_probability_report = _selection_report_fixture(exporter, regret_objective="win")
         exporter._write_history([{
             "timestamp": "<img src=x onerror=globalThis.exportInjected=true>",
             "track": track, "num_simulations": 1, "seed": 42,
@@ -222,6 +275,8 @@ def build_fixture():
             "scalable_run_report": scalable_run_report,
             "rival_selection_report": rival_selection_report,
             "weather_selection_report": weather_selection_report,
+            "regret_selection_report": regret_selection_report,
+            "regret_probability_report": regret_probability_report,
             "paired_stats": paired_stats["variants"]["soft"]["driver_statistics"]["A"],
             "paired_constructor_stats": paired_constructor_stats,
             "track": track, "driver": driver,

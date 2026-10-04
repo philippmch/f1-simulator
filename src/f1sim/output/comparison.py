@@ -1353,6 +1353,9 @@ def _selection_objective_html(selection: dict) -> str:
 
 def _selection_report_reason(value: object) -> str:
     return {
+        "unique_lowest_training_maximum_regret": (
+            "It had the unique lowest maximum training shortfall across scenarios."
+        ),
         "unique_highest_weighted_training_mean": (
             "It had the unique highest weighted training mean."
         ),
@@ -1362,6 +1365,59 @@ def _selection_report_reason(value: object) -> str:
         ),
     }.get(value, "Selection reason not recorded.") if isinstance(value, str) else (
         "Selection reason not recorded."
+    )
+
+
+def _selection_regret_html(selection: dict) -> str:
+    if selection.get("selection_method") != "minimax_regret":
+        return ""
+    probability = selection.get("objective", "points") in ("win", "podium")
+    scale = 100 if probability else 1
+    unit = "percentage points" if probability else "points"
+
+    def number(value):
+        return _selection_report_number(scale * value) if isinstance(value, Real) \
+            and not isinstance(value, bool) else "Not recorded"
+
+    rows = []
+    details = []
+    table = selection.get("training_regret_table", [])
+    for row in table if isinstance(table, list) else []:
+        if not isinstance(row, dict):
+            continue
+        label = row.get("label", "Not recorded")
+        worst = row.get("worst_scenarios", [])
+        worst = (", ".join(str(name) for name in worst)
+                 if isinstance(worst, list) else "Not recorded")
+        rows.append(
+            f'<tr><th scope="row">{_text(label)}</th>'
+            f'<td>{number(row.get("maximum_regret"))}</td><td>{_text(worst)}</td>'
+            f'<td>{_text(row.get("trials_per_scenario", "Not recorded"))}</td></tr>',
+        )
+        scenarios = row.get("scenarios", {})
+        for name, evidence in scenarios.items() if isinstance(scenarios, dict) else []:
+            if not isinstance(evidence, dict):
+                continue
+            details.append(
+                f'<tr><th scope="row">{_text(label)}</th><td>{_text(name)}</td>'
+                f'<td>{number(evidence.get("mean_score"))}</td>'
+                f'<td>{number(evidence.get("best_candidate_mean_score"))}</td>'
+                f'<td>{number(evidence.get("regret"))}</td></tr>',
+            )
+    return (
+        '<section aria-label="Minimax regret training choice">'
+        '<h3>Minimax regret training choice</h3>'
+        '<p>Choose the smallest maximum scenario shortfall from that scenario\'s best candidate '
+        'mean. Scenario weights do not affect this choice. All values use training means; '
+        'the maximum is not a bound on individual races or unseen scenarios.</p>'
+        f'<p>Shortfalls and scenario means use {unit}. Exact ties prefer the reference, '
+        'then plan order. The candidate and scenario sets affect the choice.</p>'
+        '<div class="table-wrap" tabindex="0"><table><thead><tr><th>Candidate</th>'
+        '<th>Maximum training shortfall</th><th>Worst scenarios</th><th>Trials per scenario</th>'
+        '</tr></thead><tbody>' + ''.join(rows) + '</tbody></table></div>'
+        '<div class="table-wrap" tabindex="0"><table><thead><tr><th>Candidate</th><th>Scenario</th>'
+        '<th>Candidate mean</th><th>Best candidate mean</th><th>Training shortfall</th>'
+        '</tr></thead><tbody>' + ''.join(details) + '</tbody></table></div></section>'
     )
 
 
@@ -1423,7 +1479,7 @@ def _selection_report_points_outcome_cells(
 
 
 def render_rival_strategy_selection_report(manifest: dict) -> str:
-    """Render a standalone summary of existing weighted selection evidence."""
+    """Render the declared training criterion and frozen validation evidence."""
     selection = manifest.get("selection", {})
     selection = selection if isinstance(selection, dict) else {}
     selected = selection.get("selected_label", "Not recorded")
@@ -1437,8 +1493,10 @@ def render_rival_strategy_selection_report(manifest: dict) -> str:
     frozen_qualifying = selection.get("frozen_qualifying_weather")
     weather_active = isinstance(frozen_qualifying, dict)
     weather_heading = "Weather and rival assumptions" if weather_active else "Rival assumptions"
-    title = "Weighted weather and rival strategy selection" if weather_active else (
-        "Weighted rival strategy selection"
+    minimax = selection.get("selection_method") == "minimax_regret"
+    choice_name = "Minimax regret" if minimax else "Weighted"
+    title = f"{choice_name} weather and rival strategy selection" if weather_active else (
+        f"{choice_name} rival strategy selection"
     )
     weather_context = (
         '<p>One frozen target plan applies across all race weather cases below. '
@@ -1473,6 +1531,9 @@ def render_rival_strategy_selection_report(manifest: dict) -> str:
     training = selection.get("training_score_table", [])
     objective = selection.get("objective", "points")
     training_note = (
+        "Maximum scenario shortfall chooses the plan. Weighted means below are context; "
+        "selected-minus-candidate point differences can be negative for higher-mean candidates."
+        if minimax else
         "The objective probabilities above determine the training winner. The following "
         "tables retain points for context; points do not determine this selection."
         if objective in ("win", "podium") else
@@ -1483,7 +1544,8 @@ def render_rival_strategy_selection_report(manifest: dict) -> str:
     training_rows = "".join(
         f'<tr><th scope="row">{_text(row.get("label", "Not recorded"))}</th>'
         f'<td>{_selection_report_number(row.get("mean_points"))}</td>'
-        f'<td>{_selection_report_shortfall(row, selected, objective)}</td>'
+        '<td>' + (_selection_report_number(row.get("mean_points_behind_selected"))
+                  if minimax else _selection_report_shortfall(row, selected, objective)) + '</td>'
         f'<td>{_text(row.get("trials", "Not recorded"))}</td></tr>'
         for row in training if isinstance(row, dict)
     ) or '<tr><td colspan="4">No training scores recorded.</td></tr>'
@@ -1657,6 +1719,13 @@ def render_rival_strategy_selection_report(manifest: dict) -> str:
     manifest_link = _selection_report_link(
         manifest.get("manifest_filename"), "Selection manifest (JSON)",
     )
+    choice_description = (
+        "minimum maximum scenario shortfall on training results" if minimax
+        else "weighted training results"
+    )
+    point_difference_heading = (
+        "Selected minus candidate mean points" if minimax else "Mean points behind selected"
+    )
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1685,7 +1754,7 @@ code {{ white-space: pre-wrap; overflow-wrap: anywhere; color: #d7dcff; }}
 :focus-visible {{ outline: 3px solid #9cbbff; outline-offset: 2px; }}
 </style></head><body><main>
 <h1>{title}</h1>
-<p>The target plan was chosen using weighted training results and then frozen for a
+<p>The target plan was chosen using {choice_description} and then frozen for a
 separate held-out seed cohort. Supplied rival-scenario weights are analysis assumptions,
 not probabilities learned from race data. Held-out results do not feed back into selection.</p>
 <p>Track: {_text(track_name)}. Race engine: {_text(race_engine)}.</p>
@@ -1699,6 +1768,7 @@ Reference: {_text(reference)}. Selected and frozen: {_text(selected)}.</p>
 <table><thead><tr><th scope="col">Role</th><th scope="col">Plan label</th>
 <th scope="col">Target pit plan</th></tr></thead><tbody>{''.join(plan_rows)}</tbody></table></div>
 <h2>Training scores</h2>
+{_selection_regret_html(selection)}
 {_selection_objective_html(selection)}
 <p>All values in this section use the training cohort only. {_text(training_note)}
 A positive shortfall below float precision is labeled below numeric reporting precision.
@@ -1707,7 +1777,7 @@ These training shortfalls are not fresh validation estimates.</p>
 <div class="table-wrap context" tabindex="0" role="region" aria-label="Weighted training scores">
 <table><thead><tr><th scope="col">Candidate plan</th>
 <th scope="col">Weighted mean target points</th>
-<th scope="col">Mean points behind selected</th>
+<th scope="col">{point_difference_heading}</th>
 <th scope="col">Training trials</th></tr></thead><tbody>{training_rows}</tbody></table></div>
 {rival_training_html}
 <h2>{weather_heading}</h2>

@@ -39,6 +39,15 @@ from f1sim.simulation.qualifying_weather import (
 from f1sim.simulation.randomness import validate_rng_policy
 from f1sim.simulation.weather_schedule import validate_weather_schedule
 
+RIVAL_SELECTION_METHODS = ("weighted_mean", "minimax_regret")
+
+
+def validate_rival_selection_method(value: object) -> str:
+    """Freeze the decision criterion before loading inputs or running trials."""
+    if not isinstance(value, str) or value not in RIVAL_SELECTION_METHODS:
+        raise ValueError("selection_method must be one of weighted_mean, minimax_regret")
+    return value
+
 
 def _weight_number(value: object, name: str) -> int | float:
     if isinstance(value, bool) or not isinstance(value, Real):
@@ -258,6 +267,42 @@ def _score_table(
     ]
 
 
+def _training_regrets(labels, scenario_values, count):
+    """Compare scenario means exactly, without weighting or per-trial hindsight."""
+    scenario_means = {
+        name: {
+            label: sum((Fraction(value) for value in values[label]), Fraction()) / count
+            for label in labels
+        }
+        for name, values in scenario_values.items()
+    }
+    best_means = {name: max(means.values()) for name, means in scenario_means.items()}
+    regrets = {
+        label: {name: best_means[name] - means[label] for name, means in scenario_means.items()}
+        for label in labels
+    }
+    maximum_regrets = {label: max(values.values()) for label, values in regrets.items()}
+    table = [
+        {
+            "label": label,
+            "maximum_regret": _reported_number(maximum_regrets[label]),
+            "worst_scenarios": [name for name, value in regrets[label].items()
+                                if value == maximum_regrets[label]],
+            "scenarios": {
+                name: {
+                    "mean_score": _reported_number(scenario_means[name][label]),
+                    "best_candidate_mean_score": _reported_number(best_means[name]),
+                    "regret": _reported_number(value),
+                }
+                for name, value in regrets[label].items()
+            },
+            "trials_per_scenario": count,
+        }
+        for label in labels
+    ]
+    return maximum_regrets, table
+
+
 def _paired_summary(
     reference_values: list[int | float | Fraction],
     selected_values: list[int | float | Fraction],
@@ -299,12 +344,14 @@ def prepare_rival_pit_plan_selection(
     driver_id: str | None = None,
     constructor_id: str | None = None,
     objective: str = "points",
+    selection_method: str = "weighted_mean",
     training_simulations: int = 100,
     validation_simulations: int = 100,
     rng_policy: str | None = None,
     cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Freeze all rival assumptions and phase runners before spending trials."""
+    selection_method = validate_rival_selection_method(selection_method)
     source_count = _positive_int(source_simulations, "source_simulations")
     training_count = _positive_int(training_simulations, "training_simulations")
     validation_count = _positive_int(validation_simulations, "validation_simulations")
@@ -426,6 +473,7 @@ def prepare_rival_pit_plan_selection(
         "driver_id": driver_id,
         "constructor_id": constructor_id,
         "objective": objective,
+        "selection_method": selection_method,
         "target_members": target_members,
         "training_count": training_count,
         "validation_count": validation_count,
@@ -461,6 +509,9 @@ def evaluate_prepared_rival_pit_plan_selection(
     driver_id = prepared["driver_id"]
     constructor_id = prepared["constructor_id"]
     objective = _validate_objective(prepared.get("objective", "points"))
+    selection_method = validate_rival_selection_method(
+        prepared.get("selection_method", "weighted_mean"),
+    )
     target_members = prepared["target_members"]
     training_count = prepared["training_count"]
     validation_count = prepared["validation_count"]
@@ -534,10 +585,19 @@ def evaluate_prepared_rival_pit_plan_selection(
         for label, values in weighted_training_values.items()
     }
     best_score = max(training_scores.values())
-    tied_labels = [label for label in labels if training_scores[label] == best_score]
+    regret_table = None
+    if selection_method == "minimax_regret":
+        maximum_regrets, regret_table = _training_regrets(labels, training_values, training_count)
+        best_regret = min(maximum_regrets.values())
+        tied_labels = [label for label in labels if maximum_regrets[label] == best_regret]
+        for row in regret_table:
+            row["tied_for_best"] = row["label"] in tied_labels
+    else:
+        tied_labels = [label for label in labels if training_scores[label] == best_score]
     if len(tied_labels) == 1:
         selected_label = tied_labels[0]
-        tiebreak = "unique_highest_weighted_training_mean"
+        tiebreak = ("unique_lowest_training_maximum_regret" if regret_table is not None
+                    else "unique_highest_weighted_training_mean")
     elif reference_label in tied_labels:
         selected_label = reference_label
         tiebreak = "reference_preferred_on_exact_tie"
@@ -665,16 +725,19 @@ def evaluate_prepared_rival_pit_plan_selection(
         values = weighted_training_values[row["label"]]
         row["total_score"] = _reported_number(sum(values))
         row["mean_score"] = _reported_number(score)
-        row["mean_score_behind_selected"] = _reported_number(best_score - score)
+        row["mean_score_behind_selected"] = _reported_number(
+            training_scores[selected_label] - score,
+        )
         row["mean_points_behind_selected"] = _reported_number(
             mean(weighted_training_points[selected_label])
             - mean(weighted_training_points[row["label"]]),
         )
-        row["tied_for_best"] = score == best_score
+        row["tied_for_best"] = row["label"] in tied_labels
     selection = {
         "schema_version": 1,
         "method": "weighted_rival_scenario_training_then_disjoint_seed_validation",
         "objective": objective,
+        "selection_method": selection_method,
         "objective_description": _objective_description(objective, constructor_id is not None),
         "score_unit": "points" if objective == "points" else "probability",
         "target_mode": "driver" if driver_id is not None else "constructor",
@@ -714,6 +777,20 @@ def evaluate_prepared_rival_pit_plan_selection(
             "Repeating the same request reuses the same validation seed range.",
         ],
     }
+    if regret_table is not None:
+        selection["schema_version"] = 2
+        selection["selection_rule"] = (
+            f"lowest maximum across scenarios of the best candidate mean target {objective} "
+            "score minus this candidate's mean; scenario weights do not affect selection; "
+            "exact ties prefer the reference, then candidate mapping order"
+        )
+        selection["training_regret_table"] = regret_table
+        selection["methodology_limits"].append(
+            "Maximum regret uses training scenario means over the supplied candidates only. "
+            "It is not a bound on individual races, unseen scenarios or sampling uncertainty. "
+            "Adding candidates or scenarios can change the choice. Weights apply to reported "
+            "aggregate scores and validation, not to this selection criterion.",
+        )
     if weather_contexts is not None:
         selection["method"] = "weighted_weather_and_rival_training_then_disjoint_seed_validation"
         selection["frozen_qualifying_weather"] = deepcopy(prepared["frozen_qualifying_weather"])
@@ -722,6 +799,12 @@ def evaluate_prepared_rival_pit_plan_selection(
         selection["methodology_limits"].append(
             "Race weather and rival plans are supplied joint assumptions. Qualifying weather "
             "is shared from the source; their weights are not learned weather forecasts.",
+        )
+    if regret_table is not None:
+        selection["method"] = (
+            "minimax_regret_weather_and_rival_training_then_disjoint_seed_validation"
+            if weather_contexts is not None else
+            "minimax_regret_rival_training_then_disjoint_seed_validation"
         )
     return {
         "selection": selection,
@@ -739,6 +822,7 @@ def evaluate_saved_rival_pit_plan_selection(
     driver_id: str | None = None,
     constructor_id: str | None = None,
     objective: str = "points",
+    selection_method: str = "weighted_mean",
     scenario: str | None = None,
     training_simulations: int = 100,
     validation_simulations: int = 100,
@@ -747,6 +831,7 @@ def evaluate_saved_rival_pit_plan_selection(
     rng_policy: str | None = None,
 ) -> dict[str, Any]:
     """Load saved inputs, prepare every assumption, and evaluate the frozen set."""
+    selection_method = validate_rival_selection_method(selection_method)
     validate_pit_plan_selection_request(
         plans, reference_label, driver_id=driver_id, constructor_id=constructor_id,
         training_simulations=training_simulations,
@@ -766,6 +851,7 @@ def evaluate_saved_rival_pit_plan_selection(
         validation_simulations=validation_simulations,
         objective=objective,
         rng_policy=rng_policy,
+        selection_method=selection_method,
     )
     return evaluate_prepared_rival_pit_plan_selection(
         prepared, parallel=parallel, max_workers=max_workers,

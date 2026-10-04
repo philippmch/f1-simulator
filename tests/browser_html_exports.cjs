@@ -44,6 +44,11 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
           return route.fulfill({contentType: 'text/html; charset=utf-8',
             body: fixture.weather_selection_report});
         }
+        if (name === 'regret-selection.html' || name === 'regret-probability.html') {
+          return route.fulfill({contentType: 'text/html; charset=utf-8',
+            body: name === 'regret-selection.html'
+              ? fixture.regret_selection_report : fixture.regret_probability_report});
+        }
         if (name === 'index.html' || name === fixture.filename) {
           return route.fulfill({contentType: 'text/html; charset=utf-8',
             body: name === 'index.html' ? fixture.index : fixture.report});
@@ -389,6 +394,32 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
       await weatherAssumptions.focus();
       assert(await weatherAssumptions.evaluate(node => document.activeElement === node));
+    }
+    for (const name of ['regret-selection', 'regret-probability']) {
+      await page.goto(`http://f1sim.test/${name}.html`);
+      const section = page.getByRole('region', {name: 'Minimax regret training choice', exact: true});
+      assert.equal(await section.locator('table').count(), 2);
+      assert.equal(await section.locator('table').first().locator('tbody tr').count(), 2);
+      assert.equal(await section.locator('table').last().locator('tbody tr').count(), 4);
+      const text = await page.locator('body').innerText();
+      assert(text.includes('Weighted means below are context'));
+      assert(text.includes('Selected minus candidate mean points'));
+      assert(text.includes('-1.500'));
+      assert(text.includes('unique lowest maximum training shortfall'));
+      assert(text.includes('Scenario weights do not affect this choice.'));
+      assert(text.includes(name === 'regret-probability' ? 'percentage points' : 'Shortfalls and scenario means use points'));
+      assert.equal(await page.locator('script, img, svg, link').count(), 0);
+      assert.equal(await page.evaluate(() => Boolean(globalThis.reportInjected)), false);
+      for (const width of [390, 1440]) {
+        await page.setViewportSize({width, height: 1000});
+        assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
+          `${name} report overflows at ${width}px`);
+        const region = section.locator('[tabindex="0"]').last();
+        await region.focus();
+        assert(await region.evaluate(node => document.activeElement === node));
+        if (process.env.F1SIM_SCREENSHOTS) await page.screenshot({
+          path: path.join(process.env.F1SIM_SCREENSHOTS, `${name}-${width}.png`), fullPage: true});
+      }
     }
     assert.deepEqual(errors, []);
     assert.deepEqual(unexpected, []);

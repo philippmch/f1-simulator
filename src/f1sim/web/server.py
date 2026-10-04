@@ -31,6 +31,7 @@ from f1sim.analysis.rival_strategy_selection import (
     evaluate_prepared_rival_pit_plan_selection,
     prepare_rival_pit_plan_selection,
     validate_rival_pit_plan_selection_request,
+    validate_rival_selection_method,
 )
 from f1sim.analysis.scenarios import validate_weather_mode
 from f1sim.analysis.strategy_selection import (
@@ -107,12 +108,16 @@ class DashboardPitPlanSelectionRequest(BaseModel):
     driver_id: StrictStr | None = None
     constructor_id: StrictStr | None = None
     objective: StrictStr = "points"
+    selection_method: StrictStr = "weighted_mean"
     training_simulations: StrictInt
     validation_simulations: StrictInt
     rival_scenarios: dict[StrictStr, DashboardRivalScenario] | None = None
 
     @model_validator(mode="after")
     def validate_selection_request(self) -> DashboardPitPlanSelectionRequest:
+        validate_rival_selection_method(self.selection_method)
+        if self.selection_method != "weighted_mean" and self.rival_scenarios is None:
+            raise ValueError("minimax_regret requires rival_scenarios")
         validate_pit_plan_selection_request(
             self.plans,
             self.reference_label,
@@ -864,6 +869,7 @@ def run_dashboard_simulation(
                     training_simulations=selection_request.training_simulations,
                     validation_simulations=selection_request.validation_simulations,
                     cancel_requested=cancel_requested,
+                    selection_method=selection_request.selection_method,
                 )
             _check_dashboard_cancellation(cancel_requested)
             selection_contexts[scenario.name] = (scenario, runner, prepared)

@@ -184,6 +184,10 @@ least one member achieves the classified result. CLI selectors accept
 `--objective points|win|podium`; the dashboard provides the same choice.
 For one frozen choice across weighted race-weather and rival-plan scenarios, see the [scenario selection
 workflow](docs/rival-strategy-selection.md).
+The scenario selector can also limit the largest shortfall from each scenario's
+best candidate mean using [minimax regret](docs/rival-strategy-selection.md#limit-scenario-shortfall).
+Choose the method before training; the dashboard and CLI retain the frozen choice
+and report fresh validation under the supplied assumptions.
 
 The same inputs and seed reproduce an overridden run, including across worker
 counts. Changing a tyre choice can change later random draws and race events;

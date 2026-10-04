@@ -41,8 +41,9 @@ def _assumptions():
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])
 @pytest.mark.parametrize("objective", ["points", "win", "podium"])
-def test_native_weather_selection_freezes_inputs_qualifying_and_weighted_choice(
-    tmp_path, engine, objective,
+@pytest.mark.parametrize("selection_method", ["weighted_mean", "minimax_regret"])
+def test_native_weather_selection_freezes_inputs_qualifying_and_choice(
+    tmp_path, engine, objective, selection_method,
 ):
     drivers = [Driver(id=name, name=name, team_id=team, consistency=1.)
                for name, team in (("A", "T"), ("B", "T"), ("R", "U"), ("C", "V"))]
@@ -70,10 +71,13 @@ def test_native_weather_selection_freezes_inputs_qualifying_and_weighted_choice(
     outcome = selector.evaluate_saved_rival_pit_plan_selection(
         source, plans, "together", assumptions, constructor_id="T", objective=objective,
         training_simulations=2, validation_simulations=2,
+        selection_method=selection_method,
     )
     assert native_physics() and source.read_bytes() == before and assumptions == frozen_request
     selection = outcome["selection"]
     assert selection["method"] == (
+        "minimax_regret_weather_and_rival_training_then_disjoint_seed_validation"
+        if selection_method == "minimax_regret" else
         "weighted_weather_and_rival_training_then_disjoint_seed_validation"
     )
     expected_qualifying = effective_qualifying_weather(weather, qualifying)
@@ -95,12 +99,17 @@ def test_native_weather_selection_freezes_inputs_qualifying_and_weighted_choice(
                        for row in team))
 
     weighted_scores = {label: [Fraction(0)] * 2 for label in plans}
+    scenario_means = {}
     shared_qualifying = next(iter(outcome["training_results"].values()))[
         "together"
     ].qualifying_results
     for name, variants in outcome["training_results"].items():
         weight = Fraction(scenarios[name]["normalized_weight"])
+        scenario_means[name] = {}
         for label, results in variants.items():
+            scenario_means[name][label] = sum(
+                (Fraction(score(race)) for race in results.race_results), Fraction(),
+            ) / 2
             assert results.qualifying_results == shared_qualifying
             assert results.input_snapshot["weather"] == scenarios[name]["weather"]
             assert results.input_snapshot.get("weather_schedule", []) == (
@@ -117,7 +126,19 @@ def test_native_weather_selection_freezes_inputs_qualifying_and_weighted_choice(
                     )
                     assert len(row.pit_stop_details) == row.pit_stops
     means = {label: mean(values) for label, values in weighted_scores.items()}
-    winner = next(label for label in plans if means[label] == max(means.values()))
+    if selection_method == "minimax_regret":
+        maximum_regrets = {
+            label: max(max(values.values()) - values[label] for values in scenario_means.values())
+            for label in plans
+        }
+        winner = next(label for label in plans
+                      if maximum_regrets[label] == min(maximum_regrets.values()))
+        assert {row["label"]: row["maximum_regret"]
+                for row in selection["training_regret_table"]} == {
+            label: float(value) for label, value in maximum_regrets.items()
+        }
+    else:
+        winner = next(label for label in plans if means[label] == max(means.values()))
     assert selection["selected_label"] == winner
     for row in selection["training_score_table"]:
         assert row["mean_score"] == float(means[row["label"]])

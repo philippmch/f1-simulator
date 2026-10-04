@@ -197,6 +197,41 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
               }
             }
           }
+          metadata.selection_method = request.selection_method || 'weighted_mean';
+          if (metadata.selection_method === 'minimax_regret') {
+            metadata.schema_version = 2;
+            metadata.method = weatherActive
+              ? 'minimax_regret_weather_and_rival_training_then_disjoint_seed_validation'
+              : 'minimax_regret_rival_training_then_disjoint_seed_validation';
+            metadata.tiebreak_applied = 'unique_lowest_training_maximum_regret';
+            const scoreScale = request.objective === 'points' ? 1 : 0.1;
+            const scenarioMean = (label, index) => label === selectedLabel ? 8 : index === 0 ? 10 : 5;
+            metadata.training_score_table = candidateRows.map(row => {
+              const points = rivals.reduce((sum, [, item], index) =>
+                sum + item.weight * scenarioMean(row.label, index), 0) / totalWeight;
+              return {...row, mean_points: points, mean_score: points * scoreScale,
+                mean_points_behind_selected: 8 - points,
+                mean_score_behind_selected: (8 - points) * scoreScale,
+                tied_for_best: row.label === selectedLabel};
+            });
+            metadata.training_scenario_score_tables = Object.fromEntries(rivals.map(([name, item], index) =>
+              [name, {weight: item.weight, normalized_weight: item.weight / totalWeight,
+                scores: candidateRows.map(row => ({...row,
+                  mean_points: scenarioMean(row.label, index),
+                  mean_score: scenarioMean(row.label, index) * scoreScale}))}]));
+            metadata.training_regret_table = candidateRows.map(row => ({label: row.label,
+              maximum_regret: (row.label === selectedLabel ? 2 : 3) * scoreScale,
+              worst_scenarios: rivals.filter((_, index) => row.label === selectedLabel ? index === 0 : index !== 0)
+                .map(([name]) => name),
+              trials_per_scenario: request.training_simulations,
+              tied_for_best: row.label === selectedLabel,
+              scenarios: Object.fromEntries(rivals.map(([name], index) => [name, {
+                mean_score: scenarioMean(row.label, index) * scoreScale,
+                best_candidate_mean_score: (index === 0 ? 10 : 8) * scoreScale,
+                regret: ((index === 0 ? 10 : 8) - scenarioMean(row.label, index)) * scoreScale,
+              }])),
+            }));
+          }
           delete entry.training;
           delete entry.validation;
           entry.validation_report_html = '<!doctype html><title>Weighted rival selection</title><p>Frozen weighted validation evidence</p>';
@@ -2131,6 +2166,12 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       await page.locator('#tab-race').click();
       await page.locator('#pitRivalEditor').evaluate(node => { node.open = true; });
       await page.locator('#pitRivalEnabled').check();
+      assert.equal(await page.locator('#pitRivalSelectionMethod').isEnabled(), true);
+      assert.equal(await page.locator('#pitRivalSelectionMethod').inputValue(), 'weighted_mean');
+      await page.locator('#pitRivalSelectionMethod').selectOption('minimax_regret');
+      assert.equal(await page.evaluate(() => buildRunPayload().pit_plan_selection.selection_method),
+        'minimax_regret');
+      await page.locator('#pitRivalSelectionMethod').selectOption('weighted_mean');
       const weightedRows = page.locator('#pitRivalScenarios > .pit-selection-candidate');
       await weightedRows.first().locator('.pit-rival-name').fill('__proto__');
       await weightedRows.last().locator('.pit-rival-name').fill('<img src=x onerror=alert(1)>');
@@ -2323,6 +2364,49 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         await page.locator('#tab-scenarios').click();
       }
       await page.locator('#tab-race').click();
+      const beforeRobustSelection = await page.evaluate(() => JSON.stringify(simResults));
+      await page.locator('#pitRivalSelectionMethod').selectOption('minimax_regret');
+      await page.locator('#btnRun').click();
+      await page.waitForFunction(() => !runInProgress &&
+        simResults?.strategy_selections?.dry?.selection?.selection_method === 'minimax_regret');
+      await page.locator('#tab-scenarios').click();
+      const robustResult = page.locator('#pitPlanSelectionResults');
+      const robustText = await robustResult.innerText();
+      assert(robustText.includes('Minimax regret training choice'));
+      assert(robustText.includes('Weighted training context'));
+      assert(robustText.includes('Unique lowest maximum training shortfall across scenarios.'));
+      assert.equal(await robustResult.locator('[aria-label="Training scores for Dry weather"]')
+        .locator('thead th').nth(2).textContent(), 'Selected minus candidate mean points');
+      assert(robustText.includes('Weights do not affect the choice.'));
+      assert(!robustText.includes('Candidate means below are training scores used to choose the plan.'));
+      assert.equal(await robustResult.locator('img').count(), 0);
+      const robustSelection = await page.evaluate(() => simResults.strategy_selections.dry.selection);
+      const robustScores = robustSelection.training_score_table;
+      assert(robustScores.some(row => row.mean_points_behind_selected < 0));
+      const robustDownloadPromise = page.waitForEvent('download');
+      await page.locator('#downloadPitSelectionEvidenceBtn').click();
+      const robustDownload = JSON.parse(readFileSync(await (await robustDownloadPromise).path(), 'utf8'));
+      assert.deepEqual(robustDownload.selection, robustSelection);
+      assert.equal(robustDownload.selection.schema_version, 2);
+      assert.equal(robustDownload.selection.training_regret_table.length, robustScores.length);
+      for (const width of [390, 1440]) {
+        await page.setViewportSize({width, height: 1000});
+        assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+          `Minimax regret results overflow the page at ${width}px`);
+        const region = robustResult.locator('[aria-label="Scenario training shortfalls"]');
+        await region.focus();
+        assert(await region.evaluate(node => document.activeElement === node));
+        if (process.env.F1SIM_SCREENSHOTS) await page.screenshot({
+          path: path.join(process.env.F1SIM_SCREENSHOTS, `minimax-regret-results-${width}.png`),
+          fullPage: true,
+        });
+      }
+      await page.evaluate(serialized => {
+        simResults = JSON.parse(serialized);
+        renderPitPlanSelectionResults(simResults);
+      }, beforeRobustSelection);
+      await page.locator('#tab-race').click();
+      await page.locator('#pitRivalSelectionMethod').selectOption('weighted_mean');
       const previousWeatherControls = await page.evaluate(() => ({
         mode: document.getElementById('weatherModeSelect').value,
         schedule: document.getElementById('weatherScheduleInput').value,

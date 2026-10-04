@@ -130,6 +130,40 @@ def _invoke(monkeypatch, source, plans, scenarios, output, *extra):
     return rival_selection_cli.main()
 
 
+@pytest.mark.parametrize("objective", ["points", "win", "podium"])
+def test_cli_minimax_criterion_exports_frozen_evidence(tmp_path, monkeypatch, capsys, objective):
+    source = _saved(tmp_path)
+    plans, scenarios = _write_inputs(tmp_path, json.dumps({
+        "automatic": {"weight": 9, "pit_plans": {"B": None}},
+        "no_stop": {"weight": 1, "pit_plans": {"B": []}},
+    }))
+    output = tmp_path / "output"
+    before = source.read_bytes()
+    assert _invoke(
+        monkeypatch, source, plans, scenarios, output,
+        "--objective", objective, "--selection-method", "minimax_regret", "--export",
+    ) == 0
+    text = capsys.readouterr().out
+    assert "Minimax regret training choice" in text
+    assert "scenario weights do not affect selection" in text
+    assert "maximum shortfall" in text and "best candidate mean" in text
+    assert "selected minus candidate mean points" in text
+    assert "Weighted means below are context" in text
+    manifest = json.loads(next(output.glob("rival_selection_manifest_*.json")).read_text(
+        encoding="utf-8",
+    ))
+    selection = manifest["selection"]
+    assert selection["selection_method"] == "minimax_regret"
+    assert selection["objective"] == objective
+    assert len(selection["training_regret_table"]) == 2
+    assert all(set(row["scenarios"]) == {"automatic", "no_stop"}
+               for row in selection["training_regret_table"])
+    html = (output / manifest["selection_report_html"]).read_text(encoding="utf-8")
+    assert "Minimax regret training choice" in html
+    assert "Selected minus candidate mean points" in html
+    assert source.read_bytes() == before
+
+
 @pytest.mark.parametrize("objective", ["win", "podium"])
 def test_cli_probability_objective_exports_weighted_and_scenario_scores(
     tmp_path, monkeypatch, capsys, objective,

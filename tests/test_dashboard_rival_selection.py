@@ -87,6 +87,45 @@ def _install_loader(monkeypatch):
     monkeypatch.setattr(server, "_get_loader", RivalLoader)
 
 
+@pytest.mark.parametrize("objective", ["points", "win", "podium"])
+def test_minimax_dashboard_retains_criterion_and_scenario_evidence(monkeypatch, objective):
+    _install_loader(monkeypatch)
+    result = server.run_dashboard_simulation(_request(pit_plan_selection=_selection(
+        objective=objective, selection_method="minimax_regret",
+    )))
+    entry = result["strategy_selections"]["dry"]
+    selection = entry["selection"]
+    assert result["request"]["pit_plan_selection"]["selection_method"] == "minimax_regret"
+    assert selection["selection_method"] == "minimax_regret"
+    assert selection["schema_version"] == 2
+    assert len(selection["training_regret_table"]) == 2
+    assert all(set(row["scenarios"]) == {"inherit", "automatic", "no_stops"}
+               for row in selection["training_regret_table"])
+    assert "Minimax regret training choice" in entry["validation_report_html"]
+    assert "Selected minus candidate mean points" in entry["validation_report_html"]
+    assert "Weighted means below are context" in entry["validation_report_html"]
+    assert result["scenarios"]["dry"]["simulation_inputs"]["pit_plans"] == {
+        "A": _HARD_STOP, "B": _HARD_STOP,
+    }
+
+
+@pytest.mark.parametrize("method", [None, True, 1, "", "MINIMAX_REGRET", "unknown"])
+def test_dashboard_invalid_criterion_fails_before_live_load(monkeypatch, method):
+    monkeypatch.setattr(server, "_get_loader", lambda: pytest.fail("live load"))
+    with pytest.raises(ValueError, match="selection_method"):
+        server.run_dashboard_simulation(_request(pit_plan_selection=_selection(
+            selection_method=method,
+        )))
+
+
+def test_dashboard_minimax_requires_scenarios_before_live_load(monkeypatch):
+    monkeypatch.setattr(server, "_get_loader", lambda: pytest.fail("live load"))
+    with pytest.raises(ValueError, match="minimax_regret requires rival_scenarios"):
+        server.run_dashboard_simulation(_request(pit_plan_selection=_selection(
+            selection_method="minimax_regret", rival_scenarios=None,
+        )))
+
+
 @pytest.mark.parametrize("objective", ["win", "podium"])
 def test_weighted_dashboard_probabilities_are_frozen_and_exported(monkeypatch, objective):
     _install_loader(monkeypatch)

@@ -16,6 +16,7 @@ from compare_pit_plans import _load_plans, _workers
 from f1sim.analysis.paired_comparison import paired_comparison_statistics
 from f1sim.analysis.provenance import format_saved_runtime_status, saved_runtime_status
 from f1sim.analysis.rival_strategy_selection import (
+    RIVAL_SELECTION_METHODS,
     evaluate_saved_rival_pit_plan_selection,
     validate_rival_pit_plan_selection_request,
 )
@@ -91,6 +92,9 @@ def _print_objective_summary(selection: dict) -> None:
 
 def _selection_reason(value: object) -> str:
     reasons = {
+        "unique_lowest_training_maximum_regret": (
+            "it had the unique lowest maximum training shortfall across scenarios"
+        ),
         "unique_highest_weighted_training_mean": "it had the unique highest weighted training mean",
         "reference_preferred_on_exact_tie": "an exact training tie preferred the reference",
         "first_plan_order_on_exact_tie": (
@@ -250,6 +254,10 @@ def main() -> int:
     parser.add_argument("--reference", required=True, help="Fixed comparison plan label")
     parser.add_argument("--objective", choices=SELECTION_OBJECTIVES, default="points",
                         help="Maximize expected points, race-win or podium probability")
+    parser.add_argument("--selection-method", choices=RIVAL_SELECTION_METHODS,
+                        default="weighted_mean", help=(
+                            "Choose by weighted mean or minimize the largest scenario shortfall "
+                            "against that scenario's best candidate mean (minimax_regret)"))
     parser.add_argument(
         "--rival-scenarios", required=True, type=Path,
         help="JSON file of weighted rival plans, optionally with weather and weather_schedule",
@@ -281,6 +289,7 @@ def main() -> int:
             driver_id=args.driver,
             constructor_id=args.constructor,
             objective=args.objective,
+            selection_method=args.selection_method,
             scenario=args.scenario,
             training_simulations=args.training_simulations,
             validation_simulations=args.validation_simulations,
@@ -334,15 +343,36 @@ def main() -> int:
                 selection["frozen_qualifying_weather"], ensure_ascii=False, sort_keys=True,
             ))
         _print_objective_summary(selection)
+        if selection.get("selection_method") == "minimax_regret":
+            print("Minimax regret training choice (scenario weights do not affect selection):")
+            unit = "points" if args.objective == "points" else "percentage points"
+            scale = 1 if args.objective == "points" else 100
+            for row in selection["training_regret_table"]:
+                worst = ", ".join(row["worst_scenarios"])
+                print(f"  {row['label']}: maximum shortfall "
+                      f"{_selection_number(scale * row['maximum_regret'])} {unit}; "
+                      f"worst scenarios: {worst}")
+                for name, evidence in row["scenarios"].items():
+                    print(f"    {name}: candidate mean "
+                          f"{_selection_number(scale * evidence['mean_score'])}; "
+                          f"best candidate mean "
+                          f"{_selection_number(scale * evidence['best_candidate_mean_score'])}; "
+                          f"shortfall {_selection_number(scale * evidence['regret'])} {unit}")
+            print("Weighted means below are context; maximum training shortfall chose the plan.")
         print("Weighted training mean points:")
+        gap_label = (
+            "selected minus candidate mean points" if args.selection_method == "minimax_regret"
+            else "mean points behind selected"
+        )
         for row in selection["training_score_table"]:
             point_gap = (
-                _training_shortfall(row, selection['selected_label']) if args.objective == 'points'
+                _training_shortfall(row, selection['selected_label'])
+                if args.objective == 'points' and args.selection_method == 'weighted_mean'
                 else _selection_number(row['mean_points_behind_selected'])
             )
             print(
                 f"  {row['label']}: {_selection_number(row.get('mean_points'))}; "
-                "mean points behind selected: "
+                f"{gap_label}: "
                 f"{point_gap}",
             )
         tie_text = _selection_reason(selection.get("tiebreak_applied"))
