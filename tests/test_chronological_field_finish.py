@@ -66,11 +66,12 @@ def field(*, control="vsc", relative_laps=-1, remaining=50., neutralized=False,
 
 
 def native_path(inputs, *, stopped, delay=10., weather=None, warmup=None, pending_fit=False,
-                replacement_age=0):
+                replacement_age=0, forecast_context=None):
     """Use real running/crossing/exit methods; only future draws/policies are fixed."""
     driver, car, track, context, now = inputs
     warmup = warmup or {}
     simulator = RaceSimulator(np.random.default_rng(25), tire_warmup=warmup)
+    simulator.weather_forecast_context = forecast_context
     engine = ChronologicalRace(simulator)
     engine.track = track.model_copy(deep=True)
     engine.weather = (weather or Weather(change_probability=0.)).model_copy(deep=True)
@@ -124,7 +125,8 @@ def native_path(inputs, *, stopped, delay=10., weather=None, warmup=None, pendin
         return []
 
     control.process_lap = advance_control
-    simulator._advance_race_weather = lambda surface: surface.project_surface()
+    if forecast_context is None:
+        simulator._advance_race_weather = lambda surface: surface.project_surface()
     for row in context.rivals:
         state = engine.states[row.identifier]
         if row.running_start is None:

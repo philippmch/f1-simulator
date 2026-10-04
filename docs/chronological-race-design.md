@@ -116,6 +116,21 @@ each removed set's age and multiplicity and return to the physical-pool green
 search after control ends. See the
 [strategy model](strategy-model.md) for scope and a completed-race example.
 
+In native green running, changing surfaces and prescribed rainfall also use
+this field projection for the current paid-entry comparison when no external
+paid-stop-aware weather clock is available and a held rival can lead during
+expected service. Followers retain that existing clock. When no rival can
+advance the surface before entry, the ordinary forecast remains sufficient.
+A leading car's
+service can let another car create leading weather updates before pit exit.
+The first outlap uses that entry surface; after the current action and any
+pending neutralized restrictions clear, the existing green suffix rebases its
+surface, schedule and leading clock. This does not jointly simulate the field's
+future green tyre choices or stops. Missing observations, unresolved rival
+instructions, explicit pit plans, custom running calculators and changed
+control pace or aero getters retain the existing forecast path. Fixed surfaces
+without prescribed rainfall need no additional field projection.
+
 Native weather searches establish the private ledger's closed shape once.
 Their branches copy ledger containers and replace pending lap records before
 changing them, so untouched rival records can be shared safely. Projected
@@ -149,9 +164,10 @@ This clock is shared by rain, weather-stop and finite-pool costs, with the same
 timing carried into damp fallback stint comparisons. The candidate's observed
 free pace and the external leading clock stay fixed within a forecast.
 
-The candidate leader keeps the existing own-lap projection: its pit time cannot
-create leading crossings while it is stationary. Initial decisions without an
-observed pace and unchanging surfaces also retain the existing path. Future rival
+After the observed entry comparison, a candidate that still leads keeps the
+existing own-lap projection: its stationary time alone cannot create leading
+crossings. Initial decisions without an observed pace and unchanging surfaces
+without prescribed rainfall retain the existing path. Future rival
 decisions, random weather and changed free pace remain unknown; these cost
 comparisons do not change the actual finish boundary or fit tyres twice.
 

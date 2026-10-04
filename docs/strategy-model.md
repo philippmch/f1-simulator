@@ -1245,6 +1245,24 @@ hooks use isolated copies with actual driver and team identifiers on every
 hypothesis, including the green suffix; mutable hook state cannot pass between
 alternatives.
 
+With native chronological physics in green running, changing weather and
+prescribed rainfall also price the current paid entry against the observed
+field when no external paid-stop-aware weather clock is available and a held
+rival can accept a leading crossing during expected service. Followers retain
+that existing clock; entries before every rival's earliest leading crossing
+retain the ordinary forecast. Even a current leader can lose the weather clock
+during service: another car may accept a leading crossing before its pit exit.
+Rain timing, paid
+compound choice, reactive weather-stop costs and finite inventories use the
+resulting outlap surface. The first retained action uses the same observed
+field, and an eligible retained Overtake Mode gain is still applied once outside
+the tyre planner. The subsequent green suffix rebases its weather and schedule
+after that action; it retains the existing fixed own-lap horizon and held-pace
+assumptions. This is an entry correction, not a forecast of every later green
+stop's effect on the whole field. Dry or balanced surfaces without a schedule,
+unusable observations, explicit rival plans, custom running calculators and
+changed race-control pace or aero getters retain the existing path.
+
 Chronological branches reuse frozen scalar finish observations and copy their
 mutable ledger, clock, queue and pending events. Additional mutable ledger
 attributes retain deep copying. Decision-local memoization ignores stale events

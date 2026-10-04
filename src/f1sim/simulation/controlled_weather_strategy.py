@@ -1,4 +1,4 @@
-"""Weather and physical tyre choices through an observed SC/VSC field."""
+"""Weather and physical tyre choices through an observed racing field."""
 
 from bisect import bisect_right
 from copy import copy

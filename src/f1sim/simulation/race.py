@@ -1751,6 +1751,15 @@ class RaceSimulator(InventoryStrategyMixin):
             return {}
         return {"control_context": context.for_paid_fit() if paid_fit else context}
 
+    def _weather_control_forecast_options(self, state):
+        """Weather field snapshots also price the current green paid entry."""
+        if self.event_manager.safety_car_active or self.event_manager.vsc_active:
+            return self._dry_control_forecast_options(state)
+        context = state.strategy_control_context
+        if context is None or self.event_manager.red_flag_active:
+            return {}
+        return {"control_context": context}
+
     def _can_project_dry_control(self, state, track, weather, lap):
         intervals = observed_control_intervals(self.event_manager)
         # Native deployments last at most six intervals. Keep the field search
@@ -2252,7 +2261,7 @@ class RaceSimulator(InventoryStrategyMixin):
                 weather_intervals=weather_intervals,
                 **traffic_options,
                 **self._safety_car_forecast_options(state),
-                **self._dry_control_forecast_options(state),
+                **self._weather_control_forecast_options(state),
                 **({"weather_clock": weather_clock} if weather_clock is not None else {}),
                 **({"tire_warmup": self.tire_warmup,
                     "current_fit_pending": state.fit_lap_pending}
@@ -3579,7 +3588,7 @@ class RaceSimulator(InventoryStrategyMixin):
             remaining_damp_stops=damp_remaining,
             used_compounds=self._actually_used_compounds(state),
             **self._safety_car_forecast_options(state),
-            **self._dry_control_forecast_options(state),
+            **self._weather_control_forecast_options(state),
             **self._forecast_options(),
             **({"tire_warmup": self.tire_warmup,
                 "current_fit_pending": state.fit_lap_pending} if self.tire_warmup else {}),
@@ -3724,7 +3733,7 @@ class RaceSimulator(InventoryStrategyMixin):
             active_aero_enabled=self.event_manager.is_active_aero_allowed(),
             traffic_possible=traffic_possible,
             **self._safety_car_forecast_options(state),
-            **self._dry_control_forecast_options(state),
+            **self._weather_control_forecast_options(state),
             physical_total_laps=physical_total_laps,
             weather_intervals=weather_intervals,
             **({"weather_clock": weather_clock} if weather_clock is not None else {}),
@@ -3782,5 +3791,6 @@ register_forecast_helpers(vars(RaceSimulator), (
     "_protect_leading_finish_distance", "_clear_one_lap_pit_proposals",
     "_standard_safety_car_finish_field",
     "_standard_dry_control_context", "_dry_control_forecast_options", "_can_project_dry_control",
+    "_weather_control_forecast_options",
 ))
 register_forecast_helpers(vars(InventoryStrategyMixin), ("_plan_inventory",))

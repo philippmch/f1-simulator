@@ -15,7 +15,7 @@ from math import ceil, floor, isfinite
 from numbers import Real
 
 from f1sim.cancellation import raise_if_cancelled
-from f1sim.models._native import register_forecast_helpers
+from f1sim.models._native import native_physics, register_forecast_helpers
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.chronological_finish import (
     ChronologicalFinishCar,
@@ -24,7 +24,7 @@ from f1sim.simulation.chronological_finish import (
     project_observed_chronological_clock,
 )
 from f1sim.simulation.custom_pit_strategy import CustomPitFinishContext
-from f1sim.simulation.events import EventType, RaceEvent
+from f1sim.simulation.events import EventManager, EventType, RaceEvent
 from f1sim.simulation.execution import validate_starting_tire_ages, validate_starting_tires
 from f1sim.simulation.finish_strategy import (
     LeadingFinishContext,
@@ -63,6 +63,11 @@ from f1sim.simulation.validation import validate_unique_ids
 from f1sim.simulation.weather_schedule import (
     WeatherForecastContext,
     validate_weather_schedule,
+)
+
+_GREEN_CONTROL_METHODS = (
+    ("get_lap_time_modifier", EventManager.get_lap_time_modifier),
+    ("is_active_aero_allowed", EventManager.is_active_aero_allowed),
 )
 
 
@@ -786,6 +791,39 @@ class ChronologicalRace:
         """Read known remaining control intervals without evolving race control."""
         return observed_control_intervals(self.simulator.event_manager)
 
+    def _can_project_green_weather(self, state, weather, *, weather_clock=None):
+        """A paid green lap can hand leading weather updates to another car."""
+        if weather_clock is not None:
+            return False
+        active = [other for other in self.states.values() if other.status == DriverStatus.RACING]
+        control = self.simulator.event_manager
+        return (state.pit_plan is None and len(active) > 1
+                and self._neutralized_finish_intervals() == 0
+                and not (control.safety_car_active or control.vsc_active or control.red_flag_active)
+                and all(getattr(getattr(control, name), "__func__", None) is method
+                        for name, method in _GREEN_CONTROL_METHODS)
+                and native_physics(state.driver, state.car, self.track, weather, state.current_tire)
+                and type(self.simulator.lap_simulator) is LapSimulator
+                and getattr(self.simulator.lap_simulator.calculate_lap_time, "__func__", None)
+                is LapSimulator.calculate_lap_time
+                and (self.simulator.weather_forecast_context is not None
+                     or weather.project_surface().track_wetness != weather.track_wetness)
+                and not any(other.pit_plan is not None
+                            and other.pit_plan_index < len(other.pit_plan) for other in active))
+
+    def _green_service_can_advance_weather(self, state, context, now, stop_delay):
+        """Skip field search when no held rival can lead before paid entry."""
+        entry = now + stop_delay
+        for other in context.rivals:
+            crossing = other.ready
+            if other.running_start is None:
+                crossing += other.free_running + other.fitting_cost
+            for _ in range(max(0, state.laps_completed - other.completed_laps)):
+                crossing += other.free_running
+            if crossing <= entry + 1.e-10:
+                return True
+        return False
+
     def _field_finish_required(self, intervals):
         if intervals > 1:
             return True
@@ -1052,8 +1090,14 @@ class ChronologicalRace:
         state.strategy_safety_car_snapshot = traffic.safety_car
         restart = restart_planning is not None
         state.strategy_control_context = None
-        if (not restart and self.simulator._can_project_dry_control(
-                state, planning, self.weather, lap)):
+        if weather_clock is None and cadence is not None:
+            weather_clock = self._strategy_weather_clock(
+                state, now, planning, delay, restart=restart,
+            )
+        if (not restart and (self.simulator._can_project_dry_control(
+                state, planning, self.weather, lap)
+                or self._can_project_green_weather(state, self.weather,
+                                                   weather_clock=weather_clock))):
             context = self._chronological_finish_context(state, now)
             if (context is not None and isinstance(context.own_pace, Real)
                     and not isinstance(context.own_pace, bool)
@@ -1066,11 +1110,10 @@ class ChronologicalRace:
             )):
                 stop_delay = (self.track.pit_lane_delta * self.simulator._pit_lane_factor()
                               + expected_stationary_time(state.car) + delay)
-                state.strategy_control_context = StrategyControlContext(context, now, stop_delay)
-        if weather_clock is None and cadence is not None:
-            weather_clock = self._strategy_weather_clock(
-                state, now, planning, delay, restart=restart,
-            )
+                if (context.control_intervals > 0 or self._green_service_can_advance_weather(
+                        state, context, now, stop_delay)):
+                    state.strategy_control_context = StrategyControlContext(
+                        context, now, stop_delay)
         forced_repair = state.force_pit_next_lap
         if forced_repair:
             # Forced execution bypasses policy; stale elective context must
@@ -1676,10 +1719,13 @@ register_forecast_helpers(globals(), (
     "project_observed_chronological_clock",
     "observed_control_intervals", "forecast_running_duration",
     "StrategyControlContext",
+    "native_physics",
 ))
 register_forecast_helpers(vars(ChronologicalRace), (
     "_chronological_finish_context", "_protect_neutralized_field_finish",
     "_neutralized_finish_intervals", "_field_finish_required",
     "_weather_update_times", "_projected_lap_starts", "_weather_updates_at",
     "_observed_control_projection",
+    "_can_project_green_weather",
+    "_green_service_can_advance_weather",
 ))
