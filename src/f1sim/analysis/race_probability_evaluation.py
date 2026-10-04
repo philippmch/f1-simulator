@@ -7,7 +7,8 @@ events and constructor standings through the preceding round.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from copy import deepcopy
 from math import fsum
 from typing import Any
 
@@ -24,6 +25,7 @@ from f1sim.analysis.race_probability_scores import (
     summarize_winner_trials,
 )
 from f1sim.analysis.scenarios import scenario_weather_from_label
+from f1sim.cancellation import raise_if_cancelled
 from f1sim.data.current import CurrentSeasonDataError, CurrentSeasonDataLoader
 from f1sim.models import Weather
 from f1sim.simulation.execution import DEFAULT_RACE_ENGINE, validate_race_engine
@@ -32,6 +34,7 @@ from f1sim.simulation.randomness import DEFAULT_RNG_POLICY, validate_rng_policy
 _MAX_TRIALS = 10_000
 _MAX_TOTAL_TRIALS = 10_000
 _MAX_SEED = 2**32 - 1
+_MAX_WORKERS = 61
 _WEATHER_SCENARIOS = ("dry", "light_rain", "heavy_rain")
 
 
@@ -174,6 +177,12 @@ def _aggregate(folds: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _notify_progress(callback, state, phase, **updates) -> None:
+    state.update(phase=phase, **updates)
+    if callback is not None:
+        callback(dict(state))
+
+
 def evaluate_race_probabilities(
     loader: CurrentSeasonDataLoader,
     year: int,
@@ -186,6 +195,10 @@ def evaluate_race_probabilities(
     scenario: str = "dry",
     race_engine: str = DEFAULT_RACE_ENGINE,
     rng_policy: str = DEFAULT_RNG_POLICY,
+    parallel: bool = False,
+    max_workers: int | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Evaluate Monte Carlo winner probabilities against completed races.
 
@@ -196,8 +209,9 @@ def evaluate_race_probabilities(
 
     The same event has the same seed whether selected alone or with other
     events, and increasing ``trials`` preserves its existing trial prefix.
-    The default execution is serial and uses the simulator's default RNG
-    stream policy.
+    Events run in order; optional parallel execution distributes their trials
+    without changing seeds. Progress callbacks run only in the calling process.
+    Cancellation raises before a complete report exists, including during races.
     """
     loader._assert_current_year(year)
     if type(all_targets) is not bool:
@@ -211,11 +225,32 @@ def evaluate_race_probabilities(
         raise ValueError(f"scenario must be one of: {', '.join(_WEATHER_SCENARIOS)}")
     race_engine = validate_race_engine(race_engine)
     rng_policy = validate_rng_policy(rng_policy)
+    if type(parallel) is not bool:
+        raise ValueError("parallel must be a boolean")
+    if max_workers is not None:
+        max_workers = _validate_integer(max_workers, "max_workers", 1, _MAX_WORKERS)
+        if not parallel:
+            raise ValueError("max_workers requires parallel=True")
+    if progress_callback is not None and not callable(progress_callback):
+        raise TypeError("progress_callback must be callable or None")
+    if cancel_requested is not None and not callable(cancel_requested):
+        raise TypeError("cancel_requested must be callable or None")
+
+    progress = {
+        "year": year, "events_total": None, "events_completed": 0,
+        "collection_events_completed": 0, "trials_requested": None,
+        "trials_total": None, "trials_completed": 0,
+    }
+    raise_if_cancelled(cancel_requested)
+    _notify_progress(progress_callback, progress, "loading")
+    raise_if_cancelled(cancel_requested)
 
     events = loader.get_event_schedule(year)
+    raise_if_cancelled(cancel_requested)
     if not events:
         raise CurrentSeasonDataError("Current-season calendar contains no race events")
     results, qualifying = loader._season_data(year)
+    raise_if_cancelled(cancel_requested)
     targets = _selected_events(
         loader, year, events, results,
         target_race=target_race,
@@ -226,6 +261,7 @@ def evaluate_race_probabilities(
         raise ValueError(
             f"Selected event trial budget exceeds {_MAX_TOTAL_TRIALS} total trials"
         )
+    progress.update(events_total=len(targets), trials_requested=total_trials)
 
     weather = scenario_weather_from_label(
         Weather(), scenario, weather_mode="fixed_rainfall",
@@ -236,12 +272,18 @@ def evaluate_race_probabilities(
     # invocation; lengthy Monte Carlo runs must not consume time needed by a
     # later fold's constructor standings request.
     prepared_folds: list[dict[str, Any]] = []
-    for event in targets:
+    for event_index, event in enumerate(targets, 1):
+        raise_if_cancelled(cancel_requested)
         round_number = _round_number(event.get("round"))
         if round_number is None:
             raise CurrentSeasonDataError("Calendar event has an invalid round number")
         target_results = _target_rows(loader, results, round_number)
         per_event_seed = derive_event_seed(seed, year, round_number)
+        _notify_progress(
+            progress_callback, progress, "collecting", event_index=event_index,
+            round=round_number, race=event["race"], collection_events_completed=event_index - 1,
+        )
+        raise_if_cancelled(cancel_requested)
         try:
             assembled, _observations = assemble_holdout_fold(
                 loader, year, event, events, results, qualifying, form_races=form_races,
@@ -262,16 +304,28 @@ def evaluate_race_probabilities(
                 "event_seed": per_event_seed,
                 "assembled": assembled,
             })
+        raise_if_cancelled(cancel_requested)
 
     # Capture provenance after all required collection and model assembly, and
     # before simulation duration can affect the point-in-time metadata.
-    provenance = loader.get_provenance()
+    provenance = deepcopy(loader.get_provenance())
+    _notify_progress(
+        progress_callback, progress, "collected", collection_events_completed=len(targets),
+        trials_total=sum("assembled" in prepared for prepared in prepared_folds) * trials,
+        event_index=None, round=None, race=None,
+    )
     folds: list[dict[str, Any]] = []
-    for prepared in prepared_folds:
+    completed_trials = 0
+    for event_index, prepared in enumerate(prepared_folds, 1):
+        raise_if_cancelled(cancel_requested)
         event = prepared["event"]
         round_number = prepared["round"]
         target_results = prepared["target_results"]
         per_event_seed = prepared["event_seed"]
+        progress.update(
+            event_index=event_index, round=round_number, race=event["race"],
+            event_trials_completed=0, event_trials_total=trials, status=None, reason=None,
+        )
         coverage_error = prepared.get("coverage_error")
         if coverage_error is not None:
             exc = coverage_error
@@ -301,8 +355,15 @@ def evaluate_race_probabilities(
                     "event_seed": per_event_seed,
                     "race_engine": race_engine,
                     "rng_policy": rng_policy,
+                    "parallel": parallel,
+                    "max_workers": max_workers,
                 },
             })
+            _notify_progress(
+                progress_callback, progress, "event_complete", events_completed=event_index,
+                event_trials_total=0, status="excluded", reason="insufficient_target_coverage",
+            )
+            raise_if_cancelled(cancel_requested)
             continue
 
         assembled = prepared["assembled"]
@@ -320,10 +381,22 @@ def evaluate_race_probabilities(
             race_engine=race_engine,
             rng_policy=rng_policy,
         )
-        simulation = runner.run(
-            num_simulations=trials,
-            parallel=False,
-        )
+        run_options = {"num_simulations": trials, "parallel": parallel}
+        if max_workers is not None:
+            run_options["max_workers"] = max_workers
+        if cancel_requested is not None:
+            run_options["cancel_requested"] = cancel_requested
+        if progress_callback is not None:
+            def trial_progress(completed: int, _total: int) -> None:
+                _notify_progress(
+                    progress_callback, progress, "simulating", event_trials_completed=completed,
+                    trials_completed=completed_trials + completed,
+                )
+
+            run_options["progress_callback"] = trial_progress
+        simulation = runner.run(**run_options)
+        raise_if_cancelled(cancel_requested)
+        completed_trials += trials
         forecast = summarize_winner_trials(
             simulation.race_results,
             driver_ids,
@@ -382,7 +455,8 @@ def evaluate_race_probabilities(
                 "trial_seed_policy": "event_seed_plus_zero_based_trial_index",
                 "race_engine": race_engine,
                 "rng_policy": rng_policy,
-                "parallel": False,
+                "parallel": parallel,
+                "max_workers": max_workers,
                 "weather": weather.model_dump(),
                 "weather_scenario": scenario,
                 "weather_mode": "fixed_rainfall_surface_evolves",
@@ -393,7 +467,18 @@ def evaluate_race_probabilities(
                 "tire_warmup": "off",
             },
         })
+        _notify_progress(
+            progress_callback, progress, "event_complete", events_completed=event_index,
+            event_trials_completed=trials, trials_completed=completed_trials,
+            status=status, reason=reason,
+        )
+        raise_if_cancelled(cancel_requested)
 
+    _notify_progress(
+        progress_callback, progress, "complete", event_index=None, round=None, race=None,
+        event_trials_completed=None, event_trials_total=None, status=None, reason=None,
+    )
+    raise_if_cancelled(cancel_requested)
     return {
         "year": year,
         "evaluation": "round_holdout_race_winner_probabilities",
@@ -409,6 +494,7 @@ def evaluate_race_probabilities(
         "base_seed": seed,
         "race_engine": race_engine,
         "rng_policy": rng_policy,
+        "execution": {"parallel": parallel, "max_workers": max_workers},
         "weather_assumption": {
             "scenario": scenario,
             "mode": "fixed_rainfall_surface_evolves",
@@ -418,6 +504,7 @@ def evaluate_race_probabilities(
         "data_revision": "current_provider_data_not_historical_availability",
         "fetched_at": provenance["fetched_at"],
         "source_urls": provenance["urls"],
+        "provenance": provenance,
         "seed_derivation": "numpy_seed_sequence_base_year_round_uint32_v1",
         "trials_per_event_policy": "event_seed_plus_zero_based_trial_index_prefix_stable",
         "folds": folds,

@@ -1,6 +1,7 @@
 """Monte Carlo simulation runner and statistics."""
 
 import os
+import signal
 from collections import defaultdict
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from copy import deepcopy
@@ -9,6 +10,7 @@ from math import isclose, isfinite, sqrt
 from multiprocessing import get_context
 from numbers import Integral, Real
 from statistics import NormalDist
+from threading import current_thread, main_thread
 from typing import Callable
 
 import numpy as np
@@ -89,6 +91,9 @@ def _raise_if_cancelled(cancel_requested: Callable[[], bool] | None) -> None:
 
 def _initialize_cancellation_worker(cancel_event) -> None:
     """Install the inherited process event without pickling a parent callback."""
+    # The parent translates Ctrl-C into the shared cooperative stop signal.
+    if current_thread() is main_thread():
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
     install_cancellation_callback(cancel_event.is_set)
 
 
@@ -111,6 +116,7 @@ def _run_parallel_with_cancellation(
     args_list: list[tuple],
     max_workers: int | None,
     cancel_requested: Callable[[], bool],
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> list[tuple[list[RaceResult], list[QualifyingResult], dict]]:
     """Run bounded in-flight trials while keeping results in seed order."""
     worker_count = _cancellation_worker_count(max_workers, len(args_list))
@@ -147,6 +153,8 @@ def _run_parallel_with_cancellation(
                     if result is None:
                         raise RuntimeError("parallel simulation returned no result")
                     results[index] = result
+                    if progress_callback is not None:
+                        progress_callback(len(results), len(args_list))
                 _raise_if_cancelled(cancel_requested)
                 while next_index < len(args_list) and len(futures) < worker_count:
                     _raise_if_cancelled(cancel_requested)
@@ -1221,6 +1229,7 @@ class MonteCarloRunner:
         max_workers: int | None = None,
         *,
         cancel_requested: Callable[[], bool] | None = None,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> SimulationResults:
         """Run Monte Carlo simulations.
 
@@ -1229,12 +1238,15 @@ class MonteCarloRunner:
             parallel: Whether to use parallel processing
             max_workers: Maximum parallel workers (None = CPU count)
             cancel_requested: Optional parent-process callback polled during the run
+            progress_callback: Parent-process callback receiving completed and total trials
 
         Returns:
             SimulationResults with aggregated statistics
         """
         if cancel_requested is not None and not callable(cancel_requested):
             raise TypeError("cancel_requested must be callable or None")
+        if progress_callback is not None and not callable(progress_callback):
+            raise TypeError("progress_callback must be callable or None")
         if (
             isinstance(num_simulations, bool)
             or not isinstance(num_simulations, Integral)
@@ -1330,7 +1342,11 @@ class MonteCarloRunner:
         all_quali_results: list[list[QualifyingResult]] = []
         all_event_counts: list[dict] = []
 
-        if cancel_requested is None:
+        _raise_if_cancelled(cancel_requested)
+        if progress_callback is not None:
+            progress_callback(0, num_simulations)
+
+        if cancel_requested is None and progress_callback is None:
             if parallel and num_simulations > 1:
                 with ProcessPoolExecutor(max_workers=max_workers) as executor:
                     for race_res, quali_res, event_counts in executor.map(
@@ -1347,10 +1363,12 @@ class MonteCarloRunner:
                     all_quali_results.append(quali_res)
                     all_event_counts.append(event_counts)
         else:
-            _raise_if_cancelled(cancel_requested)
+            cooperative_cancel = cancel_requested or current_cancellation_callback()
+            _raise_if_cancelled(cooperative_cancel)
             if parallel and num_simulations > 1:
                 completed = _run_parallel_with_cancellation(
-                    args_list, max_workers, cancel_requested,
+                    args_list, max_workers, cooperative_cancel or (lambda: False),
+                    progress_callback,
                 )
                 for race_res, quali_res, event_counts in completed:
                     all_race_results.append(race_res)
@@ -1358,14 +1376,16 @@ class MonteCarloRunner:
                     all_event_counts.append(event_counts)
             else:
                 for args in args_list:
-                    with cancellation_scope(cancel_requested):
-                        _raise_if_cancelled(cancel_requested)
+                    with cancellation_scope(cooperative_cancel):
+                        _raise_if_cancelled(cooperative_cancel)
                         race_res, quali_res, event_counts = _run_single_simulation(args)
                         all_race_results.append(race_res)
                         all_quali_results.append(quali_res)
                         all_event_counts.append(event_counts)
-                        _raise_if_cancelled(cancel_requested)
-            _raise_if_cancelled(cancel_requested)
+                        if progress_callback is not None:
+                            progress_callback(len(all_race_results), num_simulations)
+                        _raise_if_cancelled(cooperative_cancel)
+            _raise_if_cancelled(cooperative_cancel)
 
         # Aggregate statistics
         _raise_if_cancelled(cancel_requested)

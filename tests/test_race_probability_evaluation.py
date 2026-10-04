@@ -3,6 +3,7 @@
 import copy
 import importlib.util
 import json
+import signal
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,6 +12,7 @@ import pytest
 
 from f1sim.analysis import race_probability_evaluation as evaluation
 from f1sim.analysis.holdout_folds import assemble_holdout_fold
+from f1sim.cancellation import SimulationCancelled, raise_if_cancelled
 from f1sim.data import CurrentSeasonDataError, CurrentSeasonDataLoader
 
 YEAR = datetime.now(timezone.utc).year
@@ -113,11 +115,16 @@ class _FakeRunner:
         }
         self.__class__.calls.append(self._call)
 
-    def run(self, *, num_simulations, parallel):
-        assert parallel is False
+    def run(self, *, num_simulations, parallel, max_workers=None,
+            cancel_requested=None, progress_callback=None):
+        self._call.update(parallel=parallel, max_workers=max_workers)
         races = []
         winner_ids = []
+        raise_if_cancelled(cancel_requested)
+        if progress_callback is not None:
+            progress_callback(0, num_simulations)
         for trial in range(num_simulations):
+            raise_if_cancelled(cancel_requested)
             winner_id = self.ranked_ids[trial % len(self.ranked_ids)]
             winner_ids.append(winner_id)
             order = [winner_id] + [
@@ -133,6 +140,9 @@ class _FakeRunner:
                 )
                 for driver_id in self.driver_ids
             ])
+            if progress_callback is not None:
+                progress_callback(trial + 1, num_simulations)
+            raise_if_cancelled(cancel_requested)
         self._call["winner_ids"] = winner_ids
         return SimpleNamespace(
             race_results=races,
@@ -558,3 +568,210 @@ def test_cli_flags_and_json_output_are_machine_readable(monkeypatch, capsys, eng
     cli.main(arguments)
     assert json.loads(capsys.readouterr().out) == {"ok": True}
     assert calls[0]["race_engine"] == expected_engine
+
+
+def test_parallel_and_progress_controls_preserve_forecast_and_training(
+    evaluation_data, fake_runner,
+):
+    loader, *_ = evaluation_data
+    baseline = run_target(loader, trials=4)
+    updates = []
+    observed = run_target(loader, trials=4, parallel=True, max_workers=2,
+                          progress_callback=updates.append)
+    for key in ("forecast", "score", "training", "simulation_inputs", "coverage"):
+        assert observed["folds"][0][key] == baseline["folds"][0][key]
+    assert fake_runner[-1]["parallel"] is True and fake_runner[-1]["max_workers"] == 2
+    assert observed["execution"] == {"parallel": True, "max_workers": 2}
+    trial_updates = [update for update in updates if update["phase"] == "simulating"]
+    assert [update["event_trials_completed"] for update in trial_updates] == list(range(5))
+    assert updates[-1]["phase"] == "complete" and updates[-1]["trials_completed"] == 4
+    assert max(i for i, row in enumerate(updates) if row["phase"] == "collecting") < min(
+        i for i, row in enumerate(updates) if row["phase"] == "simulating"
+    )
+
+
+def test_excluded_coverage_does_not_inflate_executed_trial_progress(evaluation_data, fake_runner):
+    loader, _results, qualifying, _events = evaluation_data
+    qualifying[:] = [row for row in qualifying
+                     if row["round"] != 2 or row["Driver"]["code"] in ("A1", "A2")]
+    updates = []
+    report = evaluation.evaluate_race_probabilities(
+        loader, YEAR, all_targets=True, trials=2, progress_callback=updates.append,
+    )
+    assert report["folds"][1]["reason"] == "insufficient_target_coverage"
+    assert report["trial_budget"]["requested_total"] == 6
+    assert report["trial_budget"]["executed_total"] == 4
+    assert updates[-1]["trials_requested"] == 6
+    assert updates[-1]["trials_total"] == updates[-1]["trials_completed"] == 4
+    assert updates[-1]["events_completed"] == updates[-1]["events_total"] == 3
+    assert len(fake_runner) == 2
+
+
+@pytest.mark.parametrize("phase", ["loading", "collecting", "collected", "simulating"])
+def test_cancellation_across_evaluation_phases_prevents_a_report(
+    evaluation_data, fake_runner, phase,
+):
+    loader, *_ = evaluation_data
+    cancelled = [False]
+
+    def stop(update):
+        if update["phase"] == phase:
+            cancelled[0] = True
+
+    with pytest.raises(SimulationCancelled):
+        evaluation.evaluate_race_probabilities(
+            loader, YEAR, all_targets=True, trials=4,
+            progress_callback=stop, cancel_requested=lambda: cancelled[0],
+        )
+    assert len(fake_runner) == (1 if phase == "simulating" else 0)
+
+
+def test_precancelled_evaluation_does_not_contact_provider(evaluation_data, monkeypatch):
+    loader, *_ = evaluation_data
+    monkeypatch.setattr(loader, "get_event_schedule", lambda _: pytest.fail("provider contacted"))
+    with pytest.raises(SimulationCancelled):
+        run_target(loader, cancel_requested=lambda: True)
+
+
+@pytest.mark.parametrize("options,error", [
+    ({"parallel": 1}, ValueError), ({"max_workers": True, "parallel": True}, ValueError),
+    ({"max_workers": 0, "parallel": True}, ValueError),
+    ({"max_workers": 62, "parallel": True}, ValueError),
+    ({"max_workers": 2}, ValueError), ({"progress_callback": False}, TypeError),
+    ({"cancel_requested": False}, TypeError),
+])
+def test_execution_controls_are_validated_before_provider_access(
+    evaluation_data, monkeypatch, options, error,
+):
+    loader, *_ = evaluation_data
+    monkeypatch.setattr(loader, "get_event_schedule", lambda _: pytest.fail("provider contacted"))
+    with pytest.raises(error):
+        run_target(loader, **options)
+
+
+def test_full_fetch_provenance_is_copied_into_evaluation(evaluation_data, fake_runner, monkeypatch):
+    loader, *_ = evaluation_data
+    provenance = {"fetched_at": "now", "urls": ["current"], "fresh_fetch": True,
+                  "http_retries": [{"http_status": 429, "delay_seconds": 10}]}
+    monkeypatch.setattr(loader, "get_provenance", lambda: provenance)
+    report = run_target(loader, trials=1)
+    assert report["provenance"] == provenance
+    provenance["http_retries"][0]["delay_seconds"] = 99
+    assert report["provenance"]["http_retries"][0]["delay_seconds"] == 10
+
+
+def test_cli_progress_and_parallel_output_remains_json(
+    evaluation_data, fake_runner, monkeypatch, capsys,
+):
+    loader, *_ = evaluation_data
+    cli = load_cli_module()
+    monkeypatch.setattr(cli, "CurrentSeasonDataLoader", lambda **kwargs: loader)
+    previous = signal.getsignal(signal.SIGINT)
+    cli.main(["--race", "2", "--trials", "2", "--parallel", "--workers", "2", "--progress"])
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+    assert report["execution"] == {"parallel": True, "max_workers": 2}
+    assert "Round 2: 2/2 trials" in captured.err
+    assert "Evaluation complete" in captured.err
+    assert signal.getsignal(signal.SIGINT) == previous
+
+
+def test_cli_ctrl_c_cancels_without_json_and_restores_signal_handler(monkeypatch, capsys):
+    cli = load_cli_module()
+    previous = signal.getsignal(signal.SIGINT)
+    monkeypatch.setattr(cli, "CurrentSeasonDataLoader", lambda **kwargs: object())
+
+    def interrupted(*args, **kwargs):
+        assert not kwargs["cancel_requested"]()
+        signal.getsignal(signal.SIGINT)(signal.SIGINT, None)
+        assert kwargs["cancel_requested"]()
+        raise SimulationCancelled("cancelled")
+
+    monkeypatch.setattr(cli, "evaluate_race_probabilities", interrupted)
+    with pytest.raises(SystemExit) as stopped:
+        cli.main(["--race", "2"])
+    assert stopped.value.code == 130
+    captured = capsys.readouterr()
+    assert captured.out == "" and "cancelled" in captured.err
+    assert signal.getsignal(signal.SIGINT) == previous
+
+
+@pytest.mark.parametrize("args", [
+    ["--workers", "2"], ["--parallel", "--workers", "0"],
+    ["--parallel", "--workers", "62"],
+])
+def test_cli_invalid_worker_options_fail_before_loader(monkeypatch, capsys, args):
+    cli = load_cli_module()
+    monkeypatch.setattr(cli, "CurrentSeasonDataLoader", lambda **kwargs: pytest.fail("loader"))
+    with pytest.raises(SystemExit) as failed:
+        cli.main(["--race", "2", *args])
+    assert failed.value.code == 2
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize("engine", ["standard", "chronological"])
+def test_real_parallel_evaluation_matches_serial_forecast(evaluation_data, monkeypatch, engine):
+    loader, *_ = evaluation_data
+    original_track_stats = loader._track_stats_from_event
+    monkeypatch.setattr(
+        loader, "_track_stats_from_event",
+        lambda year, event: original_track_stats(year, event).model_copy(update={"total_laps": 3}),
+    )
+    baseline = run_target(loader, trials=3, seed=42, race_engine=engine)
+    updates = []
+    observed = run_target(loader, trials=3, seed=42, race_engine=engine, parallel=True,
+                          max_workers=2, progress_callback=updates.append,
+                          cancel_requested=lambda: False)
+    for key in ("forecast", "score", "training", "simulation_inputs", "coverage"):
+        assert observed["folds"][0][key] == baseline["folds"][0][key]
+    assert observed["aggregate"] == baseline["aggregate"]
+    assert updates[-1]["trials_completed"] == 3
+
+
+def test_progress_dictionary_mutation_cannot_change_evaluation_state(evaluation_data, fake_runner):
+    loader, *_ = evaluation_data
+    baseline = run_target(loader, trials=2)
+
+    def discard(update):
+        update.clear()
+
+    observed = run_target(loader, trials=2, progress_callback=discard)
+    assert observed == baseline
+
+
+def test_cli_worker_startup_error_after_ctrl_c_reports_cancellation(monkeypatch, capsys):
+    cli = load_cli_module()
+    previous = signal.getsignal(signal.SIGINT)
+    monkeypatch.setattr(cli, "CurrentSeasonDataLoader", lambda **kwargs: object())
+
+    def failed_startup(*args, **kwargs):
+        signal.getsignal(signal.SIGINT)(signal.SIGINT, None)
+        raise RuntimeError("worker exited during startup")
+
+    monkeypatch.setattr(cli, "evaluate_race_probabilities", failed_startup)
+    with pytest.raises(SystemExit) as stopped:
+        cli.main(["--race", "2", "--parallel"])
+    assert stopped.value.code == 130
+    captured = capsys.readouterr()
+    assert captured.out == "" and "cancelled" in captured.err
+    assert signal.getsignal(signal.SIGINT) == previous
+
+
+def test_cli_cancellation_during_report_serialization_leaves_stdout_empty(monkeypatch, capsys):
+    cli = load_cli_module()
+    previous = signal.getsignal(signal.SIGINT)
+    monkeypatch.setattr(cli, "CurrentSeasonDataLoader", lambda **kwargs: object())
+    monkeypatch.setattr(cli, "evaluate_race_probabilities", lambda *args, **kwargs: {"ok": True})
+    original_dump = cli.json.dumps
+
+    def cancelled_dump(*args, **kwargs):
+        signal.getsignal(signal.SIGINT)(signal.SIGINT, None)
+        return original_dump(*args, **kwargs)
+
+    monkeypatch.setattr(cli.json, "dumps", cancelled_dump)
+    with pytest.raises(SystemExit) as stopped:
+        cli.main(["--race", "2"])
+    assert stopped.value.code == 130
+    captured = capsys.readouterr()
+    assert captured.out == "" and "cancelled" in captured.err
+    assert signal.getsignal(signal.SIGINT) == previous

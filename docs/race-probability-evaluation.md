@@ -19,6 +19,51 @@ Increasing the trial count preserves the earlier trial seeds. The default is
 100 trials per event and seed 0; both the per-event and total selected-event
 budgets are capped at 10,000 trials. Runs execute serially by default.
 
+For larger checks, distribute each event's trials across worker processes and
+show progress without changing the report's JSON output:
+
+```powershell
+python examples/evaluate_race_probabilities.py --all --trials 100 --seed 42 --parallel --workers 4 --progress
+```
+
+Events still execute in round order. Within an event, changing the worker count
+preserves trial seeds and result order; it does not change the physics or widen
+the modeled uncertainty. `--workers` requires `--parallel` and accepts 1–61,
+a portable bound for supported Windows and Unix process pools. Omitting it lets
+the runner choose from the available CPUs, capped by the event's trial count.
+Process startup and separate worker caches can outweigh the benefit for small
+runs. The report records the requested execution settings.
+
+`--progress` writes collection phases, per-event trial counts, and whole-run
+counts to stderr. Repeated trial updates are limited to once every two seconds,
+with event boundaries and final counts always shown. Stdout contains only the
+complete JSON report. Targets excluded for insufficient input coverage consume
+no trials; their skipped budget is distinguished from executed trials.
+
+Press Ctrl-C to request cooperative cancellation. The evaluator checks between
+collection steps, and the simulator checks while races and strategy searches
+run. Active provider requests remain subject to their HTTP timeout. Worker
+processes finish cancellation cleanup before the command exits with status 130;
+cancelled runs emit no partial JSON report. Collection and simulation failures
+also leave stdout empty. Full fetch provenance, including any HTTP retries,
+is captured before simulation and included in successful reports.
+
+Python callers can pass `parallel`, `max_workers`, `progress_callback`, and
+`cancel_requested` to `evaluate_race_probabilities`. The progress callback runs
+in the calling process and receives a separate dictionary for each update:
+`phase`, `events_total`, `events_completed`, `collection_events_completed`,
+`trials_requested`, `trials_total`, and `trials_completed`, plus current event
+identity and trial counts when available. Counts are unknown until collection
+resolves them. `trials_total` counts executable trials after coverage exclusions.
+Callback errors propagate and stop the run; cancellation raises
+`SimulationCancelled` rather than returning a partial report.
+
+`MonteCarloRunner.run` also accepts a parent-process `progress_callback` with
+two integer arguments: completed trials and total trials. It first receives
+zero, then a monotonically increasing count as completed results are collected.
+Parallel completion notifications can arrive before earlier seeded trials;
+returned results always remain in seed order.
+
 Chronological execution is the new-run default. Use `--engine standard` to
 select the synchronous model or `--engine chronological` explicitly,
 `--scenario light_rain` or `--scenario heavy_rain` for wet assumptions, and
@@ -159,3 +204,25 @@ The run used Python 3.11.9, NumPy 2.4.6, and Pydantic 2.13.5. Saved input
 snapshots recorded simulation source fingerprint
 `7a1986db791a42ea73936d3ea1c7c846d665c79e6b30990f7a8cc23efa942a15`.
 Current provider revisions and runtime changes may alter a later run.
+
+## Chronological whole-season check, 4 October 2026
+
+A fresh run at revision `b794938` completed 100 trials for each of the same
+15 available completed races. It used the chronological engine, default dry
+assumption, three-round form window and seed 42: 1,500 trials in total. All
+events had a scoreable observed winner. Each saved input snapshot matches that
+revision's simulation source fingerprint
+`8164c6492b3d7fb7ca8aa39ba9b0b900a79a0aaadfce7a81694f592e95acaec2`.
+
+Mean multiclass Brier loss was **0.8026**, versus **0.9538** for the equal-chance
+baseline; the mean event delta was **−0.1512**. Rounds 1 and 14 again had
+incomplete modeled rosters of 19 and 20 entrants respectively. No trial produced
+a no-classified-winner outcome.
+
+The aggregate still hides substantial misses: the observed winners in rounds
+7, 9, 11 and 12 received probabilities of 0.05, 0.05, 0.01 and 0.02. The lower
+aggregate loss is not a calibration result. These are retrospective outcomes
+under assumed dry conditions, and no new completed race was available beyond
+round 15. The September standard-engine snapshot used earlier code; comparing
+its score with this run does not isolate the engine's effect. No live ratings
+or probability coefficients were fitted from this check.
