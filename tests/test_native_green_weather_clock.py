@@ -123,7 +123,7 @@ def test_unrecorded_native_prefix_preserves_crossings_and_rebased_clocks(now):
         assert green_weather_forecast(native, 3, 200.) == green_weather_forecast(reference, 3, 200.)
 
 
-def test_short_clock_key_keeps_every_reachable_paid_entry_surface_and_update_cap():
+def test_clock_key_keeps_every_reachable_paid_entry_surface_and_update_cap():
     first = StrategyWeatherClock((0., 100., 200.), 60., 100., 3, 10., 10.,
                                  update_offsets=(60., 160., 260.))
     equivalent = StrategyWeatherClock((0., 102., 201.), 62., 100., 3, 10., 10.,
@@ -142,8 +142,63 @@ def test_short_clock_key_keeps_every_reachable_paid_entry_surface_and_update_cap
     assert first.updates(1, 2) != changed.updates(1, 2)
     assert _green_weather_clock_key(first, {}) != _green_weather_clock_key(changed, {})
     assert _green_weather_clock_key(first, {"wet": 1.}) is first
-    long = replace(first, lap_start_offsets=tuple(i * 100. for i in range(13)))
+    long = replace(first, lap_start_offsets=tuple(i * 100. for i in range(101)))
     assert _green_weather_clock_key(long, {}) is long
+
+
+@pytest.mark.parametrize("horizon", [13, 30, 53, 100])
+def test_full_distance_clock_key_matches_every_physical_entry(horizon):
+    offsets = tuple(100. * i for i in range(horizon))
+    events = tuple(60. + 100. * i for i in range(horizon))
+    first = StrategyWeatherClock(offsets, 60., 100., len(events), 10., 10.,
+                                 update_offsets=events)
+    equivalent = replace(
+        first, lap_start_offsets=(0., *(value + 2. for value in offsets[1:])),
+        first_update_after=62., update_offsets=tuple(value + 2. for value in events),
+    )
+    assert first != equivalent
+    assert _green_weather_clock_key(first, {}) == _green_weather_clock_key(equivalent, {})
+    for offset in range(horizon):
+        # Eligibility observes the count before a fit; running observes it
+        # after that fit. This includes every one-fit-per-entry schedule.
+        for paid in range(offset + 2):
+            for stopped_first in (False, True) if paid else (False,):
+                assert first.updates(offset, paid, stopped_first) == equivalent.updates(
+                    offset, paid, stopped_first)
+    assert first.updates(horizon - 1, horizon) == first.max_updates
+    assert first.updates(horizon - 1, 0) < first.max_updates
+    # Move a reachable event just past an exact service exit. The keys must
+    # retain this difference even though most of the observation table agrees.
+    changed_events = list(equivalent.update_offsets)
+    changed_events[6] += .25
+    changed = replace(equivalent, update_offsets=tuple(changed_events))
+    assert first.updates(6, 6) != changed.updates(6, 6)
+    assert _green_weather_clock_key(first, {}) != _green_weather_clock_key(changed, {})
+
+
+@pytest.mark.parametrize("shape", ["regular", "unequal_service", "first_running", "subclass"])
+@pytest.mark.parametrize("horizon", [3, 53])
+def test_extended_clock_key_keeps_dispatch_for_other_clock_shapes(shape, horizon):
+    first = StrategyWeatherClock(
+        tuple(100. * i for i in range(horizon)), 60., 100., horizon,
+        10., 10., update_offsets=tuple(60. + 100. * i for i in range(horizon)),
+    )
+    if shape == "regular":
+        clock = replace(first, update_offsets=None)
+    elif shape == "unequal_service":
+        clock = replace(first, current_stop_delay=20.)
+    elif shape == "first_running":
+        clock = replace(first, current_running_times=(100., 105.))
+    else:
+        class CustomClock(StrategyWeatherClock):
+            def updates(self, *args, **kwargs):
+                return super().updates(*args, **kwargs) + 1
+
+        clock = CustomClock(
+            first.lap_start_offsets, first.first_update_after, first.update_interval,
+            first.max_updates, first.current_stop_delay, first.future_stop_delay,
+            update_offsets=first.update_offsets)
+    assert _green_weather_clock_key(clock, {}) is clock
 
 
 @pytest.mark.parametrize("owner", ["timeline", "clock", "state"])

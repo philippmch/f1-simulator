@@ -1730,8 +1730,10 @@ complete weather snapshot agrees. Permanently unsafe future stock and satisfied
 compound credit can share equivalent suffixes. Native prescribed-weather searches carry the best
 known finishing time into descendant branches, recording exclusions as bounds
 rather than exact results. For prescribed forecasts without fitting fees, an
-unlimited fresh-set relaxation also prices future service and ageing. Changing surfaces and custom
-physics keep their branch-dependent state. The synthetic
+unlimited fresh-set relaxation also prices future service and ageing. Its
+service dependencies use an explicit stack and decision-local completed costs,
+preserving the original downward rounding without recursive cache calls.
+Changing surfaces and custom physics keep their branch-dependent state. The synthetic
 `examples/benchmark_inventory_retirement.py` diagnostic compares conditional
 distance, retirement time and decisions independently of its timings.
 
@@ -1749,6 +1751,15 @@ before interpreting speed changes. Run timing comparisons without competing
 CPU-heavy work, and repeat them to distinguish improvements from timing noise.
 Cache reuse, weather, driver inputs and race length can change the benefit;
 there is no hardware-independent timing threshold in the test suite.
+
+`python examples/benchmark_controlled_strategy.py --control sc --intervals 5`
+isolates a finite-stock decision on a changing surface in a synthetic 22-car,
+53-lap field. It includes all remaining known control intervals and the native
+green continuation. JSON records the field observations, seven physical sets,
+exact decision and its outcome digest. `--profile` additionally counts green
+suffix evaluations; compare those counts and matching digests across revisions
+before measuring unprofiled timings. This diagnostic holds rival pace and does
+not simulate unknown incidents or sample randomness.
 
 The transition solver suspends a stint while evaluating a missing future cost
 and resumes at that stop choice. This avoids rescanning earlier choices whenever

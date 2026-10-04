@@ -210,13 +210,36 @@ def _fresh_inventory_completion_bound(horizon, compounds, running, eligible,
     therefore lowers completion cost. Every fitted stint still ages, pays its
     entry and observes the same weather clock. This is never an executable plan.
     """
+    solved = {}
+
     def service(offset, clock):
         if offset >= horizon:
             return 0.
-        return service_cost(offset, canonical(offset, clock))
+        initial = offset, canonical(offset, clock)
+        if initial in solved:
+            return solved[initial]
+        # Every dependency advances the own-lap offset. Resume suspended
+        # stint evaluations explicitly so long clocks do not grow either the
+        # Python or native call stack through recursive cache wrappers.
+        frames = [(initial, service_frame(*initial))]
+        value = None
+        while frames:
+            cancellation_checkpoint()
+            key, frame = frames[-1]
+            try:
+                child = frame.send(value)
+            except StopIteration as result:
+                value = solved[key] = result.value
+                frames.pop()
+                continue
+            if child in solved:
+                value = solved[child]
+            else:
+                frames.append((child, service_frame(*child)))
+                value = None
+        return solved[initial]
 
-    @lru_cache(maxsize=None)
-    def service_cost(offset, clock):
+    def service_frame(offset, clock):
         best = inf
         after = advance(clock)
         for compound in compounds:
@@ -230,7 +253,9 @@ def _fresh_inventory_completion_bound(horizon, compounds, running, eligible,
                 if number > offset and not eligible(number, compound, after):
                     break
                 total = nextafter(total + running(number, compound, number - offset, after), -inf)
-                best = min(best, nextafter(total + service(number + 1, after), -inf))
+                suffix = (0. if number + 1 == horizon else
+                          (yield (number + 1, canonical(number + 1, after))))
+                best = min(best, nextafter(total + suffix, -inf))
         return best
 
     @lru_cache(maxsize=None)

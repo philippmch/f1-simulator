@@ -173,10 +173,13 @@ Private native cost searches retain the ledger and cumulative weather count
 without allocating unused follower-event history. A recorded field forecast
 still exposes its complete crossing events. Native searches also reuse the
 on-track leader while SC order is fixed, updating it at crossings and pit exits.
-Short native green suffixes without fitting delays also share costs when every
-possible paid-entry weather update and the final update cap agree. Longer
-horizons and fitting delays retain their complete clocks as cache keys. All
-candidate schedules remain available in either path.
+Native green suffixes of up to 100 own laps without fitting delays also share
+costs when every possible paid-entry weather update and the final update cap
+agree. This includes ordinary full-race forecasts whose clock timestamps differ
+but expose identical surfaces at every reachable entry. Larger custom horizons,
+fitting delays, unequal service delays and changed clock dispatch retain their
+complete clocks as cache keys. All candidate schedules remain available in
+either path.
 Stop budgets above the remaining own-lap count and satisfied compound-rule
 histories share cache entries, since they admit the same remaining actions.
 

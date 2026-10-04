@@ -165,13 +165,14 @@ def green_weather_forecast(field, horizon, stop_delay, *, native=False):
 
 
 def _green_weather_clock_key(clock, warmup):
-    """Collapse equivalent short native suffixes by every reachable update.
+    """Collapse equivalent native suffixes by every reachable update.
 
     With no fitting delays, a suffix has at most one paid visit per own lap.
     Green planners only observe these update counts and the total update cap.
-    Preserve the actual clock for long horizons and all other clock shapes.
+    Cover ordinary full-race horizons. Preserve the actual clock for larger
+    custom horizons and all other clock shapes to bound the quadratic table.
     """
-    if (clock is None or warmup or len(clock.lap_start_offsets) > 12
+    if (type(clock) is not StrategyWeatherClock or warmup or len(clock.lap_start_offsets) > 100
             or clock.update_offsets is None or clock.current_running_times is not None
             or clock.current_stop_delay != clock.future_stop_delay):
         return clock
