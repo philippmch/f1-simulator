@@ -7,6 +7,7 @@ const { readFileSync } = require('node:fs');
 const path = require('node:path');
 const { performance } = require('node:perf_hooks');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { checkControlNavigation } = require('./browser_control_navigation.cjs');
 
 (async () => {
   const offline = process.env.F1SIM_OFFLINE === '1';
@@ -294,6 +295,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     await page.waitForFunction(() => !connectionRefreshInProgress);
     assert(await page.locator('#btnRun').isEnabled(), 'Live calendar must be available');
     assert(await page.locator('#btnTyreSetup').isEnabled(), 'Tyre setup editor must be available');
+    await checkControlNavigation(page);
 
     if (offline) {
       const trackSelect = page.locator('#trackSelect');

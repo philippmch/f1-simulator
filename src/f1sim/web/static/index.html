@@ -79,8 +79,8 @@ body::before {
   border-bottom: 1px solid var(--border-subtle);
   background: rgba(10,10,10,0.9);
   backdrop-filter: blur(20px);
-  position: sticky;
-  top: 0;
+  /* Wrapping controls and resized editors must scroll clear of the tabs. */
+  position: relative;
   z-index: 100;
 }
 
@@ -7034,6 +7034,7 @@ function renderScenarioLab() {
     const nextTab = tabs[nextIndex];
     switchTab(nextTab.dataset.tab);
     nextTab.focus();
+    nextTab.scrollIntoView({block: 'nearest', inline: 'nearest'});
   });
 
   document.addEventListener('click', event => {

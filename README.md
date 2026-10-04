@@ -613,6 +613,8 @@ browser available. `PLAYWRIGHT_MODULE` can point to an existing Playwright
 installation; `BROWSER_CHANNEL=msedge` selects installed Microsoft Edge.
 The check uses live data for a small run, then tests responsive layouts,
 exports, keyboard navigation, and recovery from simulated connection failures.
+It also checks pointer and keyboard access to every dashboard tab after scrolling,
+with enlarged text and resized settings editors on mobile and desktop screens.
 
 Set `F1SIM_OFFLINE=1` to run that browser check without a server or F1 network
 access. It generates deterministic synthetic results using the real simulation
