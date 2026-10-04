@@ -247,25 +247,32 @@ including after removal and reuse. Search skips a replacement branch with an opt
 remaining-time bound only after finding a legal completion that the branch
 cannot improve. A bound on full-distance time cannot discard a longer partial
 continuation while all explored paths still retire.
-The native search builds and sorts a replacement's inventory state only after
-admitting the branch. Rejected candidates incur no pool-rebuild cost;
-admitted candidates preserve the usable pool, its wear and physical multiplicity.
+Native prescribed-weather searches carry the best known finishing time through descendant branches.
+They keep exact continuations separately from bounds on excluded continuations:
+an excluded suffix must be searched again when another prefix leaves it more time.
+Bounds round downward, and incoming cutoffs round upward to preserve near ties.
+Admitted candidates preserve usable stock, its wear and physical multiplicity.
 
 Native forecasts also share otherwise identical continuations after the active
 set exhausts its usage allowance. That set cannot run or return to the future
 pool, so its last compound and wear no longer distinguish the suffix. Usable
-stock, compound-use credit, stop allowances and elapsed fitting costs remain
-part of the decision. The race ledger still preserves the actual exhausted set.
+stock, stop allowances and elapsed fitting costs remain part of the decision.
+Equivalent satisfied compound credit shares a suffix, while each unsatisfied
+single-slick obligation remains distinct. At the final boundary only compound
+compliance remains relevant. The race ledger preserves actual set identities.
 The completion bound charges the next compulsory service instead of pricing
 further running on an exhausted set. Custom physics retains its actual model
 state and bypasses this reduction.
 
-On a native surface already at rainfall equilibrium, with no future weather
-schedule, paid and fitting delays cannot change future water or pace. Green
-finite-pool forecasts can share their weather-clock states while retaining
-those delays in elapsed costs. Changing surfaces, schedules and custom clock
-subclasses retain their clock-dependent branches. Observed SC/VSC field state
-still distinguishes controlled continuations.
+Native green forecasts also omit stock that is critically mismatched at every
+remaining possible entry. A currently unsafe compound stays in the pool if
+later weather can permit it. Externally timed forecasts check every entry and
+service surface admitted by their clock relaxation before removing stock.
+They also share weather-clock states after all remaining complete projected
+weather snapshots become identical, including after a prescribed schedule.
+Paid service and fitting costs still enter elapsed time. Future weather changes,
+custom clock subclasses and custom physics retain their distinct branches.
+Observed SC/VSC field state still distinguishes controlled continuations.
 
 `python examples/benchmark_inventory_retirement.py --sets 18 --trials 1`
 measures a conditional decision with distinct used intermediate sets, one
@@ -296,6 +303,14 @@ warm-up charges, so it remains a lower bound rather than an executable plan.
 Own-lap forecasts reuse these costs only within the same decision, for the same
 compound, age trajectory and compound-rule completion status. The full search
 still enforces physical sets, stop allowances and actual compound use.
+
+For prescribed forecasts without fitting fees, native searches also use a
+relaxation with unlimited fresh replacements. Each idealized stint still ages,
+pays its pit visit and follows the delayed weather path. Native accumulated
+wear and the fading soft-tyre pace bonus cannot improve an older set over a
+fresh copy. Ignoring finite availability, stop allowances and compound obligations
+therefore yields another completion bound. It prices later service visits that
+the conserved-wear bound omits; neither relaxation supplies an executable plan.
 
 For externally timed chronological weather, each paid stop also advances the
 candidate's weather clock. The running-cost bound considers the reachable

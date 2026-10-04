@@ -1677,6 +1677,7 @@ python examples/benchmark_strategy_planning.py --engine chronological --scenario
 python examples/benchmark_strategy_planning.py --engine standard --scenario drying
 python examples/benchmark_strategy_planning.py --scenario wetting --trials 3
 python examples/benchmark_strategy_planning.py --scenario rain_transition --trials 3
+python examples/benchmark_strategy_planning.py --scenario scheduled --inventory expanded --trials 1
 python examples/benchmark_strategy_planning.py --engine standard --scenario dry --drivers 22 --laps 58 --trials 3 --opening automatic --change-probability 0.2
 ```
 
@@ -1690,8 +1691,13 @@ they are not calibrated circuit or weather forecasts.
 five laps, fresh hard and intermediate aged four laps. Explicit starting ages
 then match the selected physical set. `--opening automatic` removes the opening
 override and includes native starting-set selection in the workload, for either
-finite or unlimited pools. These modes and the weather change probability are
-recorded in benchmark version 3 JSON alongside the initial pools and overrides. See the
+finite or unlimited pools. `--inventory expanded` supplies seven fresh physical
+sets: two medium, soft, hard, two intermediate and wet. `--scenario scheduled`
+starts with surface water and rainfall `0.2`, prescribes rainfall `0.5` near
+one third of the race and zero near two thirds, and requires at least three laps.
+The explicit opening is soft; automatic selection uses the configured pool.
+Benchmark version 4 JSON records these modes, the full weather schedule and
+change probability alongside the initial pools and overrides. See the
 [finite-pool search and benchmark notes](tyre-inventory.md#search-and-benchmark).
 
 Finite inventory forecasts rank legal finishes before incomplete continuations.
@@ -1718,8 +1724,14 @@ allowance is exhausted: it can neither run another lap nor return to the pool.
 They retain usable physical stock, compound credit, stop allowances and the
 observed field clock. At rainfall equilibrium without a future schedule,
 native green suffixes also share equivalent weather-clock states; physical
-service and fitting costs still enter elapsed time. Changing surfaces and
-custom physics keep their branch-dependent state. The synthetic
+service and fitting costs still enter elapsed time. This also applies after the
+last actual weather change in a prescribed forecast, once every remaining
+complete weather snapshot agrees. Permanently unsafe future stock and satisfied
+compound credit can share equivalent suffixes. Native prescribed-weather searches carry the best
+known finishing time into descendant branches, recording exclusions as bounds
+rather than exact results. For prescribed forecasts without fitting fees, an
+unlimited fresh-set relaxation also prices future service and ageing. Changing surfaces and custom
+physics keep their branch-dependent state. The synthetic
 `examples/benchmark_inventory_retirement.py` diagnostic compares conditional
 distance, retirement time and decisions independently of its timings.
 

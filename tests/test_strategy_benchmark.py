@@ -54,7 +54,8 @@ def test_explicit_finite_opening_matches_a_physical_set(script, scenario, compou
 
 def test_default_opening_keeps_existing_unlimited_ages(script):
     result = script["benchmark"](drivers=3, laps=3, trials=1)
-    assert result["benchmark_version"] == 3
+    assert result["benchmark_version"] == 4
+    assert result["weather_schedule"] is None
     assert result["change_probability"] == 0.0
     assert result["inventory"] == "unlimited"
     assert result["opening"] == "explicit"
@@ -135,7 +136,7 @@ def test_cli_accepts_and_records_change_probability(script, monkeypatch, capsys)
     script["main"]()
     result = json.loads(capsys.readouterr().out)
     assert result["change_probability"] == .35
-    assert result["benchmark_version"] == 3
+    assert result["benchmark_version"] == 4
 
 
 @pytest.mark.parametrize("value", ["nan", "inf", "-0.01", "1.01", "not-a-number"])
@@ -152,3 +153,43 @@ def test_cli_rejects_invalid_change_probability(script, monkeypatch, capsys, val
 def test_python_api_rejects_invalid_modes(script, options):
     with pytest.raises(ValueError):
         script["benchmark"](**options)
+
+
+@pytest.mark.parametrize("engine", ["standard", "chronological"])
+@pytest.mark.parametrize("opening", ["explicit", "automatic"])
+def test_expanded_scheduled_benchmark_records_reproducible_full_inputs(script, monkeypatch,
+                                                                     engine, opening):
+    observed = []
+    runner = script["MonteCarloRunner"]
+    run = runner.run
+
+    def capture(self, *args, **kwargs):
+        result = run(self, *args, **kwargs)
+        observed.append(result.weather_histories[0])
+        return result
+
+    monkeypatch.setattr(runner, "run", capture)
+    options = dict(engine=engine, opening=opening, inventory="expanded", scenario="scheduled",
+                   drivers=2, laps=6, trials=1)
+    first = script["benchmark"](**options)
+    second = script["benchmark"](**options)
+    assert first["outcome_sha256"] == second["outcome_sha256"]
+    assert first["weather_schedule"] == [dict(lap=2, rain_intensity=.5),
+                                          dict(lap=4, rain_intensity=0.)]
+    assert observed[0] == observed[1]
+    assert [row["rain_intensity"] for row in observed[0]] == [.2, .5, .5, 0., 0., 0.]
+    sets = first["tire_inventory"]["D00"]
+    assert len(sets) == 7 and len({row["id"] for row in sets}) == 7
+    assert [row["compound"] for row in sets] == [
+        "medium", "medium", "soft", "hard", "intermediate", "intermediate", "wet"]
+    assert all(row["age"] == 0 for row in sets)
+    assert first["tire_inventory"]["D01"] == sets
+    if opening == "explicit":
+        assert first["starting_tire_ages"] == {"D00": 0, "D01": 0}
+
+
+def test_scheduled_benchmark_requires_room_for_both_atmosphere_changes(script):
+    with pytest.raises(ValueError, match="at least three laps"):
+        script["benchmark"](scenario="scheduled", laps=2, drivers=1, trials=1)
+    result = script["benchmark"](scenario="scheduled", laps=3, drivers=1, trials=1)
+    assert [row["lap"] for row in result["weather_schedule"]] == [2, 3]

@@ -5,6 +5,8 @@ Compare digests before interpreting speed changes. First-trial timing includes
 cold strategy caches; later trials reuse the same process with consecutive seeds.
 Use --inventory finite for reusable soft@5, hard@0 and intermediate@4 sets,
 and --opening automatic to include native opening selection in the workload.
+Use --inventory expanded for seven fresh physical sets and --scenario scheduled
+for prescribed rain arriving and clearing during the race.
 """
 
 import argparse
@@ -25,6 +27,7 @@ SCENARIOS = {
     "drying": (.19, 0, "soft"),
     "wetting": (.18, .35, "soft"),
     "rain_transition": (.23, 0, "intermediate"),
+    "scheduled": (.2, .2, "soft"),
 }
 
 
@@ -38,10 +41,12 @@ def benchmark(engine="chronological", scenario="steady_damp", trials=3, drivers=
             raise ValueError(f"{name} must be an integer from {low} through {high}")
     if scenario not in SCENARIOS:
         raise ValueError(f"scenario must be one of {tuple(SCENARIOS)}")
-    if inventory not in ("unlimited", "finite"):
-        raise ValueError("inventory must be unlimited or finite")
+    if inventory not in ("unlimited", "finite", "expanded"):
+        raise ValueError("inventory must be unlimited, finite or expanded")
     if opening not in ("explicit", "automatic"):
         raise ValueError("opening must be explicit or automatic")
+    if scenario == "scheduled" and laps < 3:
+        raise ValueError("scheduled weather requires at least three laps")
     if (isinstance(change_probability, bool) or not isinstance(change_probability, Real)
             or not 0 <= change_probability <= 1 or not isfinite(change_probability)):
         raise ValueError("change_probability must be a finite real number from 0 through 1")
@@ -56,8 +61,16 @@ def benchmark(engine="chronological", scenario="steady_damp", trials=3, drivers=
     records = [{"id": "S", "compound": "soft", "age": 5},
                {"id": "H", "compound": "hard", "age": 0},
                {"id": "I", "compound": "intermediate", "age": 4}]
+    if inventory == "expanded":
+        records = [{"id": key, "compound": name, "age": 0} for key, name in (
+            ("M1", "medium"), ("M2", "medium"), ("S", "soft"), ("H", "hard"),
+            ("I1", "intermediate"), ("I2", "intermediate"), ("W", "wet"),
+        )]
     pools = ({driver.id: [dict(item) for item in records] for driver in roster}
-             if inventory == "finite" else None)
+             if inventory != "unlimited" else None)
+    weather_schedule = ([{"lap": max(2, laps // 3), "rain_intensity": .5},
+                         {"lap": max(3, laps * 2 // 3), "rain_intensity": 0.}]
+                        if scenario == "scheduled" else None)
     starting_tires = starting_ages = None
     if opening == "explicit":
         starting_tires = {driver.id: compound for driver in roster}
@@ -71,6 +84,7 @@ def benchmark(engine="chronological", scenario="steady_damp", trials=3, drivers=
                 rain_intensity=rain, change_probability=change_probability),
         race_engine=engine, seed=seed, starting_tires=starting_tires,
         starting_tire_ages=starting_ages, tire_inventory=pools,
+        weather_schedule=weather_schedule,
     )
     times, outputs = [], []
     for trial in range(trials):
@@ -87,8 +101,9 @@ def benchmark(engine="chronological", scenario="steady_damp", trials=3, drivers=
     encoded = json.dumps(outputs, sort_keys=True, allow_nan=False,
                          separators=(",", ":")).encode("utf-8")
     return {
-        "benchmark_version": 3, "engine": engine, "scenario": scenario,
+        "benchmark_version": 4, "engine": engine, "scenario": scenario,
         "change_probability": change_probability,
+        "weather_schedule": weather_schedule,
         "inventory": inventory, "opening": opening, "tire_inventory": pools,
         "starting_tires": starting_tires, "starting_tire_ages": starting_ages,
         "drivers": drivers, "laps": laps, "trials": trials, "seed": seed,
@@ -104,7 +119,8 @@ def main():
     parser.add_argument("--engine", choices=("standard", "chronological"),
                         default="chronological")
     parser.add_argument("--scenario", choices=tuple(SCENARIOS), default="steady_damp")
-    parser.add_argument("--inventory", choices=("unlimited", "finite"), default="unlimited")
+    parser.add_argument("--inventory", choices=("unlimited", "finite", "expanded"),
+                        default="unlimited")
     parser.add_argument("--opening", choices=("explicit", "automatic"), default="explicit")
     parser.add_argument("--trials", type=int, default=3)
     parser.add_argument("--drivers", type=int, default=22)
