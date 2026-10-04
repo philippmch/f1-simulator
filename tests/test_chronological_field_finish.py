@@ -129,13 +129,20 @@ def native_path(inputs, *, stopped, delay=10., weather=None, warmup=None, pendin
         simulator._advance_race_weather = lambda surface: surface.project_surface()
     for row in context.rivals:
         state = engine.states[row.identifier]
+        if row.committed_fit is not None:
+            fit = row.committed_fit
+            state.driver = fit.driver.model_copy(deep=True)
+            state.car = fit.car.model_copy(deep=True)
+            state.current_tire = fit.tire.model_copy(deep=True)
+            state.tire_laps = state.driver.current_tire_laps = fit.age
         if row.running_start is None:
             state.fit_lap_pending = row.fitting_cost > 0.
-            simulator.tire_warmup["hard"] = row.fitting_cost
+            simulator.tire_warmup[state.current_tire.compound.value] = row.fitting_cost
         engine.pending[row.identifier] = _PendingLap(
             row.completed_laps + 1, state.total_time, row.ready, engine.weather,
             row.neutralized, state.current_tire, state.tire_laps, row.free_running,
-            on_track=row.running_start is not None, running_start=row.running_start)
+            on_track=row.running_start is not None, running_start=row.running_start,
+            paid_stop=row.committed_fit is not None)
         heapq.heappush(engine.queue, (row.ready, -row.completed_laps - 1, row.event_order,
                                       "cross" if row.running_start is not None else "exit",
                                       row.identifier, 0))
@@ -246,8 +253,9 @@ def test_expected_service_fits_and_entry_weather_match_native_execution(
     assert before == (weather, ledger_signature(context.timeline))
 
 
-def snapshot_engine(*, control="vsc", sampled_end=7100.):
-    driver, car, track, context, now = field(control=control, off_track=True, fee=7.)
+def snapshot_engine(*, control="vsc", sampled_end=7100., relative_laps=-1):
+    driver, car, track, context, now = field(control=control, off_track=True, fee=7.,
+                                          relative_laps=relative_laps)
     simulator = RaceSimulator(np.random.default_rng(24), tire_warmup={"hard": 7., "soft": 5.})
     engine = ChronologicalRace(simulator)
     engine.track, engine.weather = track, Weather()
@@ -270,7 +278,7 @@ def snapshot_engine(*, control="vsc", sampled_end=7100.):
         "B", "B", rival.laps_completed + 1, now - 1., now - 1., sampled_end, rival.car, 10.)]
     engine.queue = [(sampled_end + 10., -rival.laps_completed - 1, 37, "exit", "B", 0)]
     engine.running_paces = {"A": 99., "B": 100.}
-    engine.control_intervals = 71
+    engine.control_intervals = max(row.laps_completed for row in engine.states.values())
     simulator.event_manager.safety_car_active = control == "sc"
     simulator.event_manager.vsc_active = control == "vsc"
     engine.states["A"].dry_pit_proposal = (72, TireCompound.SOFT)

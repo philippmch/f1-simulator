@@ -142,7 +142,10 @@ more laps than this optimistic stop path.
 Equal-distance decisions retain the ordinary strategy planner's choice.
 
 Each rival starts from its committed on-track crossing or expected unfinished
-service and optional fitting cost, then holds its observed free pace. Standard
+service and optional fitting cost. A known native chronological paid fit uses
+its committed replacement's compound and wear, with mean physics at the branch's
+expected exit. Its new free pace is held afterward; other rivals hold their
+observed free pace. Standard
 decisions also include earlier stops committed in that lap's reservation order.
 Collected chronological restarts freeze the original leading candidate's rival
 view after all free tyre fits and before any running or paid service resumes.
@@ -178,7 +181,10 @@ comparison inactive, as do unavailable mean inputs or custom merge rules.
 Chronological neutralized comparisons advance a private copy of the complete
 finish ledger and circular on-track order. Committed running keeps its known
 readiness; unfinished paid service uses its conditional expected exit and a
-single pending fitting cost. A paid candidate rejoins behind the line. Pending
+single pending fitting cost. Known paid rival fits evaluate native mean running
+at that exit, using the branch's surface, Active Aero availability and physical
+entry gap. SC catch-up and the no-passing barrier then apply to that running.
+A paid candidate rejoins behind the line. Pending
 neutralized laps keep their no-passing restriction until they cross, including
 after control returns to green. A lapped physical predecessor can therefore
 delay an otherwise leading crossing without inventing an extra retained lap.
@@ -189,12 +195,14 @@ those crossings, excluding the flag.
 The chronological field forecast also honors the observed remaining SC/VSC
 interval count, decremented at each leading crossing. This applies to a
 single car when more than the current interval remains, and to green decisions
-with earlier neutralized running still pending. An outlap entering after a
+with earlier neutralized running still pending or a known paid rival fit.
+An outlap entering after a
 control or weather update uses the updated conditions; its lane/service loss
 stays committed at the decision. After its mean outlap, the optimistic stop
 uses the absolute running floor with applicable control and queue constraints.
 Retained laps continue mean tyre ageing and entry traffic. Rival recurring
-laps hold their latest observed free pace; later green passage is free and
+laps hold their latest observed free pace or the mean pace of their committed
+paid outlap; later green passage is free and
 future stops, incidents or control extensions are not predicted. The retained
 first lap preserves eligible current Overtake Mode without forecasting later
 deployments. Unresolved rival repairs, critical mismatch, a due next-lap pit
@@ -215,6 +223,22 @@ crossing; lapped cars can therefore remain after the leader takes the flag.
 For a rival still in service, a pending fitting cost is included once in its
 projected outlap crossing and fractional rejoin position, with pit exit
 unchanged.
+Known native paid fits use the same field projection for finish protection,
+leading weather times and rejoin traffic. Removing the candidate for service
+can change a fitted rival's entry gap, so changing-weather decisions retain
+that branch through the committed outlap even when an external weather clock
+already exists. Every projection owns copied inputs and consumes no future
+service, weather, lap-variation or strategy draw. The native calculation uses
+the original physical fuel distance and preserves the fitted set's wear.
+Later rival pace remains held; future elective fits and tyre ageing are not
+predicted. Unavailable native dispatch or inconsistent fit observations retain
+the existing approximation.
+The native horizon, weather and traffic preparation can share this observed
+field within one decision. No snapshot is retained across a policy callback or
+race event. Finite-pool suffixes keep their clock-specific conserved-age bound
+alongside a shared field relaxation, so rising surfaces do not force the search
+to repeatedly explore paths that the local bound already excludes. These
+bounds preserve every admissible physical schedule and its exact cost.
 Exact crossing/exit ties retain the scheduler's distance and ordering rules.
 This forecast retains current pace/control assumptions and does not predict
 later weather, incidents or elective stops.

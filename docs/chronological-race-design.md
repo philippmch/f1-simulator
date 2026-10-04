@@ -71,8 +71,10 @@ without a snapshot retain their existing strategy behavior.
 
 The rejoin forecast uses expected service, known team queue delay and the current
 pit-lane factor. It preserves rivals' committed running and pit delays, including
-a pending fitting cost in the first projected crossing, then projects their
-observed free pace under current control conditions. It prices
+a pending fitting cost in the first projected crossing. A known native paid
+replacement uses its fitted compound and age at expected entry, with the
+branch's weather, control and physical traffic; its resulting mean free pace
+is held afterward. Other rivals retain their observed free pace. It prices
 the difference in one lap's dirty air between rejoining and staying out; the
 planner applies the existing weather multiplier. SC/VSC contribute no green
 traffic penalty. Known pit exits can create rejoin traffic, while terminal cars
@@ -89,8 +91,9 @@ including their cached future stints. The standard engine retains its ordinary
 one-update-per-lap projection. Pending physics and actual shared weather updates
 are unaffected by these forecasts.
 
-When more than one SC/VSC interval remains and committed field observations
-are usable, a private crossing projection supplies the candidate's own starts,
+When more than one SC/VSC interval remains, or a native rival has a known paid
+fit awaiting entry, usable committed field observations supply a private
+crossing projection for the candidate's own starts,
 the projected flag, and explicit leading weather-update times. It retains SC
 physical order, old no-passing restrictions and known fitting delays without
 advancing the live engine or sampling future service. The flag supplies no
@@ -105,8 +108,9 @@ catch-up, VSC running, expected paid service, current queue delay and unscaled
 fitting fees advance the same private crossings as the finish guard. Leading
 crossings consume known control duration; old neutralized laps retain their
 no-passing barrier afterward. If the flag occurs during this prefix, completed
-own laps take priority over elapsed time. Rivals keep observed free pace and
-make no future decisions. Actual entry surfaces advance only at leading
+own laps take priority over elapsed time. Rivals keep observed free pace,
+replacing it with native mean pace when an already committed paid fit enters
+the track. They make no future decisions. Actual entry surfaces advance only at leading
 crossings, including those resolved during service. After pending restrictions
 clear, the green suffix retains its fixed own-lap horizon and rebases its
 weather surface, schedule and external leading clock. No weather update is
@@ -119,8 +123,11 @@ search after control ends. See the
 In native green running, changing surfaces and prescribed rainfall also use
 this field projection for the current paid-entry comparison when no external
 paid-stop-aware weather clock is available and a held rival can lead during
-expected service. Followers retain that existing clock. When no rival can
-advance the surface before entry, the ordinary forecast remains sufficient.
+expected service. A known native paid rival fit also uses the branchable field,
+including for followers with an external clock: removing the candidate changes
+the fitted rival's entry traffic and subsequent leading weather times. Other
+followers retain their existing clock. Without a known paid fit, the ordinary
+forecast remains sufficient when no rival can advance the surface before entry.
 A leading car's
 service can let another car create leading weather updates before pit exit.
 The first outlap uses that entry surface; after the current action and any
@@ -129,7 +136,27 @@ surface, schedule and leading clock. This does not jointly simulate the field's
 future green tyre choices or stops. Missing observations, unresolved rival
 instructions, explicit pit plans, custom running calculators and changed
 control pace or aero getters retain the existing forecast path. Fixed surfaces
-without prescribed rainfall need no additional field projection.
+without prescribed rainfall need no additional weather field projection;
+known paid fits still inform the finish and rejoin projections.
+
+A known paid fit captures independent native driver, car, physical track, tyre
+and age inputs. Each field branch evaluates that set once at its conditional
+service exit, after earlier leading weather and control updates. It applies
+the observable physical gap before SC catch-up and adds the pending fitting
+cost once after running. Branches share read-only prepared physics but own
+their remaining fit records, order and ledger. No live model, inventory set or
+random stream is advanced. On-track rivals keep their already committed
+crossing; later elective stops, tyre ageing and changing rival running pace
+remain outside the held-pace forecast. Custom physics and inconsistent fit
+observations keep the existing pace approximation.
+
+Native preparation shares one observed crossing snapshot while assembling a
+single decision's horizon, weather cadence and traffic inputs. The snapshot
+expires before the policy callback; finish protection and later decisions
+read current observations again. Changed preparation methods, control dispatch
+and free refits retain independent calls. Finite weather suffixes retain both
+the shared original-stock relaxation and their own clock-specific conserved
+wear bound, using the stronger valid lower bound to prune the search.
 
 Native weather searches establish the private ledger's closed shape once.
 Their branches copy ledger containers and replace pending lap records before

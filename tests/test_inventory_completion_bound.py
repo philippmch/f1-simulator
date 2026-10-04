@@ -10,7 +10,8 @@ from test_timed_inventory_weather_oracle import enumerate_sets
 
 from f1sim.models import TireCompound
 from f1sim.simulation.inventory_strategy import plan_inventory_strategy
-from f1sim.simulation.lap import LapSimulator
+from f1sim.simulation.lap import LapSimulator, minimum_lap_time
+from f1sim.simulation.strategy_lap import control_lap_scope, install_control_wear_bound
 from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.tire_inventory import TireInventory
 
@@ -83,6 +84,44 @@ def test_delayed_weather_paths_match_external_event_oracle(used, free, budgets):
     before = deepcopy((args, pool.__dict__, clock))
     wait, pit, _ = enumerate_sets(args, pool, clock, options)
     decision = plan_inventory_strategy(*args, pool, 1, weather_clock=clock, **options)
+    assert decision.wait_cost == pytest.approx(wait, rel=0, abs=1.e-9)
+    assert decision.pit_now_cost == pytest.approx(pit, rel=0, abs=1.e-9)
+    assert (args, pool.__dict__, clock) == before
+
+
+@pytest.mark.parametrize("used", [(), (TireCompound.MEDIUM, TireCompound.HARD),
+                                  (TireCompound.INTERMEDIATE,)])
+@pytest.mark.parametrize("weather", [(.18, .35), (.3, 0.), (.8, .8)])
+@pytest.mark.parametrize("warmup", [None, {"intermediate": 7., "medium": 3.}])
+def test_shared_relaxation_preserves_exact_suffix_optima(used, weather, warmup):
+    args = fixture(*weather)
+    pool = TireInventory.from_sets([dict(id="M", compound="medium", age=3),
+                                    dict(id="H", compound="hard", age=8),
+                                    dict(id="I", compound="intermediate", age=4),
+                                    dict(id="I-fresh", compound="intermediate")])
+    pool.fit("I")
+    clock = StrategyWeatherClock((0., 80., 160., 240.), 10., 20., 18, 45., 15.)
+    options = dict(tire_age=4, used_compounds=used, remaining_stops=2,
+                   remaining_dry_stops=2, remaining_damp_stops=2, free_fit=False,
+                   physical_total_laps=10, current_fit_pending=True,
+                   current_traffic_gaps=(None, None), current_lap_time_modifier=1.,
+                   active_aero_enabled=True, pit_lane_factor=1., additional_current_stop_cost=0.)
+    if warmup is not None:
+        options["tire_warmup"] = warmup
+    before = deepcopy((args, pool.__dict__, clock))
+    wait, pit, _ = enumerate_sets(args, pool, clock, options)
+
+    @control_lap_scope
+    def with_shared_stock():
+        # A valid broad field relaxation permits the absolute running floor
+        # on every original stock slot. The real suffix must still find its
+        # exact optimum on its changing surfaces and conserved fitted ages.
+        floor = minimum_lap_time(args[2])
+        bound = tuple(floor * (4 - offset) for offset in range(5))
+        install_control_wear_bound(*args[:3], 10, 1, lambda: bound)
+        return plan_inventory_strategy(*args, pool, 1, weather_clock=clock, **options)
+
+    decision = with_shared_stock()
     assert decision.wait_cost == pytest.approx(wait, rel=0, abs=1.e-9)
     assert decision.pit_now_cost == pytest.approx(pit, rel=0, abs=1.e-9)
     assert (args, pool.__dict__, clock) == before

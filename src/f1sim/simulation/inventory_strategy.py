@@ -452,13 +452,17 @@ def _clock_inventory_strategy(
 
     @lru_cache(maxsize=1)
     def lower_bounds():
+        common = None
         if shared_laps is not None:
             common = control_wear_bound(driver, car, track, physical_total_laps, current_lap)
-            if common is not None:
-                return common
         value = _conserved_wear_lower_bounds(
             horizon, initial_ages, lower_critical, lower_running,
         )
+        if common is not None:
+            # The shared stock relaxation ignores weather chronology. Keep
+            # the suffix's stronger clock/set-age bound when it can prune
+            # paths that the original field-wide relaxation still admits.
+            return tuple(max(shared, local) for shared, local in zip(common, value, strict=True))
         return value
 
     completion_rows = {}

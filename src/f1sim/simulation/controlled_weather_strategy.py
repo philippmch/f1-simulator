@@ -194,7 +194,8 @@ def plan_controlled_weather(
 ):
     """Price the known field prefix, preserving the existing green policy.
 
-    Rivals hold their observed free pace and make no future decisions. The
+    Rivals hold their observed free pace or a known paid outlap's mean pace
+    and make no future decisions. The
     candidate's own entries, surfaces, fitting fees and crossings remain
     branch-dependent. Removed physical sets retain their completed wear.
     """

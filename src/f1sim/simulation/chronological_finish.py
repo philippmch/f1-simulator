@@ -3,8 +3,9 @@
 Already committed running and expected unfinished service remain observable.
 Observed control duration advances at leading crossings; pending no-passing
 restrictions survive until those laps cross. Later green passage is free,
-rivals hold observed free pace, and the candidate retains its mean tyre pace
-or uses the absolute lap floor after an optimistic paid outlap. No future
+rivals hold observed free pace or their known paid outlap's mean pace, and the
+candidate retains its mean tyre pace or uses the absolute lap floor after an
+optimistic paid outlap. No future
 policy, atmosphere, incident, service or passing draw is consumed.
 """
 
@@ -14,8 +15,8 @@ from dataclasses import dataclass, replace
 from math import isfinite
 
 from f1sim.cancellation import cancellation_checkpoint
-from f1sim.models import Car, Driver, TireCompound, Track, Weather
-from f1sim.models._native import register_forecast_helpers, register_forecast_values
+from f1sim.models import Car, Driver, Tire, Track, Weather
+from f1sim.models._native import native_physics, register_forecast_helpers, register_forecast_values
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.finish_strategy import (
     FinishProtectionResult,
@@ -34,6 +35,26 @@ from f1sim.simulation.weather_schedule import WeatherForecastContext
 
 
 @dataclass(frozen=True, slots=True)
+class CommittedRivalFit:
+    """Isolated native inputs for a replacement already fitted in service."""
+
+    driver: Driver
+    car: Car
+    track: Track
+    tire: Tire
+    age: int
+    weather: Weather
+    forecast_context: WeatherForecastContext | None = None
+
+    def __post_init__(self):
+        if (type(self.age) is not int or self.age < 0
+                or not native_physics(self.driver, self.car, self.track, self.tire, self.weather)
+                or (self.forecast_context is not None
+                    and type(self.forecast_context) is not WeatherForecastContext)):
+            raise ValueError("invalid committed rival fit")
+
+
+@dataclass(frozen=True, slots=True)
 class ChronologicalFinishCar:
     """One rival's committed running or expected service and recurring pace."""
 
@@ -45,6 +66,7 @@ class ChronologicalFinishCar:
     neutralized: bool
     event_order: int
     fitting_cost: float = 0.
+    committed_fit: CommittedRivalFit | None = None
 
     def __post_init__(self):
         if (not isinstance(self.identifier, str) or not self.identifier
@@ -54,6 +76,9 @@ class ChronologicalFinishCar:
                 or type(self.neutralized) is not bool
                 or type(self.event_order) is not int or self.event_order < 0
                 or _valid_nonnegative(self.fitting_cost) is None
+                or self.committed_fit is not None and (
+                    type(self.committed_fit) is not CommittedRivalFit
+                    or self.running_start is not None)
                 or (self.running_start is not None
                     and (_valid_nonnegative(self.running_start) is None
                          or self.ready <= self.running_start))):
@@ -124,6 +149,8 @@ def _validate_context(context, now, scheduled_laps):
             or any(row.completed_laps != ledger[row.identifier].completed_laps
                    or row.ready < now
                    or row.running_start is not None and row.running_start > now
+                   or row.committed_fit is not None
+                   and row.committed_fit.track.total_laps != scheduled_laps
                    for row in context.rivals)):
         return False
     return ledger[context.identifier].completed_laps < scheduled_laps
@@ -188,9 +215,10 @@ def native_finish_timeline(timeline):
 class ObservedChronologicalField:
     """Branchable observed field at the candidate's own lap boundary.
 
-    Rivals keep their observed free pace after committed running or expected
-    service. The caller supplies candidate mean pace at each actual track
-    entry. Leading crossings consume known control intervals; neutralized
+    Rivals keep their observed free pace after committed running. A known
+    replacement uses native mean pace at expected service exit, then holds
+    that new free pace. The caller supplies candidate mean pace at each
+    actual track entry. Leading crossings consume known control intervals; neutralized
     pending laps retain their no-passing restriction after control ends.
     Fitting penalties follow running, so later SC laps can recover that gap.
     Every branch owns its ledger, pending events and physical order.
@@ -214,6 +242,16 @@ class ObservedChronologicalField:
         self.events = []
         self.free_paces = {context.identifier: context.own_pace,
                            **{row.identifier: row.free_running for row in context.rivals}}
+        self.rival_fits = {}
+        for row in context.rivals:
+            if row.committed_fit is not None:
+                fit = deepcopy(row.committed_fit)
+                physics = LapSimulator()
+                prepared = physics.prepare_deterministic_lap_time(
+                    fit.driver, fit.car, fit.track, scheduled)
+                if prepared is None:
+                    raise ValueError("committed rival fit requires native lap physics")
+                self.rival_fits[row.identifier] = fit, prepared
         self.pending = {row.identifier: _ProjectedLap(
             row.completed_laps + 1, row.ready, row.running_start, row.free_running,
             row.neutralized, row.fitting_cost,
@@ -235,6 +273,7 @@ class ObservedChronologicalField:
                            _copy_timeline(self.timeline))
         branch.order = self.order.copy()
         branch.free_paces = self.free_paces.copy()
+        branch.rival_fits = self.rival_fits.copy()
         # The closed native strategy projection replaces a lap record before
         # changing it. Siblings may therefore share untouched rival records.
         branch.pending = (self.pending.copy() if self._native_crossings else
@@ -253,7 +292,8 @@ class ObservedChronologicalField:
 
     @property
     def projection_required(self):
-        return self.controlled or any(row.neutralized for row in self.pending.values())
+        return (self.controlled or bool(self.rival_fits)
+                or any(row.neutralized for row in self.pending.values()))
 
     @property
     def finished(self):
@@ -279,6 +319,20 @@ class ObservedChronologicalField:
         if not self.entered:
             raise ValueError("candidate must enter before observing its predecessor")
         return self._gap_ahead(self.identifier, self.now, reference)
+
+    def _fitted_running(self, identifier, entry):
+        """Price the committed set after this branch's leading updates."""
+        fit, prepared = self.rival_fits.pop(identifier)
+        surface = fit.weather
+        for update in range(self.updates):
+            cancellation_checkpoint()
+            forecast = fit.forecast_context
+            surface = (surface.project_surface() if forecast is None else
+                       forecast.advanced(update).project_next(surface))
+        reference = self.free_paces[identifier] * self.running_modifier
+        gap = self._gap_ahead(identifier, entry, reference)
+        return prepared(fit.tire, surface, self.pending[identifier].lap, fit.age,
+                        gap, not self.controlled)
 
     def _begin(self, identifier, entry, free_running, fitting_cost=0.):
         row = self.pending[identifier]
@@ -327,7 +381,9 @@ class ObservedChronologicalField:
                 if identifier == self.identifier:
                     self.now = time
                     return
-                self._begin(identifier, time, self.free_paces[identifier], row.fitting_cost)
+                free = (self._fitted_running(identifier, time) if identifier in self.rival_fits
+                        else self.free_paces[identifier])
+                self._begin(identifier, time, free, row.fitting_cost)
                 continue
             while self.order[0] != identifier:
                 index = self.order.index(identifier)
@@ -555,23 +611,12 @@ class ObservedChronologicalClock:
     leading_updates: tuple[float, ...]
 
 
-@dataclass(frozen=True, slots=True)
-class _ObservedRunningPace:
-    """One held observation, without creating a new class for every forecast."""
-
-    pace: float
-
-    def calculate_lap_time(self, *args, **kwargs):
-        return self.pace
-
-
 def project_observed_chronological_clock(context, now, *, own_fitting_cost=0.):
     """Project the observed field without future policies or any physics draw.
 
-    The finish-distance projector owns the queue, service, control and ledger
-    laws. Reusing it here keeps strategy distance and weather on those same
-    crossings. A constant pace adapter holds only the candidate's latest free
-    running observation; rivals already hold theirs in that projector.
+    The same field kernel owns the queue, service, control and ledger laws as
+    the finish guard. The candidate keeps its latest free running observation;
+    known rival fits acquire their mean pace at conditional entry.
     """
     if _valid_nonnegative(own_fitting_cost) is None:
         return None
@@ -588,38 +633,32 @@ def project_observed_chronological_clock(context, now, *, own_fitting_cost=0.):
         valid = False
     if not valid:
         return None
-    own, updates, flags = [], [], []
-
-    def observe(key, time, leading, flag):
-        if key == identifier:
-            own.append(time)
-        if leading and flag is None:
-            updates.append(time)
-        if flag is not None:
-            flags.append(flag)
-
-    result = evaluate_chronological_finish_protection(
-        Driver(id=identifier, name=identifier, team_id="clock"),
-        Car(team_id="clock", team_name="clock"),
-        Track(id="clock", name="clock", country="clock", total_laps=scheduled,
-              base_lap_time=context.own_pace),
-        TIRE_COMPOUNDS[TireCompound.MEDIUM],
-        0, Weather(), now, replace(context, forecast_context=None), replacements=(),
-        lap_simulator=_ObservedRunningPace(context.own_pace),
-        current_fit_pending=own_fitting_cost > 0., tire_warmup={"medium": own_fitting_cost},
-        _clock_observer=observe,
-    )
-    if not result.retained_feasible or not own or not flags:
+    try:
+        field = ObservedChronologicalField(context, now)
+        field._native_crossings = native_physics() and native_finish_timeline(field.timeline)
+        first = True
+        while not field.finished:
+            cancellation_checkpoint()
+            field.enter()
+            field.cross(context.own_pace, own_fitting_cost if first else 0.)
+            first = False
+    except (TypeError, ValueError, OverflowError, AttributeError, KeyError):
         return None
-    return ObservedChronologicalClock(identifier, flags[0], tuple(own), tuple(updates))
+    own = tuple(event.time for event in field.events if event.identifier == identifier)
+    updates = tuple(event.time for event in field.events
+                    if event.leading and event.flag_time is None)
+    flag = field.timeline.chequered_time
+    if not own or flag is None:
+        return None
+    return ObservedChronologicalClock(identifier, flag, own, updates)
 
 
 register_forecast_helpers(globals(), (
-    "ChronologicalFinishCar", "ChronologicalFinishContext",
+    "ChronologicalFinishCar", "ChronologicalFinishContext", "CommittedRivalFit", "native_physics",
     "evaluate_chronological_finish_protection",
     "_validate_context", "_copy_driver", "_copy_tire", "_valid_positive", "_valid_nonnegative",
     "replacement_options", "safety_car_running_time", "minimum_lap_time",
-    "project_observed_chronological_clock", "ObservedChronologicalClock", "_ObservedRunningPace",
+    "project_observed_chronological_clock", "ObservedChronologicalClock",
     "ObservedChronologicalField", "ObservedFieldCrossing", "_copy_timeline", "DriverFinishState",
     "RaceFinishTimeline", "RaceFinishClock", "native_finish_timeline", "_copy_native_timeline",
     "_ProjectedLap",
@@ -627,10 +666,10 @@ register_forecast_helpers(globals(), (
 register_forecast_values(globals(), (
     "_FINISH_FIELDS", "_TIMELINE_FIELDS", "_CLOCK_FIELDS", "_SCALAR_TYPES",
 ))
-register_forecast_helpers(vars(_ObservedRunningPace), ("calculate_lap_time",))
 register_forecast_helpers(vars(ObservedChronologicalField), (
     "__init__", "fork", "controlled", "running_modifier", "projection_required", "finished",
-    "_enqueue", "_gap_ahead", "gap_ahead", "_begin", "_advance", "enter", "cross",
+    "_enqueue", "_gap_ahead", "gap_ahead", "_fitted_running", "_begin", "_advance",
+    "enter", "cross",
 ))
 register_forecast_helpers(vars(RaceFinishTimeline), (
     "observe_crossing", "_commit_crossing", "_active_state", "states", "chequered_time",

@@ -20,6 +20,8 @@ from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation.chronological_finish import (
     ChronologicalFinishCar,
     ChronologicalFinishContext,
+    CommittedRivalFit,
+    ObservedChronologicalField,
     evaluate_chronological_finish_protection,
     project_observed_chronological_clock,
 )
@@ -360,7 +362,7 @@ class ChronologicalRace:
                                    next(self.serial), kind, driver_id,
                                    self.pending[driver_id].generation))
 
-    def _planning_track(self, state, now, *, restart=False):
+    def _planning_track(self, state, now, *, restart=False, _observed=...):
         """Forecast an own-lap finish horizon without altering the actual flag.
 
         Use observed free running pace (excluding stops, incidents and blocking),
@@ -373,7 +375,8 @@ class ChronologicalRace:
         Future weather, interruptions and elective stops are unknown.
         """
         horizon = self.timeline.final_lap
-        observed = None if restart else self._observed_control_projection(now)
+        observed = (_observed if _observed is not ... else
+                    None if restart else self._observed_control_projection(now))
         if observed is not None and observed.identifier == state.driver.id:
             horizon = min(horizon, state.laps_completed + len(observed.own_crossings))
             return self.track.model_copy(update={"total_laps": horizon})
@@ -629,7 +632,8 @@ class ChronologicalRace:
 
     def _observed_control_projection(self, now):
         intervals = self._neutralized_finish_intervals()
-        if intervals is None or intervals <= 1 or type(getattr(self, "pending", None)) is not dict:
+        if (intervals is None or type(getattr(self, "pending", None)) is not dict
+                or intervals <= 1 and not self._has_committed_rival_fit()):
             return None
         candidates = [state for key, state in self.states.items()
                       if state.status == DriverStatus.RACING and key not in self.pending]
@@ -659,11 +663,13 @@ class ChronologicalRace:
         """Nominal own starts through observed leading control intervals."""
         modifier = self.simulator.event_manager.get_lap_time_modifier()
         remaining = self._neutralized_finish_intervals()
-        if remaining is None or remaining <= 1 or clock is None:
+        if clock is None:
             return (0., *(pace * (modifier + offset - 1) for offset in range(1, horizon)))
         observed = (_observed if _observed is not ... else self._observed_control_projection(now))
         if observed is not None and len(observed.own_crossings) >= horizon - 1:
             return (0., *(time - now for time in observed.own_crossings[:horizon - 1]))
+        if remaining is None or remaining <= 1:
+            return (0., *(pace * (modifier + offset - 1) for offset in range(1, horizon)))
         first, leader_pace, _ = clock
         end = first + min(self.track.total_laps, remaining - 1) * leader_pace * modifier
         starts = [0.]
@@ -676,12 +682,13 @@ class ChronologicalRace:
     def _weather_updates_at(self, time, clock, *, now=None):
         first, pace, available = clock
         remaining = self._neutralized_finish_intervals()
-        if remaining is None or remaining <= 1:
+        observed = self._observed_control_projection(now) if now is not None else None
+        if observed is None and (remaining is None or remaining <= 1):
             return min(available, max(0, floor((time - first) / pace + 1.e-12) + 1))
-        times = self._weather_update_times(clock, now=now)
+        times = self._weather_update_times(clock, now=now, _observed=observed)
         return sum(value <= time + pace * 1.e-12 for value in times)
 
-    def _weather_intervals(self, state, now, planning, *, restart=False):
+    def _weather_intervals(self, state, now, planning, *, restart=False, _observed=...):
         """Map projected leading weather updates onto future own-lap starts.
 
         Extrapolate observed free pace through the known remaining control
@@ -690,7 +697,8 @@ class ChronologicalRace:
         pace changes are unknown. The winner's crossing produces no update.
         """
         own_pace = self.running_paces.get(state.driver.id)
-        observed = None if restart else self._observed_control_projection(now)
+        observed = (_observed if _observed is not ... else
+                    None if restart else self._observed_control_projection(now))
         clock = self._weather_projection_clock(now, restart=restart, _observed=observed)
         if (own_pace is None or not isfinite(own_pace) or own_pace <= 0
                 or clock is None):
@@ -700,7 +708,7 @@ class ChronologicalRace:
             own_pace, now, planning.total_laps - state.laps_completed, clock, _observed=observed)
         remaining = self._neutralized_finish_intervals()
         times = (self._weather_update_times(clock, now=now, _observed=observed)
-                 if remaining is not None and remaining > 1 else None)
+                 if observed is not None or remaining is not None and remaining > 1 else None)
         for start in starts[1:]:
             if times is None:
                 intervals.append(self._weather_updates_at(now + start, clock))
@@ -708,13 +716,15 @@ class ChronologicalRace:
                 intervals.append(sum(value <= now + start + clock[1] * 1.e-12 for value in times))
         return tuple(intervals)
 
-    def _strategy_weather_clock(self, state, now, planning, queue_delay, *, restart=False):
+    def _strategy_weather_clock(self, state, now, planning, queue_delay, *, restart=False,
+                                _observed=...):
         """Build a paid-stop-aware clock only from an external observed leader."""
         leader = self._forecast_leader()
         if leader is None or leader.driver.id == state.driver.id:
             return None
         own_pace = self.running_paces.get(state.driver.id)
-        observed = None if restart else self._observed_control_projection(now)
+        observed = (_observed if _observed is not ... else
+                    None if restart else self._observed_control_projection(now))
         projection = self._weather_projection_clock(now, restart=restart, _observed=observed)
         modifier = self.simulator.event_manager.get_lap_time_modifier()
         if (own_pace is None or not isfinite(own_pace) or own_pace <= 0
@@ -765,7 +775,8 @@ class ChronologicalRace:
                 update_offsets=(tuple(value - now for value in
                                       self._weather_update_times(
                                           projection, now=now, _observed=observed))
-                                if (self._neutralized_finish_intervals() or 0) > 1 else None),
+                                if observed is not None
+                                or (self._neutralized_finish_intervals() or 0) > 1 else None),
             )
         except ValueError:
             return None
@@ -793,7 +804,7 @@ class ChronologicalRace:
 
     def _can_project_green_weather(self, state, weather, *, weather_clock=None):
         """A paid green lap can hand leading weather updates to another car."""
-        if weather_clock is not None:
+        if weather_clock is not None and not self._has_committed_rival_fit():
             return False
         active = [other for other in self.states.values() if other.status == DriverStatus.RACING]
         control = self.simulator.event_manager
@@ -815,11 +826,16 @@ class ChronologicalRace:
         """Skip field search when no held rival can lead before paid entry."""
         entry = now + stop_delay
         for other in context.rivals:
+            if other.committed_fit is not None:
+                # Removing the candidate changes the fitted rival's entry
+                # traffic even when its first crossing follows our pit exit.
+                return True
             crossing = other.ready
+            pace = other.free_running
             if other.running_start is None:
-                crossing += other.free_running + other.fitting_cost
+                crossing += pace + other.fitting_cost
             for _ in range(max(0, state.laps_completed - other.completed_laps)):
-                crossing += other.free_running
+                crossing += pace
             if crossing <= entry + 1.e-10:
                 return True
         return False
@@ -830,7 +846,7 @@ class ChronologicalRace:
         active = {key for key, row in self.states.items() if row.status == DriverStatus.RACING}
         return len(active) > 1 and (intervals > 0 or any(
             pending.neutralized for key, pending in getattr(self, "pending", {}).items()
-            if key in active and pending.on_track))
+            if key in active and pending.on_track) or self._has_committed_rival_fit())
 
     def _finish_protection_skip_reason(self, state, *, restart=False, now=None):
         """Return why the bounded elective-stop guard must remain inactive."""
@@ -863,6 +879,62 @@ class ChronologicalRace:
         if not neutralized_field and self._weather_projection_clock(now, restart=restart) is None:
             return "missing weather forecast"
         return None
+
+    def _has_committed_rival_fit(self):
+        return any(self._can_project_committed_fit(key, pending)
+                   for key, pending in getattr(self, "pending", {}).items())
+
+    def _can_project_committed_fit(self, key, pending):
+        """Only a known native paid replacement can supply a new mean pace."""
+        other = self.states[key]
+        control = self.simulator.event_manager
+        if (other.status != DriverStatus.RACING or pending.on_track or not pending.paid_stop
+                or not hasattr(self, "weather")
+                or type(self.simulator.lap_simulator) is not LapSimulator
+                or getattr(self.simulator.lap_simulator.calculate_lap_time, "__func__", None)
+                is not LapSimulator.calculate_lap_time
+                or not all(getattr(getattr(control, name), "__func__", None) is method
+                           for name, method in _GREEN_CONTROL_METHODS)
+                or pending.tire_age != other.tire_laps
+                or pending.tire != other.current_tire
+                or not native_physics(other.driver, other.car, self.track, pending.tire,
+                                      self.weather)):
+            return False
+        return True
+
+    def _committed_rival_fit(self, key, pending):
+        """Capture an unrun paid fit only when native entry physics is known."""
+        if not self._can_project_committed_fit(key, pending):
+            return None
+        other = self.states[key]
+        return CommittedRivalFit(
+            other.driver.model_copy(deep=True), other.car.model_copy(deep=True),
+            self.track.model_copy(deep=True), pending.tire.model_copy(deep=True),
+            pending.tire_age, self.weather.model_copy(deep=True),
+            self.simulator.weather_forecast_context,
+        )
+
+    def _strategy_projection_options(self, state, now):
+        """Share one native snapshot while assembling this decision's views.
+
+        This local value expires before the policy runs. Custom view/control
+        dispatch and free refits retain their individual forecast calls.
+        """
+        control = self.simulator.event_manager
+        if (type(self) is not ChronologicalRace or type(control) is not EventManager
+                or type(self).__getattribute__ is not object.__getattribute__
+                or type(control).__getattribute__ is not object.__getattribute__
+                or getattr(type(self), "__getattr__", None) is not None
+                or getattr(type(control), "__getattr__", None) is not None
+                or state.pit_plan is not None or state.driver.id in self.free_refits
+                or not all(getattr(getattr(self, name), "__func__", None) is method
+                           for name, method in _STRATEGY_VIEW_METHODS)
+                or not self._has_committed_rival_fit()
+                or not native_physics(state.driver, state.car, self.track, self.weather,
+                                      state.current_tire)):
+            return {}
+        observed = self._observed_control_projection(now)
+        return {} if observed is None else {"_observed": observed}
 
     def _chronological_finish_context(self, state, now, *, restart=False):
         """Freeze observable pending events without sampled future service."""
@@ -902,6 +974,7 @@ class ChronologicalRace:
                     pending.running_start if pending.on_track else None,
                     pending.neutralized, events[key],
                     0. if pending.on_track else self._pending_fit_cost(key),
+                    self._committed_rival_fit(key, pending),
                 ))
             return ChronologicalFinishContext(
                 state.driver.id, deepcopy(self.timeline), tuple(self.order), tuple(rivals),
@@ -1054,6 +1127,8 @@ class ChronologicalRace:
             return
         lap = state.laps_completed + 1
         control = self.simulator.event_manager
+        projection_options = (self._strategy_projection_options(state, now)
+                              if restart_planning is None else {})
         if restart_planning is None:
             state.strategy_leading_finish_context = None
             state.strategy_finish_context = (
@@ -1061,7 +1136,8 @@ class ChronologicalRace:
                                        self.timeline.time_limit_announced)
                 if state.pit_plan is not None and state is self._forecast_leader() else None
             )
-            planning, cadence, weather_clock = self._planning_track(state, now), None, None
+            planning = self._planning_track(state, now, **projection_options)
+            cadence, weather_clock = None, None
         else:
             # Keep the leader clock frozen with this restart's horizon and
             # weather path, even if an earlier released car has entered service.
@@ -1069,7 +1145,7 @@ class ChronologicalRace:
             cadence = restart_planning[1] if len(restart_planning) > 1 else None
             weather_clock = restart_planning[2] if len(restart_planning) > 2 else None
         if restart_planning is None:
-            cadence = self._weather_intervals(state, now, planning)
+            cadence = self._weather_intervals(state, now, planning, **projection_options)
         if driver_id in self.free_refits:
             self._fit_red_flag_set(state, planning, cadence, weather_clock)
             if state.status != DriverStatus.RACING:
@@ -1082,7 +1158,7 @@ class ChronologicalRace:
         forecast_release = self._team_release_forecast(team, now)
         delay = max(0.0, forecast_release - now)
         active = [other for other in self.states.values() if other.status == DriverStatus.RACING]
-        traffic = self._strategy_traffic(state, now, delay)
+        traffic = self._strategy_traffic(state, now, delay, **projection_options)
         safety_car = self._safety_car_strategy_snapshot(state, now, delay)
         if safety_car is not None:
             traffic = replace(traffic, current_traffic_gaps=safety_car.traffic_gaps,
@@ -1092,7 +1168,7 @@ class ChronologicalRace:
         state.strategy_control_context = None
         if weather_clock is None and cadence is not None:
             weather_clock = self._strategy_weather_clock(
-                state, now, planning, delay, restart=restart,
+                state, now, planning, delay, restart=restart, **projection_options,
             )
         if (not restart and (self.simulator._can_project_dry_control(
                 state, planning, self.weather, lap)
@@ -1280,7 +1356,7 @@ class ChronologicalRace:
             return None
         return progress
 
-    def _strategy_traffic(self, state, now, queue_delay):
+    def _strategy_traffic(self, state, now, queue_delay, *, _observed=...):
         """Snapshot physical gaps and expected rejoin cost at this own-lap start.
 
         The circular successor supplies the space behind, including lapped
@@ -1303,17 +1379,36 @@ class ChronologicalRace:
         if self.simulator.event_manager.is_active_aero_allowed():
             exit_time = (now + self.track.pit_lane_delta * self.simulator._pit_lane_factor()
                          + expected_stationary_time(state.car) + queue_delay)
-            flag_time = self._projected_flag_time(now)
-            progress = [value for other_id in self.pending if other_id != driver_id
-                        and (value := self._projected_progress(
-                            other_id, exit_time, state.laps_completed + 1,
-                            now=now, flag_time=flag_time,
-                        )) is not None]
+            flag_time = (_observed.flag_time if _observed is not ... and _observed is not None
+                         else self._projected_flag_time(now))
+            progress = self._fitted_rejoin_progress(state, now, exit_time)
+            if progress is None:
+                progress = [value for other_id in self.pending if other_id != driver_id
+                            and (value := self._projected_progress(
+                                other_id, exit_time, state.laps_completed + 1,
+                                now=now, flag_time=flag_time,
+                            )) is not None]
             rejoin_gap = min(progress) * pace if progress else None
             traffic_gaps = (ahead, rejoin_gap)
             traffic = self.simulator.lap_simulator.traffic_pace_contribution
             cost = traffic(rejoin_gap) - traffic(ahead)
         return StrategyTrafficSnapshot(ahead, behind, cost, traffic_gaps)
+
+    def _fitted_rejoin_progress(self, state, now, exit_time):
+        """Advance known fitted rivals while the candidate awaits paid entry."""
+        if not self._has_committed_rival_fit():
+            return None
+        context = self._chronological_finish_context(state, now)
+        if context is None or not any(row.committed_fit is not None for row in context.rivals):
+            return None
+        try:
+            field = ObservedChronologicalField(context, now)
+            field.enter(exit_time - now)
+            return [min(1., (exit_time - row.running_start) / (row.ready - row.running_start))
+                    for key, row in field.pending.items()
+                    if key != state.driver.id and row.running_start is not None]
+        except (TypeError, ValueError, OverflowError, AttributeError, KeyError):
+            return None
 
     def _safety_car_strategy_snapshot(self, state, now, queue_delay):
         """Hold the observed on-track queue through expected service.
@@ -1713,13 +1808,26 @@ def simulate_chronological_race(simulator, drivers, cars, track, weather, starti
     )
 
 
+_STRATEGY_VIEW_METHODS = tuple((name, getattr(ChronologicalRace, name)) for name in (
+    "_planning_track", "_weather_intervals", "_strategy_traffic", "_strategy_weather_clock",
+    "_weather_projection_clock", "_observed_control_projection", "_projected_lap_starts",
+    "_weather_update_times", "_weather_updates_at", "_projected_flag_time",
+    "_chronological_finish_context", "_forecast_leader", "_pending_service_exit",
+    "_pending_fit_cost", "_physical_gap_ahead", "_team_release_forecast",
+    "_safety_car_strategy_snapshot", "_has_committed_rival_fit", "_can_project_committed_fit",
+    "_committed_rival_fit",
+))
+
+
 register_forecast_helpers(globals(), (
-    "ChronologicalFinishCar", "ChronologicalFinishContext",
+    "ChronologicalFinishCar", "ChronologicalFinishContext", "CommittedRivalFit",
+    "ObservedChronologicalField",
     "evaluate_chronological_finish_protection",
     "project_observed_chronological_clock",
     "observed_control_intervals", "forecast_running_duration",
     "StrategyControlContext",
     "native_physics",
+    "_STRATEGY_VIEW_METHODS",
 ))
 register_forecast_helpers(vars(ChronologicalRace), (
     "_chronological_finish_context", "_protect_neutralized_field_finish",
@@ -1728,4 +1836,7 @@ register_forecast_helpers(vars(ChronologicalRace), (
     "_observed_control_projection",
     "_can_project_green_weather",
     "_green_service_can_advance_weather",
+    "_has_committed_rival_fit", "_can_project_committed_fit", "_committed_rival_fit",
+    "_fitted_rejoin_progress",
+    "_strategy_projection_options",
 ))
