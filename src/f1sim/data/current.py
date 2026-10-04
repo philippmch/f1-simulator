@@ -23,10 +23,12 @@ import time
 import unicodedata
 from collections import defaultdict
 from datetime import date, datetime, timezone
+from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from statistics import median
 from types import MappingProxyType
 from typing import Any, Callable, Iterable, Literal, Mapping, Sequence
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
@@ -51,6 +53,8 @@ MAX_HTTP_TIMEOUT = 120.0
 # response before decoding/parsing (pagination has its own independent bounds).
 MAX_HTTP_RESPONSE_BYTES = 8 * 1024 * 1024
 HTTP_READ_CHUNK_BYTES = 64 * 1024
+MAX_HTTP_ATTEMPTS = 3
+RETRYABLE_HTTP_STATUSES = frozenset((408, 429, 500, 502, 503, 504))
 RESULT_ROUND_COMPLETENESS = 0.8
 # Generic result statuses do not identify hardware failures. This is a model
 # prior, not an estimate fitted to the observed all-cause non-finish rate.
@@ -59,6 +63,38 @@ NOMINAL_MECHANICAL_RELIABILITY = 0.95
 
 class CurrentSeasonDataError(RuntimeError):
     """Raised when live current-season data cannot be loaded safely."""
+
+
+def _retry_after_seconds(value: str | None) -> float | None:
+    """Parse an HTTP Retry-After minimum without accepting numeric coercion."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if value.isascii() and value.isdecimal():
+        # A huge valid delay cannot fit our bounded request window.
+        return float(value) if len(value) <= 12 else math.inf
+    try:
+        when = parsedate_to_datetime(value)
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        return max(0.0, (when - _utc_now()).total_seconds())
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _http_retry_delay(error: Exception, attempt: int) -> float | None:
+    """Retry only transient failures of a read-only request."""
+    minimum = None
+    if isinstance(error, HTTPError):
+        if error.code not in RETRYABLE_HTTP_STATUSES:
+            return None
+        minimum = _retry_after_seconds(error.headers.get("Retry-After")
+                                       if error.headers is not None else None)
+    else:
+        reason = error.reason if isinstance(error, URLError) else error
+        if not isinstance(reason, (ConnectionError, TimeoutError)):
+            return None
+    return max(0.5 * 2**attempt, minimum or 0.0)
 
 
 class DriverStats(BaseModel):
@@ -841,7 +877,7 @@ class CurrentSeasonDataLoader:
         )
         self._fetch_budget_started = time.monotonic()
         self._fetch_budget_deadline = self._fetch_budget_started + self.fetch_budget
-        self._http_getter = http_getter or self._default_http_get
+        self._http_getter = http_getter or self._get_live_response
         # Strict roster shape is enforced for real Formula1.com traffic.  A
         # custom getter is an explicit test/integration boundary and may use a
         # reduced fixture while still exercising every active-seat rule.
@@ -873,6 +909,7 @@ class CurrentSeasonDataLoader:
         self._fetched_at: str | None = None
         self._fetched_urls: list[str] = []
         self._failed_urls: list[str] = []
+        self._http_retries: list[dict[str, Any]] = []
         self._last_completed_rounds: list[int] = []
         self._last_qualifying_rounds: list[int] = []
 
@@ -880,7 +917,52 @@ class CurrentSeasonDataLoader:
     # HTTP and season validation
     # ------------------------------------------------------------------
     @staticmethod
-    def _default_http_get(url: str, *, headers: Mapping[str, str], timeout: float) -> bytes:
+    def _default_http_get(
+        url: str, *, headers: Mapping[str, str], timeout: float,
+        _on_retry: Callable[[dict[str, Any]], None] | None = None,
+    ) -> bytes:
+        """Fresh GET attempts share one timeout, including any server-requested wait."""
+        deadline = time.monotonic() + timeout
+        for attempt in range(MAX_HTTP_ATTEMPTS):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise CurrentSeasonDataError(f"Live response request budget exhausted: {url}")
+            try:
+                return CurrentSeasonDataLoader._http_get_once(url, headers=headers,
+                                                             timeout=remaining)
+            except (HTTPError, URLError, ConnectionError, TimeoutError) as exc:
+                delay = _http_retry_delay(exc, attempt)
+                if isinstance(exc, HTTPError):
+                    exc.close()
+                if (delay is None or attempt + 1 >= MAX_HTTP_ATTEMPTS
+                        or delay >= deadline - time.monotonic()):
+                    raise
+                time.sleep(delay)
+                if deadline - time.monotonic() <= 0:
+                    raise CurrentSeasonDataError(
+                        f"Live response request budget exhausted before retry: {url}",
+                    ) from exc
+                if _on_retry is not None:
+                    _on_retry({
+                        "url": url, "retry_number": attempt + 1,
+                        "http_status": exc.code if isinstance(exc, HTTPError) else None,
+                        "error_type": type(exc).__name__, "delay_seconds": delay,
+                        "recorded_at": _iso_now(),
+                    })
+        raise AssertionError("HTTP attempts exhausted without a result")  # pragma: no cover
+
+    def _get_live_response(self, url: str, *, headers: Mapping[str, str], timeout: float) -> bytes:
+        def record_retry(record: dict[str, Any]) -> None:
+            # The next page must be paced from the latest attempt, even after
+            # a long server-requested wait consumed the initial pacing slot.
+            self._last_request_monotonic = time.monotonic()
+            self._http_retries.append(record)
+
+        return self._default_http_get(url, headers=headers, timeout=timeout,
+                                      _on_retry=record_retry)
+
+    @staticmethod
+    def _http_get_once(url: str, *, headers: Mapping[str, str], timeout: float) -> bytes:
         request = Request(url, headers=dict(headers), method="GET")
         deadline = time.monotonic() + timeout
         with urlopen(request, timeout=timeout) as response:  # noqa: S310 - URL is a fixed API/page endpoint
@@ -1199,6 +1281,7 @@ class CurrentSeasonDataLoader:
         self._failed_urls.clear()
         self._last_completed_rounds.clear()
         self._last_qualifying_rounds.clear()
+        self._http_retries.clear()
         self._last_request_monotonic = 0.0
         self._fetch_budget_started = time.monotonic()
         self._fetch_budget_deadline = self._fetch_budget_started + self.fetch_budget
@@ -1217,6 +1300,7 @@ class CurrentSeasonDataLoader:
             "urls": list(dict.fromkeys(self._fetched_urls)),
             "completed_rounds": list(self._last_completed_rounds),
             "qualifying_rounds": list(self._last_qualifying_rounds),
+            **({"http_retries": copy.deepcopy(self._http_retries)} if self._http_retries else {}),
         }
 
     def get_provenance(self) -> dict[str, Any]:

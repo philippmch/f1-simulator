@@ -13,6 +13,17 @@ A Formula 1 race simulator whose live runs use **only the current UTC season**. 
 - Returns source and fetch-time provenance with calendar, ratings, and simulation responses.
 - Shows individual 95% Monte Carlo sampling ranges for win, podium, and DNF probabilities. These describe sampling noise under the chosen model, not confidence in the real race outcome.
 
+Live requests can make up to two fresh retries for temporary HTTP failures
+(408, 429, 500, 502, 503 and 504) or interrupted connections. Retries respect
+the provider's [`Retry-After`](https://www.rfc-editor.org/rfc/rfc9110.html#name-retry-after)
+delay and share the original request timeout and total fetch budget. Without a
+usable server delay, waits are 0.5 then 1 second. A wait that cannot fit is
+declined; permanent failures and invalid or stale-season payloads still fail.
+Recovered requests keep fresh-fetch provenance and record their `http_retries`
+(URL, status, delay, retry number and time). Custom HTTP getters retain their
+own integration policy. The [provider's rate limits](https://github.com/jolpica/jolpica-f1/blob/main/docs/rate_limits.md)
+still apply to callers sharing an IP address.
+
 The race engine models circuit-dependent car performance, tyre stress and degradation, wet-weather car/driver performance, race-level safety-car risk, 2026 Active Aero, proximity-gated and energy-limited Overtake Mode, incidents with time/strategy consequences, current-season compound form, reliability, pit strategy, and Monte Carlo uncertainty. Active Aero is available to the field on configured straights rather than being a following aid; Overtake Mode is handled separately and is disabled during neutralisations, wet running, and restart laps. Monaco's 2026 Active Aero exception is represented with no configured zones, while Overtake Mode retains its separate pace and passing benefits under the usual eligibility rules.
 
 Configured aero gains are simplified lap-time inputs; see the

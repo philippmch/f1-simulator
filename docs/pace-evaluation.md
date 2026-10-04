@@ -322,6 +322,25 @@ ratings. It remains a diagnostic, with later events needed for further checks.
 The report still uses revised provider data collected after the event; it is
 not a reconstruction of a forecast published beforehand.
 
+## Live check, 4 October 2026
+
+A fresh component run at revision `b794938`, with the unchanged default dry
+assumption and three-round form window, still found 15 completed targets.
+It scored 324 Q1 observations; the common previous-Q1 comparison contains
+297 observations across 14 events. No additional completed target was available
+to validate the earlier-team-Q1 experiment beyond round 15.
+
+| Paired metric | Native model | Earlier team Q1 | Previous Q1 |
+|---|---:|---:|---:|
+| Driver rank MAE (places) | 3.0976 | 2.9630 | 3.1111 |
+| Relative pace MAE (percentage points) | 0.6593 | 0.4649 | 0.5082 |
+| Pairwise concordance | 79.63% | 81.16% | 79.47% |
+
+These are the all-event common-cohort summaries, including the experiment's
+warmup and development events. They do not supply new prospective validation.
+The existing conclusion therefore remains: pace spacing is promising, while
+the event-level ranking results are mixed. Live ratings remain unchanged.
+
 ## Interpretation limits
 
 This is a round holdout using today's revised provider data and today's model
