@@ -1228,6 +1228,16 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
     def legal(mask):
         return bool(mask & 8) or (mask & 7).bit_count() >= 2
 
+    native_masks = shared_forecast_available()
+
+    def equivalent_mask(mask, compliant):
+        # After actual rain-tyre use or two different slicks, no later choice
+        # depends on which compounds satisfied the rule. Share that completed
+        # credit without changing stop budgets, stint costs or candidate order.
+        # Behavioral extensions retain their original evaluation call counts.
+        return 8 if native_masks and compliant else mask
+
+    used_mask = equivalent_mask(used_mask, legal(used_mask))
     eligibility_rows = {}
 
     def stop_eligibility(compound, left, dry, damp):
@@ -1260,19 +1270,30 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
             total += dict(warmup_profile).get(compound.value, 0.0)
         mask |= bits[compound]
         compliant = legal(mask)
+        mask = equivalent_mask(mask, compliant)
         next_left, next_dry, next_damp = max(0, left - 1), reduced(dry), reduced(damp)
         # Keeping this same set cannot change either its used-compound mask or
         # the remaining stop allowances. Only the surface eligibility varies.
         allowed_by_offset = stop_eligibility(compound, left, dry, damp)
         for offset in range(start + 1, horizon):
+            if native_masks:
+                # Resolved edges no longer suspend the generator, so retain
+                # cancellation checks while scanning each future lap.
+                cancellation_checkpoint()
             allowed = allowed_by_offset[offset]
             for candidate in candidates[offset]:
                 if (not critical[candidate][offset] and (
                     allowed or (not compliant and not mask & bits[candidate])
                 )):
-                    value = yield (
+                    child = (
                         offset, candidate, next_left, next_dry, next_damp, mask,
                     )
+                    # A completed local suffix has exactly the value that the
+                    # outer stack would send back. Preserve candidate order
+                    # and arithmetic while avoiding one suspension per hit.
+                    value = solved.get(child) if native_masks else None
+                    if value is None:
+                        value = yield child
                     best_cost = min(best_cost, total + stop_cost + value)
             if critical[compound][offset]:
                 return best_cost

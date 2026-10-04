@@ -48,3 +48,8 @@ def test_each_uncached_suffix_scans_its_running_row_once():
     # the number of future laps and fresh candidates examined by each stint.
     assert callcount(invariants["legal"]) <= completed + 2 + candidates
     assert callcount(invariants["reduced"]) <= 2 * completed + 2 + 2 * candidates
+    stint = next(code for code in transition_code.co_consts
+                 if isinstance(code, CodeType) and code.co_name == "stint")
+    # With an empty shared cache, each new suffix suspends its parent at most
+    # once. Already solved dependencies do not create repeated suspensions.
+    assert callcount(stint) <= 2 * completed + 2 + candidates

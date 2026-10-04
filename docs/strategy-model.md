@@ -1819,6 +1819,38 @@ locking and fork reset. Working memory also includes per-plan completed states,
 active frames and their running-lap rows. The optimization preserves candidate
 order, cost arithmetic and modeled strategy rules.
 
+Native own-lap transition forecasts also share compound-use histories after
+the two-slick requirement is satisfied or a rain tyre has actually run.
+The specific earlier compounds can no longer affect a later legal action in
+that search. Incomplete histories keep their individual slick credits; merely
+fitting an unsafe rain set grants no credit. Surface, active compound and age,
+fuel distance, service costs, fitting fees and all stop allowances remain
+separate. Behavioral extensions retain the original unmerged search.
+
+Within a native decision, a completed suffix is read directly when a later
+candidate reaches it again. Only unresolved dependencies suspend the search
+frame. Candidate order and scalar addition order are unchanged, and each future
+lap checks cancellation even when every dependency is already cached.
+
+A 4 October comparison against revision `05508b8` used 22 drivers, 53 laps,
+automatic openings, unlimited tyres and seeds 42–44. Three alternating fresh
+process pairs per setting measured the following median time for three races:
+
+| Initial surface scenario | Previous search | Updated search | Reduction |
+|---|---:|---:|---:|
+| Fixed dry | 2.569 s | 2.538 s | 1.2% |
+| Persistent damp (`steady_damp`) | 45.338 s | 39.808 s | 12.2% |
+| Drying rain tyres (`rain_transition`) | 41.896 s | 39.192 s | 6.5% |
+
+Race, qualifying, weather and event outcome hashes matched in every pair.
+Sixteen additional short pairs covering both engines, finite and expanded
+physical pools, explicit and automatic openings, wetting surfaces and prescribed
+rain schedules also matched exactly.
+These synthetic timings exclude process startup and provider loading; the dry
+difference is small, and the table is not a general speed guarantee. Reproduce
+the damp workload with `python examples/benchmark_strategy_planning.py
+--scenario steady_damp --opening automatic --trials 3 --drivers 22 --laps 53`.
+
 Same-compound rain forecasts on an external weather clock reuse one projected
 surface path within each decision. Native lap physics prepares the fixed
 driver, car and circuit terms once, then reuses immutable running costs for
