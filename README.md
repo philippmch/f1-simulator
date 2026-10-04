@@ -167,6 +167,10 @@ Offline comparisons can vary both teammates together with
 [`compare_pit_plans.py --constructor`](docs/custom-pit-plans.md#comparing-constructor-plans).
 To select among several plans and test the choice on fresh seeds, use the
 [strategy selection and validation workflow](docs/strategy-selection.md).
+Choose expected points, race win probability, or podium probability before
+training. For a constructor, win/podium probability counts a race once when at
+least one member achieves the classified result. CLI selectors accept
+`--objective points|win|podium`; the dashboard provides the same choice.
 For fixed, weighted rival-plan scenarios, see the [rival-plan selection
 workflow](docs/rival-strategy-selection.md).
 

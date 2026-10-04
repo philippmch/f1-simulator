@@ -5,7 +5,8 @@ reward a lucky sample. This offline workflow separates that choice from its
 evaluation: it selects a plan on one set of seeds, freezes the choice, then
 compares it with a fixed reference on a different set of seeds.
 
-It evaluates expected points under the saved simulator inputs. It does not
+It evaluates expected points, race-win probability, or podium probability under
+the saved simulator inputs. It does not
 establish that a plan is optimal, calibrated to a real race, or better under
 different weather, competitors, tyre pools or model assumptions.
 
@@ -13,8 +14,10 @@ different weather, competitors, tyre pools or model assumptions.
 
 In the dashboard setup controls, turn on **Choose among candidate plans, then
 validate the frozen choice**. The editor opens in Race Results. Choose a driver
-or constructor from the selected race's current roster. Add two to ten named
-candidates (up to 80 characters each), mark one as the fixed reference, and
+or constructor from the selected race's current roster. Choose **Selection
+objective** before running: expected points (the default), race win probability,
+or podium probability. Add two to ten named candidates (up to 80 characters
+each), mark one as the fixed reference, and
 choose each plan before running. Names are labels; they do not change scoring.
 
 Each candidate can use the automatic strategy, or custom stops written with
@@ -100,9 +103,9 @@ every non-null alternative:
 }
 ```
 
-IDs must exactly match the saved inputs. Driver selection maximizes that
-driver's points; constructor selection maximizes the sum of all modeled
-members' points in each race. It supports a saved one-driver constructor.
+IDs must exactly match the saved inputs. The default objective maximizes that
+driver's points or the sum of all modeled constructor members' points per race.
+It supports a saved one-driver constructor.
 Rival plans remain unchanged. The usual distinction between `null` (automatic
 strategy) and `[]` (no elective stops) applies.
 
@@ -112,6 +115,33 @@ Use `--scenario NAME` when the source has multiple scenarios. Optional
 starts. Saved physics, engine, opening tyres, physical pools and warm-up
 assumptions are retained; the saved RNG policy is retained unless explicitly
 overridden with `--rng-policy`.
+
+Use `--objective win` or `--objective podium` to maximize the corresponding
+simulator probability. The Python selectors and dashboard API accept
+`objective="points"`, `"win"`, or `"podium"`; the dashboard field belongs inside
+`pit_plan_selection`. Unsupported values are rejected before loading inputs or
+starting trials. Omission retains expected points.
+
+For a driver, win means a classified P1 and podium means a classified P1–P3.
+For a constructor, the objective succeeds once per race if **at least one**
+member meets that condition. Two team podiums still count as one successful
+race. Classification follows the ordinary published race statistics: a late
+retirement that remains classified can count, while an unclassified result
+cannot. Legacy records without a classification flag use finished status.
+Every member must still have valid outcome evidence, even when another member
+already satisfies the objective. Points remain reported for all objectives.
+
+Selection metadata records `objective`, its description, and `score_unit`.
+Training rows retain `total_points` and `mean_points`, and add `total_score`,
+`mean_score`, `mean_score_behind_selected`, and `tied_for_best` for the chosen
+objective. Validation retains point metrics and adds `reference_mean_score`,
+`selected_mean_score`, `mean_score_difference`, and
+`score_difference_standard_error`. Probability scores use 0–1; the CLI,
+dashboard, and HTML render probabilities as percentages and differences/SEs
+as **percentage points**. The objective is frozen before training, and neither
+it nor the selected plan is changed in response to held-out results. An
+identity comparison has no independent alternative SE; one paired trial also
+cannot estimate a sample SE. Older metadata without an objective means points.
 
 ## Selection and validation rules
 
@@ -128,7 +158,7 @@ Retirements remain valid points observations. Missing, duplicate or malformed
 observations reject the selection rather than giving candidates different
 denominators.
 
-The candidate with the highest training mean points is selected. An exact tie
+The candidate with the highest training mean objective score is selected. An exact tie
 prefers the reference; a remaining tie uses the order in the plans file.
 Training scores describe the sample used to make that choice. They are not an
 independent estimate of the selected plan's advantage.

@@ -16,6 +16,7 @@ from compare_pit_plans import _load_plans, _workers
 from f1sim.analysis.paired_comparison import paired_comparison_statistics
 from f1sim.analysis.provenance import format_saved_runtime_status, saved_runtime_status
 from f1sim.analysis.rival_strategy_selection import evaluate_saved_rival_pit_plan_selection
+from f1sim.analysis.strategy_selection import SELECTION_OBJECTIVES
 from f1sim.output import Exporter
 from f1sim.output.qualifying_context import qualifying_weather_context
 from f1sim.output.weather_schedule_context import weather_schedule_context
@@ -56,6 +57,33 @@ def _training_shortfall(row: dict, selected: object) -> str:
             return "not recorded"
         return "0.000 (selected)" if row.get("label") == selected else "0.000 (exact tie)"
     return "below numeric reporting precision" if gap == 0 else formatted
+
+
+def _print_objective_summary(selection: dict) -> None:
+    """Report probability objectives separately from the points context."""
+    if selection["objective"] == "points":
+        return
+    print(f"Selection objective: {selection['objective_description']}")
+    print("Training objective probabilities:")
+    for row in selection["training_score_table"]:
+        print(f"  {row['label']}: {100 * row['mean_score']:.3f}%")
+    print("Held-out objective probabilities (selected choice stays frozen):")
+    metrics_by_name = [("Aggregate", selection["validation_target_metrics"]),
+                       *selection.get("validation_scenario_metrics", {}).items()]
+    for name, metrics in metrics_by_name:
+        error = metrics["score_difference_standard_error"]
+        uncertainty = (
+            "no separate standard error estimated (identity)"
+            if selection["validation_status"] == "no_change" else
+            "SE not estimated with one paired trial" if error is None else
+            f"sample SE {100 * error:.3f} percentage points"
+        )
+        print(
+            f"  {name}: reference {100 * metrics['reference_mean_score']:.3f}%; "
+            f"selected {100 * metrics['selected_mean_score']:.3f}%; "
+            f"change {100 * metrics['mean_score_difference']:+.3f} percentage points; "
+            f"{uncertainty}",
+        )
 
 
 def _selection_reason(value: object) -> str:
@@ -211,6 +239,8 @@ def main() -> int:
         "--plans", required=True, type=Path, help="JSON file of target candidate plans",
     )
     parser.add_argument("--reference", required=True, help="Fixed comparison plan label")
+    parser.add_argument("--objective", choices=SELECTION_OBJECTIVES, default="points",
+                        help="Maximize expected points, race-win or podium probability")
     parser.add_argument(
         "--rival-scenarios", required=True, type=Path,
         help="JSON file mapping scenario names to positive weights and rival plan overrides",
@@ -241,6 +271,7 @@ def main() -> int:
             rival_scenarios,
             driver_id=args.driver,
             constructor_id=args.constructor,
+            objective=args.objective,
             scenario=args.scenario,
             training_simulations=args.training_simulations,
             validation_simulations=args.validation_simulations,
@@ -282,12 +313,17 @@ def main() -> int:
                 f"  {label}: supplied {weight_text}, "
                 f"normalized {_selection_number(normalized_weights[label])}",
             )
+        _print_objective_summary(selection)
         print("Weighted training mean points:")
         for row in selection["training_score_table"]:
+            point_gap = (
+                _training_shortfall(row, selection['selected_label']) if args.objective == 'points'
+                else _selection_number(row['mean_points_behind_selected'])
+            )
             print(
                 f"  {row['label']}: {_selection_number(row.get('mean_points'))}; "
                 "mean points behind selected: "
-                f"{_training_shortfall(row, selection['selected_label'])}",
+                f"{point_gap}",
             )
         tie_text = _selection_reason(selection.get("tiebreak_applied"))
         print(f"Selected and frozen: {selection['selected_label']} because {tie_text}.")

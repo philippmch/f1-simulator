@@ -533,6 +533,7 @@ class Exporter:
         self, scenario_results: dict[str, SimulationResults],
         filename: str = "scenario_comparison.html", *, focus_driver: str | None = None,
         reference_scenario: str | None = None,
+        selection: dict | None = None,
     ) -> Path:
         """Write an offline comparison with observed counts and sampling intervals."""
         from f1sim.output.comparison import render_comparison_report
@@ -540,7 +541,8 @@ class Exporter:
         filepath = self.output_dir / filename
         filepath.write_text(
             render_comparison_report(scenario_results, focus_driver=focus_driver,
-                                     reference_scenario=reference_scenario), encoding="utf-8",
+                                     reference_scenario=reference_scenario,
+                                     selection=selection), encoding="utf-8",
         )
         return filepath
 

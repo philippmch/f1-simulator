@@ -87,6 +87,24 @@ def _install_loader(monkeypatch):
     monkeypatch.setattr(server, "_get_loader", RivalLoader)
 
 
+@pytest.mark.parametrize("objective", ["win", "podium"])
+def test_weighted_dashboard_probabilities_are_frozen_and_exported(monkeypatch, objective):
+    _install_loader(monkeypatch)
+    result = server.run_dashboard_simulation(_request(pit_plan_selection=_selection(
+        objective=objective,
+    )))
+    selection = result["strategy_selections"]["dry"]["selection"]
+    assert selection["objective"] == objective
+    assert selection["score_unit"] == "probability"
+    assert all("mean_score" in row for row in selection["training_score_table"])
+    assert all("score_difference_standard_error" in metrics
+               for metrics in selection["validation_scenario_metrics"].values())
+    assert result["request"]["pit_plan_selection"]["objective"] == objective
+    assert "Held-out objective probabilities" in (
+        result["strategy_selections"]["dry"]["validation_report_html"]
+    )
+
+
 def test_weighted_dashboard_response_keeps_source_and_exposes_frozen_plan_maps(monkeypatch):
     _install_loader(monkeypatch)
 

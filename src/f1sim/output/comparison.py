@@ -931,6 +931,7 @@ def _pit_decision_driver_table(
 def render_comparison_report(
     scenario_results: dict[str, SimulationResults], *, focus_driver: str | None = None,
     reference_scenario: str | None = None,
+    selection: dict | None = None,
 ) -> str:
     """Render supplied scenario order without ranking or causal interpretation."""
     context = []
@@ -1232,7 +1233,7 @@ failures; other race processes continue sharing the race stream.</p>""" + (
         '<h2>Race tyre set ledgers</h2>' + inventory_sections if inventory_sections else ''
     ) + (
         '<h2>Custom pit-plan execution</h2>' + plan_sections if plan_sections else ''
-    ) + "</main></body></html>"
+    ) + _selection_objective_html(selection or {}) + "</main></body></html>"
 
 
 def _selection_report_filename(value: object) -> str | None:
@@ -1265,8 +1266,10 @@ def _selection_report_number(value: object) -> str:
         return "Not recorded"
 
 
-def _selection_report_shortfall(row: dict, selected: object) -> str:
+def _selection_report_shortfall(row: dict, selected: object, objective="points") -> str:
     gap = row.get("mean_points_behind_selected")
+    if objective != "points":
+        return _selection_report_number(gap)
     tied = row.get("tied_for_best")
     formatted = _selection_report_number(gap)
     if formatted == "Not recorded" or type(tied) is not bool or gap < 0:
@@ -1276,6 +1279,76 @@ def _selection_report_shortfall(row: dict, selected: object) -> str:
             return "Not recorded"
         return "0.000 (selected)" if row.get("label") == selected else "0.000 (exact tie)"
     return "Below numeric reporting precision" if gap == 0 else formatted
+
+
+def _selection_objective_html(selection: dict) -> str:
+    """Report probability scores alongside the existing points evidence."""
+    objective = selection.get("objective", "points")
+    if objective not in ("win", "podium"):
+        return ""
+
+    def percent(value, unit="%"):
+        if _selection_report_number(value) == "Not recorded":
+            return "Not recorded"
+        return f"{_selection_report_number(100 * value)}{unit}"
+
+    training_rows = []
+    scenario_tables = selection.get("training_scenario_score_tables", {})
+    scenario_tables = scenario_tables if isinstance(scenario_tables, dict) else {}
+    tables = [("Aggregate", {"scores": selection.get("training_score_table", [])}),
+              *scenario_tables.items()]
+    for name, table in tables:
+        if not isinstance(table, dict) or not isinstance(table.get("scores"), list):
+            continue
+        for row in table["scores"]:
+            if isinstance(row, dict):
+                training_rows.append(
+                    f'<tr><th scope="row">{_text(name)}</th><td>{_text(row.get("label"))}</td>'
+                    f'<td>{percent(row.get("mean_score"))}</td>'
+                    f'<td>{_text(row.get("trials", "Not recorded"))}</td></tr>'
+                )
+    scenario_metrics = selection.get("validation_scenario_metrics", {})
+    scenario_metrics = scenario_metrics if isinstance(scenario_metrics, dict) else {}
+    metrics_by_name = [("Aggregate", selection.get("validation_target_metrics", {})),
+                       *scenario_metrics.items()]
+    identity = selection.get("validation_status") == "no_change"
+    validation_rows = []
+    for name, metrics in metrics_by_name:
+        if not isinstance(metrics, dict):
+            continue
+        error = metrics.get("score_difference_standard_error")
+        error_text = (
+            "No independent alternative estimate" if identity else
+            "Not estimated (1 paired race); this is not zero uncertainty"
+            if error is None and metrics.get("paired_races") == 1 else
+            "Not estimated" if error is None else percent(error, " percentage points sample SE")
+        )
+        validation_rows.append(
+            f'<tr><th scope="row">{_text(name)}</th>'
+            f'<td>{percent(metrics.get("reference_mean_score"))}</td>'
+            f'<td>{percent(metrics.get("selected_mean_score"))}</td>'
+            f'<td>{percent(metrics.get("mean_score_difference"), " percentage points")}</td>'
+            f'<td>{_text(error_text)}</td>'
+            f'<td>{_text(metrics.get("paired_races", "Not recorded"))}</td></tr>'
+        )
+    return (
+        '<section aria-label="Selection objective"><h2>Selection objective</h2>'
+        f'<p>{_text(selection.get("objective_description", objective))}. '
+        f'Training winner: {_text(selection.get("selected_label", "Not recorded"))}. '
+        'The objective was fixed before training; the choice remains frozen in validation. '
+        'A constructor succeeds once per race when at least one member is classified in '
+        'the required position. These are simulator probabilities.</p>'
+        '<h3>Training objective probabilities</h3><div class="table-wrap" tabindex="0">'
+        '<table><thead><tr><th>Scenario</th><th>Candidate</th><th>Probability</th>'
+        '<th>Trials</th></tr></thead><tbody>' + ''.join(training_rows) + '</tbody></table></div>'
+        '<h3>Held-out objective probabilities</h3><p>Changes and sample standard errors use '
+        'percentage points. Weighted outcomes are combined within each seed before computing '
+        'the SE, retaining covariance across scenarios. An identity has no independent '
+        'alternative estimate.</p><div class="table-wrap" tabindex="0"><table><thead><tr>'
+        '<th>Scenario</th><th>Reference</th><th>Selected</th><th>Change</th><th>Uncertainty</th>'
+        '<th>Paired races</th></tr></thead><tbody>' + ''.join(validation_rows)
+        + '</tbody></table></div></section>'
+    )
 
 
 def _selection_report_reason(value: object) -> str:
@@ -1383,10 +1456,19 @@ def render_rival_strategy_selection_report(manifest: dict) -> str:
         plan_rows = plan_rows[:1]
 
     training = selection.get("training_score_table", [])
+    objective = selection.get("objective", "points")
+    training_note = (
+        "The objective probabilities above determine the training winner. The following "
+        "tables retain points for context; points do not determine this selection."
+        if objective in ("win", "podium") else
+        "Weighted mean points are per-seed target points averaged after weighting rival "
+        "scenarios within each seed. Shortfalls use exact scores before numeric reporting; "
+        "equal displayed means do not establish an exact tie."
+    )
     training_rows = "".join(
         f'<tr><th scope="row">{_text(row.get("label", "Not recorded"))}</th>'
         f'<td>{_selection_report_number(row.get("mean_points"))}</td>'
-        f'<td>{_selection_report_shortfall(row, selected)}</td>'
+        f'<td>{_selection_report_shortfall(row, selected, objective)}</td>'
         f'<td>{_text(row.get("trials", "Not recorded"))}</td></tr>'
         for row in training if isinstance(row, dict)
     ) or '<tr><td colspan="4">No training scores recorded.</td></tr>'
@@ -1592,11 +1674,10 @@ Reference: {_text(reference)}. Selected and frozen: {_text(selected)}.</p>
 <table><thead><tr><th scope="col">Role</th><th scope="col">Plan label</th>
 <th scope="col">Target pit plan</th></tr></thead><tbody>{''.join(plan_rows)}</tbody></table></div>
 <h2>Training scores</h2>
-<p>All values in this section use the training cohort only. Weighted mean points are the
-per-seed target points averaged after weighting rival scenarios within each seed.
-Shortfalls are computed from exact scores before numeric reporting; equal displayed means
-do not establish an exact tie. A positive shortfall below float precision is labeled
-below numeric reporting precision. These training shortfalls are not fresh validation estimates.</p>
+{_selection_objective_html(selection)}
+<p>All values in this section use the training cohort only. {_text(training_note)}
+A positive shortfall below float precision is labeled below numeric reporting precision.
+These training shortfalls are not fresh validation estimates.</p>
 <p>{_text(_selection_report_reason(selection.get("tiebreak_applied")))}</p>
 <div class="table-wrap context" tabindex="0" role="region" aria-label="Weighted training scores">
 <table><thead><tr><th scope="col">Candidate plan</th>

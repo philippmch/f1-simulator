@@ -2174,6 +2174,13 @@ input:focus-visible {
               <option value="">Load current race roster</option>
             </select>
           </label>
+          <label for="pitPlanSelectionObjective"><span>Selection objective</span>
+            <select id="pitPlanSelectionObjective" aria-describedby="pitPlanObjectiveHelp">
+              <option value="points">Expected points</option>
+              <option value="win">Race win probability</option>
+              <option value="podium">Podium probability</option>
+            </select>
+          </label>
           <label for="pitPlanTrainingTrials"><span>Training trials</span>
             <input type="number" id="pitPlanTrainingTrials" min="1" max="1000" step="1" value="50">
           </label>
@@ -2181,6 +2188,7 @@ input:focus-visible {
             <input type="number" id="pitPlanValidationTrials" min="1" max="1000" step="1" value="50">
           </label>
         </div>
+        <p class="pit-selection-intro" id="pitPlanObjectiveHelp">Choose the objective before running. For constructors, points sum both drivers; win and podium probabilities count a race once when at least one team driver achieves a classified result.</p>
         <div class="pit-selection-candidate-list" id="pitPlanSelectionCandidates" aria-label="Candidate pit plans"></div>
         <div class="pit-selection-actions">
           <button class="scenario-preset" type="button" id="addPitPlanCandidateBtn">Add candidate</button>
@@ -3822,6 +3830,15 @@ function buildPitPlanSelectionPayload(sourceSimulations) {
   }
   const targetMode = document.getElementById('pitPlanSelectionTargetMode').value;
   const targetId = document.getElementById('pitPlanSelectionTargetId').value;
+  const objectiveInput = document.getElementById('pitPlanSelectionObjective');
+  const objective = objectiveInput.value;
+  if (!['points', 'win', 'podium'].includes(objective)) {
+    const message = 'Choose expected points, race win probability, or podium probability.';
+    setStatusMessage(message, 'error');
+    updatePitSelectionStatus(message);
+    objectiveInput.focus();
+    return {ok: false};
+  }
   const targetMemberIds = pitSelectionTargetMemberIds();
   if (!['driver', 'constructor'].includes(targetMode) || !targetId || !targetMemberIds.length) {
     const input = document.getElementById('pitPlanSelectionTargetId');
@@ -3921,6 +3938,7 @@ function buildPitPlanSelectionPayload(sourceSimulations) {
     [targetMode === 'driver' ? 'driver_id' : 'constructor_id']: targetId,
     training_simulations: trainingSimulations,
     validation_simulations: validationSimulations,
+    objective,
   };
   if (rivalResult.scenarios) selection.rival_scenarios = rivalResult.scenarios;
   return {ok: true, selection};
@@ -6391,7 +6409,8 @@ function selectionSignedNumber(value) {
   return `${value > 0 ? '+' : ''}${selectionNumber(value)} pts`;
 }
 
-function selectionTrainingShortfall(row, selectedLabel) {
+function selectionTrainingShortfall(row, selectedLabel, objective = 'points') {
+  if (objective !== 'points') return selectionNumber(row.mean_points_behind_selected);
   const gap = row.mean_points_behind_selected;
   const tied = row.tied_for_best;
   if (typeof gap !== 'number' || !Number.isFinite(gap) || gap < 0
@@ -6494,6 +6513,35 @@ function renderPitRivalEvidence(selection, identity) {
     <div class="pit-selection-result-table-wrap" tabindex="0" role="region" aria-label="Frozen rival plans and weights"><table class="matrix-table pit-selection-result-table"><thead><tr><th>Rival scenario</th><th>Supplied weight</th><th>Normalized weight</th><th>Overrides</th></tr></thead><tbody>${rows}</tbody></table></div>${details}`;
 }
 
+function renderSelectionObjectiveEvidence(selection, identity) {
+  const objective = selection.objective || 'points';
+  if (!['win', 'podium'].includes(objective)) return '';
+  const probability = value => typeof value === 'number' && Number.isFinite(value)
+    ? `${selectionNumber(100 * value)}%` : 'Not recorded';
+  const change = value => typeof value === 'number' && Number.isFinite(value)
+    ? `${value > 0 ? '+' : ''}${selectionNumber(100 * value)} percentage points` : 'Not recorded';
+  const tables = [['Aggregate', {scores: selection.training_score_table}],
+    ...Object.entries(selectionRecord(selection.training_scenario_score_tables))];
+  const trainingRows = tables.flatMap(([name, table]) => (Array.isArray(table?.scores) ? table.scores : [])
+    .filter(row => row && typeof row === 'object').map(row =>
+      `<tr><th scope="row">${escapeHtml(name)}</th><td>${escapeHtml(row.label)}</td><td>${probability(row.mean_score)}</td><td>${selectionCount(row.trials)}</td></tr>`)).join('');
+  const comparisons = [['Aggregate', selectionRecord(selection.validation_target_metrics)],
+    ...Object.entries(selectionRecord(selection.validation_scenario_metrics))];
+  const validationRows = comparisons.map(([name, raw]) => {
+    const metrics = selectionRecord(raw);
+    const error = metrics.score_difference_standard_error;
+    const uncertainty = identity ? 'No independent alternative estimate'
+      : error == null ? (metrics.paired_races === 1 ? 'Not estimated (one paired trial)' : 'Not recorded')
+        : `${selectionNumber(100 * error)} percentage points`;
+    return `<tr><th scope="row">${escapeHtml(name)}</th><td>${probability(metrics.reference_mean_score)}</td><td>${probability(metrics.selected_mean_score)}</td><td>${change(metrics.mean_score_difference)}</td><td>${uncertainty}</td><td>${selectionCount(metrics.paired_races)}</td></tr>`;
+  }).join('');
+  return `<section aria-label="Selection objective evidence"><h4>Selection objective · ${escapeHtml(objective)}</h4>
+    <p>${escapeHtml(selection.objective_description || (objective === 'win' ? 'Classified race win probability' : 'Classified podium probability'))}. The objective and winning plan were frozen before validation. A constructor succeeds once per race when at least one member qualifies.</p>
+    <h4>Training objective probabilities</h4><div class="pit-selection-result-table-wrap" tabindex="0" role="region" aria-label="Training objective probabilities"><table class="matrix-table pit-selection-result-table"><thead><tr><th>Scenario</th><th>Candidate</th><th>Probability</th><th>Trials</th></tr></thead><tbody>${trainingRows}</tbody></table></div>
+    <h4>Held-out objective probabilities</h4><p>Changes and Monte Carlo SE use percentage points. Scenarios are combined within each seed before calculating uncertainty. These are simulator probabilities; one paired trial cannot estimate a sample SE.</p>
+    <div class="pit-selection-result-table-wrap" tabindex="0" role="region" aria-label="Held-out objective probabilities"><table class="matrix-table pit-selection-result-table"><thead><tr><th>Scenario</th><th>Reference</th><th>Selected</th><th>Change</th><th>Monte Carlo SE</th><th>Paired trials</th></tr></thead><tbody>${validationRows}</tbody></table></div></section>`;
+}
+
 function renderPitPlanSelectionResults(data) {
   const container = document.getElementById('pitPlanSelectionResults');
   if (!container) return;
@@ -6530,6 +6578,7 @@ function renderPitPlanSelectionResults(data) {
   const sourceSeed = Number.isInteger(source.seed) ? source.seed : 'Not recorded';
   const sourceTrials = Number.isInteger(source.num_simulations) ? source.num_simulations : 'Not recorded';
   const weighted = Array.isArray(selection.rival_scenarios);
+  const objective = selection.objective || 'points';
   const scoreRows = Array.isArray(selection.training_score_table)
     ? selection.training_score_table.filter(row => row && typeof row === 'object').map(row => {
       const label = typeof row.label === 'string' ? row.label : 'Not recorded';
@@ -6537,7 +6586,7 @@ function renderPitPlanSelectionResults(data) {
         label === selectedLabel ? 'Chosen on training data' : '',
         label === referenceLabel ? 'Fixed reference' : '',
       ].filter(Boolean).join(' · ');
-      return `<tr><th scope="row">${escapeHtml(label)}${roles ? `<span class="pit-selection-quiet">${escapeHtml(roles)}</span>` : ''}</th><td>${selectionNumber(row.mean_points)}</td>${weighted ? `<td>${selectionTrainingShortfall(row, selectedLabel)}</td>` : ''}<td>${selectionCount(row.trials)}</td></tr>`;
+      return `<tr><th scope="row">${escapeHtml(label)}${roles ? `<span class="pit-selection-quiet">${escapeHtml(roles)}</span>` : ''}</th><td>${selectionNumber(row.mean_points)}</td>${weighted ? `<td>${selectionTrainingShortfall(row, selectedLabel, objective)}</td>` : ''}<td>${selectionCount(row.trials)}</td></tr>`;
     }).join('') : '';
   const planLabels = identity ? [selectedLabel || referenceLabel]
     : [selectedLabel, referenceLabel];
@@ -6569,8 +6618,9 @@ function renderPitPlanSelectionResults(data) {
       <button class="btn-simulate" type="button" id="downloadPitSelectionReportBtn" ${hasReport ? '' : 'disabled'}>Download validation report</button>
     </div>
     ${renderPitRivalEvidence(selection, identity)}
+    ${renderSelectionObjectiveEvidence(selection, identity)}
     <h4>${Array.isArray(selection.rival_scenarios) ? 'Weighted training choice' : 'Training choice'}</h4>
-    <p>Candidate means below are training scores used to choose the plan. They are separate from held-out validation estimates.</p>
+    <p>${objective === 'points' ? 'Candidate means below are training scores used to choose the plan.' : 'Candidate points below provide context. The objective probabilities above determine the training winner.'} They are separate from held-out validation estimates.</p>
     ${weighted ? `<p>${selectionReason(selection.tiebreak_applied)} Displayed means are rounded; shortfalls and exact tie flags describe only the training cohort, not independent or calibrated advantages.</p>` : ''}
     <div class="pit-selection-result-table-wrap" tabindex="0" role="region" aria-label="Training scores for ${escapeHtml(weatherLabel)} weather">
       <table class="matrix-table pit-selection-result-table"><thead><tr><th scope="col">Candidate plan</th><th scope="col">Mean target points</th>${weighted ? '<th scope="col">Mean points behind selected</th>' : ''}<th scope="col">Training trials</th></tr></thead><tbody>${scoreRows || `<tr><td colspan="${weighted ? 4 : 3}">Training scores not recorded.</td></tr>`}</tbody></table>

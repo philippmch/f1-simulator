@@ -85,6 +85,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         [referenceLabel, selectedLabel].forEach(label => { validationScenarios[label] = scenario; });
         const metadata = {
           schema_version: 1,
+          objective: request.objective || 'points',
           target_mode: request.driver_id ? 'driver' : 'constructor',
           target_id: request.driver_id || request.constructor_id,
           target_member_ids: request.driver_id ? [request.driver_id]
@@ -115,6 +116,18 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
               mean_points_gain_when_ahead: 2, mean_points_loss_when_behind: 3},
           },
         };
+        if (request.objective === 'win' || request.objective === 'podium') {
+          metadata.objective_description = `Classified ${request.objective} probability for the target driver`;
+          metadata.score_unit = 'probability';
+          candidateRows.forEach(row => {
+            row.mean_score = row.label === selectedLabel ? .4 : .2;
+            row.total_score = row.mean_score * row.trials;
+          });
+          Object.assign(metadata.validation_target_metrics, {
+            reference_mean_score: .3, selected_mean_score: .1,
+            mean_score_difference: -.2, score_difference_standard_error: .05,
+          });
+        }
         response.strategy_selections[scenarioName] = {
           selection: metadata,
           plans: frozenPlans,
@@ -1906,6 +1919,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       await page.locator('#pitPlanSelectionPanel').waitFor({state: 'visible'});
       await page.waitForFunction(() => document.activeElement?.id === 'pitPlanSelectionTargetMode');
       await page.locator('#pitPlanSelectionTargetMode').selectOption('driver');
+      await page.locator('#pitPlanSelectionObjective').selectOption('win');
       await page.locator('#pitPlanSelectionTargetId').selectOption('S00');
       const selectionCandidateRows = page.locator('#pitPlanSelectionCandidates .pit-selection-candidate');
       await selectionCandidateRows.nth(0).locator('.pit-selection-label').fill('__proto__');
@@ -1925,10 +1939,11 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       assert.deepEqual({
         reference_label: selectionRequest.pit_plan_selection.reference_label,
         driver_id: selectionRequest.pit_plan_selection.driver_id,
+        objective: selectionRequest.pit_plan_selection.objective,
         training_simulations: selectionRequest.pit_plan_selection.training_simulations,
         validation_simulations: selectionRequest.pit_plan_selection.validation_simulations,
       }, {
-        reference_label: '__proto__', driver_id: 'S00',
+        reference_label: '__proto__', driver_id: 'S00', objective: 'win',
         training_simulations: 50, validation_simulations: 50,
       });
       assert.equal(selectionRequest.compare_automatic, false);
@@ -1942,6 +1957,10 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       assert(selectionLabels.includes('more points') && selectionLabels.includes('fewer points'));
       assert(selectionLabels.includes('selected and frozen') && selectionLabels.includes('fixed reference'));
       assert(selectionText.includes('18:hard'));
+      assert(selectionText.includes('Selection objective · win'));
+      assert(selectionText.includes('40.000%') && selectionText.includes('20.000%'));
+      assert(selectionText.includes('-20.000 percentage points'));
+      assert(selectionText.includes('5.000 percentage points'));
       assert(selectionText.includes('S00: Automatic strategy'),
         'A non-target custom plan must not replace the target driver’s automatic plan');
       assert(!selectionText.includes('S01: 2:soft'),
@@ -1961,14 +1980,18 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         savedPlans: simResults.strategy_selections.dry.plans,
       }));
       await page.locator('#tab-race').click();
+      await page.locator('#pitPlanSelectionObjective').selectOption('podium');
       await selectionCandidateRows.nth(0).locator('.pit-selection-label').fill('edited reference');
       await selectionCandidateRows.nth(1).locator('.pit-selection-label').fill('edited alternative');
       await page.evaluate(() => renderPitPlanSelectionResults(simResults));
+      await page.locator('#pitPlanSelectionObjective').selectOption('points');
       await page.locator('#tab-scenarios').click();
       selectionText = await page.locator('#pitPlanSelectionResults').innerText();
       assert(selectionText.includes('<img src=x onerror=alert(1)>'));
       assert(!selectionText.includes('edited alternative'),
         'Editing candidate controls must not rewrite the saved selection result');
+      assert(selectionText.includes('Selection objective · win')
+        && !selectionText.includes('Selection objective · podium'));
       assert.deepEqual(await page.evaluate(() => ({
         selected: simResults.strategy_selections.dry.selection.selected_label,
         plans: simResults.strategy_selections.dry.plans,
@@ -1987,6 +2010,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       const evidenceDownload = await evidenceDownloadPromise;
       assert.equal(evidenceDownload.suggestedFilename(), 'pit_plan_selection_evidence_dry.json');
       const evidenceJson = JSON.parse(readFileSync(await evidenceDownload.path(), 'utf8'));
+      assert.equal(evidenceJson.selection.objective, 'win');
       assert.deepEqual(evidenceJson, expectedEvidence);
       assert.equal(evidenceJson.validation_report_html, undefined);
       assert.deepEqual(evidenceJson.plans.__proto__, {S01: [{lap: 2, compound: 'soft'}]},

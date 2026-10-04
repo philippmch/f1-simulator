@@ -45,6 +45,9 @@ class TinyLoader:
         return Track(id="synthetic", name="Synthetic", country="Test", total_laps=3,
                      base_lap_time=90)
 
+    def get_provenance(self):
+        return {"source": "test"}
+
 
 def _install_tiny_loader(monkeypatch):
     monkeypatch.setattr(server, "_current_season", lambda: 2026)
@@ -61,6 +64,43 @@ def _request(**overrides):
     }
     values.update(overrides)
     return server.DashboardRunRequest(**values)
+
+
+@pytest.mark.parametrize("objective", ["win", "podium"])
+def test_dashboard_selection_carries_objective_into_response_and_html(monkeypatch, objective):
+    _install_tiny_loader(monkeypatch)
+    response = server.run_dashboard_simulation(_request(pit_plan_selection=_selection(
+        objective=objective,
+    )))
+    entry = response["strategy_selections"]["dry"]
+    assert entry["selection"]["objective"] == objective
+    assert entry["selection"]["score_unit"] == "probability"
+    assert "Held-out objective probabilities" in entry["validation_report_html"]
+    assert response["request"]["pit_plan_selection"]["objective"] == objective
+
+
+@pytest.mark.parametrize("objective", ["finish", True, None, {}, []])
+def test_http_invalid_objective_fails_before_capacity_or_live_loading(monkeypatch, objective):
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    class NoCapacity:
+        @classmethod
+        def from_environment(cls):
+            return cls()
+
+        def acquire(self, *args, **kwargs):
+            pytest.fail("invalid objective must fail before capacity admission")
+
+    monkeypatch.setattr(server, "_current_season", lambda: 2026)
+    monkeypatch.setattr(server, "RunCapacity", NoCapacity)
+    monkeypatch.setattr(server, "_get_loader", lambda: pytest.fail("live load"))
+    with TestClient(server.build_fastapi_app()) as client:
+        response = client.post("/api/run", json={
+            "year": 2026, "simulations": 10, "scenarios": "dry",
+            "pit_plan_selection": _selection(objective=objective),
+        })
+    assert response.status_code == 422 and "objective" in response.text
 
 
 def test_selection_budget_uses_all_candidates_and_two_validation_variants(monkeypatch):

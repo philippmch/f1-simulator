@@ -130,6 +130,37 @@ def _invoke(monkeypatch, source, plans, scenarios, output, *extra):
     return rival_selection_cli.main()
 
 
+@pytest.mark.parametrize("objective", ["win", "podium"])
+def test_cli_probability_objective_exports_weighted_and_scenario_scores(
+    tmp_path, monkeypatch, capsys, objective,
+):
+    source = _saved(tmp_path)
+    plans, scenarios = _write_inputs(tmp_path, json.dumps({
+        "Aggregate": {"weight": 1, "pit_plans": {"B": None}},
+    }))
+    output = tmp_path / "output"
+    assert _invoke(monkeypatch, source, plans, scenarios, output,
+                   "--objective", objective, "--export") == 0
+    text = capsys.readouterr().out
+    assert "Training objective probabilities:" in text and "percentage points" in text
+    assert text.count("Aggregate: reference") == 2
+    manifest = json.loads(next(output.glob("rival_selection_manifest_*.json")).read_text(
+        encoding="utf-8",
+    ))
+    assert manifest["selection"]["objective"] == objective
+    assert "Held-out objective probabilities" in (
+        output / manifest["selection_report_html"]
+    ).read_text(encoding="utf-8")
+
+
+def test_cli_invalid_objective_is_rejected_before_source_and_exports(tmp_path, monkeypatch):
+    output = tmp_path / "output"
+    with pytest.raises(SystemExit) as error:
+        _invoke(monkeypatch, tmp_path / "missing.json", tmp_path / "plans.json",
+                tmp_path / "rivals.json", output, "--objective", "finish", "--export")
+    assert error.value.code == 2 and not output.exists()
+
+
 def test_cli_exports_weighted_selection_and_each_scenario_for_replay(
     tmp_path, monkeypatch, capsys,
 ):

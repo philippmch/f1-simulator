@@ -2,9 +2,10 @@
 
 from collections.abc import Mapping
 from copy import deepcopy
-from math import isfinite
+from fractions import Fraction
+from math import isfinite, sqrt
 from numbers import Integral
-from statistics import mean
+from statistics import mean, stdev
 from typing import Any, Callable
 
 from f1sim.analysis.cancellation import SimulationCancelled
@@ -22,9 +23,69 @@ from f1sim.analysis.strategy_comparison import (
     _runner_variant,
     _validate_pit_plan_variant_requests,
 )
+from f1sim.simulation.race import result_is_classified
 from f1sim.simulation.randomness import validate_rng_policy
 
 _MAX_SEED = 2**32 - 1
+SELECTION_OBJECTIVES = ("points", "win", "podium")
+
+
+def _validate_objective(objective: object) -> str:
+    if not isinstance(objective, str) or objective not in SELECTION_OBJECTIVES:
+        raise ValueError("objective must be one of points, win, podium")
+    return objective
+
+
+def _objective_description(objective: str, constructor: bool) -> str:
+    if objective == "points":
+        return "Expected constructor points" if constructor else "Expected driver points"
+    outcome = "classified race win" if objective == "win" else "classified podium"
+    target = "at least one constructor driver" if constructor else "the target driver"
+    return f"Probability of a {outcome} for {target}"
+
+
+def _phase_scores(
+    results: Mapping[str, SimulationResults], points: dict[str, list[int | float]],
+    target_members: list[str], objective: str,
+) -> dict[str, list[int | float]]:
+    """Score an already validated complete cohort, with one event per team race."""
+    if objective == "points":
+        return points
+    position_limit = 1 if objective == "win" else 3
+    members = set(target_members)
+    return {
+        label: [
+            int(any(row.driver_id in members and result_is_classified(row)
+                    and row.position <= position_limit for row in race))
+            for race in result.race_results
+        ]
+        for label, result in results.items()
+    }
+
+
+def _score_number(value: int | float | Fraction) -> int | float:
+    return _json_number(float(value) if isinstance(value, Fraction) else value)
+
+
+def _score_metrics(
+    reference_values: list[int | float | Fraction],
+    selected_values: list[int | float | Fraction], *, identity: bool = False,
+) -> dict[str, int | float | None]:
+    """Use paired seed differences, including scenario covariance when weighted."""
+    if len(reference_values) != len(selected_values) or not reference_values:
+        raise ValueError("paired objective scores must have matching nonempty seed cohorts")
+    differences = [selected - reference for reference, selected in zip(
+        reference_values, selected_values,
+    )]
+    error = None
+    if not identity and len(differences) > 1:
+        error = stdev(differences) / sqrt(len(differences))
+    return {
+        "reference_mean_score": _score_number(mean(reference_values)),
+        "selected_mean_score": _score_number(mean(selected_values)),
+        "mean_score_difference": _score_number(mean(differences)),
+        "score_difference_standard_error": None if error is None else _score_number(error),
+    }
 
 
 def _positive_int(value: object, name: str) -> int:
@@ -96,9 +157,11 @@ def validate_pit_plan_selection_request(
     constructor_id: str | None,
     training_simulations: int,
     validation_simulations: int,
+    objective: str = "points",
     max_count: int | None = None,
 ) -> list[str]:
     """Validate request fields that do not depend on a loaded runner."""
+    _validate_objective(objective)
     labels = _validate_labels(plans, reference_label)
     if (driver_id is None) == (constructor_id is None):
         raise ValueError("exactly one driver_id or constructor_id is required")
@@ -264,6 +327,7 @@ def evaluate_saved_pit_plan_selection(
     *,
     driver_id: str | None = None,
     constructor_id: str | None = None,
+    objective: str = "points",
     scenario: str | None = None,
     training_simulations: int = 100,
     validation_simulations: int = 100,
@@ -285,6 +349,7 @@ def evaluate_saved_pit_plan_selection(
         plans, reference_label, driver_id=driver_id, constructor_id=constructor_id,
         training_simulations=training_simulations,
         validation_simulations=validation_simulations,
+        objective=objective,
     )
     runner, saved_count, source_variants = _prepare_saved_pit_plan_variants(
         path, plans, driver_id=driver_id, constructor_id=constructor_id,
@@ -295,6 +360,7 @@ def evaluate_saved_pit_plan_selection(
         driver_id=driver_id, constructor_id=constructor_id,
         training_simulations=training_simulations,
         validation_simulations=validation_simulations,
+        objective=objective,
     )
     return evaluate_prepared_pit_plan_selection(
         prepared, parallel=parallel, max_workers=max_workers,
@@ -309,6 +375,7 @@ def prepare_pit_plan_selection(
     *,
     driver_id: str | None = None,
     constructor_id: str | None = None,
+    objective: str = "points",
     training_simulations: int = 100,
     validation_simulations: int = 100,
 ) -> dict[str, Any]:
@@ -317,6 +384,7 @@ def prepare_pit_plan_selection(
         plans, reference_label, driver_id=driver_id, constructor_id=constructor_id,
         training_simulations=training_simulations,
         validation_simulations=validation_simulations,
+        objective=objective,
     )
     source_count = _positive_int(source_simulations, "source_simulations")
     source_variants = _build_pit_plan_variant_runners(
@@ -327,6 +395,7 @@ def prepare_pit_plan_selection(
         driver_id=driver_id, constructor_id=constructor_id,
         training_simulations=training_simulations,
         validation_simulations=validation_simulations,
+        objective=objective,
         labels=labels,
     )
 
@@ -339,6 +408,7 @@ def evaluate_pit_plan_selection(
     *,
     driver_id: str | None = None,
     constructor_id: str | None = None,
+    objective: str = "points",
     training_simulations: int = 100,
     validation_simulations: int = 100,
     parallel: bool = False,
@@ -351,6 +421,7 @@ def evaluate_pit_plan_selection(
         driver_id=driver_id, constructor_id=constructor_id,
         training_simulations=training_simulations,
         validation_simulations=validation_simulations,
+        objective=objective,
     )
     return evaluate_prepared_pit_plan_selection(
         prepared, parallel=parallel, max_workers=max_workers,
@@ -369,6 +440,7 @@ def _prepare_selection_from_variants(
     constructor_id: str | None,
     training_simulations: int,
     validation_simulations: int,
+    objective: str = "points",
     labels: list[str] | None = None,
 ) -> dict[str, Any]:
     training_count = _positive_int(training_simulations, "training_simulations")
@@ -402,6 +474,7 @@ def _prepare_selection_from_variants(
         "reference_label": reference_label,
         "driver_id": driver_id,
         "constructor_id": constructor_id,
+        "objective": _validate_objective(objective),
         "training_count": training_count,
         "validation_count": validation_count,
         "train_start": train_start,
@@ -429,6 +502,7 @@ def evaluate_prepared_pit_plan_selection(
     reference_label = prepared["reference_label"]
     driver_id = prepared["driver_id"]
     constructor_id = prepared["constructor_id"]
+    objective = _validate_objective(prepared.get("objective", "points"))
     training_count = prepared["training_count"]
     validation_count = prepared["validation_count"]
     train_start = prepared["train_start"]
@@ -450,8 +524,10 @@ def evaluate_prepared_pit_plan_selection(
         target_members=target_members,
     )
     _check_cancelled(cancel_requested)
+    training_values = _phase_scores(training_results, training_points, target_members, objective)
     training_scores = {
-        label: _json_number(mean(values)) for label, values in training_points.items()
+        label: mean([Fraction(value) for value in values])
+        for label, values in training_values.items()
     }
     best_score = max(training_scores.values())
     tied_labels = [label for label in labels if training_scores[label] == best_score]
@@ -527,11 +603,22 @@ def evaluate_prepared_pit_plan_selection(
         }
         validation_status = "evaluated"
 
+    validation_values = _phase_scores(
+        validation_results, validation_points, target_members, objective,
+    )
+    target_metrics.update(_score_metrics(
+        validation_values[reference_label], validation_values[selected_label], identity=no_change,
+    ))
+
     score_table = [
         {
             "label": label,
             "total_points": _json_number(sum(training_points[label])),
-            "mean_points": training_scores[label],
+            "mean_points": _json_number(mean(training_points[label])),
+            "total_score": _score_number(sum(training_values[label])),
+            "mean_score": _score_number(training_scores[label]),
+            "mean_score_behind_selected": _score_number(best_score - training_scores[label]),
+            "tied_for_best": training_scores[label] == best_score,
             "trials": training_count,
         }
         for label in labels
@@ -539,6 +626,9 @@ def evaluate_prepared_pit_plan_selection(
     selection = {
         "schema_version": 1,
         "method": "complete_cohort_training_then_disjoint_seed_validation",
+        "objective": objective,
+        "objective_description": _objective_description(objective, constructor_id is not None),
+        "score_unit": "points" if objective == "points" else "probability",
         "target_mode": "driver" if driver_id is not None else "constructor",
         "target_id": driver_id if driver_id is not None else constructor_id,
         "target_member_ids": target_members,
@@ -546,8 +636,8 @@ def evaluate_prepared_pit_plan_selection(
         "reference_label": reference_label,
         "selected_label": selected_label,
         "selection_status": "no_change" if no_change else "selected",
-        "selection_rule": "highest training mean points; exact ties prefer the reference, "
-        "then candidate mapping order",
+        "selection_rule": f"highest training mean {objective} score; exact ties prefer the "
+        "reference, then candidate mapping order",
         "tiebreak_applied": tiebreak,
         "training_score_table": score_table,
         "training_coverage": training_coverage,

@@ -127,3 +127,32 @@ def test_cli_errors_do_not_create_exports(tmp_path, monkeypatch, failure):
                 driver=failure != "constructor-shape")
     assert raised.value.code == 2
     assert not output.exists()
+
+
+@pytest.mark.parametrize("objective", ["win", "podium"])
+def test_cli_probability_objective_is_reported_and_exported(
+    tmp_path, monkeypatch, capsys, objective,
+):
+    source = _saved(tmp_path)
+    plans = tmp_path / "plans.json"
+    plans.write_text(json.dumps({"automatic": None, "same": None}), encoding="utf-8")
+    output = tmp_path / "selection-output"
+    assert _invoke(monkeypatch, source, plans, output, "--objective", objective, "--export") == 0
+    text = capsys.readouterr().out
+    assert "Training objective probabilities:" in text and "percentage points" in text
+    assert "no separate standard error estimated (identity)" in text
+    manifest = json.loads(next(output.glob("selection_manifest_*.json")).read_text(
+        encoding="utf-8",
+    ))
+    assert manifest["selection"]["objective"] == objective
+    assert "Held-out objective probabilities" in (
+        output / manifest["validation_comparison_html"]
+    ).read_text(encoding="utf-8")
+
+
+def test_cli_invalid_objective_creates_no_exports(tmp_path, monkeypatch):
+    output = tmp_path / "no-exports"
+    with pytest.raises(SystemExit) as error:
+        _invoke(monkeypatch, tmp_path / "missing.json", tmp_path / "plans.json", output,
+                "--objective", "finish", "--export")
+    assert error.value.code == 2 and not output.exists()

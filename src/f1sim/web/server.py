@@ -104,6 +104,7 @@ class DashboardPitPlanSelectionRequest(BaseModel):
     reference_label: StrictStr
     driver_id: StrictStr | None = None
     constructor_id: StrictStr | None = None
+    objective: StrictStr = "points"
     training_simulations: StrictInt
     validation_simulations: StrictInt
     rival_scenarios: dict[StrictStr, DashboardRivalScenario] | None = None
@@ -117,6 +118,7 @@ class DashboardPitPlanSelectionRequest(BaseModel):
             constructor_id=self.constructor_id,
             training_simulations=self.training_simulations,
             validation_simulations=self.validation_simulations,
+            objective=self.objective,
             max_count=1000,
         )
         if self.rival_scenarios is not None:
@@ -835,6 +837,7 @@ def run_dashboard_simulation(
                     selection_request.reference_label,
                     driver_id=selection_request.driver_id,
                     constructor_id=selection_request.constructor_id,
+                    objective=selection_request.objective,
                     training_simulations=selection_request.training_simulations,
                     validation_simulations=selection_request.validation_simulations,
                 )
@@ -850,6 +853,7 @@ def run_dashboard_simulation(
                     },
                     driver_id=selection_request.driver_id,
                     constructor_id=selection_request.constructor_id,
+                    objective=selection_request.objective,
                     training_simulations=selection_request.training_simulations,
                     validation_simulations=selection_request.validation_simulations,
                     cancel_requested=cancel_requested,
@@ -928,6 +932,7 @@ def run_dashboard_simulation(
                     "validation_report_html": render_comparison_report(
                         evaluated["validation_results"],
                         reference_scenario=selection_request.reference_label,
+                        selection=evaluated["selection"],
                     ),
                 }
             else:

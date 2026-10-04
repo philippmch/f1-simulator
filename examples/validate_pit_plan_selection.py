@@ -10,9 +10,13 @@ from uuid import uuid4
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from compare_pit_plans import _load_plans, _workers
+from validate_rival_pit_plan_selection import _print_objective_summary
 
 from f1sim.analysis.provenance import format_saved_runtime_status, saved_runtime_status
-from f1sim.analysis.strategy_selection import evaluate_saved_pit_plan_selection
+from f1sim.analysis.strategy_selection import (
+    SELECTION_OBJECTIVES,
+    evaluate_saved_pit_plan_selection,
+)
 from f1sim.output import Exporter
 from f1sim.simulation.randomness import RNG_POLICIES
 
@@ -70,6 +74,8 @@ def main() -> int:
     target_group.add_argument("--constructor", help="Exact saved constructor/team ID")
     parser.add_argument("--plans", required=True, type=Path, help="JSON file of candidate plans")
     parser.add_argument("--reference", required=True, help="Fixed comparison plan label")
+    parser.add_argument("--objective", choices=SELECTION_OBJECTIVES, default="points",
+                        help="Maximize expected points, race-win or podium probability")
     parser.add_argument("--scenario", help="Exact source scenario when the file contains several")
     parser.add_argument("--training-simulations", type=_phase_simulations, default=100,
                         help="Trials per candidate for selection (1-1000, default: 100)")
@@ -94,6 +100,7 @@ def main() -> int:
             args.reference,
             driver_id=args.driver,
             constructor_id=args.constructor,
+            objective=args.objective,
             scenario=args.scenario,
             training_simulations=args.training_simulations,
             validation_simulations=args.validation_simulations,
@@ -120,6 +127,7 @@ def main() -> int:
             f"{validation_range['first_seed']}–{validation_range['last_seed']} "
             f"({validation_range['trials']} trials).",
         )
+        _print_objective_summary(selection)
         print("Training mean points:")
         for row in selection["training_score_table"]:
             print(f"  {row['label']}: {row['mean_points']:.3f}")
@@ -180,6 +188,7 @@ def main() -> int:
                 filename=f"pit_plan_selection_validation_{run_id}.html",
                 focus_driver=args.driver,
                 reference_scenario=args.reference,
+                selection=selection,
             )
             manifest_path = args.output_dir / f"selection_manifest_{run_id}.json"
             manifest = {

@@ -166,8 +166,12 @@ def test_frozen_training_winner_can_lose_on_heldout_and_keeps_fractional_mean(
     assert selection["selected_label"] == "earlier"
     assert selection["validation_status"] == "evaluated"
     assert selection["training_score_table"] == [
-        {"label": "automatic", "total_points": 10, "mean_points": 5, "trials": 2},
-        {"label": "earlier", "total_points": 25, "mean_points": 12.5, "trials": 2},
+        {"label": "automatic", "total_points": 10, "mean_points": 5, "trials": 2,
+         "total_score": 10, "mean_score": 5, "mean_score_behind_selected": 7.5,
+         "tied_for_best": False},
+        {"label": "earlier", "total_points": 25, "mean_points": 12.5, "trials": 2,
+         "total_score": 25, "mean_score": 12.5, "mean_score_behind_selected": 0,
+         "tied_for_best": True},
     ]
     assert selection["seed_ranges"] == {
         "source": {"first_seed": 71, "last_seed": 71, "trials": 1},

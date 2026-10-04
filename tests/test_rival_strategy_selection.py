@@ -348,8 +348,10 @@ def test_prepared_constructor_weights_sum_members_and_multiple_seeds(monkeypatch
     assert selection["tiebreak_applied"] == "unique_highest_weighted_training_mean"
     assert selection["training_score_table"] == [
         {"label": "reference", "total_points": 6, "mean_points": 3, "trials": 2,
+         "total_score": 6, "mean_score": 3, "mean_score_behind_selected": 24.5,
          "mean_points_behind_selected": 24.5, "tied_for_best": False},
         {"label": "planned", "total_points": 55, "mean_points": 27.5, "trials": 2,
+         "total_score": 55, "mean_score": 27.5, "mean_score_behind_selected": 0,
          "mean_points_behind_selected": 0, "tied_for_best": True},
     ]
     metrics = selection["validation_target_metrics"]

@@ -19,11 +19,15 @@ from f1sim.analysis.strategy_comparison import (
 from f1sim.analysis.strategy_selection import (
     _check_cancelled,
     _json_number,
+    _objective_description,
     _phase_points,
+    _phase_scores,
     _points_outcome_profile,
     _points_outcome_profile_from_differences,
     _positive_int,
     _run_variants,
+    _score_metrics,
+    _validate_objective,
     _validate_seed_ranges,
     validate_pit_plan_selection_request,
 )
@@ -247,6 +251,7 @@ def prepare_rival_pit_plan_selection(
     *,
     driver_id: str | None = None,
     constructor_id: str | None = None,
+    objective: str = "points",
     training_simulations: int = 100,
     validation_simulations: int = 100,
     rng_policy: str | None = None,
@@ -261,6 +266,7 @@ def prepare_rival_pit_plan_selection(
     labels = validate_pit_plan_selection_request(
         plans, reference_label, driver_id=driver_id, constructor_id=constructor_id,
         training_simulations=training_count, validation_simulations=validation_count,
+        objective=objective,
     )
     scenario_names, supplied_weights, scenario_data = _validate_rival_scenarios(
         rival_scenarios,
@@ -342,6 +348,7 @@ def prepare_rival_pit_plan_selection(
         "reference_label": reference_label,
         "driver_id": driver_id,
         "constructor_id": constructor_id,
+        "objective": objective,
         "target_members": target_members,
         "training_count": training_count,
         "validation_count": validation_count,
@@ -374,6 +381,7 @@ def evaluate_prepared_rival_pit_plan_selection(
     reference_label = prepared["reference_label"]
     driver_id = prepared["driver_id"]
     constructor_id = prepared["constructor_id"]
+    objective = _validate_objective(prepared.get("objective", "points"))
     target_members = prepared["target_members"]
     training_count = prepared["training_count"]
     validation_count = prepared["validation_count"]
@@ -417,6 +425,16 @@ def evaluate_prepared_rival_pit_plan_selection(
         label: _weighted_seed_points(training_points, label, exact_weights, training_count)
         for label in labels
     }
+    training_values = {
+        name: _phase_scores(
+            training_results[name], training_points[name], target_members, objective,
+        )
+        for name in scenario_names
+    }
+    weighted_training_values = {
+        label: _weighted_seed_points(training_values, label, exact_weights, training_count)
+        for label in labels
+    }
     scenario_score_tables = {}
     for name in scenario_names:
         scenario_score_tables[name] = {
@@ -424,10 +442,14 @@ def evaluate_prepared_rival_pit_plan_selection(
             "normalized_weight": normalized_weights[name],
             "scores": _score_table(labels, training_points[name], training_count),
         }
+        for row in scenario_score_tables[name]["scores"]:
+            values = training_values[name][row["label"]]
+            row.update(total_score=_reported_number(sum(values)),
+                       mean_score=_reported_number(mean(values)))
 
     training_scores = {
         label: mean(values)
-        for label, values in weighted_training_points.items()
+        for label, values in weighted_training_values.items()
     }
     best_score = max(training_scores.values())
     tied_labels = [label for label in labels if training_scores[label] == best_score]
@@ -511,6 +533,18 @@ def evaluate_prepared_rival_pit_plan_selection(
         )
         validation_status = "evaluated"
 
+    validation_values = {
+        name: _phase_scores(
+            validation_results[name], validation_points[name], target_members, objective,
+        )
+        for name in scenario_names
+    }
+    target_metrics.update(_score_metrics(
+        _weighted_seed_points(validation_values, reference_label, exact_weights, validation_count),
+        _weighted_seed_points(validation_values, selected_label, exact_weights, validation_count),
+        identity=no_change,
+    ))
+
     scenario_validation_metrics = {}
     for name in scenario_names:
         reference_values = validation_points[name][reference_label]
@@ -536,15 +570,29 @@ def evaluate_prepared_rival_pit_plan_selection(
             scenario_validation_metrics[name]["comparison"] = (
                 "selected plan minus fixed reference, paired by seed within this scenario"
             )
+        scenario_validation_metrics[name].update(_score_metrics(
+            validation_values[name][reference_label], validation_values[name][selected_label],
+            identity=no_change,
+        ))
 
     training_table = _score_table(labels, weighted_training_points, training_count)
     for row in training_table:
         score = training_scores[row["label"]]
-        row["mean_points_behind_selected"] = _reported_number(best_score - score)
+        values = weighted_training_values[row["label"]]
+        row["total_score"] = _reported_number(sum(values))
+        row["mean_score"] = _reported_number(score)
+        row["mean_score_behind_selected"] = _reported_number(best_score - score)
+        row["mean_points_behind_selected"] = _reported_number(
+            mean(weighted_training_points[selected_label])
+            - mean(weighted_training_points[row["label"]]),
+        )
         row["tied_for_best"] = score == best_score
     selection = {
         "schema_version": 1,
         "method": "weighted_rival_scenario_training_then_disjoint_seed_validation",
+        "objective": objective,
+        "objective_description": _objective_description(objective, constructor_id is not None),
+        "score_unit": "points" if objective == "points" else "probability",
         "target_mode": "driver" if driver_id is not None else "constructor",
         "target_id": driver_id if driver_id is not None else constructor_id,
         "target_member_ids": target_members,
@@ -553,7 +601,7 @@ def evaluate_prepared_rival_pit_plan_selection(
         "selected_label": selected_label,
         "selection_status": "no_change" if no_change else "selected",
         "selection_rule": (
-            "highest mean of per-seed target points weighted across supplied rival scenarios; "
+            f"highest mean of per-seed target {objective} score weighted across rival scenarios; "
             "exact ties prefer the reference, then candidate mapping order"
         ),
         "tiebreak_applied": tiebreak,
@@ -597,6 +645,7 @@ def evaluate_saved_rival_pit_plan_selection(
     *,
     driver_id: str | None = None,
     constructor_id: str | None = None,
+    objective: str = "points",
     scenario: str | None = None,
     training_simulations: int = 100,
     validation_simulations: int = 100,
@@ -609,6 +658,7 @@ def evaluate_saved_rival_pit_plan_selection(
         plans, reference_label, driver_id=driver_id, constructor_id=constructor_id,
         training_simulations=training_simulations,
         validation_simulations=validation_simulations,
+        objective=objective,
     )
     validate_rival_pit_plan_selection_request(rival_scenarios)
     if max_workers is not None:
@@ -621,6 +671,7 @@ def evaluate_saved_rival_pit_plan_selection(
         driver_id=driver_id, constructor_id=constructor_id,
         training_simulations=training_simulations,
         validation_simulations=validation_simulations,
+        objective=objective,
         rng_policy=rng_policy,
     )
     return evaluate_prepared_rival_pit_plan_selection(

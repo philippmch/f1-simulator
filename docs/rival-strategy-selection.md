@@ -13,7 +13,8 @@ competitor strategies, weather, or model assumptions.
 
 ## Use the dashboard
 
-Enable pit-plan candidate selection, choose a driver or constructor, and enter
+Enable pit-plan candidate selection, choose a driver or constructor and the
+selection objective, and enter
 the candidate plans and training/validation trial counts. Open **Rival strategy
 assumptions** and enable weighted rival scenarios. Add named scenarios with
 positive relative weights, then add any rival-driver overrides. Drivers omitted
@@ -95,10 +96,16 @@ tyres, finite tyre pools, warm-up assumptions, and RNG policy are retained unles
 ## Scoring and validation
 
 Every target candidate runs in every rival scenario on the same training seed
-cohort. Each candidate's target points are first combined across scenarios
+cohort. Each candidate's objective scores are first combined across scenarios
 within each seed using the normalized weights. The resulting per-seed weighted
 scores are then averaged to select one candidate. For a constructor, member
-points are summed within each scenario and seed before scenario weighting.
+points are summed within each scenario and seed for the default `points`
+objective. Use `--objective win` or `--objective podium` for classified race-win
+or podium probability. A constructor then succeeds once per scenario and seed
+when at least one member qualifies; two podiums never count as two successes.
+The [objective definitions and score fields](strategy-selection.md#run-a-selection)
+apply to both workflows. Points remain available as context even when probability
+determines the winner. Freeze the objective with the plans and rival weights.
 Complete target coverage is required in every scenario; an incomplete team
 outcome does not get replaced with zero or omitted from just one scenario.
 
@@ -112,7 +119,7 @@ reference, then use candidate order from the plans file.
 
 Weighted training decisions and validation aggregates retain exact arithmetic
 on the normalized floating-point weights: each stored normalized weight is
-treated as its exact binary value, multiplied by target points, and summed
+treated as its exact binary value, multiplied by the objective score, and summed
 before comparing candidates. Scores are converted to ordinary JSON numbers
 only for reporting. Two displayed means can therefore look equal while one
 candidate has a real, very small advantage; the exact-tie policy applies only
@@ -125,11 +132,16 @@ still used for display. The accepted weights remain floating-point values,
 including their binary representation, rather than reinterpreted decimal ratios.
 Weights that become zero during normalization are rejected.
 
-Weighted aggregate `training_score_table` rows add `mean_points_behind_selected`
-and `tied_for_best`. The shortfall is the exact best mean minus that candidate's
+Weighted aggregate `training_score_table` rows include `mean_score_behind_selected`
+and `tied_for_best`. The objective shortfall is the exact best mean minus that candidate's
 exact mean, converted to a JSON number only after subtraction. The boolean
-records exact equality with the best mean. Per-rival raw score tables keep their
-existing fields. The report and CLI show the actual selection reason: a unique
+records exact equality with the best objective mean. `mean_points_behind_selected`
+remains selected minus candidate mean points; it can be negative when the
+selected probability winner has fewer points. Per-rival tables retain their
+points and add `total_score`/`mean_score`. Aggregate and per-rival validation
+include paired objective-score metrics as well as points. Probability changes
+and their SEs are rendered in percentage points, using the same covariance
+calculation within each seed. The report and CLI show the actual selection reason: a unique
 highest weighted mean, reference preference on an exact tie, or candidate order
 on an exact tie. They never infer a tie from equal displayed means.
 
