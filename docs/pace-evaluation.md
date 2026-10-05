@@ -2,6 +2,10 @@
 
 The evaluator asks whether the current rating model orders qualifying pace
 better than a simple previous-Q1 baseline when target performance is withheld.
+`evaluate_qualifying_pace.py` deliberately measures the native rating model
+without the qualifying-only calibration, recorded as
+`prediction_model: "native_without_team_q1_calibration"`. To evaluate actual
+calibrated laps across Q1/Q2/Q3, use the [calibration validator](#qualifying-only-calibration-validation).
 It does not use the live simulator's current-strength snapshot for a past target.
 The [race-winner probability evaluator](race-probability-evaluation.md) shares
 these historical input rules and scores simulated race outcomes separately.
@@ -175,9 +179,11 @@ uses the same earlier evidence as evaluating that target in an all-event run.
 This is a transformation of noise-free model predictions, not another native
 car-rating variant. Its prediction rows retain native car and driver ratings
 for reference; those ratings alone do not produce the transformed times.
-It does not modify live qualifying, race pace, wet performance, or constructor
-ratings. The method was chosen after inspecting this season's errors and
-requires prospective validation before claiming future predictive improvement.
+This component diagnostic does not modify live models. The same fixed forecast
+was subsequently validated and promoted as a qualifying-only correction; see
+[the deployment evidence](#qualifying-only-calibration-validation). The method
+was chosen after inspecting this season's errors and still requires prospective
+validation before claiming future predictive improvement.
 
 Each component fold also reports `paired_event_comparison`, which compares
 `recent_team_q1` with `full_model` for that event. It intersects driver IDs
@@ -404,7 +410,8 @@ three and worsened six. The equally weighted mean candidate-minus-native event
 rank-error delta was −0.1264 places; the median was zero. Candidate team ranking
 worsened on average by 0.0568 places. This remains mixed evidence, using revised
 provider data and assumed dry weather, with a candidate originally explored
-after inspecting earlier outcomes. No candidate was promoted to live ratings.
+after inspecting earlier outcomes. At that checkpoint, no candidate had been
+promoted; the later qualifying-only validation and deployment are recorded below.
 
 The local derived report is
 `output/quality-milestone-2026-10-05/qualifying-evaluation.json`, SHA-256
@@ -426,3 +433,76 @@ live standings, available target qualifying and completed-target track pace.
 Those snapshots answer a different current-strength question and are intentionally
 not used as held-out predictions here. This evaluator adds no historical race
 replay mode, parameter fitting or automatic tuning.
+
+## Qualifying-only calibration validation
+
+```powershell
+python examples/validate_qualifying_calibration.py --fetch-budget 180
+python examples/validate_qualifying_calibration.py --race 16 --qualifying-only
+```
+
+This separate validator assembles actual calibrated `Driver` inputs and invokes
+the qualifying lap simulator. It compares those predictions with uncalibrated
+native laps and previous Q1, using identical observed entrants for every variant
+in each session. Q2 and Q3 labels affect scoring only; missing session times are
+excluded without borrowing Q1. Forecasts use strictly earlier performance data
+and retain training-round and fallback evidence alongside model inputs.
+
+The [protocol](model-improvement-protocol.md) fixed the existing three-event
+team-Q1 candidate before collecting the additional Q2/Q3 observations. Q1 was
+already inspected development evidence. The primary metric was normalized
+driver pace MAE, with at least eight scored events in each additional session
+and improvement over both references required before considering deployment.
+The implementation reproduced the preselected candidate's scores:
+
+| Session / shared observations | Native pace MAE | Calibrated pace MAE | Previous Q1 | Native rank MAE | Calibrated rank MAE |
+|---|---:|---:|---:|---:|---:|
+| Q1 / 319 | 0.64775 | 0.46796 | 0.51616 | 3.1097 | 2.9592 |
+| Q2 / 230 | 0.40245 | 0.35800 | 0.43058 | 2.3217 | 2.3957 |
+| Q3 / 144 | 0.30551 | 0.29667 | 0.39293 | 1.5833 | 1.8472 |
+
+Pace errors are percentage points; rank errors are places. Each session has 15
+paired scored events. Relative pace error fell **11.0% in Q2** and **2.9% in Q3**.
+Pace improved in 10/15 Q2 events and 7/15 Q3 events. Position ranking worsened
+in both additional sessions: pairwise concordance fell from 0.7948 to 0.7869 in
+Q2 and 0.7633 to 0.7262 in Q3. Teammate gap errors were essentially unchanged,
+and the model still predicts too little separation between teammates.
+
+A paired race-winner check then applied only this qualifying correction to the
+frozen earlier native inputs, using the same 100-trial counts, event seeds,
+chronological engine and assumed fixed dry rainfall. The first cold-start
+forecast was reused explicitly because its correction is zero; the remaining
+15 events ran 100 fresh native trials each. Mean winner Brier loss over 16
+events fell from **0.83125 to 0.7827875** (5.8%). On the 15 events with earlier
+constructor history, the calibrated model scored **0.7682933**, versus
+**0.8127546** for constructor points and **0.8855494** for prior race wins.
+Finite-trial adjustment gives model-minus-constructor loss **−0.0518253**;
+neither that adjustment nor the lower sample loss establishes significance.
+Eight event scores improved, seven worsened and the opening score was unchanged.
+
+The deployed policy `earlier_team_q1_v1` changes qualifying pace only. The
+zero-default `Driver.qualifying_pace_adjustment` is a fraction of the qualifying
+reference lap, applied with the existing weather multiplier and lap floor.
+Race pace, driver skill, cars, tyre wear and reliability retain native values.
+Saved inputs retain the coefficient; older snapshots without it load as zero.
+Live `DriverStats` also records source and training rounds. A zero recent
+qualifying weight disables the correction. Cold starts, invalid supplemental
+history, custom physics and adjustments beyond ±10% retain supplied native inputs.
+The fixed three-event correction window is independent of the native rating
+model's configurable form window.
+
+These are retrospective, correlated sessions of already known events and revised
+provider data, conditional on target entrant identities. Q2/Q3 cohorts also
+reflect who reached those sessions. Dry weather was assumed; wet performance
+and prospective winner accuracy remain unvalidated. The pace gains do not
+justify replacing race pace with qualifying spacing or claiming better pole
+prediction. No window, weight, reliability or wear coefficient was retuned
+after examining these additional labels.
+
+Derived reports and source-bound receipts are in the ignored
+`output/model-accuracy-practicality-2026-10-05/` directory. The original winner
+report SHA-256 is
+`991c9e218ca356fed1f51500a8530cc32f4621f8ffd8235941ddd0be69902616`;
+the original history report is the qualifying snapshot identified above.
+`calibrated-winner-evaluation.json` can be strictly rescored offline using
+`examples/rescore_race_probabilities.py` without more trials or live data.

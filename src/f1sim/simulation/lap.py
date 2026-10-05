@@ -642,6 +642,11 @@ class LapSimulator:
         ) * weather_multiplier
         lap_time += self._tire_weather_mismatch(tire, weather)
 
+        # Qualifying evidence adjusts qualifying only. Keep the zero-default
+        # arithmetic and all race pace, degradation and reliability unchanged.
+        if driver.qualifying_pace_adjustment:
+            lap_time += base_time * driver.qualifying_pace_adjustment * weather_multiplier
+
         return max(track.base_lap_time * 0.93, lap_time)
 
     @staticmethod
@@ -713,6 +718,9 @@ _NATIVE_FACTORS = dict(LapSimulator._COMPOUND_PACE_FACTORS)
 _NATIVE_FLOOR = MIN_LAP_TIME_FRACTION
 _NATIVE_PREPARATION = LapSimulator.prepare_deterministic_lap_time
 _NATIVE_AVAILABILITY = LapSimulator._native_deterministic_evaluator_available
+# Qualifying calibration has its own guard; modifying qualifying need not
+# disable the unrelated race-planning fast path.
+_NATIVE_QUALIFYING_LAP = LapSimulator.calculate_qualifying_lap
 
 
 def native_lap_helpers():

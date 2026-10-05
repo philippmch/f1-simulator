@@ -516,6 +516,13 @@ team Q1 times. See the
 [evaluation scope and metrics](docs/pace-evaluation.md); this separate diagnostic
 does not change live ratings or simulate a historical race.
 
+The live model now applies the validated earlier-team-Q1 correction to
+qualifying laps only, preserving race pace and reliability. Use
+`python examples/validate_qualifying_calibration.py` to score actual calibrated
+laps against Q1/Q2/Q3. The additional checks reduced pace error by 11% in Q2
+and 2.9% in Q3, while position ranking worsened in those sessions. See the
+[validation and deployment limits](docs/pace-evaluation.md#qualifying-only-calibration-validation).
+
 For race-winner probability evaluation, run
 `python examples/evaluate_race_probabilities.py --race 14 --trials 100 --seed 42`
 or select `--all` for all completed current-season targets. Each forecast uses
@@ -649,6 +656,10 @@ Run `python examples/benchmark_strategy_planning.py` to time full-grid synthetic
 races offline. Select either engine and steady damp, drying, wetting or
 rain-to-slick scenarios. Compare the reported outcome hashes across revisions
 before interpreting timings; see [benchmark usage](docs/strategy-model.md#planner-performance-benchmark).
+Add `--saved-inputs output/saved-simulation.json` for a validated exported
+workload. The recorded Singapore comparison reduced runtime by 21.9% with
+identical complete seeded outcomes; see the
+[measurement method](docs/strategy-model.md#completed-compound-history-and-safe-stints).
 
 Run `python examples/check_pit_exit_conditions.py` to check the lap-aware engine's
 pit exits across changing weather and safety-car conditions in controlled races.

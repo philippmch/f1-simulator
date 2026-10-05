@@ -19,6 +19,10 @@ class Driver(BaseModel):
         le=1.0,
         description="Overall skill level affecting base lap time",
     )
+    qualifying_pace_adjustment: float = Field(
+        default=0.0, ge=-0.1, le=0.1, allow_inf_nan=False,
+        description="Field-relative qualifying correction as a fraction of reference time",
+    )
     consistency: float = Field(
         default=0.95,
         ge=0.0,

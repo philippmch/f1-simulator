@@ -403,3 +403,15 @@ with Python 3.11.9, NumPy 2.4.6 and Pydantic 2.13.5. The fetch timestamp is
 run; concurrent dashboard and documentation edits did not alter simulation.
 Offline rescoring preserved the original report bytes, counts, model inputs and
 historical references and reproduced every aggregate score without new trials.
+
+### Paired qualifying-calibration check, 5 October
+
+The subsequent fixed qualifying-only correction lowered mean loss on those same
+16 events to **0.7827875**, using the frozen native race inputs, event seeds and
+trial counts. Its 15-event common-history loss is **0.7682933**, below the earlier
+constructor-points reference at **0.8127546** and race-win reference at
+**0.8855494**. Fifteen events received 100 fresh trials; the unchanged cold-start
+forecast was explicitly reused. Race pace, reliability, wear and historical
+reference probabilities were retained. See the
+[frozen protocol, session scores and paired-run limits](pace-evaluation.md#qualifying-only-calibration-validation).
+The sample improvement does not establish prospective accuracy or significance.

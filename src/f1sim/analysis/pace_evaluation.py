@@ -564,6 +564,7 @@ def evaluate_qualifying_pace(
         assembled, observations = assemble_holdout_fold(
             loader, year, event, events, results, qualifying, form_races=form_races,
             require_result_coverage=not qualifying_only,
+            calibrate_qualifying=False,
         )
         target = assembled.metadata.target_round
         roster = assembled.roster
@@ -683,6 +684,7 @@ def evaluate_qualifying_pace(
         }
     return {
         "year": year, "evaluation": "round_holdout_q1", "form_races": form_races,
+        "prediction_model": "native_without_team_q1_calibration",
         "target_basis": "qualifying" if qualifying_only else "completed_race",
         "requires_result_coverage": not qualifying_only,
         "weather_assumption": weather.model_dump(),

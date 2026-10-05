@@ -53,6 +53,7 @@ class HoldoutFoldInputs:
     constructor_standings: list[Mapping[str, Any]]
     race_rows: list[Mapping[str, Any]]
     quali_rows: list[Mapping[str, Any]]
+    qualifying_calibration: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,6 +208,7 @@ def assemble_holdout_fold(
     *,
     form_races: int = 3,
     require_result_coverage: bool = True,
+    calibrate_qualifying: bool | None = None,
 ) -> tuple[HoldoutFoldInputs, HoldoutObservations]:
     """Build a pre-target model from target identities and strictly prior evidence.
 
@@ -220,6 +222,12 @@ def assemble_holdout_fold(
         raise ValueError("form_races must be between 0 and 24")
     if type(require_result_coverage) is not bool:
         raise ValueError("require_result_coverage must be a boolean")
+    if calibrate_qualifying is not None and type(calibrate_qualifying) is not bool:
+        raise ValueError("calibrate_qualifying must be a boolean or None")
+    if calibrate_qualifying is None:
+        from f1sim.analysis.qualifying_calibration import DEFAULT_CURRENT_QUALIFYING_CALIBRATION
+
+        calibrate_qualifying = DEFAULT_CURRENT_QUALIFYING_CALIBRATION
 
     target = int(event["round"])
     calendar_rounds = {int(calendar_event["round"]) for calendar_event in events}
@@ -299,6 +307,11 @@ def assemble_holdout_fold(
         target_qualifying_rows=[], track_weight=0.0, form_weight=0.3, quali_weight=0.2,
     )
     track = loader.create_track_from_stats(loader._track_stats_from_event(year, event))
+    qualifying_calibration = None
+    if calibrate_qualifying:
+        stats, qualifying_calibration = loader._calibrate_qualifying_stats(
+            stats, year, event, past_results, past_qualifying, events,
+        )
     drivers = loader.create_drivers_from_stats(stats)
     cars = loader.create_cars_from_stats(stats)
 
@@ -323,6 +336,7 @@ def assemble_holdout_fold(
         constructor_standings=constructor_standings,
         race_rows=race_rows,
         quali_rows=quali_rows,
+        qualifying_calibration=deepcopy(qualifying_calibration),
     )
     observations = HoldoutObservations(
         target_qualifying_rows=tuple(deepcopy(row) for row in target_rows),

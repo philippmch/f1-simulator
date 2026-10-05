@@ -125,6 +125,11 @@ class DriverStats(BaseModel):
     # Explicitly separated pace components.
     driver_skill_rating: float = Field(default=0.9, ge=0.0, le=1.0)
     team_pace_rating: float = Field(default=0.85, ge=0.0, le=1.0)
+    qualifying_pace_adjustment: float = Field(default=0.0, ge=-.1, le=.1, allow_inf_nan=False)
+    qualifying_pace_source: Literal[
+        "native", "earlier_team_q1", "native_residual_fallback",
+    ] = "native"
+    qualifying_pace_training_rounds: tuple[int, ...] = ()
     consistency_rating: float = Field(default=0.94, ge=0.0, le=1.0)
     wet_skill_modifier: float = Field(default=1.0, ge=0.5, le=1.5)
     overtaking_skill: float = Field(default=0.8, ge=0.0, le=1.0)
@@ -2613,8 +2618,50 @@ class CurrentSeasonDataLoader:
             target_qualifying_rows=target_qualifying_rows,
             track_weight=track_weight, form_weight=form_weight, quali_weight=quali_weight,
         )
+        from f1sim.analysis.qualifying_calibration import DEFAULT_CURRENT_QUALIFYING_CALIBRATION
+
+        if DEFAULT_CURRENT_QUALIFYING_CALIBRATION and quali_weight > 0:
+            stats, _ = self._calibrate_qualifying_stats(
+                stats, year, target_event, *self._season_data(year), self.get_event_schedule(year),
+            )
         self._driver_stats = stats
         return copy.deepcopy(stats)
+
+    def _calibrate_qualifying_stats(self, stats, year, event, results, qualifying, events):
+        """Return qualifying-adjusted stats and evidence without altering race ratings."""
+        from f1sim.analysis.qualifying_calibration import calibrate_qualifying_drivers
+        from f1sim.analysis.qualifying_history import build_historical_q1_events
+
+        target = int(event["round"])
+        try:
+            history = build_historical_q1_events(
+                self, events, results, qualifying, before_round=target,
+            )
+        except CurrentSeasonDataError as error:
+            from f1sim.analysis.qualifying_calibration import QUALIFYING_PACE_POLICY
+
+            return copy.deepcopy(stats), {
+                "policy": QUALIFYING_PACE_POLICY, "scope": "qualifying_only",
+                "target_round": target, "training_rounds": [],
+                "candidate_fallback": "invalid_qualifying_history", "reason": str(error),
+            }
+        track = self.create_track_from_stats(self._track_stats_from_event(year, event))
+        drivers, evidence = calibrate_qualifying_drivers(
+            self.create_drivers_from_stats(stats), self.create_cars_from_stats(stats),
+            track, history, target,
+        )
+        if evidence.get("candidate_fallback") or not evidence.get("training_rounds"):
+            return copy.deepcopy(stats), evidence
+        output = {}
+        for driver in drivers:
+            coverage = evidence["source_coverage"][driver.team_id]
+            output[driver.id] = stats[driver.id].model_copy(update={
+                "qualifying_pace_adjustment": driver.qualifying_pace_adjustment,
+                "qualifying_pace_source": ("earlier_team_q1" if coverage["events"] else
+                                           "native_residual_fallback"),
+                "qualifying_pace_training_rounds": tuple(coverage["rounds"]),
+            })
+        return output, evidence
 
     def _build_driver_stats(
         self, *, year, target_event, roster, driver_standings, constructor_standings,
@@ -3065,6 +3112,7 @@ class CurrentSeasonDataLoader:
                 name=item.driver_name,
                 team_id=item.team_id,
                 skill_rating=item.driver_skill_rating,
+                qualifying_pace_adjustment=item.qualifying_pace_adjustment,
                 consistency=item.consistency_rating,
                 wet_skill_modifier=item.wet_skill_modifier,
                 overtaking_skill=item.overtaking_skill,

@@ -28,6 +28,7 @@ from f1sim.analysis.qualifying_history import (
     build_historical_q1_events,
     recent_team_q1_predictions,
 )
+from f1sim.analysis.qualifying_validation import evaluate_qualifying_calibration
 from f1sim.data import CurrentSeasonDataError, CurrentSeasonDataLoader
 
 YEAR = datetime.now(timezone.utc).year
@@ -81,6 +82,95 @@ def fixture(monkeypatch):
     monkeypatch.setattr(loader, "_round_data", forbidden)
     monkeypatch.setattr(loader, "get_official_roster", forbidden)
     return loader, results, qualifying, calls
+
+
+def test_actual_calibration_session_cohorts_and_target_label_separation(fixture):
+    loader, results, qualifying, _ = fixture
+    for record in qualifying:
+        record["Q2"] = record["Q1"]
+        record["Q3"] = "1:05.000" if int(record["position"]) <= 2 else None
+    before = evaluate_qualifying_calibration(loader, YEAR, target_race=2)
+    q2 = before["sessions"]["Q2"]["folds"][0]
+    assert q2["shared_driver_ids"] == ["A1", "A2", "B1", "B2"]
+    assert before["sessions"]["Q3"]["folds"][0]["shared_driver_ids"] == ["A1", "A2"]
+    assert q2["forecast"]["training_rounds"] == [1]
+    assert any(driver["qualifying_pace_adjustment"] != 0.
+               for driver in q2["model_inputs"]["drivers"])
+    for rows in (results, qualifying):
+        for record in rows:
+            if record["round"] >= 2:
+                record.update(Q1="2:00.000", Q2="2:01.000", Q3="2:02.000", position="22")
+    after = evaluate_qualifying_calibration(loader, YEAR, target_race=2)
+    q2_after = after["sessions"]["Q2"]["folds"][0]
+    assert q2_after["model_inputs"] == q2["model_inputs"]
+    assert [row["predicted_seconds"] for row in q2_after["predictions"]["model"]] == [
+        row["predicted_seconds"] for row in q2["predictions"]["model"]]
+    assert q2_after["predictions"]["model"][0]["observed_seconds"] != (
+        q2["predictions"]["model"][0]["observed_seconds"])
+
+
+def test_calibration_missing_sessions_report_coverage_without_borrowing_q1(fixture):
+    loader, _, _, _ = fixture
+    report = evaluate_qualifying_calibration(loader, YEAR)
+    assert report["sessions"]["Q1"]["aggregate"]["model"]["drivers"]["scored_folds"] == 2
+    for session in ("Q2", "Q3"):
+        assert report["sessions"][session]["aggregate"]["model"]["drivers"]["scored_folds"] == 0
+        assert report["sessions"][session]["aggregate"]["model"]["drivers"][
+            "relative_pace_mae_pct"] is None
+
+
+def test_current_loader_default_calibrates_qualifying_only_and_honors_zero_weight(
+    fixture, monkeypatch,
+):
+    from f1sim.analysis import qualifying_calibration
+
+    loader, _, qualifying, _ = fixture
+    roster = [{"id": record["Driver"]["code"], "name": record["Driver"]["code"],
+               "team_name": record["Constructor"]["name"]}
+              for record in qualifying if record["round"] == 2]
+    monkeypatch.setattr(loader, "get_official_roster", lambda _: roster)
+    monkeypatch.setattr(loader, "_standings", lambda _: ([], []))
+    assert qualifying_calibration.DEFAULT_CURRENT_QUALIFYING_CALIBRATION
+    calibrated = loader.get_weighted_driver_stats(YEAR, 2)
+    assert any(value.qualifying_pace_adjustment != 0. for value in calibrated.values())
+    assert all(value.qualifying_pace_training_rounds == (1,)
+               for value in calibrated.values())
+    monkeypatch.setattr(qualifying_calibration, "DEFAULT_CURRENT_QUALIFYING_CALIBRATION", False)
+    native = loader.get_weighted_driver_stats(YEAR, 2)
+    calibration_fields = {"qualifying_pace_adjustment", "qualifying_pace_source",
+                          "qualifying_pace_training_rounds"}
+    assert {key: value.model_dump(exclude=calibration_fields)
+            for key, value in calibrated.items()} == {
+                key: value.model_dump(exclude=calibration_fields) for key, value in native.items()}
+    monkeypatch.setattr(qualifying_calibration, "DEFAULT_CURRENT_QUALIFYING_CALIBRATION", True)
+    disabled = loader.get_weighted_driver_stats(YEAR, 2, quali_weight=0.)
+    assert all(value.qualifying_pace_adjustment == 0. and
+               value.qualifying_pace_source == "native" for value in disabled.values())
+
+
+def test_invalid_supplemental_qualifying_history_keeps_native_stats(fixture, monkeypatch):
+    from f1sim.analysis import qualifying_history
+
+    loader, results, qualifying, _ = fixture
+    # Use a valid native fold as the reference; the supplemental history alone fails.
+    from f1sim.analysis.holdout_folds import assemble_holdout_fold
+
+    events = loader.get_event_schedule(YEAR)
+    native, _ = assemble_holdout_fold(
+        loader, YEAR, events[1], events, results, qualifying, calibrate_qualifying=False,
+    )
+    stats = native.stats
+
+    def invalid(*args, **kwargs):
+        raise CurrentSeasonDataError("invalid supplemental archive")
+
+    monkeypatch.setattr(qualifying_history, "build_historical_q1_events", invalid)
+    retained, evidence = loader._calibrate_qualifying_stats(
+        stats, YEAR, {"round": 2}, [], [], loader.get_event_schedule(YEAR),
+    )
+    assert retained == stats and retained is not stats
+    assert evidence["candidate_fallback"] == "invalid_qualifying_history"
+    assert evidence["training_rounds"] == []
 
 
 def test_target_times_and_future_rows_do_not_change_predictions(fixture):
