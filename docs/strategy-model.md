@@ -1726,6 +1726,68 @@ python examples/benchmark_strategy_planning.py --scenario scheduled --inventory 
 python examples/benchmark_strategy_planning.py --engine standard --scenario dry --drivers 22 --laps 58 --trials 3 --opening automatic --change-probability 0.2
 ```
 
+For an exported real-input workload, use:
+
+```powershell
+python examples/benchmark_strategy_planning.py --saved-inputs output/saved-simulation.json
+```
+
+This mode uses the replay validator and the saved engine, seed, overlays and
+trial count (at most 100). It runs consecutive trials sequentially, reports
+cold-first and later-run timings, native-physics eligibility and runtime
+provenance, and hashes the unchanged input bytes and complete race, qualifying,
+weather and event outputs. Synthetic options do not override the saved inputs.
+
+### Completed compound history and safe stints
+
+Native clocked rain planning merges compound-use histories once the race's
+compound-use condition is satisfied. Continuing to distinguish which two slick
+compounds satisfied it cannot change subsequent legal fits. The actual race's
+record of tyres used is retained. Native recursive planning also scans a legal
+retained stint in one frame when no ordinary stops remain, stopping at a
+critical surface and evaluating every compulsory replacement. Noncompliant
+histories still search corrective fits. Paid weather clocks, fitting fees,
+warmup, cancellation checkpoints and right-associated cost addition are retained;
+extension paths keep their original history masks and hooks.
+
+An isolated comparison on Windows Python 3.11.9 used frozen 22-driver Singapore
+inputs, 62 laps, evolving weather and sequential seeds 42–44. Source copies,
+input bytes, ordinary allocation and the benchmark entry point were fixed. Two
+control and two optimized processes ran in control/optimized/optimized/control
+order, with no other validation workload running.
+
+| Fresh process | Three-trial total (seconds) |
+|---|---:|
+| Control A | 121.7851 |
+| Optimized A | 96.6716 |
+| Optimized B | 96.4488 |
+| Control B | 125.4136 |
+
+Mean total fell from **123.5994 to 96.5602 seconds**, a **21.9% reduction**.
+The first trials were 35.24/36.44 seconds for the controls and 27.08/26.42 for
+the optimized runs. All 12 complete outcomes matched. An earlier single pair
+had noisy timings, including an apparent slowdown; repeated alternating runs
+provide the reported comparison. These results apply to this workload and
+machine, without a general latency guarantee.
+
+Three captured native planner entries reduced recursive solve calls from
+40,719 to 18,799, or 53.8%, with identical wait and pit costs and selected
+compounds. Instrumented planner times are separate from full-race timing.
+Independent enumerations cover timed and untimed histories, paid-clock repairs,
+warmup, budgets, weather transitions and cancellation. Broader strategy checks
+also cover finite stock and extension behavior.
+Another 108 complete short-race outcome hashes matched across both engines,
+all six benchmark weather scenarios, finite and unlimited pools, explicit and
+automatic openings, and expanded seven-set pools, with frozen source copies.
+
+The saved input SHA-256 is
+`8332af314e782230b320a952a498ff69efc73d8a93e192884f303cb4db275d50`;
+every repeated process produced outcome SHA-256
+`1cdeecd2f26ebe74ea2efab44d5f53fca3f55c2fee6b7a357c293419684d767f`.
+Local frozen sources, profiles and receipts are in the ignored
+`output/model-accuracy-practicality-2026-10-05/` directory. The control source
+is revision `840249b`; no provider feed cache is committed.
+
 Use `--drivers`, `--laps`, `--trials` and `--seed` to change workload size and
 the seed range. With explicit openings, scenarios start on soft tyres except
 `rain_transition`, which starts on intermediates. `dry` begins with no rain or

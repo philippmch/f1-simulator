@@ -564,10 +564,13 @@ def _clock_rain_transition(
 
     def used_after_running(mask, compound):
         completed = mask | bits[compound]
-        # Once rain tyres have actually run, prior slick identities no longer
-        # affect legality or beyond-budget corrections. Keep every other state
-        # dimension, and preserve extension hook call counts on the slow path.
-        return 8 if native_safety and completed & 8 else completed
+        # Once the compound rule is satisfied, neither slick identities nor
+        # how it was satisfied can affect any later action. Use one internal
+        # completed-rule marker; actual race-use history stays with the caller.
+        # Extensions retain their masks and original hook call counts.
+        return (8 if native_safety and (
+            completed & 8 or (completed & 7).bit_count() >= 2
+        ) else completed)
 
     # Native clocks are immutable and their original method is registered with
     # the extension guard. Share validated counts between graph construction
@@ -767,6 +770,34 @@ def _clock_rain_transition(
                 return cached
         before = branch_surface(offset, paid_stops, stopped_first, fit_delay)
         current = compounds_by_value[compound]
+        if left == 0 and legal(used):
+            # A safe set must be retained after elective fits run out. Fold
+            # this forced stint in one frame instead of publishing every
+            # interior age to the bounded shared cache. A later critical
+            # surface still admits all compulsory replacements, even beyond
+            # the budget; their paid clock and fitting fees remain unchanged.
+            edges = []
+            while offset < horizon:
+                cancellation_checkpoint()
+                before = branch_surface(offset, paid_stops, stopped_first, fit_delay)
+                if critical_on(before, current):
+                    best = recursive_refit(
+                        offset, left, dry, damp, used, paid_stops, stopped_first,
+                        fit_delay, True,
+                    )
+                    break
+                edges.append(run(offset, tire_key, compound, age, before))
+                offset += 1
+                age += 1
+                used = used_after_running(used, current)
+            else:
+                best = 0.0
+            # Preserve the original right-associative addition order exactly.
+            for edge in reversed(edges):
+                best = edge + best
+            if shared_key is not None:
+                _store_refit_cost(shared_key, best)
+            return best
         critical = critical_on(before, current)
         best = inf
         if not critical:

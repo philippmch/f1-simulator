@@ -7,6 +7,8 @@ Use --inventory finite for reusable soft@5, hard@0 and intermediate@4 sets,
 and --opening automatic to include native opening selection in the workload.
 Use --inventory expanded for seven fresh physical sets and --scenario scheduled
 for prescribed rain arriving and clearing during the race.
+Use --saved-inputs PATH to benchmark validated replay inputs with their saved
+seed, engine and trial count instead of the synthetic options.
 """
 
 import argparse
@@ -15,11 +17,15 @@ import json
 from dataclasses import asdict
 from math import isfinite
 from numbers import Real
+from pathlib import Path
 from statistics import mean
 from time import perf_counter
 
 from f1sim.analysis.montecarlo import MonteCarloRunner
+from f1sim.analysis.provenance import simulation_runtime
+from f1sim.analysis.replay import _load_saved_runner
 from f1sim.models import Car, Driver, Track, Weather, WeatherCondition
+from f1sim.models._native import native_physics
 
 SCENARIOS = {
     "dry": (0, 0, "soft"),
@@ -29,6 +35,55 @@ SCENARIOS = {
     "rain_transition": (.23, 0, "intermediate"),
     "scheduled": (.2, .2, "soft"),
 }
+
+
+def _time_trials(runner, trials):
+    seed = runner.base_seed
+    times, outputs = [], []
+    for trial in range(trials):
+        runner.base_seed = seed + trial
+        start = perf_counter()
+        result = runner.run(1, parallel=False)
+        times.append(perf_counter() - start)
+        outputs.append({
+            "race": [asdict(row) for row in result.race_results[0]],
+            "qualifying": [asdict(row) for row in result.qualifying_results[0]],
+            "weather": result.weather_histories,
+            "events": asdict(result.event_stats),
+        })
+    encoded = json.dumps(outputs, sort_keys=True, allow_nan=False,
+                         separators=(",", ":")).encode("utf-8")
+    return {
+        "trial_seconds": times, "first_trial_seconds": times[0],
+        "later_trial_mean_seconds": mean(times[1:]) if trials > 1 else None,
+        "total_simulation_seconds": sum(times),
+        "outcome_sha256": hashlib.sha256(encoded).hexdigest(),
+    }
+
+
+def benchmark_saved(path):
+    """Validate a saved replay and measure its complete consecutive trial outputs."""
+    path = Path(path)
+    before = path.read_bytes()
+    runner, trials = _load_saved_runner(path)
+    if trials > 100:
+        raise ValueError("Saved benchmark must contain at most 100 trials")
+    models = (*runner.drivers, *runner.cars.values(), runner.track, runner.weather)
+    seed = runner.base_seed
+    native_before = native_physics(*models)
+    measurements = _time_trials(runner, trials)
+    if path.read_bytes() != before:
+        raise ValueError("Saved benchmark inputs changed while running")
+    return {
+        "benchmark_version": 1, "input_basis": "validated_saved_replay",
+        "input_sha256": hashlib.sha256(before).hexdigest(),
+        "engine": runner.race_engine, "trials": trials, "seed": seed,
+        "drivers": len(runner.drivers), "laps": runner.track.total_laps,
+        "runtime": simulation_runtime(),
+        "native_physics_before": native_before,
+        "native_physics_after": native_physics(*models),
+        **measurements,
+    }
 
 
 def benchmark(engine="chronological", scenario="steady_damp", trials=3, drivers=22,
@@ -86,20 +141,7 @@ def benchmark(engine="chronological", scenario="steady_damp", trials=3, drivers=
         starting_tire_ages=starting_ages, tire_inventory=pools,
         weather_schedule=weather_schedule,
     )
-    times, outputs = [], []
-    for trial in range(trials):
-        runner.base_seed = seed + trial
-        start = perf_counter()
-        result = runner.run(1, parallel=False)
-        times.append(perf_counter() - start)
-        outputs.append({
-            "race": [asdict(row) for row in result.race_results[0]],
-            "qualifying": [asdict(row) for row in result.qualifying_results[0]],
-            "weather": result.weather_histories,
-            "events": asdict(result.event_stats),
-        })
-    encoded = json.dumps(outputs, sort_keys=True, allow_nan=False,
-                         separators=(",", ":")).encode("utf-8")
+    measurements = _time_trials(runner, trials)
     return {
         "benchmark_version": 4, "engine": engine, "scenario": scenario,
         "change_probability": change_probability,
@@ -107,10 +149,7 @@ def benchmark(engine="chronological", scenario="steady_damp", trials=3, drivers=
         "inventory": inventory, "opening": opening, "tire_inventory": pools,
         "starting_tires": starting_tires, "starting_tire_ages": starting_ages,
         "drivers": drivers, "laps": laps, "trials": trials, "seed": seed,
-        "trial_seconds": times, "first_trial_seconds": times[0],
-        "later_trial_mean_seconds": mean(times[1:]) if trials > 1 else None,
-        "total_simulation_seconds": sum(times),
-        "outcome_sha256": hashlib.sha256(encoded).hexdigest(),
+        **measurements,
     }
 
 
@@ -127,10 +166,14 @@ def main():
     parser.add_argument("--laps", type=int, default=53)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--change-probability", type=float, default=0.0)
+    parser.add_argument("--saved-inputs", type=Path,
+                        help="Use the saved replay seed, engine and trial count")
     args = parser.parse_args()
     try:
-        result = benchmark(**vars(args))
-    except ValueError as error:
+        options = vars(args)
+        path = options.pop("saved_inputs")
+        result = benchmark_saved(path) if path is not None else benchmark(**options)
+    except (OSError, ValueError) as error:
         parser.error(str(error))
     print(json.dumps(result, indent=2))
 

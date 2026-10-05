@@ -12,6 +12,7 @@ from f1sim.models import TireCompound, Weather
 from f1sim.models.tire import TIRE_COMPOUNDS
 from f1sim.simulation import rain_strategy
 from f1sim.simulation.rain_strategy import plan_rain_transition
+from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.weather_schedule import WeatherForecastContext
 
 USED = [
@@ -30,16 +31,19 @@ def clear_transition_work():
 
 @pytest.mark.parametrize("used", USED)
 @pytest.mark.parametrize("budget,limit", [(0, 0), (2, 1)])
-def test_completed_credit_matches_independent_safe_schedules(used, budget, limit):
+@pytest.mark.parametrize("external", [False, True])
+def test_completed_credit_matches_independent_safe_schedules(used, budget, limit, external):
     driver, car, track = models(laps=5)
     weather = Weather(track_wetness=.1, rain_intensity=.1)
     context = WeatherForecastContext.from_schedule(
         [{"lap": 3, "rain_intensity": .8}, {"lap": 5, "rain_intensity": 0.}],
     )
     tire = TIRE_COMPOUNDS[TireCompound.SOFT].model_copy(deep=True)
+    clock = (StrategyWeatherClock(tuple(index * 170. for index in range(5)),
+                                  10., 90., 7, 95., 17.) if external else None)
     expected = exhaustive_safe_actions(
         driver, car, track, weather, tire, 7, 1, budget, context,
-        used=used, dry=limit, damp=limit, warmup=7., pending=True,
+        used=used, dry=limit, damp=limit, warmup=7., pending=True, clock=clock,
         physical=9, lane=.75, queue=3., modifier=1.2, aero=False, gaps=(.5, 1.7),
     )
     options = dict(
@@ -48,6 +52,7 @@ def test_completed_credit_matches_independent_safe_schedules(used, budget, limit
         physical_total_laps=9, pit_lane_factor=.75, additional_current_stop_cost=3.,
         current_lap_time_modifier=1.2, active_aero_enabled=False, current_traffic_gaps=(.5, 1.7),
         forecast_context=context,
+        weather_clock=clock,
     )
     before = deepcopy((driver, car, track, weather, tire, options))
     actual = plan_rain_transition(driver, car, track, weather, tire, 7, 1, budget, **options)
@@ -55,6 +60,66 @@ def test_completed_credit_matches_independent_safe_schedules(used, budget, limit
     assert actual.wait_cost == pytest.approx(expected[1])
     assert actual.compound == expected[2]
     assert (driver, car, track, weather, tire, options) == before
+
+
+@pytest.mark.parametrize("used", USED)
+@pytest.mark.parametrize("budget", [0, 2])
+@pytest.mark.parametrize("warmup", [0., 7.])
+def test_timed_completed_credit_and_forced_stints_match_unmerged_costs_exactly(
+    monkeypatch, used, budget, warmup,
+):
+    driver, car, track = models(laps=6)
+    context = WeatherForecastContext.from_schedule([
+        {"lap": 3, "rain_intensity": 1.}, {"lap": 5, "rain_intensity": 0.},
+    ])
+    args = (driver, car, track, Weather(track_wetness=.4, rain_intensity=.35),
+            TIRE_COMPOUNDS[TireCompound.SOFT], 7, 1, budget)
+    options = dict(
+        weather_clock=StrategyWeatherClock(tuple(index * 170. for index in range(6)),
+                                           10., 90., 10, 95., 17.),
+        forecast_context=context, used_compounds=used,
+        remaining_dry_stops=0, remaining_damp_stops=1,
+        tire_warmup={compound.value: warmup for compound in TireCompound},
+        current_fit_pending=True,
+    )
+    before = deepcopy((args, options))
+    native = plan_rain_transition(*args, **options)
+    monkeypatch.setattr(rain_strategy, "shared_forecast_available", lambda: False)
+    assert plan_rain_transition(*args, **options) == native
+    assert (args, options) == before
+
+
+def test_timed_forced_stint_polls_cancellation_between_running_laps(monkeypatch):
+    driver, car, track = models(laps=20)
+    args = (driver, car, track, Weather(track_wetness=.5, rain_intensity=.5),
+            TIRE_COMPOUNDS[TireCompound.INTERMEDIATE], 2, 1, 0)
+    options = dict(
+        used_compounds=(TireCompound.INTERMEDIATE,),
+        weather_clock=StrategyWeatherClock(tuple(index * 90. for index in range(20)),
+                                           10., 90., 0, 7., 7.),
+    )
+    expected = plan_rain_transition(*args, **options)
+    rain_strategy._reset_green_cache_after_fork()
+    before = deepcopy((args, options))
+    original = rain_strategy.cancellation_checkpoint
+    calls = 0
+
+    def cancel_scan():
+        nonlocal calls
+        original()
+        if currentframe().f_back.f_code.co_name == "recursive_solve":
+            calls += 1
+            if calls == 3:
+                raise SimulationCancelled("cancelled forced timed stint")
+
+    monkeypatch.setattr(rain_strategy, "cancellation_checkpoint", cancel_scan)
+    with pytest.raises(SimulationCancelled, match="forced timed stint"):
+        plan_rain_transition(*args, **options)
+    assert calls == 3
+    assert not rain_strategy._refit_costs
+    assert (args, options) == before
+    monkeypatch.setattr(rain_strategy, "cancellation_checkpoint", original)
+    assert plan_rain_transition(*args, **options) == expected
 
 
 def test_completed_histories_reduce_physics_rows_with_identical_exact_costs(monkeypatch):
