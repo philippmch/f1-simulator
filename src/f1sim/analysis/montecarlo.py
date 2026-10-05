@@ -25,8 +25,13 @@ from f1sim.cancellation import (
 )
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.models.tire import TireCompound
+from f1sim.simulation.abandonment import race_abandonment_context, serialize_abandonment_tire_rule
 from f1sim.simulation.chronological_race import ChronologicalRace
-from f1sim.simulation.control_schedule import CONTROL_SCHEDULE_POLICY, validate_control_schedule
+from f1sim.simulation.control_schedule import (
+    control_schedule_policy,
+    has_red_flag_requests,
+    validate_control_schedule,
+)
 from f1sim.simulation.events import EventType
 from f1sim.simulation.execution import (
     DEFAULT_RACE_ENGINE,
@@ -340,6 +345,46 @@ class SimulationResults:
             self.input_snapshot, self.control_schedule_histories,
             len(self.race_results), self.num_simulations,
         )
+
+    def get_race_abandonment_contexts(self) -> list[dict | None]:
+        """One verified countback record per trial; ordinary races have no record."""
+        return [race_abandonment_context(race) for race in self.race_results]
+
+    def get_race_abandonment_context(self, index=0) -> dict | None:
+        if type(index) is not int or not 0 <= index < len(self.race_results):
+            return None
+        return race_abandonment_context(self.race_results[index])
+
+    def get_abandonment_statistics(self) -> dict:
+        contexts = self.get_race_abandonment_contexts()
+        known = [context for context in contexts if context is not None]
+        counts = defaultdict(int)
+        for context in known:
+            counts[str(context["countback_lap"])] += 1
+        return {
+            "recorded_abandoned_races": len(known),
+            "recorded_no_result_races": sum(context["countback_lap"] == 0 for context in known),
+            "invalid_abandonment_context_races": sum(
+                context is None and any(getattr(row, "race_abandonment", None) is not None
+                                        for row in race)
+                for race, context in zip(self.race_results, contexts, strict=True)
+            ),
+            "countback_laps": dict(counts),
+            "recorded_penalized_drivers": sum(
+                serialize_abandonment_tire_rule(row.abandonment_tire_rule)["penalty_seconds"] == 30
+                for race, context in zip(self.race_results, contexts, strict=True)
+                if context is not None for row in race
+            ),
+        }
+
+    def get_abandonment_tire_rules(self) -> list[dict]:
+        """Per-driver physical tyre use through suspension, separate from countback stints."""
+        return [
+            {"simulation": index + 1, "driver_id": row.driver_id,
+             "rule": serialize_abandonment_tire_rule(row.abandonment_tire_rule)}
+            for index, race in enumerate(self.race_results)
+            if race_abandonment_context(race) is not None for row in race
+        ]
 
     def get_race_distance_statistics(self) -> dict[str, int | float | None]:
         """Summarize recorded distances, with rates as fractions in [0, 1].
@@ -1422,7 +1467,8 @@ class MonteCarloRunner:
         track_data = self.track.model_dump()
         weather_data = self.weather.model_dump()
         input_snapshot = {
-            "schema_version": (11 if control_schedule is not None
+            "schema_version": (12 if has_red_flag_requests(control_schedule)
+                               else 11 if control_schedule is not None
                                else 10 if has_pit_plan_windows(pit_plans)
                                else 9 if has_tire_usage_limits(inventory)
                                else 8 if weather_schedule else 7 if qualifying_weather
@@ -1439,7 +1485,7 @@ class MonteCarloRunner:
 
         if control_schedule is not None:
             input_snapshot["control_schedule"] = deepcopy(control_schedule)
-            input_snapshot["control_schedule_policy"] = CONTROL_SCHEDULE_POLICY
+            input_snapshot["control_schedule_policy"] = control_schedule_policy(control_schedule)
         if weather_schedule:
             input_snapshot["weather_schedule"] = deepcopy(weather_schedule)
         if qualifying_weather:

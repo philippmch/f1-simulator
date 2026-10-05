@@ -108,8 +108,9 @@ a pair already completed before a retirement remains valid.
 Each native race records a shared, immutable `race_points_context` on its result
 rows: `scheduled_laps`, `winner_laps` (null without a finishing winner),
 `has_two_green_laps`, and policy `race_distance_points_2026_v1`. This is evidence
-of the lap model's scoring decision, not a claim to implement abandoned-race
-regulations. Reusing a simulator replaces the context without changing old rows;
+of the lap model's scoring decision. Explicit abandonment scenarios instead
+use the recorded historical finish described in [abandoned races](race-abandonment.md).
+Reusing a simulator replaces the context without changing old rows;
 an empty usable grid records a no-winner outcome on the simulator itself.
 
 Monte Carlo results retain one context per observed trial, including an empty
@@ -137,8 +138,9 @@ they do not establish full-points eligibility or explain an explicit zero award.
 
 The default chronological engine executes individual crossings and lapped-car
 finishes. The optional standard engine is a synchronous lap simulation:
-surviving cars complete the same lap count. Neither implements abandoned-race
-classification. Red flags preserve completed crossings and include field
+surviving cars complete the same lap count. Both implement explicit
+abandonment scenarios using historical crossings; they do not predict whether
+a suspension can resume. Resuming red flags preserve completed crossings and include field
 collection plus a fixed pause in elapsed time. The shared finish clock extends
 the two-hour threshold by accumulated suspension time, capped at one hour;
 the already announced final lap remains fixed. See [suspension timing and limits](strategy-model.md#red-flag-suspension-timing).

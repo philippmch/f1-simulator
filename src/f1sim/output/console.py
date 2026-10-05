@@ -4,6 +4,7 @@ from math import isfinite
 
 from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.analysis.paired_comparison import paired_comparison_statistics
+from f1sim.output.abandonment_context import abandonment_statistics_text
 from f1sim.output.control_schedule_context import (
     control_schedule_context,
     control_schedule_evidence_text,
@@ -344,12 +345,21 @@ class ConsoleOutput:
         """
         print("\n" + "=" * 70)
         print("RACE RESULTS")
+        from f1sim.simulation.abandonment import race_abandonment_context
+
+        abandonment = race_abandonment_context(results)
+        if abandonment:
+            print(abandonment["description"])
         context = race_scoring_context(results)
         print(context["description"] if context else "Race scoring evidence: Not recorded.")
         suspension = race_suspension_seconds(results)
         print(f"Completed race suspension: {format_seconds(suspension)}")
-        print("Race-wide collection + restart pause; this elapsed-race context is "
-              "already in finish clocks, not an individual driver's stopped or driving time.")
+        if abandonment:
+            print("Race-wide collection and decision waiting; countback clocks exclude "
+                  "later running and suspension.")
+        else:
+            print("Race-wide collection + restart pause; this elapsed-race context is "
+                  "already in finish clocks, not an individual driver's stopped or driving time.")
         if any(getattr(result, "race_time_limited", False) for result in results):
             print("Race shortened by the two-hour limit.")
         print("=" * 70)
@@ -377,6 +387,8 @@ class ConsoleOutput:
                         mins = int(gap // 60)
                         secs = gap % 60
                         time_str = f"+{mins}:{secs:05.2f}"
+            elif result.status.value == "no_result":
+                time_str = "No result"
             else:
                 time_str = result.dnf_reason or "DNF"
 
@@ -715,10 +727,17 @@ class ConsoleOutput:
     ) -> None:
         """Print race-wide suspension observations with their own denominator."""
         print("\nRACE SUSPENSION CONTEXT:")
-        print("Race-wide collection + restart pause are already in finish clocks; "
-              "they are not an individual driver's stopped or driving time.")
-        items = results.items() if isinstance(results, dict) else [(results.track_name, results)]
+        items = (list(results.items()) if isinstance(results, dict)
+                 else [(results.track_name, results)])
+        if any(abandonment_statistics_text(result) for _, result in items):
+            print("Suspension records include collection and decision waiting. Countback "
+                  "classification clocks exclude subsequent running and suspension.")
+        else:
+            print("Race-wide collection + restart pause are already in finish clocks; "
+                  "they are not an individual driver's stopped or driving time.")
         for name, result in items:
+            if text := abandonment_statistics_text(result):
+                print(f"  {name}: {text}")
             stats = suspension_statistics(result)
             recorded = stats["recorded_races"]
             known = stats["races_with_recorded_suspension"]

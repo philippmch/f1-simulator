@@ -252,7 +252,8 @@ announced final lap stays fixed. This follows the timing framework in
 Collection remains a lap-resolution approximation: it does not recalculate
 partially driven sectors at reduced speed. The model also omits standing-start
 grid formation, extra director-ordered circulation, compulsory full-wet starts,
-unlapping, special resumption pit-exit procedures, abandonment and results countback. The standard
+unlapping and special resumption pit-exit procedures. Explicit abandonment
+uses the historical countback finish described in [abandoned races](race-abandonment.md). The standard
 engine also uses collection plus a shared pause, but collects at the end of a
 synchronous lap; see [standard suspension timing](strategy-model.md#red-flag-suspension-timing).
 
@@ -347,8 +348,13 @@ attempt rates across engines are not directly comparable.
 
 Chronological execution is integrated with the runner, process workers, CLI,
 API, dashboard, exports and replay. Detailed
-restart formation and abandonment remain model limitations, rather than
+restart formation and a weather-conditioned abandonment decision remain model limitations, rather than
 features of the standard loop that have not yet been migrated.
+Scenarios containing an abandonment request retain completed-crossing result
+snapshots and the original leading crossing for each own lap. Each car finishes
+at its first completion after the historical countback flag; prior retirements
+retain their completed distance. This history is opt-in and never becomes an
+input to physics or strategy. No partial-sector reconstruction is attempted.
 The existing minor-contact time losses and personal spin/puncture/crash outcomes
 are already reused; a richer damage-severity model would improve both engines
 rather than close a migration gap.

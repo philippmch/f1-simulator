@@ -17,6 +17,7 @@ from numbers import Real
 from f1sim.cancellation import raise_if_cancelled
 from f1sim.models._native import native_physics, register_forecast_helpers
 from f1sim.models.tire import TIRE_COMPOUNDS
+from f1sim.simulation.abandonment import CountbackHistory
 from f1sim.simulation.chronological_finish import (
     ChronologicalFinishCar,
     ChronologicalFinishContext,
@@ -25,7 +26,7 @@ from f1sim.simulation.chronological_finish import (
     evaluate_chronological_finish_protection,
     project_observed_chronological_clock,
 )
-from f1sim.simulation.control_schedule import validate_control_schedule
+from f1sim.simulation.control_schedule import has_abandonment_requests, validate_control_schedule
 from f1sim.simulation.custom_pit_strategy import CustomPitFinishContext
 from f1sim.simulation.events import (
     EventManager,
@@ -172,6 +173,7 @@ class ChronologicalRace:
         self.weather = weather.model_copy(deep=True)
         self.simulator.event_manager.reset()
         self.simulator.race_points_context = None
+        self.simulator.race_abandonment = None
         self.simulator.weather_history = []
         for driver in drivers:
             driver.reset_race_state()
@@ -234,6 +236,11 @@ class ChronologicalRace:
         self.green_streak = 0
         self._last_green_lap = None
         self.has_two_green = False
+        self.countback = CountbackHistory() if has_abandonment_requests(control_schedule) else None
+        self.abandoned_results = None
+        if self.countback is not None:
+            for state in self.states.values():
+                self.countback.capture(state, 0., self.simulator._inventory_result_fields(state))
         self.crossings.clear()
         self.pit_exits.clear()
         self.suspensions.clear()
@@ -314,6 +321,25 @@ class ChronologicalRace:
             return
         resume = now + self.red_flag_pause_seconds
         self.timeline.end_suspension(resume)
+        if self.simulator.event_manager.red_flag_action == "abandon":
+            (self.abandoned_results, self.simulator.race_points_context,
+             self.simulator.race_abandonment) = self.countback.classify(
+                scheduled_laps=self.track.total_laps, announcement_lap=self.abandonment_signal[0],
+                signal_leader_lap=self.abandonment_signal[1],
+                signal_time=self.red_flag_start, decision_time=resume,
+                suspension_seconds=self.timeline.total_suspension_seconds,
+                used_compounds={key: {
+                    compound.value for compound in self.simulator._actually_used_compounds(state)
+                } for key, state in self.states.items()},
+            )
+            self.simulator.event_manager.end_red_flag(resume=False)
+            self.regrouping = False
+            self.suspensions.append((self.red_flag_start, resume, tuple(self.resumption_order)))
+            self.queue.clear()
+            self.pending.clear()
+            self.free_refits.clear()
+            self.red_waiting.clear()
+            return
         self.simulator.event_manager.end_red_flag()
         self.regrouping = False
         self.order = [key for key in self.resumption_order if key in active]
@@ -1590,6 +1616,9 @@ class ChronologicalRace:
         self.red_waiting.discard(driver_id)
         if driver_id in self.order:
             self.order.remove(driver_id)
+        if getattr(self, "countback", None) is not None:
+            self.countback.capture(state, self.fastest.get(driver_id, 0.),
+                                   self.simulator._inventory_result_fields(state), at=now)
 
     def _delay(self, driver_id, loss):
         pending = self.pending.get(driver_id)
@@ -1717,6 +1746,11 @@ class ChronologicalRace:
         else:
             self.order.append(driver_id)
         self._positions()
+        if getattr(self, "countback", None) is not None:
+            self.countback.capture(state, self.fastest.get(driver_id, 0.),
+                                   self.simulator._inventory_result_fields(state), at=now)
+            if leading:
+                self.countback.leading_crossing(driver_id, pending.lap, now, self.has_two_green)
         if leading:
             self.leader_id = driver_id
             self._after_leader_crossing(now, red)
@@ -1739,6 +1773,11 @@ class ChronologicalRace:
         self.control_intervals += 1
         events = control.process_lap(self.control_intervals, [], {}, self.track, pending.weather,
                                      incidents_this_lap=self.incidents)
+        if (pending.lap >= self.timeline.final_lap
+                and control.cancel_terminal_scheduled_red_flag(self.control_intervals)):
+            events = [event for event in events if not (
+                event.event_type == EventType.RED_FLAG and event.announced_after_crossing
+            )]
         observed_control = (before_control or control.safety_car_active or control.vsc_active
                             or control.red_flag_active or any(event.event_type in (
                                 EventType.SAFETY_CAR, EventType.VIRTUAL_SAFETY_CAR,
@@ -1784,19 +1823,28 @@ class ChronologicalRace:
         return any(event.event_type == EventType.RED_FLAG for event in events)
 
     def _after_leader_crossing(self, now, red):
+        if red and self.timeline.chequered_time is not None:
+            self.simulator.event_manager.cancel_terminal_scheduled_red_flag(self.control_intervals)
         if red and self.timeline.chequered_time is None:
             self.timeline.begin_suspension(now)
             self.regrouping = True
             self.red_flag_start = now
+            if self.simulator.event_manager.red_flag_action == "abandon":
+                self.abandonment_signal = (
+                    self.control_intervals, self.states[self.leader_id].laps_completed + 1,
+                )
             self.resumption_order = self._red_flag_order()
             self.free_refits.update(self.resumption_order)
         if (self.timeline.chequered_time is None
+                and not (red and self.simulator.event_manager.red_flag_action == "abandon")
                 and any(state.status == DriverStatus.RACING for state in self.states.values())):
             self.weather = self.simulator._advance_race_weather(self.weather)
             # Shared leading intervals, not an individual car's completed distance.
             self.simulator._record_weather(self.control_intervals + 1, self.weather)
 
     def _results(self):
+        if getattr(self, "abandoned_results", None) is not None:
+            return self.abandoned_results
         winner = self.states.get(self.timeline.winner_id)
         winner_laps = winner.laps_completed if winner else 0
         self.simulator.race_points_context = RacePointsContext(

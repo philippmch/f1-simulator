@@ -47,6 +47,9 @@ Red flags collect the surviving field before a shared restart, preserving
 completed crossings and extending the finish deadline for the modeled wait.
 Cars resume for one counted lap behind the safety car before green racing;
 see [suspension timing](docs/strategy-model.md#red-flag-suspension-timing).
+Explicit abandonment scenarios instead classify the historical countback finish,
+including dry-compound penalties, or record no result before a countback lap exists;
+see [abandoned races](docs/race-abandonment.md).
 Results and reports include completed race suspension time and the number of
 races with recorded timing, keeping older unknown values distinct from zero.
 
@@ -272,6 +275,8 @@ Conditional pit windows use version 10 and
 Explicit [SC/VSC scenario schedules](docs/control-schedules.md), including an
 empty schedule, use version 11 and `control_schedule_policy="observed_control_schedule_v1"`.
 They retain the other configured inputs and their policy markers.
+Schedules containing a red-flag decision use version 12 and
+`control_schedule_policy="observed_control_schedule_v2"`, preserving those inputs.
 All current snapshots require
 `rng_policy`, with new runs using `isolated_weather_v1`. Earlier installations
 reject unsupported schemas. Version 1 snapshots without a policy replay with
@@ -532,9 +537,12 @@ dashboard or pass `--control-schedule 12:sc:4,26:vsc:2` in the CLI. Strategies
 observe these announcements at their crossings; future deployments are unknown
 to forecasts. An empty assumed schedule (`--control-schedule none`) disables
 random SC/VSC, while red flags retain priority and resume behind the safety car.
+Use `--control-schedule 12:red:resume` or `12:red:abandon` to assume a suspension
+with a chosen outcome. Abandonment uses recorded historical crossings and
+recalculates classification and points; the decision is a scenario assumption.
 Saved reports distinguish
 requested announcements from complete recorded execution evidence. See
-[SC/VSC scenarios](docs/control-schedules.md) for replay, pit-window examples
+[race-control scenarios](docs/control-schedules.md) for replay, pit-window examples
 and weighted scenario overrides.
 
 ## Server capacity

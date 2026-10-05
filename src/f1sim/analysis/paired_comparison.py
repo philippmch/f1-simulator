@@ -35,7 +35,7 @@ def _snapshot(result):
     if not isinstance(snapshot, dict):
         return None
     version = snapshot.get("schema_version")
-    if not _integer(version, 1) or version not in range(1, 12):
+    if not _integer(version, 1) or version not in range(1, 13):
         return None
     policy = snapshot.get("rng_policy", "shared_v1" if version == 1 else None)
     if policy not in RNG_POLICIES:
@@ -69,7 +69,7 @@ def _snapshot(result):
         )
         validate_control_schedule_snapshot(snapshot, control_schedule)
         weather_schedule = []
-        if version == 8 or version in (9, 10, 11) and "weather_schedule" in snapshot:
+        if version == 8 or version in (9, 10, 11, 12) and "weather_schedule" in snapshot:
             weather_schedule = validate_weather_schedule(
                 snapshot.get("weather_schedule"), total_laps=snapshot["track"]["total_laps"],
             )
@@ -78,7 +78,7 @@ def _snapshot(result):
         elif "weather_schedule" in snapshot:
             return None
         qualifying_weather = {}
-        if version in (7, 8, 9, 10, 11) and "qualifying_weather" in snapshot:
+        if version in (7, 8, 9, 10, 11, 12) and "qualifying_weather" in snapshot:
             qualifying_weather = validate_qualifying_weather(snapshot.get("qualifying_weather"))
             if not qualifying_weather:
                 return None
@@ -88,7 +88,7 @@ def _snapshot(result):
             return None
         effective_weather = effective_qualifying_weather(snapshot["weather"], qualifying_weather)
         tire_warmup = {}
-        if version == 6 or (version in (7, 8, 9, 10, 11) and (
+        if version == 6 or (version in (7, 8, 9, 10, 11, 12) and (
             "tire_warmup" in snapshot or "tire_warmup_policy" in snapshot
         )):
             if snapshot.get("tire_warmup_policy") != "post_fit_first_lap_v1":
@@ -217,7 +217,8 @@ def _observation(race, driver, scheduled_laps):
     row = rows[0]
     status = getattr(row, "status", None)
     status = getattr(status, "value", status)
-    if status not in ("finished", "dnf") or not _integer(getattr(row, "position", None), 1):
+    if (status not in ("finished", "dnf", "no_result")
+            or not _integer(getattr(row, "position", None), 1)):
         return None
     classified = getattr(row, "classified", None)
     if classified is not None and not isinstance(classified, bool):
@@ -230,6 +231,8 @@ def _observation(race, driver, scheduled_laps):
         laps = None
     elif not isinstance(laps, int):
         laps = int(laps)
+    if status == "no_result" and (laps != 0 or classified is not False or award != 0):
+        return None
     total_time = _positive_finite_real(getattr(row, "total_time", None))
     return (
         int(points_for_result(row)), int(status == "dnf"), laps,

@@ -10,6 +10,7 @@ from urllib.parse import quote
 from uuid import uuid4
 
 from f1sim.analysis.montecarlo import SimulationResults
+from f1sim.output.abandonment_context import abandonment_statistics_html
 from f1sim.output.control_schedule_context import control_schedule_statistics_html
 from f1sim.output.qualifying_context import qualifying_weather_context
 from f1sim.output.scoring_context import scoring_statistics_html
@@ -21,6 +22,7 @@ from f1sim.output.timing import (
 )
 from f1sim.output.warmup_context import warmup_context
 from f1sim.output.weather_schedule_context import weather_schedule_context
+from f1sim.simulation.abandonment import race_abandonment_context, serialize_abandonment_tire_rule
 from f1sim.simulation.control_schedule import validate_control_schedule_history
 from f1sim.simulation.race import result_is_classified
 from f1sim.simulation.race_points import (
@@ -194,6 +196,11 @@ class Exporter:
         scoring_fields = (["race_points_policy", "scheduled_laps", "winner_laps",
                            "has_two_green_laps", "points_reason"]
                           if any(context is not None for context in scoring_contexts) else [])
+        abandonment_contexts = [race_abandonment_context(race) for race in results.race_results]
+        abandonment_fields = ["race_abandonment", "abandonment_tire_rule"] if any(
+            getattr(row, "race_abandonment", None) is not None
+            for race in results.race_results for row in race
+        ) else []
 
         with open(filepath, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
@@ -206,6 +213,7 @@ class Exporter:
                 "overtake_attempts", "overtake_successes", "overtake_contacts",
                 *inventory_fields, *plan_field,
                 *scoring_fields,
+                *abandonment_fields,
             ])
 
             for sim_idx, race_results in enumerate(results.race_results, 1):
@@ -248,6 +256,12 @@ class Exporter:
                             str(context["has_two_green_laps"]).lower() if context else "",
                             points_reason_for_result(result) if context else "",
                         ] if scoring_fields else []),
+                        *(json.dumps(value) if value is not None else "" for value in (
+                            abandonment_contexts[sim_idx - 1],
+                            serialize_abandonment_tire_rule(
+                                getattr(result, "abandonment_tire_rule", None),
+                            ),
+                        ) if abandonment_fields),
                     ])
 
         return filepath
@@ -323,32 +337,40 @@ class Exporter:
         stats = results.get_control_schedule_statistics()
         schedule = stats["requested_schedule"]
         histories = results.control_schedule_histories
+        action_fields = ["action"] if any(
+            row["control"] == "red_flag" for row in schedule or []
+        ) else []
         with filepath.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.writer(handle)
             writer.writerow(["simulation", "race_engine", "history_status", "lap", "control",
-                             "duration_laps", "status", "reason"])
+                             "duration_laps", "status", "reason", *action_fields])
             if stats["source"] != "controlled":
                 return filepath
             for index in range(len(results.race_results)):
                 prefix = [index + 1, results.race_engine]
                 if histories is not None and not isinstance(histories, list):
-                    writer.writerow(prefix + ["invalid", "", "", "", "", ""])
+                    writer.writerow(prefix + ["invalid", "", "", "", "", ""]
+                                    + [""] * len(action_fields))
                     continue
                 history = (histories[index] if isinstance(histories, list)
                            and index < len(histories) else None)
                 if history is None:
-                    writer.writerow(prefix + ["missing", "", "", "", "", ""])
+                    writer.writerow(prefix + ["missing", "", "", "", "", ""]
+                                    + [""] * len(action_fields))
                     continue
                 try:
                     rows = validate_control_schedule_history(history, schedule)
                 except (TypeError, ValueError):
-                    writer.writerow(prefix + ["invalid", "", "", "", "", ""])
+                    writer.writerow(prefix + ["invalid", "", "", "", "", ""]
+                                    + [""] * len(action_fields))
                     continue
                 if not rows:
-                    writer.writerow(prefix + ["complete", "", "", "", "no_requests", ""])
+                    writer.writerow(prefix + ["complete", "", "", "", "no_requests", ""]
+                                    + [""] * len(action_fields))
                 for row in rows:
-                    writer.writerow(prefix + ["complete"] + [row[key] for key in (
+                    writer.writerow(prefix + ["complete"] + [row.get(key, "") for key in (
                         "lap", "control", "duration_laps", "status", "reason",
+                        *action_fields,
                     )])
         return filepath
 
@@ -454,6 +476,9 @@ class Exporter:
             "control_schedule_histories": results.control_schedule_histories,
             "control_schedule_statistics": results.get_control_schedule_statistics(),
             "race_scoring_contexts": results.get_race_scoring_contexts(),
+            "race_abandonment_contexts": results.get_race_abandonment_contexts(),
+            "abandonment_statistics": results.get_abandonment_statistics(),
+            "abandonment_tire_rules": results.get_abandonment_tire_rules(),
             "race_scoring_statistics": results.get_race_scoring_statistics(),
             "pit_stop_details": self._pit_stop_details(results),
             "tire_set_ledgers": self._tire_set_ledgers(results),
@@ -576,6 +601,9 @@ class Exporter:
                 "control_schedule_histories": results.control_schedule_histories,
                 "control_schedule_statistics": results.get_control_schedule_statistics(),
                 "race_scoring_contexts": results.get_race_scoring_contexts(),
+                "race_abandonment_contexts": results.get_race_abandonment_contexts(),
+                "abandonment_statistics": results.get_abandonment_statistics(),
+                "abandonment_tire_rules": results.get_abandonment_tire_rules(),
                 "race_scoring_statistics": results.get_race_scoring_statistics(),
                 "pit_stop_details": self._pit_stop_details(results),
                 "tire_set_ledgers": self._tire_set_ledgers(results),
@@ -683,6 +711,7 @@ class Exporter:
         schedule_text = escape(weather_schedule_context(results.input_snapshot))
         schedule_html = f"<p>{schedule_text}</p>" if schedule_text else ""
         control_html = control_schedule_statistics_html(results)
+        abandonment_html = abandonment_statistics_html(results)
         scoring_html = scoring_statistics_html(results)
         pit_plan_text = escape(_pit_plans(results))
         pit_plan_statistics = _pit_plan_statistics_html(results, "run")
@@ -714,6 +743,14 @@ class Exporter:
         )
         suspension_mean = format_seconds(
             suspension["mean_completed_suspension_seconds"]
+        )
+        suspension_note = (
+            "Race-wide suspension includes collection and decision waiting. Countback "
+            "finish clocks exclude subsequent running and suspension; earlier resumed "
+            "suspensions remain in the historical clocks."
+            if results.get_abandonment_statistics()["recorded_abandoned_races"] else
+            "Race-wide collection + restart pause are already in finish clocks. This "
+            "elapsed-race context is not an individual driver's stopped or driving time."
         )
         strategy_sections = []
         for driver_id, summary in results.get_strategy_statistics().items():
@@ -773,6 +810,7 @@ class Exporter:
     {qualifying_html}
     {schedule_html}
     {control_html}
+    {abandonment_html}
     Input race set pools:
     {escape(json.dumps((results.input_snapshot or {}).get('tire_inventory', {})))}
   </div>
@@ -791,8 +829,7 @@ class Exporter:
     <div class=\"card\" id=\"suspension-statistics\"><h2>Completed race suspension</h2>
       <p>Mean completed race suspension: {escape(suspension_mean)}</p>
       <p>Known suspension durations: {escape(suspension_coverage)}</p>
-      <p>Race-wide collection + restart pause are already in finish clocks. This
-      elapsed-race context is not an individual driver's stopped or driving time.</p>
+      <p>{escape(suspension_note)}</p>
     </div>
     <div class=\"card\" id=\"overtaking-statistics\"><h2>Overtaking attempts and outcomes</h2>
       <p>The counters record attempts that reach the passing model, not rejected gates.

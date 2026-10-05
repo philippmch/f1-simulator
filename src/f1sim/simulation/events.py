@@ -100,6 +100,8 @@ class EventManager:
         self._lap_started_neutralized = False
         # Red flag state
         self.red_flag_active = False
+        self.red_flag_action = "resume"
+        self._scheduled_red_previous_control = None
         self.red_flag_just_ended = False  # Flag for restart lap after red flag
         self.red_flag_restart_lap = False  # True on the lap after red flag ends
         self.red_flag_restart_lap_number: int | None = None
@@ -142,6 +144,23 @@ class EventManager:
     def _process_scheduled_control(self, lap, track, weather, incidents):
         """Observe only this announcement, preserving suspension priority."""
         event = None
+        entry = next((item for item in self.control_schedule_history
+                      if item["lap"] == lap and item["status"] is None), None)
+        if entry is not None and entry["control"] == "red_flag" and not self.red_flag_active:
+            self._scheduled_red_previous_control = {
+                key: getattr(self, key) for key in (
+                    "safety_car_active", "safety_car_laps_remaining", "vsc_active",
+                    "vsc_laps_remaining", "sc_just_ended", "sc_restart_lap",
+                    "sc_restart_lap_number", "red_flag_just_ended", "red_flag_restart_lap",
+                    "red_flag_restart_lap_number",
+                )
+            }
+            event = self.deploy_red_flag(lap)
+            self.red_flag_action = entry["action"]
+            event.announced_after_crossing = True
+            event.description = f"Red flag deployed (scheduled {entry['action']} scenario)"
+            self._record_scheduled_control(lap, "applied", "scheduled_announcement")
+            return event
         if (not self._lap_started_neutralized and not self.safety_car_active
                 and not self.vsc_active and not self.red_flag_active):
             event = self._check_red_flag_conditions(
@@ -150,8 +169,6 @@ class EventManager:
         if self.red_flag_active:
             self._record_scheduled_control(lap, "suppressed", "red_flag")
             return event
-        entry = next((item for item in self.control_schedule_history
-                      if item["lap"] == lap and item["status"] is None), None)
         if entry is None:
             return event
         if self._lap_started_neutralized or self.safety_car_active or self.vsc_active:
@@ -173,6 +190,25 @@ class EventManager:
                          description=f"{description} deployed (scheduled scenario)",
                          announced_after_crossing=True)
 
+    def cancel_terminal_scheduled_red_flag(self, lap):
+        """The finish at this crossing precedes its assumed subsequent red signal."""
+        row = next((item for item in self.control_schedule_history or []
+                    if item["lap"] == lap and item["control"] == "red_flag"
+                    and item["status"] == "applied"), None)
+        if row is None:
+            return False
+        row.update(status="suppressed", reason="race_finished")
+        self.events[:] = [event for event in self.events if not (
+            event.event_type == EventType.RED_FLAG and event.lap == lap
+            and event.announced_after_crossing
+        )]
+        self.red_flag_deployments -= 1
+        self.end_red_flag(resume=False)
+        for key, value in (self._scheduled_red_previous_control or {}).items():
+            setattr(self, key, value)
+        self._scheduled_red_previous_control = None
+        return True
+
     def reset(self) -> None:
         """Reset event state for new race."""
         self.events = []
@@ -187,6 +223,8 @@ class EventManager:
         self._lap_overtake_mode_snapshot = None
         self._lap_started_neutralized = False
         self.red_flag_active = False
+        self.red_flag_action = "resume"
+        self._scheduled_red_previous_control = None
         self.red_flag_just_ended = False
         self.red_flag_restart_lap = False
         self.red_flag_restart_lap_number: int | None = None
@@ -832,6 +870,7 @@ class EventManager:
             self._lap_overtake_mode_snapshot = None
         self.current_lap = lap
         self.red_flag_active = True
+        self.red_flag_action = "resume"
         self.red_flag_deployments += 1
         # Clear any active SC/VSC
         self.safety_car_active = False

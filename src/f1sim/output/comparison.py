@@ -8,6 +8,7 @@ from numbers import Integral, Real
 
 from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.analysis.paired_comparison import paired_comparison_statistics
+from f1sim.output.abandonment_context import abandonment_statistics_html
 from f1sim.output.control_schedule_context import (
     control_schedule_context,
     control_schedule_statistics_html,
@@ -1162,6 +1163,11 @@ def render_comparison_report(
         for name, result in scenario_results.items()
         if (section := control_schedule_statistics_html(result, name))
     )
+    control_sections += ''.join(
+        f'<h3>{_text(name)}</h3>{section}'
+        for name, result in scenario_results.items()
+        if (section := abandonment_statistics_html(result))
+    )
     return """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1212,9 +1218,11 @@ aria-label="Scenario context"><table><caption>Recorded run context</caption><the
     ) + """</tbody></table></div><h2>Completed race suspension</h2>
 <p>Mean suspension uses races with a valid shared duration, including known
 zero-second pauses. Positive suspension counts exclude those zero-second
-observations. The duration covers Race-wide collection + restart pause, already
-included in finish clocks. It is not an individual driver's stopped or driving
-time.</p>
+observations. Race-wide collection + restart pause are included in resumed race
+clocks. Abandoned races record collection and decision waiting; countback finish
+clocks exclude subsequent running and suspension. Earlier resumed suspensions
+remain in the historical clocks. These durations are not an individual driver's
+stopped or driving time.</p>
 <div class="table-wrap context" tabindex="0" role="region" aria-label="Completed race suspension">
 <table><caption>Recorded race-wide suspension durations</caption><thead><tr>
 <th scope="col">Scenario</th><th scope="col">Mean completed suspension</th>
@@ -1289,7 +1297,7 @@ failures; other race processes continue sharing the race stream.</p>""" + (
     ) + (
         '<h2>Custom pit-plan execution</h2>' + plan_sections if plan_sections else ''
     ) + (
-        '<h2>SC/VSC scenario execution</h2>' + control_sections if control_sections else ''
+        '<h2>Race-control scenario execution</h2>' + control_sections if control_sections else ''
     ) + _selection_objective_html(selection or {}) + "</main></body></html>"
 
 

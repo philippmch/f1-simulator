@@ -887,7 +887,12 @@ The standard engine still resolves collection once per shared lap. It does
 not model partially completed sectors, cars held at a closed pit exit during
 collection, sector-level resumption, standing-start grid formation, additional
 director-ordered circulation, compulsory full-wet starts, unlapping, special
-resumption pit-exit procedures, abandonment or results countback.
+resumption pit-exit procedures. Both engines support explicit
+[abandonment scenarios and historical countback](race-abandonment.md), while
+the decision to abandon remains a supplied assumption. Future red decisions
+do not enter pit forecasts, and abandonment fits no new tyres. The dry-compound
+check uses actual completed use through suspension, even when that running is
+later than the historical result; its 30-second penalty can change the winner.
 The chronological engine schedules those individual crossings and pit exits,
 while retaining its own documented lap-resolution limitations.
 

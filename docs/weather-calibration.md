@@ -132,8 +132,9 @@ incident record.
 - Manual flags and independent background incidents remain possible. Both
   engines include field collection and a fixed 600-second pause before a
   red-flag restart. This does not predict incident clearance or weather
-  recovery; race abandonment and a weather-conditioned restart forecast remain
-  outside the model. Weather advances through the existing shared updates,
+  recovery. Explicit [abandonment scenarios](race-abandonment.md) are available;
+  a weather-conditioned abandonment or restart forecast remains outside the model.
+  Weather advances through the existing shared updates,
   without extra draws during suspension waiting. One
   unchanged storm is not repeatedly sampled as a new weather interruption.
 

@@ -49,7 +49,8 @@ from f1sim.output.control_schedule_context import control_schedule_context
 from f1sim.output.qualifying_context import qualifying_weather_context
 from f1sim.output.timing import finite_time, suspension_statistics
 from f1sim.output.weather_schedule_context import weather_schedule_context
-from f1sim.simulation.control_schedule import CONTROL_SCHEDULE_POLICY, validate_control_schedule
+from f1sim.simulation.abandonment import serialize_abandonment, serialize_abandonment_tire_rule
+from f1sim.simulation.control_schedule import control_schedule_policy, validate_control_schedule
 from f1sim.simulation.execution import (
     DEFAULT_RACE_ENGINE,
     validate_race_engine,
@@ -332,6 +333,10 @@ def _serialize_race_result(result: Any) -> dict[str, Any]:
         "overtake_contacts": getattr(result, "overtake_contacts", None),
         "classified": result_is_classified(result),
         "race_time_limited": getattr(result, "race_time_limited", False),
+        "race_abandonment": serialize_abandonment(getattr(result, "race_abandonment", None)),
+        "abandonment_tire_rule": serialize_abandonment_tire_rule(
+            getattr(result, "abandonment_tire_rule", None),
+        ),
         "points_awarded": points_for_result(result),
         "points_reason": reason,
         "points_explanation": POINTS_REASON_LABELS.get(reason),
@@ -625,6 +630,18 @@ def _summarize_scenario_results(
             "sample_race_scoring_context": _safe_call(
                 results, "get_race_scoring_context", sample_index, default=None,
             ),
+            "sample_race_abandonment_context": _safe_call(
+                results, "get_race_abandonment_context", sample_index, default=None,
+            ),
+            "race_abandonment_contexts": _safe_call(
+                results, "get_race_abandonment_contexts", default=[],
+            ),
+            "abandonment_statistics": _safe_call(
+                results, "get_abandonment_statistics", default={},
+            ),
+            "abandonment_tire_rules": _safe_call(
+                results, "get_abandonment_tire_rules", default=[],
+            ),
             "sample_race_suspension_seconds": get_race_suspension_seconds(
                 getattr(results, "race_results", [])[min(
                     max(sample_index, 0), len(getattr(results, "race_results", [])) - 1
@@ -757,7 +774,7 @@ def _dashboard_request_metadata(
     control_schedule = validate_control_schedule(request.control_schedule)
     if control_schedule is not None:
         metadata["control_schedule"] = control_schedule
-        metadata["control_schedule_policy"] = CONTROL_SCHEDULE_POLICY
+        metadata["control_schedule_policy"] = control_schedule_policy(control_schedule)
     if qualifying_weather := validate_qualifying_weather(request.qualifying_weather):
         metadata["qualifying_weather"] = qualifying_weather
     if selection := _pit_plan_selection_request(request.pit_plan_selection):

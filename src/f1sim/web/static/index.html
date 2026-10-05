@@ -2047,9 +2047,9 @@ input:focus-visible {
         </select>
         <p class="pit-plan-help" id="controlScheduleHelp">Assumptions for strategy comparisons. Announcements occur after the chosen leading crossing; strategies cannot see them in advance. Random SC/VSC deployments are disabled in an assumed scenario; red flags retain priority.</p>
         <div id="controlScheduleEditor" hidden>
-          <label class="control-label" for="controlScheduleInput">Leading lap:sc/vsc:duration</label>
+          <label class="control-label" for="controlScheduleInput">Leading lap:sc/vsc:duration or lap:red:resume/abandon</label>
           <textarea id="controlScheduleInput" rows="3" maxlength="1000" aria-describedby="controlScheduleFormat" placeholder="12:sc:4&#10;26:vsc:2"></textarea>
-          <p class="pit-plan-help" id="controlScheduleFormat">One request per line, up to 20. Laps 1–1000, duration 1–6 laps. Each announcement must follow the previous clearance lap. Leave blank for no SC/VSC announcements.</p>
+          <p class="pit-plan-help" id="controlScheduleFormat">One request per line, up to 20. Use 12:sc:4, 26:vsc:2, or 40:red:resume/abandon. Laps 1–1000; SC/VSC duration 1–6 laps. Red flags can interrupt an earlier neutralisation. Other announcements must follow the previous clearance lap. Abandonment takes a countback result; it does not predict weather recovery. Leave blank for no scheduled announcements.</p>
         </div>
       </div>
       <div class="control-group control-group-scenarios" role="group" aria-labelledby="qualifyingWeatherLabel">
@@ -2654,6 +2654,7 @@ function formatSigned(value, digits = 3) {
 
 function formatGap(result, leaderLaps = null) {
   if (!result || result.status === 'dnf') return 'DNF';
+  if (result.status === 'no_result') return '—';
   if (result.position === 1) return 'LEADER';
   if (Number.isInteger(leaderLaps) && Number.isInteger(result.laps_completed) &&
       result.laps_completed >= 0 && leaderLaps > result.laps_completed) {
@@ -2714,15 +2715,17 @@ function populateTrackSelect(events, preferredRace = '') {
 }
 
 function isClassifiedResult(result) {
-  return typeof result?.classified === 'boolean' ? result.classified : result?.status !== 'dnf';
+  return typeof result?.classified === 'boolean' ? result.classified : result?.status === 'finished';
 }
 
 function raceStatusText(result) {
+  if (result.status === 'no_result') return 'No result · No completed countback lap';
   const retired = result.status === 'dnf';
   const classification = isClassifiedResult(result) ? 'Classified' : 'Not classified';
   const laps = Number.isInteger(result.laps_completed) ? ` · ${result.laps_completed} laps` : '';
   const reason = retired && result.dnf_reason ? ` · ${result.dnf_reason}` : '';
-  return `${retired ? 'Retired' : 'Finished'} · ${classification}${laps}${reason}`;
+  const penalty = result.abandonment_tire_rule?.penalty_seconds === 30 ? ' · +30s dry-compound penalty' : '';
+  return `${retired ? 'Retired' : 'Finished'} · ${classification}${laps}${reason}${penalty}`;
 }
 
 async function fetchCalendar(year, preferredRace = '') {
@@ -4687,16 +4690,19 @@ function parseControlScheduleInputs(input = document.getElementById('controlSche
   const tokens = input.value.trim() ? input.value.trim().split(/,|\r?\n/) : [];
   if (tokens.length > 20) return {ok: false, input, message: 'SC/VSC schedules allow at most 20 announcements.'};
   const schedule = [];
-  let previousEnd = 0;
+  let previousEnd = 0, previousLap = 0;
   for (const token of tokens) {
     const match = /^([0-9]+):(sc|vsc):([0-9]+)$/.exec(token.trim());
-    if (!match) return {ok: false, input, message: 'SC/VSC requests must use LAP:sc/vsc:DURATION, one per line.'};
-    const lap = Number(match[1]), duration = Number(match[3]);
-    if (!Number.isSafeInteger(lap) || lap < 1 || lap > 1000 || !Number.isSafeInteger(duration) || duration < 1 || duration > 6 || lap <= previousEnd) {
+    const red = /^([0-9]+):red:(resume|abandon)$/.exec(token.trim());
+    if (!match && !red) return {ok: false, input, message: 'Use LAP:sc/vsc:DURATION or LAP:red:resume/abandon, one per line.'};
+    const lap = Number(red ? red[1] : match[1]);
+    const duration = red ? (red[2] === 'resume' ? 1 : 0) : Number(match[3]);
+    if (!Number.isSafeInteger(lap) || lap < 1 || lap > 1000 || !Number.isSafeInteger(duration) || (!red && (duration < 1 || duration > 6)) || lap <= previousLap || (!red && lap <= previousEnd)) {
       return {ok: false, input, message: 'SC/VSC requests need laps 1–1000, duration 1–6, and an announcement after the previous clearance lap.'};
     }
-    schedule.push({lap, control: match[2] === 'sc' ? 'safety_car' : 'vsc', duration_laps: duration});
+    schedule.push(red ? {lap, control: 'red_flag', action: red[2]} : {lap, control: match[2] === 'sc' ? 'safety_car' : 'vsc', duration_laps: duration});
     previousEnd = lap + duration;
+    previousLap = lap;
   }
   return {ok: true, schedule};
 }
@@ -4982,8 +4988,9 @@ function renderControlScheduleEvidence(scenario) {
   if (stats?.source !== 'controlled') return source;
   const count = key => Number.isSafeInteger(stats[key]) && stats[key] >= 0 ? stats[key] : 'Not recorded';
   const coverage = `${count('valid_history_races')} complete, ${count('missing_history_races')} missing, ${count('invalid_history_races')} invalid of ${count('recorded_races')} recorded trials; ${count('unrecorded_races')} unrecorded trials; ${count('unexpected_histories')} unexpected histories.`;
-  const rows = Array.isArray(stats.entries) ? stats.entries.filter(row => row && typeof row === 'object' && !Array.isArray(row)).map(row => `<tr><th scope="row">After lap ${escapeHtml(row.lap)}</th><td>${escapeHtml(row.control === 'safety_car' ? 'SC' : row.control)}</td><td>${escapeHtml(row.duration_laps)}</td><td>${escapeHtml(row.applied)}</td><td>${escapeHtml(row.suppressed)}</td><td>${escapeHtml(row.not_reached)}</td></tr>`).join('') : '';
-  return `${source}<details class="weather-history control-schedule-history"><summary>SC/VSC execution evidence</summary><p>${escapeHtml(coverage)}</p><p>Counts use complete histories. Applied means announced; later suspensions or the finish can interrupt the requested duration.</p>${rows ? `<div class="results-table" tabindex="0" role="region" aria-label="SC/VSC execution"><table class="matrix-table"><caption>SC/VSC requests in complete trial histories</caption><thead><tr><th scope="col">Announcement</th><th scope="col">Control</th><th scope="col">Requested laps</th><th scope="col">Applied</th><th scope="col">Suppressed</th><th scope="col">Not reached</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p>No SC/VSC announcements were requested.</p>'}</details>`;
+  const label = Array.isArray(stats.entries) && stats.entries.some(row => row?.control === 'red_flag') ? 'Race-control' : 'SC/VSC';
+  const rows = Array.isArray(stats.entries) ? stats.entries.filter(row => row && typeof row === 'object' && !Array.isArray(row)).map(row => `<tr><th scope="row">After lap ${escapeHtml(row.lap)}</th><td>${escapeHtml(row.control === 'safety_car' ? 'SC' : row.control === 'red_flag' ? 'Red flag' : row.control)}</td><td>${escapeHtml(row.action ?? row.duration_laps)}</td><td>${escapeHtml(row.applied)}</td><td>${escapeHtml(row.suppressed)}</td><td>${escapeHtml(row.not_reached)}</td></tr>`).join('') : '';
+  return `${source}<details class="weather-history control-schedule-history"><summary>${label} execution evidence</summary><p>${escapeHtml(coverage)}</p><p>Counts use complete histories. Applied means announced; later suspensions or the finish can interrupt the requested duration.</p>${rows ? `<div class="results-table" tabindex="0" role="region" aria-label="${label} execution"><table class="matrix-table"><caption>${label} requests in complete trial histories</caption><thead><tr><th scope="col">Announcement</th><th scope="col">Control</th><th scope="col">Requested laps / action</th><th scope="col">Applied</th><th scope="col">Suppressed</th><th scope="col">Not reached</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p>No SC/VSC announcements were requested.</p>'}</details>`;
 }
 
 function renderQualifyingWeatherSnapshot(scenario) {
@@ -5550,9 +5557,12 @@ function renderRace() {
   const race = scenario.sample_race || [];
   const track = getTrackDetails();
   const timeLimited = race.some(row => row.race_time_limited === true);
+  const abandonment = scenario.sample_race_abandonment_context;
   const winnerLaps = race.find(row => row.position === 1 && row.status === 'finished')?.laps_completed;
   const sampleSuspension = sampleRaceSuspensionSeconds(scenario);
-  const lapLabel = timeLimited && Number.isInteger(winnerLaps)
+  const lapLabel = abandonment && Number.isInteger(abandonment.countback_lap)
+    ? `${abandonment.countback_lap} of ${track.total_laps || '--'} scheduled laps (countback)`
+    : timeLimited && Number.isInteger(winnerLaps)
     ? `${winnerLaps} of ${track.total_laps || '--'} scheduled laps`
     : `${track.total_laps || '--'} laps`;
   const weather = scenario.weather || {};
@@ -5599,7 +5609,7 @@ function renderRace() {
         ${renderWeatherScheduleSnapshot(scenario)}
         ${renderQualifyingWeatherSnapshot(scenario)}
         <div class="race-meta">Completed race suspension: ${formatSuspensionSeconds(sampleSuspension)}</div>
-        <div class="race-meta">Race-wide collection + restart pause; already in finish clocks, not an individual driver's stopped or driving time.</div>
+        <div class="race-meta">${abandonment ? 'Race-wide collection and decision waiting. Countback clocks exclude later running and suspension.' : "Race-wide collection + restart pause; already in finish clocks, not an individual driver's stopped or driving time."}</div>
         <div class="race-meta">${escapeHtml(track.country || 'Unknown country')} &middot; Scenario ${escapeHtml(titleFromKey(name))}${topTeam ? ` &middot; Top constructor ${escapeHtml(topTeam[0])}` : ''}</div>
         <div class="meta-pills">${pills.map(pill => `<div class="meta-pill">${escapeHtml(pill)}</div>`).join('')}</div>
       </div>
@@ -5609,6 +5619,7 @@ function renderRace() {
       </div>
     </div>
     ${timeLimited ? '<div class="inline-note time-limit-note" role="note">Race shortened by the two-hour limit. Points reflect completed distance and green running.</div>' : ''}
+    ${abandonment ? `<div class="inline-note abandonment-note" role="note">${escapeHtml(abandonment.description)}</div>` : ''}
     ${renderRaceScoring(scenario)}
     ${renderWeatherHistory(scenario)}
     ${renderControlScheduleEvidence(scenario)}
@@ -5623,7 +5634,8 @@ function renderRace() {
 
   race.forEach((result, index) => {
     const team = getTeamStyle(result.team_key || result.team);
-    const finished = result.status !== 'dnf';
+    const finished = result.status === 'finished';
+    const noResult = result.status === 'no_result';
     const classified = isClassifiedResult(result);
     const isPodium = classified && result.position <= 3;
     const statusText = raceStatusText(result);
@@ -5635,7 +5647,7 @@ function renderRace() {
       : pitLaps.length ? `Paid pit stops on laps ${pitLaps.join(', ')}` : 'No paid pit stops';
 
     html += `
-      <div class="driver-row ${finished ? '' : 'dnf'} ${isPodium ? 'podium' : ''}" title="${escapeHtml(statusText)}" style="animation-delay:${index * 0.04}s">
+      <div class="driver-row ${finished || noResult ? '' : 'dnf'} ${isPodium ? 'podium' : ''}" title="${escapeHtml(statusText)}" style="animation-delay:${index * 0.04}s">
         <div class="pos">${classified ? result.position : 'NC'}</div>
         <div class="team-stripe" style="background:${team.color}"></div>
         <div class="driver-code">${escapeHtml(result.driver_id)}</div>
@@ -5652,10 +5664,11 @@ function renderRace() {
             return `<div class="tire-dot ${normalized}">${escapeHtml(TIRE_LABELS[compound] || String(compound).slice(0, 1).toUpperCase())}</div>`;
           }).join('')}
         </div>
-        <div class="status ${finished ? 'finished' : 'dnf-status'}" aria-label="${escapeHtml(statusText)}">
-          ${finished ? 'Finished' : 'Retired'}
+        <div class="status ${finished ? 'finished' : noResult ? 'no-result-status' : 'dnf-status'}" aria-label="${escapeHtml(statusText)}">
+          ${finished ? 'Finished' : noResult ? 'No result' : 'Retired'}
           ${finished && classified ? '' : `<span class="classification-note">${classified ? 'Classified' : 'Not classified'}</span>`}
           ${Number.isInteger(result.laps_completed) ? `<span class="classification-note">${result.laps_completed} laps</span>` : ''}
+          ${result.abandonment_tire_rule?.penalty_seconds === 30 ? '<span class="classification-note">+30s dry-compound penalty</span>' : ''}
           ${Number.isFinite(result.points_awarded) ? `<span class="classification-note points-awarded" title="${escapeHtml(result.points_explanation || 'Scoring reason not recorded')}">${result.points_awarded} pts</span>` : ''}
           ${result.points_awarded === 0 && typeof result.points_explanation === 'string' ? `<span class="classification-note points-explanation">${escapeHtml(result.points_explanation)}</span>` : ''}
         </div>
@@ -6539,7 +6552,8 @@ function downloadResultJson(data) {
 }
 
 function downloadControlScheduleCsv(data) {
-  const rows = [['scenario', 'simulation', 'race_engine', 'history_status', 'lap', 'control', 'duration_laps', 'status', 'reason']];
+  const actions = Object.values(data?.scenarios || {}).some(scenario => Array.isArray(scenario?.control_schedule_statistics?.requested_schedule) && scenario.control_schedule_statistics.requested_schedule.some(row => row?.control === 'red_flag')) ? ['action'] : [];
+  const rows = [['scenario', 'simulation', 'race_engine', 'history_status', 'lap', 'control', 'duration_laps', 'status', 'reason', ...actions]];
   for (const [name, scenario] of Object.entries(data?.scenarios || {})) {
     const stats = scenario?.control_schedule_statistics;
     if (stats?.source !== 'controlled') continue;
@@ -6549,22 +6563,25 @@ function downloadControlScheduleCsv(data) {
     for (let trial = 0; trial < stats.recorded_races; trial++) {
       const prefix = [name, trial + 1, scenario.race_engine];
       if (histories != null && !Array.isArray(histories)) {
-        rows.push([...prefix, 'invalid', '', '', '', '', '']);
+        rows.push([...prefix, 'invalid', '', '', '', '', '', ...actions.map(() => '')]);
         continue;
       }
       const history = Array.isArray(histories) ? histories[trial] : null;
       if (history == null) {
-        rows.push([...prefix, 'missing', '', '', '', '', '']);
+        rows.push([...prefix, 'missing', '', '', '', '', '', ...actions.map(() => '')]);
         continue;
       }
-      const reasons = {applied: ['scheduled_announcement'], suppressed: ['red_flag', 'no_survivors', 'existing_neutralization'], not_reached: ['race_ended_before_request']};
-      const valid = Array.isArray(history) && history.length === requests.length && history.every((row, index) => row && typeof row === 'object' && Object.keys(row).sort().join(',') === 'control,duration_laps,lap,reason,status' && ['lap', 'control', 'duration_laps'].every(key => row[key] === requests[index][key]) && Object.hasOwn(reasons, row.status) && reasons[row.status].includes(row.reason));
+      const reasons = {applied: ['scheduled_announcement'], suppressed: ['red_flag', 'no_survivors', 'existing_neutralization', 'race_finished'], not_reached: ['race_ended_before_request']};
+      const valid = Array.isArray(history) && history.length === requests.length && history.every((row, index) => {
+        const keys = requests[index]?.control === 'red_flag' ? ['lap', 'control', 'action'] : ['lap', 'control', 'duration_laps'];
+        return row && typeof row === 'object' && requests[index] && Object.keys(row).sort().join(',') === [...keys, 'reason', 'status'].sort().join(',') && keys.every(key => row[key] === requests[index][key]) && Object.hasOwn(reasons, row.status) && reasons[row.status].includes(row.reason);
+      });
       if (!valid) {
-        rows.push([...prefix, 'invalid', '', '', '', '', '']);
+        rows.push([...prefix, 'invalid', '', '', '', '', '', ...actions.map(() => '')]);
         continue;
       }
-      if (!history.length) rows.push([...prefix, 'complete', '', '', '', 'no_requests', '']);
-      for (const row of history) rows.push([...prefix, 'complete', row.lap, row.control, row.duration_laps, row.status, row.reason]);
+      if (!history.length) rows.push([...prefix, 'complete', '', '', '', 'no_requests', '', ...actions.map(() => '')]);
+      for (const row of history) rows.push([...prefix, 'complete', row.lap, row.control, row.duration_laps ?? '', row.status, row.reason, ...actions.map(() => row.action ?? '')]);
     }
   }
   const blob = new Blob([rows.map(row => row.map(csvCell).join(',')).join('\r\n')], {type: 'text/csv;charset=utf-8'});

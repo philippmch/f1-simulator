@@ -13,7 +13,8 @@ from f1sim.cancellation import raise_if_cancelled
 from f1sim.models import Car, Driver, Tire, TireCompound, Track, Weather
 from f1sim.models._native import register_forecast_helpers
 from f1sim.models.tire import TIRE_COMPOUNDS
-from f1sim.simulation.control_schedule import validate_control_schedule
+from f1sim.simulation.abandonment import AbandonmentTireRule, CountbackHistory, RaceAbandonment
+from f1sim.simulation.control_schedule import has_abandonment_requests, validate_control_schedule
 from f1sim.simulation.custom_pit_strategy import (
     CustomPitFinishContext,
     choose_custom_pit_replacement,
@@ -89,6 +90,7 @@ class DriverStatus(str, Enum):
     RACING = "racing"
     FINISHED = "finished"
     DNF = "dnf"
+    NO_RESULT = "no_result"
 
 
 class TeamStrategyArchetype(str, Enum):
@@ -211,6 +213,8 @@ class RaceResult:
     overtake_successes: int | None = None
     overtake_contacts: int | None = None
     race_points_context: RacePointsContext | None = None
+    race_abandonment: RaceAbandonment | None = None
+    abandonment_tire_rule: AbandonmentTireRule | None = None
 
 
 def get_race_suspension_seconds(results: Iterable[RaceResult]) -> float | None:
@@ -320,6 +324,7 @@ class RaceSimulator(InventoryStrategyMixin):
         self.suspensions: list[tuple[float, float, tuple[str, ...]]] = []
         self.weather_history: list[dict] = []
         self.race_points_context: RacePointsContext | None = None
+        self.race_abandonment: RaceAbandonment | None = None
         self.weather_forecast_context = None
         driver_rng_kwargs = ({"driver_rng_factory": driver_rng_factory}
                              if driver_rng_factory is not None else {})
@@ -489,6 +494,7 @@ class RaceSimulator(InventoryStrategyMixin):
         # Reset event manager
         self.event_manager.reset()
         self.race_points_context = None
+        self.race_abandonment = None
         self.weather_history = []
         self.suspensions.clear()
 
@@ -565,6 +571,10 @@ class RaceSimulator(InventoryStrategyMixin):
 
         # Track fastest laps
         fastest_laps: dict[str, float] = {}
+        countback = CountbackHistory() if has_abandonment_requests(control_schedule) else None
+        if countback is not None:
+            for state in states:
+                countback.capture(state, 0., self._inventory_result_fields(state))
 
         # Simulate each lap
         finish_clock = RaceFinishClock(track.total_laps)
@@ -575,6 +585,8 @@ class RaceSimulator(InventoryStrategyMixin):
         pending_resume_time: float | None = None
         for lap in range(1, track.total_laps + 1):
             raise_if_cancelled()
+            racing_this_lap = {state.driver.id for state in states
+                               if state.status == DriverStatus.RACING}
             # A suspension is elapsed between completed crossings. Preserve a
             # scalar snapshot before exposing the common restart clock so a
             # retirement on the restart lap can roll back its uncompleted lap
@@ -906,6 +918,16 @@ class RaceSimulator(InventoryStrategyMixin):
             )
             consecutive_green_laps = 0 if lap_was_neutralized else consecutive_green_laps + 1
             has_two_green_laps |= consecutive_green_laps >= 2
+            if countback is not None:
+                observation_time = max((state.total_time for state in states
+                                        if state.status == DriverStatus.RACING), default=0.)
+                for state in states:
+                    if state.driver.id in racing_this_lap:
+                        countback.capture(
+                            state, fastest_laps.get(state.driver.id, 0.),
+                            self._inventory_result_fields(state),
+                            at=observation_time if state.status == DriverStatus.DNF else None,
+                        )
 
             # Preserve the final retirement lap's consequences, then stop.
             # Later scheduled laps cannot produce events with no running cars.
@@ -917,7 +939,12 @@ class RaceSimulator(InventoryStrategyMixin):
             leader = min((state for state in states if state.status == DriverStatus.RACING),
                          key=lambda state: state.position)
             final_lap = finish_clock.observe_leader_crossing(lap, leader.total_time)
+            if countback is not None:
+                countback.leading_crossing(leader.driver.id, lap, leader.total_time,
+                                           has_two_green_laps)
             if lap >= final_lap:
+                if red_flag_deployed_this_lap and control_schedule is not None:
+                    self.event_manager.cancel_terminal_scheduled_red_flag(lap)
                 break
 
             if red_flag_deployed_this_lap:
@@ -935,6 +962,18 @@ class RaceSimulator(InventoryStrategyMixin):
                     for state in sorted(active_states, key=lambda state: state.position)
                 )
                 self.suspensions.append((leader.total_time, resume, ordered_active_ids))
+                if self.event_manager.red_flag_action == "abandon":
+                    results, self.race_points_context, self.race_abandonment = countback.classify(
+                        scheduled_laps=track.total_laps, announcement_lap=lap,
+                        signal_leader_lap=lap + 1, signal_time=leader.total_time,
+                        decision_time=resume,
+                        suspension_seconds=finish_clock.total_suspension_seconds,
+                        used_compounds={state.driver.id: {
+                            compound.value for compound in self._actually_used_compounds(state)
+                        } for state in states},
+                    )
+                    self.event_manager.end_red_flag(resume=False)
+                    return results
 
                 # End red control before choosing the restart set. The restart
                 # lap consumes exactly one evolved weather snapshot; no

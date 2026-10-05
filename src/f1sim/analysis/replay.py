@@ -101,21 +101,21 @@ def _load_saved_runner(
     if not isinstance(inputs, dict):
         raise ValueError("simulation_inputs must be an object")
     version = inputs.get("schema_version")
-    if type(version) is not int or version not in range(1, 12):
+    if type(version) is not int or version not in range(1, 13):
         raise ValueError(
-            "Unsupported simulation input schema_version; expected 1 through 11",
+            "Unsupported simulation input schema_version; expected 1 through 12",
         )
     control_schedule = validate_control_schedule(inputs.get("control_schedule"))
     validate_control_schedule_snapshot(inputs, control_schedule)
     weather_schedule = []
-    if version == 8 or version in (9, 10, 11) and "weather_schedule" in inputs:
+    if version == 8 or version in (9, 10, 11, 12) and "weather_schedule" in inputs:
         weather_schedule = validate_weather_schedule(inputs.get("weather_schedule"))
         if not weather_schedule:
             raise ValueError(f"Schema {version} requires nonempty weather_schedule when present")
     elif "weather_schedule" in inputs:
         raise ValueError("Schemas 1-7 cannot contain weather_schedule")
     qualifying_weather = {}
-    if version in (7, 8, 9, 10, 11) and "qualifying_weather" in inputs:
+    if version in (7, 8, 9, 10, 11, 12) and "qualifying_weather" in inputs:
         qualifying_weather = validate_qualifying_weather(inputs.get("qualifying_weather"))
         if not qualifying_weather:
             raise ValueError(f"Schema {version} requires nonempty qualifying_weather when present")
@@ -124,7 +124,7 @@ def _load_saved_runner(
     elif "qualifying_weather" in inputs:
         raise ValueError("Schemas 1-6 cannot contain qualifying_weather")
     tire_warmup = {}
-    if version == 6 or (version in (7, 8, 9, 10, 11) and (
+    if version == 6 or (version in (7, 8, 9, 10, 11, 12) and (
         "tire_warmup" in inputs or "tire_warmup_policy" in inputs
     )):
         if inputs.get("tire_warmup_policy") != "post_fit_first_lap_v1":
