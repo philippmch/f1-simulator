@@ -29,6 +29,7 @@ from f1sim.simulation.strategy_lap import (
     control_relaxation_memo,
     control_wear_bound,
     isolated_strategy_lap,
+    memoized_control_envelope,
     memoized_control_lap,
 )
 from f1sim.simulation.strategy_neutralization import current_fitted_time, current_running_time
@@ -365,6 +366,29 @@ def _inventory_clock_surfaces(horizon, clock, warmup, max_paid_stops, *, native=
         rows[offset] = tuple(observations)
         max_fit_delay += max_fit_cost
     return rows
+
+
+def _inventory_surface_envelopes(rows, snapshots):
+    """Keep one representative per identical complete native weather snapshot.
+
+    These observations belong to an optimistic running bound, not to executable
+    clock states. Repeated snapshots have the same pace and eligibility. Keep
+    their first-observed order, including every distinct snapshot.
+    """
+    identities, representatives, signatures = {}, {}, {}
+    reduced, keys = {}, {}
+    for offset, observations in rows.items():
+        cancellation_checkpoint()
+        for update in observations:
+            if update not in representatives:
+                cancellation_checkpoint()
+                signature = snapshots[update]
+                signatures[update] = signature
+                representatives[update] = identities.setdefault(signature, update)
+        values = tuple(dict.fromkeys(representatives[update] for update in observations))
+        reduced[offset] = values
+        keys[offset] = tuple(signatures[update] for update in values)
+    return reduced, keys
 
 
 def _clock_inventory_strategy(
@@ -704,12 +728,14 @@ def _clock_inventory_strategy(
     critical_changes = 0
     last_change = 0
     last_surface = forecast_json(weather) if native_clock else None
+    surface_snapshots = [last_surface] if native_clock else None
     previous = {compound: critical_at(0, compound.value)
                 for compound in TireCompound}
     for update in range(1, weather_clock.max_updates + 1):
         cancellation_checkpoint()
         if native_clock:
             snapshot = forecast_json(projected_surface(update))
+            surface_snapshots.append(snapshot)
             if snapshot != last_surface:
                 last_change = update
             last_surface = snapshot
@@ -725,13 +751,24 @@ def _clock_inventory_strategy(
         max_paid_stops = horizon  # Usage expiry can compel one paid fit per own lap.
     clock_surfaces = _inventory_clock_surfaces(
         horizon, weather_clock, warmup, max_paid_stops, native=native_clock)
+    envelope_keys = None
+    if native_clock:
+        clock_surfaces, envelope_keys = _inventory_surface_envelopes(
+            clock_surfaces, surface_snapshots)
+    shared_envelopes = (shared_laps if current_lap_time_modifier == 1.
+                        and active_aero_enabled and safety_car is None else None)
 
     @lru_cache(maxsize=None)
     def lower_running(offset, compound, age):
-        return min(
-            run(offset, compound, age, update)
-            for update in clock_surfaces[offset]
-        )
+        def calculate():
+            return min(run(offset, compound, age, update)
+                       for update in clock_surfaces[offset])
+
+        if shared_envelopes is not None and envelope_keys is not None:
+            return memoized_control_envelope(
+                shared_envelopes, envelope_keys[offset], current_lap + offset,
+                compound, age, calculate)
+        return calculate()
 
     if native_clock:
         # Include every before/after-service clock allowed by the relaxation.
@@ -747,7 +784,9 @@ def _clock_inventory_strategy(
         if forecast_context is not None and not warmup:
             shared_services = None
             if (shared_laps is not None and horizon <= 100 and safety_car is None
-                    and current_lap_time_modifier == 1. and active_aero_enabled and gaps is None):
+                    and current_lap_time_modifier == 1. and active_aero_enabled):
+                # Fresh-service running has no first_kind, so its optimistic
+                # costs exclude current traffic. Executable fits keep that gap.
                 # Unlimited fresh service ignores physical pool, allowance
                 # and rule histories. Its weather observations and native
                 # physics remain exact; the initial retained tyre stays local.
@@ -766,8 +805,7 @@ def _clock_inventory_strategy(
             def build_fitting_bound():
                 shared_services = None
                 if (shared_laps is not None and safety_car is None
-                        and current_lap_time_modifier == 1. and active_aero_enabled
-                        and gaps is None):
+                        and current_lap_time_modifier == 1. and active_aero_enabled):
                     # Each fit widens future delay by the smallest/largest fee,
                     # independently of compound choice. Its first outlap sees
                     # the pre-fee surface. Retained sets preserve actual delay.
@@ -1129,7 +1167,7 @@ def plan_inventory_strategy(
     if native and forecast_context is not None:
         shared_services = None
         if (shared_laps is not None and horizon <= 100 and safety_car is None
-                and current_lap_time_modifier == 1. and active_aero_enabled and gaps is None):
+                and current_lap_time_modifier == 1. and active_aero_enabled):
             # The leading candidate supplies its own weather cadence. Only
             # fresh future service ignores the physical pool; retained wear,
             # usage expiry and executable suffix costs remain local.
@@ -1609,6 +1647,7 @@ register_forecast_helpers(globals(), (
     "StrategyWeatherClock", "observed_control_key", "native_physics",
     "_floor_tables", "forecast_json", "minimum_lap_time",
     "_inventory_clock_surfaces",
+    "_inventory_surface_envelopes", "memoized_control_envelope",
     "isolated_strategy_lap", "plan_controlled_weather", "usable_weather_control",
     "control_lap_memo", "memoized_control_lap", "control_wear_bound",
     "control_relaxation_memo", "_green_weather_clock_key",

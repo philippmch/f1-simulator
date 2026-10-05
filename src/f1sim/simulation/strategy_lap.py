@@ -4,11 +4,13 @@ from collections import OrderedDict
 from contextvars import ContextVar
 from functools import wraps
 
+from f1sim.cancellation import cancellation_checkpoint
 from f1sim.models._native import forecast_json, native_physics, register_forecast_helpers
 from f1sim.models.tire import TIRE_COMPOUNDS
 
 _CONTROL_LAPS = ContextVar("controlled_strategy_laps", default=None)
 _CONTROL_LAP_LIMIT = 65_536
+_CONTROL_ENVELOPE_LIMIT = 65_536
 _CONTROL_RELAXATION_LIMIT = 32
 
 
@@ -16,7 +18,7 @@ def control_lap_scope(function):
     """Share bounded scalar mean laps only within one field decision."""
     @wraps(function)
     def wrapped(*args, **kwargs):
-        token = _CONTROL_LAPS.set(({}, [0], {}, OrderedDict()))
+        token = _CONTROL_LAPS.set(({}, [0], {}, OrderedDict(), {}))
         try:
             return function(*args, **kwargs)
         finally:
@@ -34,7 +36,10 @@ def control_lap_memo(driver, car, track, physical_total_laps):
     memo = _CONTROL_LAPS.get()
     if memo is None or not native_physics(driver, car, track):
         return None
-    package = _control_lap_package(driver, car, track, physical_total_laps)
+    # Fuel follows the explicit original distance. A shorter planning horizon
+    # changes the search, but not the scalar physics at an absolute own lap.
+    physics_track = track.model_copy(update={"total_laps": physical_total_laps})
+    package = _control_lap_package(driver, car, physics_track, physical_total_laps)
     packages, count = memo[:2]
     return packages.setdefault(package, {}), packages, count
 
@@ -101,6 +106,28 @@ def memoized_control_lap(cache, prepared, tire, surface, lap, age, gap, aero):
     return memo[key]
 
 
+def memoized_control_envelope(cache, weather_key, lap, compound, age, calculate):
+    """Reuse an exact native running minimum over complete weather snapshots.
+
+    Callers admit green, aero-enabled running without fitting fees or traffic.
+    Physical stock and the field clock determine which snapshots are reachable;
+    the minimum itself depends only on those snapshots and the lap physics.
+    Only completed scalar values survive within this bounded decision scope.
+    """
+    cancellation_checkpoint()
+    scope = _CONTROL_LAPS.get()
+    if scope is None or cache is None:
+        return calculate()
+    envelopes = scope[4]
+    key = id(cache[0]), weather_key, lap, compound, age
+    if key not in envelopes:
+        value = calculate()
+        if len(envelopes) >= _CONTROL_ENVELOPE_LIMIT:
+            envelopes.clear()
+        envelopes[key] = value
+    return envelopes[key]
+
+
 def strategy_projection_models(driver, car, *models):
     """Normalize only native metadata that cannot participate in lap physics."""
     driver, car = driver.model_copy(deep=True), car.model_copy(deep=True)
@@ -127,4 +154,5 @@ register_forecast_helpers(globals(), (
     "control_lap_scope", "control_lap_memo", "memoized_control_lap", "forecast_json",
     "install_control_wear_bound", "control_wear_bound", "_control_lap_package",
     "control_relaxation_memo",
+    "memoized_control_envelope", "cancellation_checkpoint",
 ))

@@ -1749,7 +1749,10 @@ reachable paid-stop weather observations separate the tables. The retained
 tyre's actual age and expiry remain local. A 32-table LRU bounds reuse and resets
 after the decision, including cancellation. Timed fitting-fee tables keep the
 exact clock and normalized fee profile separate; current traffic or control
-adjustments retain independent calculations.
+adjustments remain in the executable first-lap calculation. Green relaxed
+fresh-service costs exclude the initial traffic gap, so different current gaps
+can reuse a table while actual wait and pit costs retain their own traffic.
+Control and disabled-aero adjustments retain independent calculations.
 Own-lap continuations keep their cumulative weather cadence and prescribed
 schedule and fitting profile in the key. Only newly fitted replacements pay the
 fee in this relaxation; ready retained sets keep their normal running cost.
@@ -1865,6 +1868,22 @@ each tyre age, fuel lap and exact weather-update count. Paid stops and fitting
 fees retain their delayed weather cadence; current traffic, control and aero
 adjustments still use the ordinary first-lap calculation. Every allowed future
 stop schedule remains in the search.
+
+For finite inventories on a native external weather clock, optimistic running
+bounds keep one representative of each identical complete weather snapshot.
+Distinct temperature, rainfall and other weather fields remain separate, and
+the first-observed order is retained. Only bound observations are folded;
+executable paid-stop clocks and physical set histories retain their exact states.
+The bound reuses complete snapshot keys already computed during the eligibility
+scan, avoiding a second serialization pass over projected weather.
+Green continuations within one controlled decision can also reuse these running
+minima. Their keys retain the exact native physics package, complete ordered
+weather snapshots, absolute own lap, compound and age. A shorter planning horizon
+can share scalar lap physics when the original physical fuel distance agrees;
+service tables still retain their separate search horizons and clocks. This
+decision-local cache holds at most 65,536 completed floats, checks cancellation
+on hits and resets after the decision or an exception. Custom models, changed
+helpers and custom clocks retain their existing dispatch path.
 
 Native future green-lap costs also share a process-local 65,536-entry LRU across
 decisions. Its keys contain the complete normalized driver, car and circuit
