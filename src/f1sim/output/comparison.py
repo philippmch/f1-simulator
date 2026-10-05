@@ -20,6 +20,7 @@ from f1sim.output.paired_context import (
     paired_exclusion_detail,
 )
 from f1sim.output.qualifying_context import qualifying_weather_context
+from f1sim.output.scoring_context import scoring_statistics_html
 from f1sim.output.timing import format_seconds, suspension_statistics
 from f1sim.output.warmup_context import warmup_context
 from f1sim.output.weather_schedule_context import weather_schedule_context
@@ -977,6 +978,7 @@ def render_comparison_report(
     context = []
     distance_rows = []
     suspension_rows = []
+    scoring_sections = []
     overtake_sections = []
     drivers = {}
     summaries = {}
@@ -985,6 +987,10 @@ def render_comparison_report(
         if reference_scenario is not None else None
     )
     for name, result in scenario_results.items():
+        scoring_sections.append(
+            f'<section><h3 class="scoring-scenario-heading">{_text(name)}</h3>'
+            + scoring_statistics_html(result) + '</section>'
+        )
         context.append("<tr>" + f'<th scope="row">{_text(name)}</th>' + "".join(
             f"<td>{_text(value)}</td>" for value in (
                 result.track_name, result.race_engine, result.num_simulations,
@@ -1188,7 +1194,7 @@ summary:hover { color: #9cbbff; }
 .paired-cost-note { font-size: .875rem; }
 .paired-constructor-note { font-size: .875rem; }
 .paired-constructor { margin: 12px 0 20px; }
-.overtake-scenario-heading { overflow-wrap: anywhere; }
+.overtake-scenario-heading, .scoring-scenario-heading { overflow-wrap: anywhere; }
 .joint-count { white-space: normal; }
 </style></head><body><main><h1>Simulation comparison</h1>
 <p>Scenarios appear in supplied order. Check their context and saved inputs when
@@ -1232,7 +1238,11 @@ compares only finishers whose distance and winner's distance are both known.</p>
 <th scope="col">Lapped finishers</th><th scope="col">Races without a winner</th>
 </tr></thead><tbody>""" + (
         "".join(distance_rows) or '<tr><td colspan="6">No scenarios recorded</td></tr>'
-    ) + """</tbody></table></div><h2>Driver outcomes</h2>
+    ) + """</tbody></table></div><h2>Race points</h2>
+<p>Counts use races with recorded scoring inputs. Unknown races do not establish
+full, reduced or zero points eligibility.</p>""" + (
+        "".join(scoring_sections) or '<p>Not recorded.</p>'
+    ) + """<h2>Driver outcomes</h2>
 <p>Rates and mean points use observed trials, including retirements. Paid stops
 exclude free tyre changes and show their own recorded-race counts. Mean paid-stop
 loss uses only races with complete stop details, including recorded zero-stop

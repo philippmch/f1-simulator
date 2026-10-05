@@ -10,6 +10,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const { checkControlNavigation } = require('./browser_control_navigation.cjs');
 const { checkPitWindows } = require('./browser_pit_windows.cjs');
 const { checkControlSchedules } = require('./browser_control_schedules.cjs');
+const { checkScoringEvidence } = require('./browser_scoring_evidence.cjs');
 
 (async () => {
   const offline = process.env.F1SIM_OFFLINE === '1';
@@ -1390,6 +1391,7 @@ const { checkControlSchedules } = require('./browser_control_schedules.cjs');
       delete window.savedDistance;
       renderStats();
     });
+    await checkScoringEvidence(page);
     // Explicit classified and unclassified retirements must remain distinct.
     await page.locator('#tab-race').click();
     for (const row of Object.values(payload.scenarios)[0].sample_race) {

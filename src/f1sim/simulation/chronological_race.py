@@ -51,7 +51,7 @@ from f1sim.simulation.pit_plans import (
 from f1sim.simulation.pit_service import expected_remaining_service
 from f1sim.simulation.pit_strategy import expected_stationary_time
 from f1sim.simulation.race import DriverRaceState, DriverStatus, RaceResult
-from f1sim.simulation.race_points import points_for_classification
+from f1sim.simulation.race_points import RacePointsContext, points_for_classification
 from f1sim.simulation.race_timing import (
     RaceFinishTimeline,
     forecast_final_lap,
@@ -171,6 +171,7 @@ class ChronologicalRace:
         self.track = track
         self.weather = weather.model_copy(deep=True)
         self.simulator.event_manager.reset()
+        self.simulator.race_points_context = None
         self.simulator.weather_history = []
         for driver in drivers:
             driver.reset_race_state()
@@ -231,6 +232,7 @@ class ChronologicalRace:
         self.control_intervals = 0
         self._overtake_restart_waiting.clear()
         self.green_streak = 0
+        self._last_green_lap = None
         self.has_two_green = False
         self.crossings.clear()
         self.pit_exits.clear()
@@ -1766,7 +1768,15 @@ class ChronologicalRace:
             started_neutralized=(pending.neutralized or before_control
                                  or getattr(pending, "saw_neutralization", False)),
         )
-        self.green_streak = 0 if neutral else self.green_streak + 1
+        if neutral:
+            self.green_streak = 0
+            self._last_green_lap = None
+        else:
+            # A lapped successor can repeat a previously credited distance.
+            # These overlapping own laps are not a consecutive green pair.
+            consecutive = getattr(self, "_last_green_lap", None) == pending.lap - 1
+            self.green_streak = self.green_streak + 1 if consecutive else 1
+            self._last_green_lap = pending.lap
         self.has_two_green |= self.green_streak >= 2
         return any(event.event_type == EventType.RED_FLAG for event in events)
 
@@ -1786,6 +1796,9 @@ class ChronologicalRace:
     def _results(self):
         winner = self.states.get(self.timeline.winner_id)
         winner_laps = winner.laps_completed if winner else 0
+        self.simulator.race_points_context = RacePointsContext(
+            self.track.total_laps, winner_laps if winner else None, self.has_two_green,
+        )
         ordered = sorted(self.states.values(), key=lambda state: (
             state.driver.id != self.timeline.winner_id,
             -state.laps_completed, state.total_time, state.position,
@@ -1811,6 +1824,7 @@ class ChronologicalRace:
                 points_awarded=points_for_classification(
                     position, classified, winner_laps, self.track.total_laps, self.has_two_green,
                 ),
+                race_points_context=self.simulator.race_points_context,
                 race_suspension_seconds=self.timeline.total_suspension_seconds,
                 pit_plan_history=finalize_pit_plan(
                     state,

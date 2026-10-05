@@ -58,7 +58,11 @@ from f1sim.simulation.execution import (
 )
 from f1sim.simulation.qualifying_weather import validate_qualifying_weather
 from f1sim.simulation.race import get_race_suspension_seconds, result_is_classified
-from f1sim.simulation.race_points import points_for_result
+from f1sim.simulation.race_points import (
+    POINTS_REASON_LABELS,
+    points_for_result,
+    points_reason_for_result,
+)
 from f1sim.simulation.randomness import DEFAULT_RNG_POLICY, validate_rng_policy
 from f1sim.simulation.tire_inventory import validate_tire_inventory
 from f1sim.simulation.warmup import validate_tire_warmup
@@ -301,6 +305,7 @@ def _serialize_weather(weather: Weather) -> dict[str, Any]:
 
 def _serialize_race_result(result: Any) -> dict[str, Any]:
     """Serialize one race result row."""
+    reason = points_reason_for_result(result)
     return {
         "driver_id": result.driver_id,
         "driver_name": result.driver_name,
@@ -328,6 +333,8 @@ def _serialize_race_result(result: Any) -> dict[str, Any]:
         "classified": result_is_classified(result),
         "race_time_limited": getattr(result, "race_time_limited", False),
         "points_awarded": points_for_result(result),
+        "points_reason": reason,
+        "points_explanation": POINTS_REASON_LABELS.get(reason),
         "dnf_reason": result.dnf_reason,
         "strategy": list(result.strategy),
         "pit_plan_history": (
@@ -565,6 +572,9 @@ def _summarize_scenario_results(
             "race_distance_statistics": _safe_call(
                 results, "get_race_distance_statistics", default={},
             ) or {},
+            "race_scoring_statistics": _safe_call(
+                results, "get_race_scoring_statistics", default=None,
+            ),
             "overtaking_statistics": _safe_call(
                 results, "get_overtake_statistics", default={},
             ) or {},
@@ -612,6 +622,9 @@ def _summarize_scenario_results(
             else None,
             "sample_index": sample_index,
             "sample_race": _serialize_sample_race(results, sample_index),
+            "sample_race_scoring_context": _safe_call(
+                results, "get_race_scoring_context", sample_index, default=None,
+            ),
             "sample_race_suspension_seconds": get_race_suspension_seconds(
                 getattr(results, "race_results", [])[min(
                     max(sample_index, 0), len(getattr(results, "race_results", [])) - 1

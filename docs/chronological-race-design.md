@@ -271,6 +271,12 @@ that exposure even when control clears before pit exit or a lapped survivor's
 leading crossing. This does not change captured physics, recharge or crossing
 times. A scheduled SC/VSC announcement after the leading crossing preserves
 the completed leader's green credit while affecting other unfinished laps.
+Consecutive credit also requires consecutive completed lap numbers: a lapped
+successor repeating lap one cannot count the same distance twice. A green pair
+may span different leaders and remains valid once earned. Shared weather and
+control intervals keep their existing cadence. Result rows share immutable
+[scoring evidence](race-classification.md#recorded-scoring-evidence) independently
+of each car's own completed distance.
 
 Full safety-car catch-up closes gaps through future running time, preserving
 every previous crossing and pit exit. Followers use the queue leader's neutralized

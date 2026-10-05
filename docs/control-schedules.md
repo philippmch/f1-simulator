@@ -61,6 +61,11 @@ In the chronological engine, the shared race-control count keeps increasing
 if a lapped survivor inherits the lead. It does not replay the retired leader's
 old control intervals. This is the existing simplified control cadence, rather
 than sector or pit-lane Control Line geometry.
+Points eligibility separately requires consecutive completed leader lap
+numbers. A successor repeating the retired leader's lap one cannot count that
+distance twice; a previously completed green pair remains valid. The recorded
+[scoring context](race-classification.md#recorded-scoring-evidence) explains
+whether that race used full, reduced or zero points.
 
 Opening and in-race forecasts receive current observed control only. They
 cannot see a future SC/VSC request. This differs from a

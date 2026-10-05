@@ -45,7 +45,11 @@ from f1sim.simulation.race import (
     result_is_classified,
 )
 from f1sim.simulation.race_points import POINTS_SYSTEM as POINTS_SYSTEM
-from f1sim.simulation.race_points import points_for_result
+from f1sim.simulation.race_points import (
+    points_for_result,
+    race_scoring_context,
+    scoring_context_summary,
+)
 from f1sim.simulation.randomness import (
     DEFAULT_RNG_POLICY,
     driver_rng_factory_for_trial,
@@ -291,6 +295,44 @@ class SimulationResults:
     input_snapshot: dict | None = None
     weather_histories: list[list[dict]] = field(default_factory=list)
     control_schedule_histories: list[list[dict] | None] | None = None
+    race_points_contexts: list[dict | None] | None = None
+
+    def get_race_scoring_context(self, index: int = 0) -> dict | None:
+        """Describe a recorded trial without guessing from its finishing places."""
+        if (not isinstance(index, Integral) or isinstance(index, bool)
+                or not 0 <= index < len(self.race_results)):
+            return None
+        contexts = self.race_points_contexts
+        recorded = (contexts[index] if isinstance(contexts, list) and index < len(contexts)
+                    else None)
+        return race_scoring_context(self.race_results[index], recorded)
+
+    def get_race_scoring_contexts(self) -> list[dict | None]:
+        """Return one verified scoring context per actually recorded race."""
+        return [self.get_race_scoring_context(index) for index in range(len(self.race_results))]
+
+    def get_race_scoring_statistics(self) -> dict:
+        """Count full, reduced and zero schedules using recorded-evidence denominators."""
+        full = reduced = zero = 0
+        reasons = {"no_winner": 0, "fewer_than_two_laps": 0, "no_green_pair": 0}
+        contexts = self.get_race_scoring_contexts()
+        known = [context for context in contexts if context is not None]
+        for context in known:
+            reason = context["ineligibility_reason"]
+            if reason is not None:
+                zero += 1
+                reasons[reason] += 1
+            elif context["distance_band"] == "75_percent_or_more":
+                full += 1
+            else:
+                reduced += 1
+        return {
+            "recorded_races": len(contexts), "races_with_scoring_evidence": len(known),
+            "races_without_scoring_evidence": len(contexts) - len(known),
+            "full_points_races": full, "reduced_points_races": reduced,
+            "zero_points_races": zero, "zero_points_reasons": reasons,
+            "zero_points_race_rate": zero / len(known) if known else None,
+        }
 
     def get_control_schedule_statistics(self) -> dict:
         """Describe assumptions separately from complete recorded execution evidence."""
@@ -1218,6 +1260,9 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
         )]),
         "mechanical_failure_breakdown": dict(mech_breakdown),
         "weather_history": race_sim.weather_history,
+        "race_points_context": scoring_context_summary(
+            getattr(race_sim, "race_points_context", None),
+        ),
     }
     if control_schedule is not None:
         event_counts["control_schedule_history"] = (
@@ -1502,6 +1547,7 @@ class MonteCarloRunner:
                 [counts.get("control_schedule_history") for counts in all_event_counts]
                 if control_schedule is not None else None
             ),
+            race_points_contexts=[counts.get("race_points_context") for counts in all_event_counts],
         )
 
     def _aggregate_statistics(

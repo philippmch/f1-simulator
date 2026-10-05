@@ -228,6 +228,12 @@ def test_worker_counts_contact_once_and_race_control_follows_it(monkeypatch):
         Weather(change_probability=0).model_dump(), 42,
     ))
     assert counts.pop("weather_history") == captured[0].weather_history
+    assert counts.pop("race_points_context") == {
+        "policy": "race_distance_points_2026_v1", "scheduled_laps": 2, "winner_laps": 2,
+        "has_two_green_laps": False, "distance_band": "75_percent_or_more",
+        "points_eligible": False, "ineligibility_reason": "no_green_pair", "winner_points": 0,
+        "description": "No points: two consecutive complete green laps were not recorded.",
+    }
     assert counts == {"incidents": 1, "safety_car": 1, "vsc": 0, "red_flag": 0,
                       "mechanical_failure_breakdown": {}}
     assert [event.event_type for event in captured[0].event_manager.events] == [

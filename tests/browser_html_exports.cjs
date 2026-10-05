@@ -107,7 +107,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     assert.deepEqual(await page.evaluate(() => plotCalls.map(call => call.data[0].x)),
       [[fixture.driver], [fixture.team]]);
     assert.equal(await page.evaluate(() => Boolean(globalThis.exportInjected)), false);
+    assert((await page.locator('#race-scoring').innerText()).includes('Not recorded'));
     await page.goto('http://f1sim.test/comparison.html');
+    assert.equal(await page.getByRole('heading', {name: 'Race points', exact: true}).count(), 1);
     assert((await page.locator('body').innerText()).includes('soft@5'));
     assert((await page.locator('body').innerText()).includes('5 / 4 / 0'));
     assert((await page.locator('body').innerText()).includes(fixture.driver));

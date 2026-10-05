@@ -887,6 +887,7 @@ input:focus-visible {
 .status.finished { color: var(--accent-green); }
 .status.dnf-status { color: var(--f1-red); }
 .classification-note { display: block; color: var(--text-secondary); font-size: 0.6rem; }
+.points-explanation, .race-scoring-note { overflow-wrap: anywhere; }
 
 /* ── Column Headers ── */
 .timing-header {
@@ -5514,6 +5515,31 @@ function renderPitDecisionStatistics(statistics) {
     }).join('')}`;
 }
 
+function renderRaceScoring(scenario) {
+  const context = scenario.sample_race_scoring_context;
+  const recorded = context && context.policy === 'race_distance_points_2026_v1'
+    && Number.isInteger(context.scheduled_laps) && context.scheduled_laps > 0
+    && (context.winner_laps === null || (Number.isInteger(context.winner_laps)
+      && context.winner_laps > 0 && context.winner_laps <= context.scheduled_laps))
+    && typeof context.has_two_green_laps === 'boolean'
+    && typeof context.points_eligible === 'boolean'
+    && typeof context.description === 'string';
+  const description = recorded
+    ? context.description : 'Race scoring evidence: Not recorded.';
+  const stats = scenario.race_scoring_statistics;
+  const fields = ['recorded_races', 'races_with_scoring_evidence', 'races_without_scoring_evidence',
+    'full_points_races', 'reduced_points_races', 'zero_points_races'];
+  const valid = stats && fields.every(key => Number.isInteger(stats[key]) && stats[key] >= 0)
+    && stats.full_points_races + stats.reduced_points_races + stats.zero_points_races
+      === stats.races_with_scoring_evidence
+    && stats.races_with_scoring_evidence + stats.races_without_scoring_evidence
+      === stats.recorded_races;
+  const coverage = valid
+    ? `Scoring evidence: ${stats.races_with_scoring_evidence} of ${stats.recorded_races} recorded races; ${stats.races_without_scoring_evidence} unknown. Full points: ${stats.full_points_races}; reduced points: ${stats.reduced_points_races}; no points: ${stats.zero_points_races}.`
+    : '';
+  return `<div class="inline-note race-scoring-note" role="note">${escapeHtml(description)}${coverage ? `<div>${escapeHtml(coverage)}</div>` : ''}</div>`;
+}
+
 function renderRace() {
   const container = document.getElementById('raceContent');
   const empty = document.getElementById('emptyRace');
@@ -5539,7 +5565,7 @@ function renderRace() {
   container.style.display = 'block';
 
   if (!race.length) {
-    container.innerHTML = '<div class="inline-note">The backend did not return a sample race for this run.</div>';
+    container.innerHTML = '<div class="inline-note">The backend did not return a sample race for this run.</div>' + renderRaceScoring(scenario);
     return;
   }
 
@@ -5583,6 +5609,7 @@ function renderRace() {
       </div>
     </div>
     ${timeLimited ? '<div class="inline-note time-limit-note" role="note">Race shortened by the two-hour limit. Points reflect completed distance and green running.</div>' : ''}
+    ${renderRaceScoring(scenario)}
     ${renderWeatherHistory(scenario)}
     ${renderControlScheduleEvidence(scenario)}
     ${renderStrategyComparison(name)}
@@ -5629,7 +5656,8 @@ function renderRace() {
           ${finished ? 'Finished' : 'Retired'}
           ${finished && classified ? '' : `<span class="classification-note">${classified ? 'Classified' : 'Not classified'}</span>`}
           ${Number.isInteger(result.laps_completed) ? `<span class="classification-note">${result.laps_completed} laps</span>` : ''}
-          ${Number.isFinite(result.points_awarded) ? `<span class="classification-note">${result.points_awarded} pts</span>` : ''}
+          ${Number.isFinite(result.points_awarded) ? `<span class="classification-note points-awarded" title="${escapeHtml(result.points_explanation || 'Scoring reason not recorded')}">${result.points_awarded} pts</span>` : ''}
+          ${result.points_awarded === 0 && typeof result.points_explanation === 'string' ? `<span class="classification-note points-explanation">${escapeHtml(result.points_explanation)}</span>` : ''}
         </div>
       </div>
     `;

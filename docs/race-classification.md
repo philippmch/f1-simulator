@@ -65,7 +65,7 @@ describe Monte Carlo sampling noise, not accuracy against a real race outcome.
 The leader's modeled racing clock is checked after each completed lap. Once it
 reaches two hours, the following lap becomes the final lap, capped by the
 scheduled distance. This follows B2.5.3(a) of the [2026 Sporting Regulations,
-Issue 08](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_b_sporting_-_iss_08_-_2026-08-05_7.pdf).
+Issue 09](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_b_sporting_-_iss_09_-_2026-10-01.pdf).
 Pit decisions and free restart tyre choices anticipate a shorter horizon from
 the leader's elapsed clock and observed running pace, then obey the actual
 final-lap announcement once it occurs. This estimate never declares the finish;
@@ -91,6 +91,42 @@ valid. A classified retirement can earn points, while a scoring
 finish probability counts positive awards rather than merely a top-ten place.
 Legacy result objects without an explicit points award retain the previous
 classification-based full-points fallback.
+
+Consecutive green credit follows completed leader lap numbers, independently
+of the shared control clock. If A completes lap one and retires before lap two,
+a lapped successor completing its own lap one has not established a two-lap
+pair. Consecutive laps one and two may be completed by different leaders, and
+a pair already completed before a retirement remains valid.
+
+## Recorded scoring evidence
+
+Each native race records a shared, immutable `race_points_context` on its result
+rows: `scheduled_laps`, `winner_laps` (null without a finishing winner),
+`has_two_green_laps`, and policy `race_distance_points_2026_v1`. This is evidence
+of the lap model's scoring decision, not a claim to implement abandoned-race
+regulations. Reusing a simulator replaces the context without changing old rows;
+an empty usable grid records a no-winner outcome on the simulator itself.
+
+Monte Carlo results retain one context per observed trial, including an empty
+race. JSON statistics and comparison exports include `race_scoring_contexts`
+and `race_scoring_statistics`. Full, reduced and zero-point counts use only
+consistent recorded evidence; coverage counts observed races, not the requested
+trial count. `zero_points_race_rate` is a fraction over races with known scoring
+evidence, and is null when that denominator is zero.
+
+The dashboard shows the representative race's scoring explanation and coverage
+across recorded trials. API rows expose nullable `points_reason` and
+`points_explanation`; reasons distinguish full or reduced schedules,
+insufficient laps, missing green pairs, no winner, unclassified cars, and
+positions outside the applicable points schedule. Console and HTML reports
+display scoring evidence separately from finish probabilities. CSV appends
+`race_points_policy`, `scheduled_laps`, `winner_laps`, `has_two_green_laps` and
+`points_reason` when any trial has known scoring evidence; unknown trials have
+blank cells. CSV files containing only legacy rows retain their existing columns.
+
+Missing or malformed contexts, inconsistent awards, and mismatched winner
+distances remain unknown. Legacy numeric points keep their previous fallback;
+they do not establish full-points eligibility or explain an explicit zero award.
 
 ## Limits
 

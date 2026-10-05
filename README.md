@@ -62,6 +62,9 @@ For explicit first-lap-after-fitting assumptions, see
 It is disabled by default and is not calibrated tyre-temperature physics.
 
 Retirements retain completed distance and can still qualify for points under the rounded 90% classification threshold; see [classification conventions and limits](docs/race-classification.md).
+The dashboard, console and exports explain recorded full, reduced or zero-point
+eligibility and keep missing legacy scoring evidence visible as unknown; see
+[recorded scoring evidence](docs/race-classification.md#recorded-scoring-evidence).
 
 Both engines apply driver consistency and wet skill to relative random-incident
 risk. Lap-aware execution allocates the active field's risk to each car's own

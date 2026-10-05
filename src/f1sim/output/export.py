@@ -12,6 +12,7 @@ from uuid import uuid4
 from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.output.control_schedule_context import control_schedule_statistics_html
 from f1sim.output.qualifying_context import qualifying_weather_context
+from f1sim.output.scoring_context import scoring_statistics_html
 from f1sim.output.timing import (
     csv_time,
     format_seconds,
@@ -22,7 +23,11 @@ from f1sim.output.warmup_context import warmup_context
 from f1sim.output.weather_schedule_context import weather_schedule_context
 from f1sim.simulation.control_schedule import validate_control_schedule_history
 from f1sim.simulation.race import result_is_classified
-from f1sim.simulation.race_points import points_for_result
+from f1sim.simulation.race_points import (
+    points_for_result,
+    points_reason_for_result,
+    race_scoring_context,
+)
 
 
 class Exporter:
@@ -181,6 +186,15 @@ class Exporter:
             for race in results.race_results for row in race
         ) else []
 
+        getter = getattr(results, "get_race_scoring_context", None)
+        scoring_contexts = [
+            getter(index) if callable(getter) else race_scoring_context(race)
+            for index, race in enumerate(results.race_results)
+        ]
+        scoring_fields = (["race_points_policy", "scheduled_laps", "winner_laps",
+                           "has_two_green_laps", "points_reason"]
+                          if any(context is not None for context in scoring_contexts) else [])
+
         with open(filepath, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow([
@@ -191,10 +205,12 @@ class Exporter:
                 "pit_laps", "race_time_limited", "points_awarded",
                 "overtake_attempts", "overtake_successes", "overtake_contacts",
                 *inventory_fields, *plan_field,
+                *scoring_fields,
             ])
 
             for sim_idx, race_results in enumerate(results.race_results, 1):
                 suspension = race_suspension_seconds(race_results)
+                context = scoring_contexts[sim_idx - 1]
                 for result in race_results:
                     writer.writerow([
                         sim_idx,
@@ -225,6 +241,13 @@ class Exporter:
                         *(json.dumps(getattr(result, "pit_plan_history"))
                           if plan_field and getattr(result, "pit_plan_history", None) is not None
                           else "" for _ in plan_field),
+                        *([
+                            context["policy"] if context else "",
+                            context["scheduled_laps"] if context else "",
+                            context["winner_laps"] if context else "",
+                            str(context["has_two_green_laps"]).lower() if context else "",
+                            points_reason_for_result(result) if context else "",
+                        ] if scoring_fields else []),
                     ])
 
         return filepath
@@ -430,6 +453,8 @@ class Exporter:
             "weather_histories": results.weather_histories,
             "control_schedule_histories": results.control_schedule_histories,
             "control_schedule_statistics": results.get_control_schedule_statistics(),
+            "race_scoring_contexts": results.get_race_scoring_contexts(),
+            "race_scoring_statistics": results.get_race_scoring_statistics(),
             "pit_stop_details": self._pit_stop_details(results),
             "tire_set_ledgers": self._tire_set_ledgers(results),
             "pit_plan_histories": self._pit_plan_histories(results),
@@ -550,6 +575,8 @@ class Exporter:
                 "weather_histories": results.weather_histories,
                 "control_schedule_histories": results.control_schedule_histories,
                 "control_schedule_statistics": results.get_control_schedule_statistics(),
+                "race_scoring_contexts": results.get_race_scoring_contexts(),
+                "race_scoring_statistics": results.get_race_scoring_statistics(),
                 "pit_stop_details": self._pit_stop_details(results),
                 "tire_set_ledgers": self._tire_set_ledgers(results),
                 "pit_plan_histories": self._pit_plan_histories(results),
@@ -656,6 +683,7 @@ class Exporter:
         schedule_text = escape(weather_schedule_context(results.input_snapshot))
         schedule_html = f"<p>{schedule_text}</p>" if schedule_text else ""
         control_html = control_schedule_statistics_html(results)
+        scoring_html = scoring_statistics_html(results)
         pit_plan_text = escape(_pit_plans(results))
         pit_plan_statistics = _pit_plan_statistics_html(results, "run")
         pit_plan_history = _pit_plan_history_html(results, "run")
@@ -749,6 +777,11 @@ class Exporter:
     {escape(json.dumps((results.input_snapshot or {}).get('tire_inventory', {})))}
   </div>
   <div class=\"grid\">
+    <div class="card" id="race-scoring"><h2>Race points</h2>
+      {scoring_html}
+      <p>Points depend on the winner's completed distance and two consecutive complete
+      green leader laps. Unknown scoring evidence does not enter these counts.</p>
+    </div>
     <div class=\"card\" id=\"race-distance\"><h2>Race distance</h2>
       <p>Mean winning distance: {escape(winning_distance)}</p>
       <p>Lapped finishers: {escape(lapped)}</p>

@@ -53,7 +53,7 @@ from f1sim.simulation.pit_plans import (
     validate_pit_plans,
 )
 from f1sim.simulation.pit_strategy import expected_stationary_time, plan_dry_stop
-from f1sim.simulation.race_points import points_for_classification
+from f1sim.simulation.race_points import RacePointsContext, points_for_classification
 from f1sim.simulation.race_timing import RaceFinishClock, forecast_final_lap
 from f1sim.simulation.rain_strategy import RainStopDecision, plan_rain_stop, plan_rain_transition
 from f1sim.simulation.randomness import DriverRngFactory, MechanicalRngFactory
@@ -210,6 +210,7 @@ class RaceResult:
     overtake_attempts: int | None = None
     overtake_successes: int | None = None
     overtake_contacts: int | None = None
+    race_points_context: RacePointsContext | None = None
 
 
 def get_race_suspension_seconds(results: Iterable[RaceResult]) -> float | None:
@@ -318,6 +319,7 @@ class RaceSimulator(InventoryStrategyMixin):
         self.tire_warmup = validate_tire_warmup(tire_warmup)
         self.suspensions: list[tuple[float, float, tuple[str, ...]]] = []
         self.weather_history: list[dict] = []
+        self.race_points_context: RacePointsContext | None = None
         self.weather_forecast_context = None
         driver_rng_kwargs = ({"driver_rng_factory": driver_rng_factory}
                              if driver_rng_factory is not None else {})
@@ -486,6 +488,7 @@ class RaceSimulator(InventoryStrategyMixin):
 
         # Reset event manager
         self.event_manager.reset()
+        self.race_points_context = None
         self.weather_history = []
         self.suspensions.clear()
 
@@ -557,6 +560,7 @@ class RaceSimulator(InventoryStrategyMixin):
 
         # An empty or unusable grid has no racing laps or race-control events.
         if not states:
+            self.race_points_context = RacePointsContext(track.total_laps, None, False)
             return []
 
         # Track fastest laps
@@ -985,6 +989,9 @@ class RaceSimulator(InventoryStrategyMixin):
         )
         # Integer arithmetic implements the 90% threshold rounded down.
         classification_minimum = winner_laps * 9 // 10 if winner_laps is not None else None
+        self.race_points_context = RacePointsContext(
+            track.total_laps, winner_laps, has_two_green_laps,
+        )
         results = []
         for state in sorted_states:
             # Emit the compounds actually used by this state, including
@@ -1020,6 +1027,7 @@ class RaceSimulator(InventoryStrategyMixin):
                         state.position, classified, winner_laps or 0, track.total_laps,
                         has_two_green_laps,
                     ),
+                    race_points_context=self.race_points_context,
                     race_suspension_seconds=finish_clock.total_suspension_seconds,
                     pit_plan_history=finalize_pit_plan(
                         state,

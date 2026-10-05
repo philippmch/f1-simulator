@@ -15,6 +15,7 @@ from f1sim.output.paired_context import (
     paired_exclusion_detail,
 )
 from f1sim.output.qualifying_context import qualifying_weather_context
+from f1sim.output.scoring_context import scoring_statistics_text
 from f1sim.output.timing import (
     finite_time,
     format_lap_deficit,
@@ -27,7 +28,7 @@ from f1sim.output.weather_schedule_context import weather_schedule_context
 from f1sim.simulation.pit_plans import format_pit_plan_instruction
 from f1sim.simulation.qualifying import QualifyingResult
 from f1sim.simulation.race import RaceResult, result_is_classified
-from f1sim.simulation.race_points import points_for_result
+from f1sim.simulation.race_points import points_for_result, race_scoring_context
 
 
 def _constructor_summary_lines(constructor_statistics: object, driver_id: str | None) -> list[str]:
@@ -343,6 +344,8 @@ class ConsoleOutput:
         """
         print("\n" + "=" * 70)
         print("RACE RESULTS")
+        context = race_scoring_context(results)
+        print(context["description"] if context else "Race scoring evidence: Not recorded.")
         suspension = race_suspension_seconds(results)
         print(f"Completed race suspension: {format_seconds(suspension)}")
         print("Race-wide collection + restart pause; this elapsed-race context is "
@@ -408,6 +411,7 @@ class ConsoleOutput:
         print("\n" + "=" * 80)
         print(f"MONTE CARLO SIMULATION RESULTS - {results.track_name}")
         print(f"({results.num_simulations} simulations)")
+        print(scoring_statistics_text(results))
         if context := warmup_context(results.input_snapshot):
             print(context)
         if context := qualifying_weather_context(results.input_snapshot):
@@ -660,6 +664,7 @@ class ConsoleOutput:
         print("SCENARIO COMPARISON (WIN PROBABILITIES)")
         print("All scenario entrants; -- means no recorded results for that driver.")
         for label, result in scenario_results.items():
+            print(f"{label}: {scoring_statistics_text(result)}")
             if context := qualifying_weather_context(result.input_snapshot):
                 print(f"{label}: {context}")
             if context := weather_schedule_context(result.input_snapshot):
