@@ -103,9 +103,13 @@ fixed plans retain their earlier input schemas and history shape. Windows work
 with the standard and chronological engines, finite physical sets, warmup,
 qualifying weather and prescribed race rainfall.
 An explicit [SC/VSC scenario schedule](control-schedules.md) uses schema 11,
-or schema 12 if it contains red-flag decisions,
+schema 12 if it contains ordinary red-flag decisions, or schema 13 for
+[compulsory full-wet resumption](wet-resumptions.md),
 retaining this window policy. It can provide repeatable observed opportunities;
 the tyre forecasts do not know future control announcements.
+A non-wet instruction due during compulsory-wet running is overridden with
+`mandatory_wet_tires` without a paid fit. An early non-wet window preserves its
+later deadline until ordinary compound choice becomes available again.
 
 ## Opening tyres and forecasts
 

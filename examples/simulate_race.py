@@ -275,7 +275,8 @@ def main() -> int:
     parser.add_argument(
         "--control-schedule", type=_control_schedule,
         help="Assumed SC/VSC announcements after leading crossings: 12:sc:4,26:vsc:2. "
-             "Red flags: 12:red:resume or 12:red:abandon (historical countback). "
+             "Red flags: 12:red:resume, 12:red:resume_wet (compulsory full wets), "
+             "or 12:red:abandon (historical countback). "
              "Use none to disable random SC/VSC; omit for automatic race control. "
              "Future announcements are unknown to strategy; red flags retain priority.",
     )

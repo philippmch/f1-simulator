@@ -29,7 +29,7 @@ from f1sim.simulation.abandonment import race_abandonment_context, serialize_aba
 from f1sim.simulation.chronological_race import ChronologicalRace
 from f1sim.simulation.control_schedule import (
     control_schedule_policy,
-    has_red_flag_requests,
+    control_schedule_schema_version,
     validate_control_schedule,
 )
 from f1sim.simulation.events import EventType
@@ -75,6 +75,7 @@ _PIT_DECISION_REASONS = frozenset({
     "forced_repair", "critical_weather", "weather_reaction", "compound_requirement",
     "dry_forecast", "rain_forecast", "inventory_forecast", "neutralization_window",
     "planned_window", "user_plan", "tyre_usage_limit",
+    "mandatory_wet_tires",
 })
 
 
@@ -1467,8 +1468,8 @@ class MonteCarloRunner:
         track_data = self.track.model_dump()
         weather_data = self.weather.model_dump()
         input_snapshot = {
-            "schema_version": (12 if has_red_flag_requests(control_schedule)
-                               else 11 if control_schedule is not None
+            "schema_version": (control_schedule_schema_version(control_schedule)
+                               if control_schedule is not None
                                else 10 if has_pit_plan_windows(pit_plans)
                                else 9 if has_tire_usage_limits(inventory)
                                else 8 if weather_schedule else 7 if qualifying_weather

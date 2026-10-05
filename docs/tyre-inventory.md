@@ -79,6 +79,10 @@ stops left or an empty custom plan. A compulsory expiry stop is recorded as
 `tyre_usage_limit`; it remains a paid visit and reduces remaining elective stop
 budgets. Free red-flag changes still require usable stock. If no suitable set
 remains, the existing exhausted-pool DNF applies before service or running.
+An explicit [compulsory full-wet resumption](wet-resumptions.md) requires a
+usable full-wet set even on a dry surface. Reused sets retain wear and allowance;
+the counted SC lap consumes one allowance lap. Missing or exhausted wets cause
+a DNF before restart running, without inventing stock or sampling paid service.
 Dry, wet, changing-weather and observed SC/VSC forecasts preserve each set's
 allowance through exchanges and handoffs. Sets with equal compound and wear
 but different allowances are distinct planning choices. Forecast pruning may

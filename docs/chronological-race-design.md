@@ -251,11 +251,14 @@ announced final lap stays fixed. This follows the timing framework in
 [FIA sporting regulations B2.5.3, B5.14.2 and B5.15.2](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_b_sporting_-_iss_09_-_2026-10-01.pdf).
 Collection remains a lap-resolution approximation: it does not recalculate
 partially driven sectors at reduced speed. The model also omits standing-start
-grid formation, extra director-ordered circulation, compulsory full-wet starts,
+grid formation, extra director-ordered circulation, compulsory full-wet initial starts,
 unlapping and special resumption pit-exit procedures. Explicit abandonment
 uses the historical countback finish described in [abandoned races](race-abandonment.md). The standard
 engine also uses collection plus a shared pause, but collects at the end of a
 synchronous lap; see [standard suspension timing](strategy-model.md#red-flag-suspension-timing).
+An explicit [full-wet resumption instruction](wet-resumptions.md) restricts
+free fits and later replacements until the resumption SC returns. It does not
+infer the director decision from rain or extend the counted SC procedure.
 
 Running physics uses physical gaps for dirty air and Overtake Mode detection.
 The gap is estimated from the preceding on-track car's progress through its

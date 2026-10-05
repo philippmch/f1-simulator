@@ -33,7 +33,7 @@ must exceed the previous lap plus its duration, leaving a completed green
 interval after clearance. A duration may extend past the race finish.
 
 Red flags instead require exactly `lap`, `control="red_flag"` and
-`action="resume"` or `"abandon"`. They may interrupt an earlier scheduled
+`action="resume"`, `"resume_wet"` or `"abandon"`. They may interrupt an earlier scheduled
 SC/VSC. Resumption includes one counted SC circulation; a subsequent SC/VSC
 request must follow that clearance. Abandonment ends the race without another
 running lap or free refit. Later requests remain `not_reached`.
@@ -48,10 +48,13 @@ running lap or free refit. Later requests remain `not_reached`.
 
 The CLI uses `--control-schedule 12:sc:4,26:vsc:2`; `--control-schedule none`
 means an explicit empty schedule. Omit the flag for automatic race control.
-Red-flag tokens are `4:red:resume` and `8:red:abandon`, and can be combined
+Red-flag tokens are `4:red:resume`, `4:red:resume_wet` and `8:red:abandon`, and can be combined
 with SC/VSC tokens. The dashboard's race-control selector has the same distinction:
 choose **Assumed announcements** and enter `LAP:sc/vsc:DURATION` or
-`LAP:red:resume/abandon` per line. Leave the editor blank for no SC/VSC announcements.
+`LAP:red:resume/resume_wet/abandon` per line. `resume_wet` supplies a director
+instruction requiring full wets until the resumption safety car returns;
+see [physical-stock behavior and limits](wet-resumptions.md).
+Leave the editor blank for no SC/VSC announcements.
 A hidden editor under
 **Automatic race control** does not submit its stored text.
 
@@ -150,11 +153,14 @@ An SC/VSC-only list, including `[]`, uses saved input schema 11 and
 pit windows, tyre usage limits, warmup costs, qualifying weather and prescribed
 rainfall with their respective policy markers. Older schemas cannot claim
 control fields, and replay rejects missing or unsupported schedule policy.
-Any list containing a red flag uses schema 12 and
+Any list containing a red flag without `resume_wet` uses schema 12 and
 `control_schedule_policy="observed_control_schedule_v2"`. It retains all schema
 11 overlays; replay rejects red flags in schema 11. Result exports record
 the countback evidence and each driver's physical tyre use through suspension
 separately. See [abandonment conventions and limits](race-abandonment.md).
+Any list containing `resume_wet` uses schema 13 and
+`control_schedule_policy="observed_control_schedule_v3"`, retaining the same
+overlays. Replay rejects compulsory wet actions in older schemas.
 
 Saved engine, opening-tyre, driver-plan and constructor-plan variants inherit
 the source, preserving empty lists. Ordinary paired comparisons require the

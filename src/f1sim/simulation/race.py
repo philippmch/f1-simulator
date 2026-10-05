@@ -1311,7 +1311,11 @@ class RaceSimulator(InventoryStrategyMixin):
         """Return the existing safety reason that must outrank a plan."""
         if state.force_pit_next_lap:
             return "forced_repair"
-        if self._check_tire_weather_mismatch(state.current_tire, weather) == "critical":
+        required_wet = self.event_manager.is_wet_tire_required()
+        if required_wet and state.current_tire.compound != TireCompound.WET:
+            return "mandatory_wet_tires"
+        if (not required_wet
+                and self._check_tire_weather_mismatch(state.current_tire, weather) == "critical"):
             return "critical_weather"
         if (state.tire_inventory is not None
                 and state.tire_inventory.current_set_id in state.tire_inventory.unavailable_ids):
@@ -1319,13 +1323,17 @@ class RaceSimulator(InventoryStrategyMixin):
         if (state.tire_inventory is not None
                 and state.tire_inventory.current_remaining_laps(state.tire_laps) == 0):
             return "tyre_usage_limit"
-        if lap >= max(2, track.total_laps) and not self._stay_satisfies_tire_rule(state):
+        if (not required_wet and lap >= max(2, track.total_laps)
+                and not self._stay_satisfies_tire_rule(state)):
             return "compound_requirement"
         return None
 
     def _pit_plan_replacement(self, state, compound: TireCompound, weather: Weather):
         """Return a deterministic requested replacement, if one exists."""
-        if weather.tire_mismatch(compound) == "critical":
+        required_wet = self.event_manager.is_wet_tire_required()
+        if required_wet and compound != TireCompound.WET:
+            return None, "mandatory_wet_tires"
+        if not required_wet and weather.tire_mismatch(compound) == "critical":
             return None, "critical_requested_compound"
         inventory = state.tire_inventory
         if inventory is None:
@@ -1334,7 +1342,7 @@ class RaceSimulator(InventoryStrategyMixin):
             (index, item)
             for index, item in enumerate(inventory.replacements())
             if item.compound == compound
-            and weather.tire_mismatch(item.compound) != "critical"
+            and (required_wet or weather.tire_mismatch(item.compound) != "critical")
         ]
         if not candidates:
             return None, "requested_compound_unavailable"
@@ -1388,6 +1396,9 @@ class RaceSimulator(InventoryStrategyMixin):
             if compulsory is not None:
                 state.pit_plan_override_reason = compulsory
                 return None
+            if availability == "mandatory_wet_tires":
+                state.pit_plan_override_reason = availability
+                return False
             skip_pit_plan_instruction(state, availability)
             return False
         compound_requirement = (
@@ -2140,6 +2151,10 @@ class RaceSimulator(InventoryStrategyMixin):
                 traffic_snapshot, weather_intervals, weather_clock,
                 current_overtake_mode_active=mode_active,
             )
+        if self.event_manager.is_wet_tire_required():
+            # Unlimited pools were fitted fresh at the suspension. Puncture
+            # stops bypass elective policy and still receive full wets.
+            return state.current_tire.compound != TireCompound.WET
         clearly_dry = weather is None or (
             weather.track_wetness < 0.08 and weather.rain_intensity < 0.15
         )
@@ -2921,6 +2936,7 @@ class RaceSimulator(InventoryStrategyMixin):
                     "dry_forecast", "rain_forecast", "inventory_forecast",
                     "neutralization_window", "planned_window", "forced_repair", "tyre_usage_limit",
                     "user_plan",
+                    "mandatory_wet_tires",
                 }:
                     decision_reason = candidate_reason
                     if isinstance(decision_context.get("forecast_compound"), str):
@@ -2979,6 +2995,8 @@ class RaceSimulator(InventoryStrategyMixin):
         state.weather_pit_proposal = None
         if selected_set is not None:
             new_compound = state.tire_inventory.sets[selected_set].compound
+        elif self.event_manager.is_wet_tire_required():
+            new_compound = TireCompound.WET
         elif custom_target is not None:
             # Explicit instructions bypass automatic profitability and forecast
             # choices after the request has passed the safety checks.
@@ -3663,6 +3681,7 @@ class RaceSimulator(InventoryStrategyMixin):
             )} if state.pit_plan is not None and state.pit_plan_index < len(state.pit_plan)
                and "earliest_lap" in state.pit_plan[state.pit_plan_index] else {}),
             used_compounds=self._actually_used_compounds(state), free_fit=free_fit,
+            **({"required_wet_tires": True} if self.event_manager.is_wet_tire_required() else {}),
             current_fit_pending=state.fit_lap_pending,
             pit_lane_factor=self._pit_lane_factor(),
             current_lap_time_modifier=self.event_manager.get_lap_time_modifier(),
@@ -3730,6 +3749,8 @@ class RaceSimulator(InventoryStrategyMixin):
         remaining_laps = track.total_laps - current_lap
         if remaining_laps <= 0:
             return state.current_tire.compound
+        if self.event_manager.is_wet_tire_required():
+            return TireCompound.WET
         if state.pit_plan is not None:
             choice = self._custom_plan_replacement_choice(
                 state, track, weather, current_lap + 1, free_fit=True,

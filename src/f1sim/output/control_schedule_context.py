@@ -4,6 +4,7 @@ from html import escape
 
 from f1sim.simulation.control_schedule import (
     has_red_flag_requests,
+    red_flag_action_description,
     validate_control_schedule,
     validate_control_schedule_snapshot,
 )
@@ -26,7 +27,7 @@ def control_schedule_context(snapshot) -> str:
     red = has_red_flag_requests(schedule)
     label = "race-control" if red else "SC/VSC"
     requests = "; ".join(
-        (f"after leading lap {row['lap']}: red flag, {row['action']}"
+        (f"after leading lap {row['lap']}: red flag, {red_flag_action_description(row['action'])}"
          if row["control"] == "red_flag"
          else f"after leading lap {row['lap']}: "
          f"{'SC' if row['control'] == 'safety_car' else 'VSC'} for {row['duration_laps']} laps")
@@ -69,6 +70,8 @@ def control_schedule_statistics_html(result, scenario="run") -> str:
     for entry in stats.get("entries", []):
         control = {"safety_car": "SC", "vsc": "VSC", "red_flag": "Red flag"}[entry["control"]]
         request = entry.get("action", entry.get("duration_laps"))
+        if entry["control"] == "red_flag":
+            request = red_flag_action_description(request)
         rows.append(
             f"<tr><th scope='row'>After lap {entry['lap']}</th><td>{control}</td>"
             f"<td>{escape(str(request))}</td><td>{entry['applied']}</td>"

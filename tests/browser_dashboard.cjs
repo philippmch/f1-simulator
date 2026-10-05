@@ -12,6 +12,7 @@ const { checkPitWindows } = require('./browser_pit_windows.cjs');
 const { checkControlSchedules } = require('./browser_control_schedules.cjs');
 const { checkScoringEvidence } = require('./browser_scoring_evidence.cjs');
 const { checkAbandonment } = require('./browser_abandonment.cjs');
+const { checkWetResumption } = require('./browser_wet_resumption.cjs');
 
 (async () => {
   const offline = process.env.F1SIM_OFFLINE === '1';
@@ -1394,6 +1395,7 @@ const { checkAbandonment } = require('./browser_abandonment.cjs');
     });
     await checkScoringEvidence(page);
     if (offline) await checkAbandonment(page);
+    if (offline) await checkWetResumption(page);
     // Explicit classified and unclassified retirements must remain distinct.
     await page.locator('#tab-race').click();
     for (const row of Object.values(payload.scenarios)[0].sample_race) {

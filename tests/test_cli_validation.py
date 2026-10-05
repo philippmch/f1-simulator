@@ -17,7 +17,7 @@ CLI = PROJECT_ROOT / "examples" / "simulate_race.py"
     [
         (["--race-engine", "unknown"], "invalid choice"),
         (["--weather-mode", "unknown"], "invalid choice"),
-        (["--control-schedule", "4:red:restart"], "lap:red:resume/abandon"),
+        (["--control-schedule", "4:red:restart"], "lap:red:resume/resume_wet/abandon"),
         (["--starting-tyres", "VER"], "use DRIVER=compound"),
         (["--starting-tyres", "VER=soft,VER=hard"], "duplicate starting tyre"),
         (["--starting-tyres", "VER=invalid"], "starting_tires"),

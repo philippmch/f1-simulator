@@ -76,7 +76,9 @@ exists. Reports and the dashboard explain countback and penalties; no-result
 rows use neutral labels. Scheduled red outcomes use the existing global control
 history, with an additional CSV `action` column. SC/VSC-only CSV keeps its earlier columns.
 
-Red-flag inputs use schema 12 and `observed_control_schedule_v2`. Replay retains
+Red-flag inputs use schema 12 and `observed_control_schedule_v2`, or schema 13
+and `observed_control_schedule_v3` if the same schedule also contains a
+[compulsory full-wet resumption](wet-resumptions.md). Replay retains
 tyre inventories, usage limits, fixed/window plans, warmup, prescribed rainfall,
 qualifying weather and random-stream policy. Native tests compare process workers
 and replay with serial execution, and compare countback results against independently
@@ -88,7 +90,7 @@ The simulation records lap crossings, not partial sectors or exact pit-lane
 Control Line geometry. Suspension collection and the fixed default wait remain
 approximations. It does not infer abandonment from weather recovery, enforce an
 event-specific mandatory dry-specification subset, or implement special full-wet
-SC starts, standing grids, unlapping or additional director-ordered procedures.
+initial SC starts, standing grids, unlapping or additional director-ordered procedures.
 Automatic and forced red flags continue to request resumption. An explicit red
 request at an already finished scheduled or timed crossing is suppressed as
 `race_finished`. These conventions model the supplied scenario and are not

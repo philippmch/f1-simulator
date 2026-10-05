@@ -270,7 +270,7 @@ def validate_pit_plan_snapshot(snapshot, plans):
     """Never reinterpret a conditional plan as a fixed stop in an older saved schema."""
     windowed = has_pit_plan_windows(plans)
     version = snapshot.get("schema_version")
-    if version == 10 or version in (11, 12) and (windowed or "pit_plan_policy" in snapshot):
+    if version == 10 or version in (11, 12, 13) and (windowed or "pit_plan_policy" in snapshot):
         if not windowed or snapshot.get("pit_plan_policy") != PIT_PLAN_WINDOW_POLICY:
             raise ValueError(
                 f"Schema {version} requires windowed pit_plans and the supported pit_plan_policy",
@@ -310,6 +310,7 @@ def commit_pit_plan_service(
     if status is None:
         status = "overridden" if reason in {
             "forced_repair", "critical_weather", "compound_requirement", "tyre_usage_limit",
+            "mandatory_wet_tires",
         } else "executed"
     return _finish_instruction(
         state,

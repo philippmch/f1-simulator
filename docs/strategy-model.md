@@ -763,7 +763,13 @@ resumption uses the observed SC pace and disabled Active Aero; subsequent
 running, service and pit-lane time are forecast as green. The dry, wet and
 finite-inventory free choices share that observed first-lap control. A suspension
 after lap N leaves `total_laps - N` counted laps, starting with lap N+1.
-Critically mismatched free candidates are excluded.
+Critically mismatched free candidates are excluded unless an observed
+[compulsory full-wet instruction](wet-resumptions.md) requires wets during the
+resumption SC lap. Under that instruction, dry-weather mismatch cannot erase
+required full-wet running; ordinary weather choice resumes when the SC returns.
+Finite-stock planners still compare usable wet sets and retain their later
+weather and stop forecasts. Actual wet use, rather than the free fit itself,
+determines the dry-compound exemption.
 The race applies its usual between-lap weather update before selecting the free
 set, so that choice uses the conditions in which racing resumes. This avoids
 fitting a set for the completed lap's weather and then paying to replace it on
@@ -886,7 +892,7 @@ shared release clocks for the ordinary team service queue.
 The standard engine still resolves collection once per shared lap. It does
 not model partially completed sectors, cars held at a closed pit exit during
 collection, sector-level resumption, standing-start grid formation, additional
-director-ordered circulation, compulsory full-wet starts, unlapping, special
+director-ordered circulation, compulsory full-wet initial starts, unlapping, special
 resumption pit-exit procedures. Both engines support explicit
 [abandonment scenarios and historical countback](race-abandonment.md), while
 the decision to abandon remains a supplied assumption. Future red decisions

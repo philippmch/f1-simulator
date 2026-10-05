@@ -47,6 +47,8 @@ Red flags collect the surviving field before a shared restart, preserving
 completed crossings and extending the finish deadline for the modeled wait.
 Cars resume for one counted lap behind the safety car before green racing;
 see [suspension timing](docs/strategy-model.md#red-flag-suspension-timing).
+An explicit [compulsory full-wet resumption](docs/wet-resumptions.md) restricts
+tyre choice until the resumption safety car returns, preserving physical stock.
 Explicit abandonment scenarios instead classify the historical countback finish,
 including dry-compound penalties, or record no result before a countback lap exists;
 see [abandoned races](docs/race-abandonment.md).
@@ -277,6 +279,8 @@ empty schedule, use version 11 and `control_schedule_policy="observed_control_sc
 They retain the other configured inputs and their policy markers.
 Schedules containing a red-flag decision use version 12 and
 `control_schedule_policy="observed_control_schedule_v2"`, preserving those inputs.
+Schedules containing `resume_wet` use version 13 and
+`control_schedule_policy="observed_control_schedule_v3"` with the same overlays.
 All current snapshots require
 `rng_policy`, with new runs using `isolated_weather_v1`. Earlier installations
 reject unsupported schemas. Version 1 snapshots without a policy replay with
@@ -540,6 +544,8 @@ random SC/VSC, while red flags retain priority and resume behind the safety car.
 Use `--control-schedule 12:red:resume` or `12:red:abandon` to assume a suspension
 with a chosen outcome. Abandonment uses recorded historical crossings and
 recalculates classification and points; the decision is a scenario assumption.
+Use `12:red:resume_wet` to supply a director instruction requiring full wets
+during the counted resumption SC lap; see [wet resumptions](docs/wet-resumptions.md).
 Saved reports distinguish
 requested announcements from complete recorded execution evidence. See
 [race-control scenarios](docs/control-schedules.md) for replay, pit-window examples

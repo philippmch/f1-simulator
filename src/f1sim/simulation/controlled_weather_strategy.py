@@ -192,6 +192,7 @@ def plan_controlled_weather(
     remaining_damp_stops=None, tire_warmup=None, current_fit_pending=False,
     forecast_context=None, inventory=None, force_stop=False, require_compound_rule=True,
     same_compound=False, retained_weather_bound=False, traffic_possible=True,
+    required_wet_tires=False,
 ):
     """Price the known field prefix, preserving the existing green policy.
 
@@ -202,6 +203,8 @@ def plan_controlled_weather(
     """
     if type(control_context) is not StrategyControlContext or control_context.paid_fit:
         raise ValueError("control_context must describe a pending weather decision")
+    if type(required_wet_tires) is not bool:
+        raise ValueError("required_wet_tires must be boolean")
     horizon = track.total_laps - current_lap + 1
     root = control_context.new_field()
     if ((type(root) is ObservedStandardField
@@ -341,24 +344,26 @@ def plan_controlled_weather(
                 None if damp is None else min(damp, room),
                 credit, retained, expiry)
 
-    def allowed(state, before, target):
+    def allowed(state, before, target, wet_required=False):
         _, compound, age, _, left, dry, damp, mask, _, expiry = state
         if not tire_slot_usable(age, expiry):
             return True
         if same_compound:
             return left > 0
-        if before.tire_mismatch(TireCompound(compound)) == "critical":
+        if before.tire_mismatch(TireCompound(compound)) == "critical" and not (
+                wet_required and compound == "wet"):
             return True
         limit = dry if before.track_wetness < .08 and before.rain_intensity < .15 else damp
         return (left > 0 and (compound in ("intermediate", "wet")
                              or before.track_wetness > .3 or limit is None or limit > 0)
                 or not legal(mask) and not mask & bits[target])
 
-    def choices(state, before, retention):
+    def choices(state, before, retention, wet_required=False):
         _, compound, _, available, _, _, _, _, _, _ = state
         if retention and before.tire_mismatch(TireCompound(compound)) != "critical":
             return ()
-        candidates = ((TireCompound(compound),) if same_compound else
+        candidates = ((TireCompound.WET,) if wet_required else
+                      (TireCompound(compound),) if same_compound else
                       paid_compound_candidates(before, forecast_context))
         if retention:
             required = before.fresh_rain_compound()
@@ -499,12 +504,14 @@ def plan_controlled_weather(
         if native and key in memo:
             return memo[key]
         before = surface(field.updates)
+        wet_required = required_wet_tires and field.controlled and field.safety_car
         best = (action(field, state, retention=retention)
-                if tire_slot_usable(age, expiry) and (same_compound or
+                if tire_slot_usable(age, expiry) and (
+                    compound == "wet" if wet_required else same_compound or
                     before.tire_mismatch(TireCompound(compound)) != "critical")
                 else retired)
-        for target, wear, index, target_expiry in choices(state, before, retention):
-            if not retention and not allowed(state, before, target):
+        for target, wear, index, target_expiry in choices(state, before, retention, wet_required):
+            if not retention and not allowed(state, before, target, wet_required):
                 continue
             replacement_pool = (exchange_tire_slots(available, index, (compound, age, expiry))
                                 if physical else None)
@@ -521,19 +528,22 @@ def plan_controlled_weather(
                remaining_dry_stops, remaining_damp_stops, used, True, current_expiry)
     before = surface(0)
     wait = invalid
-    if current_usable and not force_stop and (same_compound or
+    if current_usable and not force_stop and (
+            current_tire.compound == TireCompound.WET if required_wet_tires else same_compound or
             before.tire_mismatch(current_tire.compound) != "critical"):
         wait = action(root, initial, first=True, retention=retained_weather_bound)
     best, selected, set_id = invalid, None, None
     first_choices = (tuple((item.compound.value, item.age, item.id, tire_set_slot(item)[2])
                           for item in stock)
-                     if physical else choices(initial, before, False))
+                     if physical else choices(initial, before, False, required_wet_tires))
     for target, age, identity, expiry in first_choices:
         cancellation_checkpoint()
-        if (not same_compound and TireCompound(target) not in
+        if (target != "wet" if required_wet_tires else
+                not same_compound and TireCompound(target) not in
                 paid_compound_candidates(before, forecast_context)):
             continue
-        if not force_stop and current_usable and not allowed(initial, before, target):
+        if not force_stop and current_usable and not allowed(
+                initial, before, target, required_wet_tires):
             continue
         available = None
         if physical:

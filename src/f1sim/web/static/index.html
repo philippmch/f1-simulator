@@ -753,6 +753,7 @@ input:focus-visible {
   font-size: 0.7rem;
   color: var(--text-muted);
   letter-spacing: 0.05em;
+  overflow-wrap: anywhere;
 }
 
 .timing-tower {
@@ -2047,9 +2048,9 @@ input:focus-visible {
         </select>
         <p class="pit-plan-help" id="controlScheduleHelp">Assumptions for strategy comparisons. Announcements occur after the chosen leading crossing; strategies cannot see them in advance. Random SC/VSC deployments are disabled in an assumed scenario; red flags retain priority.</p>
         <div id="controlScheduleEditor" hidden>
-          <label class="control-label" for="controlScheduleInput">Leading lap:sc/vsc:duration or lap:red:resume/abandon</label>
+          <label class="control-label" for="controlScheduleInput">Leading lap:sc/vsc:duration or lap:red:resume/resume_wet/abandon</label>
           <textarea id="controlScheduleInput" rows="3" maxlength="1000" aria-describedby="controlScheduleFormat" placeholder="12:sc:4&#10;26:vsc:2"></textarea>
-          <p class="pit-plan-help" id="controlScheduleFormat">One request per line, up to 20. Use 12:sc:4, 26:vsc:2, or 40:red:resume/abandon. Laps 1–1000; SC/VSC duration 1–6 laps. Red flags can interrupt an earlier neutralisation. Other announcements must follow the previous clearance lap. Abandonment takes a countback result; it does not predict weather recovery. Leave blank for no scheduled announcements.</p>
+          <p class="pit-plan-help" id="controlScheduleFormat">One request per line, up to 20. Use 12:sc:4, 26:vsc:2, or 40:red:resume/resume_wet/abandon. resume_wet supplies a director instruction to use full wets until the resumption safety car returns. Laps 1–1000; SC/VSC duration 1–6 laps. Red flags can interrupt an earlier neutralisation. Other announcements must follow the previous clearance lap. Abandonment takes a countback result; it does not predict weather recovery. Leave blank for no scheduled announcements.</p>
         </div>
       </div>
       <div class="control-group control-group-scenarios" role="group" aria-labelledby="qualifyingWeatherLabel">
@@ -2415,6 +2416,7 @@ const PIT_DECISION_LABELS = Object.freeze({
   dry_forecast: 'Dry strategy forecast',
   rain_forecast: 'Weather strategy forecast',
   inventory_forecast: 'Available-set strategy forecast',
+  mandatory_wet_tires: 'Compulsory full-wet tyres',
   tyre_usage_limit: 'Physical set race allowance exhausted',
   neutralization_window: 'Safety-car/VSC opportunity',
   planned_window: 'Planned pit window',
@@ -2433,6 +2435,7 @@ const PIT_PLAN_REASON_LABELS = Object.freeze({
   tyre_usage_limit: 'Physical set race allowance exhausted',
   requested_compound_unavailable: 'Requested compound unavailable',
   critical_requested_compound: 'Requested compound unsafe under current weather',
+  mandatory_wet_tires: 'Compulsory full-wet tyres',
   retired: 'Driver retired before instruction',
   race_finished: 'Race finished before instruction',
 });
@@ -4693,10 +4696,10 @@ function parseControlScheduleInputs(input = document.getElementById('controlSche
   let previousEnd = 0, previousLap = 0;
   for (const token of tokens) {
     const match = /^([0-9]+):(sc|vsc):([0-9]+)$/.exec(token.trim());
-    const red = /^([0-9]+):red:(resume|abandon)$/.exec(token.trim());
-    if (!match && !red) return {ok: false, input, message: 'Use LAP:sc/vsc:DURATION or LAP:red:resume/abandon, one per line.'};
+    const red = /^([0-9]+):red:(resume|resume_wet|abandon)$/.exec(token.trim());
+    if (!match && !red) return {ok: false, input, message: 'Use LAP:sc/vsc:DURATION or LAP:red:resume/resume_wet/abandon, one per line.'};
     const lap = Number(red ? red[1] : match[1]);
-    const duration = red ? (red[2] === 'resume' ? 1 : 0) : Number(match[3]);
+    const duration = red ? (red[2] === 'abandon' ? 0 : 1) : Number(match[3]);
     if (!Number.isSafeInteger(lap) || lap < 1 || lap > 1000 || !Number.isSafeInteger(duration) || (!red && (duration < 1 || duration > 6)) || lap <= previousLap || (!red && lap <= previousEnd)) {
       return {ok: false, input, message: 'SC/VSC requests need laps 1–1000, duration 1–6, and an announcement after the previous clearance lap.'};
     }
@@ -4989,7 +4992,7 @@ function renderControlScheduleEvidence(scenario) {
   const count = key => Number.isSafeInteger(stats[key]) && stats[key] >= 0 ? stats[key] : 'Not recorded';
   const coverage = `${count('valid_history_races')} complete, ${count('missing_history_races')} missing, ${count('invalid_history_races')} invalid of ${count('recorded_races')} recorded trials; ${count('unrecorded_races')} unrecorded trials; ${count('unexpected_histories')} unexpected histories.`;
   const label = Array.isArray(stats.entries) && stats.entries.some(row => row?.control === 'red_flag') ? 'Race-control' : 'SC/VSC';
-  const rows = Array.isArray(stats.entries) ? stats.entries.filter(row => row && typeof row === 'object' && !Array.isArray(row)).map(row => `<tr><th scope="row">After lap ${escapeHtml(row.lap)}</th><td>${escapeHtml(row.control === 'safety_car' ? 'SC' : row.control === 'red_flag' ? 'Red flag' : row.control)}</td><td>${escapeHtml(row.action ?? row.duration_laps)}</td><td>${escapeHtml(row.applied)}</td><td>${escapeHtml(row.suppressed)}</td><td>${escapeHtml(row.not_reached)}</td></tr>`).join('') : '';
+  const rows = Array.isArray(stats.entries) ? stats.entries.filter(row => row && typeof row === 'object' && !Array.isArray(row)).map(row => `<tr><th scope="row">After lap ${escapeHtml(row.lap)}</th><td>${escapeHtml(row.control === 'safety_car' ? 'SC' : row.control === 'red_flag' ? 'Red flag' : row.control)}</td><td>${escapeHtml(row.action === 'resume_wet' ? 'Resume on compulsory full wets' : row.action ?? row.duration_laps)}</td><td>${escapeHtml(row.applied)}</td><td>${escapeHtml(row.suppressed)}</td><td>${escapeHtml(row.not_reached)}</td></tr>`).join('') : '';
   return `${source}<details class="weather-history control-schedule-history"><summary>${label} execution evidence</summary><p>${escapeHtml(coverage)}</p><p>Counts use complete histories. Applied means announced; later suspensions or the finish can interrupt the requested duration.</p>${rows ? `<div class="results-table" tabindex="0" role="region" aria-label="${label} execution"><table class="matrix-table"><caption>${label} requests in complete trial histories</caption><thead><tr><th scope="col">Announcement</th><th scope="col">Control</th><th scope="col">Requested laps / action</th><th scope="col">Applied</th><th scope="col">Suppressed</th><th scope="col">Not reached</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p>No SC/VSC announcements were requested.</p>'}</details>`;
 }
 

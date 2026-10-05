@@ -101,6 +101,7 @@ class EventManager:
         # Red flag state
         self.red_flag_active = False
         self.red_flag_action = "resume"
+        self.mandatory_wet_tires = False
         self._scheduled_red_previous_control = None
         self.red_flag_just_ended = False  # Flag for restart lap after red flag
         self.red_flag_restart_lap = False  # True on the lap after red flag ends
@@ -152,7 +153,7 @@ class EventManager:
                     "safety_car_active", "safety_car_laps_remaining", "vsc_active",
                     "vsc_laps_remaining", "sc_just_ended", "sc_restart_lap",
                     "sc_restart_lap_number", "red_flag_just_ended", "red_flag_restart_lap",
-                    "red_flag_restart_lap_number",
+                    "red_flag_restart_lap_number", "mandatory_wet_tires",
                 )
             }
             event = self.deploy_red_flag(lap)
@@ -224,6 +225,7 @@ class EventManager:
         self._lap_started_neutralized = False
         self.red_flag_active = False
         self.red_flag_action = "resume"
+        self.mandatory_wet_tires = False
         self._scheduled_red_previous_control = None
         self.red_flag_just_ended = False
         self.red_flag_restart_lap = False
@@ -322,6 +324,7 @@ class EventManager:
             self.safety_car_laps_remaining -= 1
             if self.safety_car_laps_remaining <= 0:
                 self.safety_car_active = False
+                self.mandatory_wet_tires = False
                 self.sc_just_ended = True  # Next lap is restart
                 self.sc_restart_lap_number = lap + 1
 
@@ -871,6 +874,7 @@ class EventManager:
         self.current_lap = lap
         self.red_flag_active = True
         self.red_flag_action = "resume"
+        self.mandatory_wet_tires = False
         self.red_flag_deployments += 1
         # Clear any active SC/VSC
         self.safety_car_active = False
@@ -902,7 +906,9 @@ class EventManager:
             return
         self.red_flag_active = False
         if not resume:
+            self.mandatory_wet_tires = False
             return
+        self.mandatory_wet_tires = self.red_flag_action == "resume_wet"
         self.red_flag_just_ended = True
         if self.current_lap is not None:
             self.red_flag_restart_lap_number = self.current_lap + 1
@@ -917,9 +923,15 @@ class EventManager:
                 event_type=EventType.SAFETY_CAR,
                 lap=self.current_lap,
                 duration_laps=1,
-                description="Safety car deployed for red-flag resumption",
+                description=("Safety car deployed for red-flag resumption"
+                             + (" (full-wet tyres compulsory)"
+                                if self.mandatory_wet_tires else "")),
                 announced_after_crossing=True,
             ))
+
+    def is_wet_tire_required(self) -> bool:
+        """A supplied director instruction lasts until the resumption SC returns."""
+        return self.mandatory_wet_tires and self.safety_car_active
 
     def is_red_flag_active(self) -> bool:
         """Check if red flag is currently active."""
