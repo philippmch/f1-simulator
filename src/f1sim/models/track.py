@@ -58,6 +58,10 @@ class Track(BaseModel):
         allow_inf_nan=False,
         description="Reference lap time in seconds (for average car/driver)",
     )
+    dry_race_pace_adjustment: float = Field(
+        default=0.0, ge=-0.05, le=0.05, allow_inf_nan=False, strict=True,
+        description="Common race-clock fraction of reference lap, only at zero rain and wetness",
+    )
     pit_lane_delta: float = Field(
         default=20.0,
         gt=0,

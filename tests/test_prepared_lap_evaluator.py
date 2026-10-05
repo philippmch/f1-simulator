@@ -17,6 +17,7 @@ from f1sim.simulation.lap import LapSimulator, minimum_lap_time
 @pytest.mark.parametrize("owner,field", [
     (Driver, "skill_rating"), (Car, "straight_line_speed"),
     (Track, "base_lap_time"), (Sector, "base_time"), (ActiveAeroZone, "time_gain"),
+    (Track, "dry_race_pace_adjustment"),
 ])
 def test_preparation_rejects_fixed_field_descriptors_without_getter_calls(
     monkeypatch, owner, field,

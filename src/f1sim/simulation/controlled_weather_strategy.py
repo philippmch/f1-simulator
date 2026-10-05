@@ -289,6 +289,10 @@ def plan_controlled_weather(
             base = track.base_lap_time
             car_delta = car.pace_delta_seconds(base) + simulator._track_car_delta(car, track, base)
             fixed = (base + car_delta) + (1. - driver.skill_rating) * base * .03
+            # A negative custom dry correction must also be allowed in this
+            # optimistic bound. A positive correction can safely be omitted.
+            if track.dry_race_pace_adjustment < 0.0:
+                fixed += base * track.dry_race_pace_adjustment
             minimum_tire = min((simulator.tire_pace_contribution(
                 driver, car, track, TIRE_COMPOUNDS[TireCompound(c)], age + elapsed)
                 for c, age in set(original_ages) for elapsed in range(horizon + 1)), default=inf)

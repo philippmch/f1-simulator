@@ -171,6 +171,12 @@ class LapSimulator:
         # Skill range is ~0.75-1.0, so delta ranges from 0 to ~0.75s per lap
         skill_delta = (1.0 - driver.skill_rating) * base_time * 0.03
 
+        # A shared clock correction leaves relative driver/car inputs intact.
+        # Require a completely dry surface; qualifying has its own calculation.
+        if (track.dry_race_pace_adjustment and weather.rain_intensity == 0.0
+                and weather.track_wetness == 0.0):
+            skill_delta += base_time * track.dry_race_pace_adjustment
+
         # Random variation based on driver consistency
         variation_std = driver.lap_time_variation_std(base_std=0.25)
         random_variation = (self._driver_rng(driver.id, "race_lap").normal(0, variation_std)
@@ -320,6 +326,7 @@ class LapSimulator:
         compose = self._compose_lap_time
         wet_skill_modifier = driver.wet_skill_modifier
         wet_performance = car.wet_performance
+        dry_race_pace_delta = base_time * track.dry_race_pace_adjustment
 
         def evaluate(
             tire: Tire,
@@ -361,10 +368,14 @@ class LapSimulator:
             traffic_delta = LapSimulator.traffic_pace_contribution(
                 gap_to_car_ahead
             )
+            pace_delta = skill_delta
+            if (dry_race_pace_delta and weather.rain_intensity == 0.0
+                    and weather.track_wetness == 0.0):
+                pace_delta += dry_race_pace_delta
             return compose(
                 base_time,
                 car_delta,
-                skill_delta,
+                pace_delta,
                 0.0,
                 tire_delta,
                 fuel_delta,

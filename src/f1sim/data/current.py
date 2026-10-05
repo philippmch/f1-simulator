@@ -34,6 +34,7 @@ from urllib.request import Request, urlopen
 
 from pydantic import BaseModel, Field
 
+from f1sim.analysis.race_clock import dry_race_pace_adjustment_for_event
 from f1sim.models import ActiveAeroZone, Car, Driver, Sector, Track
 
 JOLPICA_BASE_URL = "https://api.jolpi.ca/ergast/f1"
@@ -160,6 +161,9 @@ class TrackStats(BaseModel):
     total_laps: int = Field(default=57, gt=0)
     fastest_lap: float = Field(default=90.0, gt=0)
     avg_lap_time: float = Field(default=90.0, gt=0)
+    dry_race_pace_adjustment: float = Field(
+        default=0.0, ge=-0.05, le=0.05, allow_inf_nan=False, strict=True,
+    )
     sector1_avg: float = Field(default=30.0, gt=0)
     sector2_avg: float = Field(default=30.0, gt=0)
     sector3_avg: float = Field(default=30.0, gt=0)
@@ -3053,6 +3057,9 @@ class CurrentSeasonDataLoader:
             total_laps=max(1, total_laps),
             fastest_lap=fastest,
             avg_lap_time=avg_lap,
+            dry_race_pace_adjustment=dry_race_pace_adjustment_for_event(
+                year, _as_int(event.get("round")),
+            ),
             sector1_avg=avg_lap / 3.0,
             sector2_avg=avg_lap / 3.0,
             sector3_avg=avg_lap / 3.0,
@@ -3172,6 +3179,7 @@ class CurrentSeasonDataLoader:
             country=stats.country,
             total_laps=stats.total_laps,
             base_lap_time=stats.avg_lap_time,
+            dry_race_pace_adjustment=stats.dry_race_pace_adjustment,
             pit_lane_delta=stats.pit_lane_time,
             sectors=[
                 Sector(number=1, base_time=stats.sector1_avg),
