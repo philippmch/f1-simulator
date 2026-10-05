@@ -107,7 +107,8 @@ def test_chronological_red_flag_different_inventory_set_pays_one_restart_fee(mon
     )
 
     assert engine.suspensions == [(10, 110, ("A",))]
-    assert engine.crossings == [("A", 1, 10), ("A", 2, 150), ("A", 3, 160), ("A", 4, 170)]
+    # Ten seconds of running becomes fourteen under SC; the 30-second fit is unscaled.
+    assert engine.crossings == [("A", 1, 10), ("A", 2, 154), ("A", 3, 164), ("A", 4, 174)]
     assert running == [
         (1, TireCompound.SOFT, 2),
         (2, TireCompound.HARD, 4),
@@ -286,8 +287,8 @@ def test_automatic_restart_reuses_worn_set_after_unrun_paid_fit_and_shortened_fi
     assert result.pit_stops == 2 and result.pit_laps == [2, 3]
     assert [(stint["set_id"], stint["age_at_fit"], stint["age_at_end"], stint["laps_used"])
             for stint in result.tire_set_history] == [
-        ("S", 0, 1, 1), ("M", 0, 1, 1), ("H", 0, 0, 0), ("S", 1, 6, 5),
+        ("S", 0, 1, 1), ("M", 0, 1, 1), ("H", 0, 0, 0), ("S", 1, 7, 6),
     ]
     assert {item["id"]: item["age"] for item in result.tire_inventory} == {
-        "S": 6, "M": 1, "H": 0,
+        "S": 7, "M": 1, "H": 0,
     }

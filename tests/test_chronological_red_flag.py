@@ -77,7 +77,8 @@ def test_field_waits_for_common_restart_without_rewinding_crossings(monkeypatch,
     assert [sample[2] for sample in restart] == [110 + pause, 110 + pause]
     assert all(sample[3] == 0 and sample[5] and not sample[6] for sample in restart)
     assert fits == [("A", 1), ("B", 1)] and not services
-    assert [row.total_time for row in results] == [290 + pause, 330 + pause]
+    # The first counted resumption lap runs at the 126-second SC queue pace.
+    assert [row.total_time for row in results] == [326 + pause, 346 + pause]
     assert [row.fastest_lap for row in results] == [90, 110]
     assert engine.timeline.total_suspension_seconds == 20 + pause
     clocks = [time for _, _, time in engine.crossings]
@@ -109,7 +110,7 @@ def test_paid_service_waits_at_closed_exit_and_runs_once_after_restart(monkeypat
     assert fits == [("B", 1), ("A", 2), ("B", 1)]  # Paid set, then two free sets.
     b = next(row for row in results if row.driver_id == "B")
     assert b.pit_stops == 1 and b.pit_laps == [2] and b.laps_completed == 3
-    assert b.total_time == 1020
+    assert b.total_time == 1046
 
 
 def test_queued_teammate_services_collect_before_restart_and_timed_finish(monkeypatch):
@@ -187,9 +188,9 @@ def test_queued_teammate_services_collect_before_restart_and_timed_finish(monkey
                          for driver, horizon in [("C", 5), ("A", 4), ("B", 4)]}
     assert engine.timeline.total_suspension_seconds == 410 - 140
     assert engine.timeline.time_limit_seconds == 280 + (410 - 140)
-    assert engine.timeline.final_lap == 5 and engine.timeline.chequered_time == 620
+    assert engine.timeline.final_lap == 5 and engine.timeline.chequered_time == 648
     assert [(row.driver_id, row.laps_completed, row.total_time) for row in results] == [
-        ("C", 5, 620), ("A", 4, 680), ("B", 4, 683),
+        ("C", 5, 648), ("A", 4, 688), ("B", 4, 690),
     ]
     assert all(row.race_time_limited for row in results)
     assert all(sample[4] == 10 for sample in samples)
@@ -239,7 +240,7 @@ def test_suspension_extends_finish_deadline_but_not_original_fuel_schedule(monke
     engine, run, samples, _, _, _ = setup(monkeypatch, laps=10)
     results = run()
     assert engine.timeline.time_limit_seconds == 800
-    assert engine.timeline.final_lap == 3 and engine.timeline.chequered_time == 890
+    assert engine.timeline.final_lap == 3 and engine.timeline.chequered_time == 926
     assert results[0].race_time_limited and results[0].laps_completed == 3
     assert all(sample[4] == 10 for sample in samples)
     assert [sample[1] for sample in samples if sample[0] == "A"] == [1, 2, 3]
@@ -272,8 +273,9 @@ def test_repeated_suspensions_and_reuse_reset_barrier_and_duration(monkeypatch):
     engine, run, _, _, _, _ = setup(monkeypatch, laps=4, red=(1, 3))
     first = run()
     intervals = list(engine.suspensions)
-    assert intervals == [(90, 710, ("A", "B")), (890, 1530, ("A", "B"))]
-    assert engine.timeline.total_suspension_seconds == 1260
+    assert intervals == [(90, 710, ("A", "B")), (926, 1546, ("A", "B"))]
+    # SC resumption removes the first lap's pace gap before the second collection.
+    assert engine.timeline.total_suspension_seconds == 1240
     assert run() == first
     assert engine.suspensions == intervals and not engine.red_waiting and not engine.regrouping
 

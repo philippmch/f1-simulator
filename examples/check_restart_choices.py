@@ -38,14 +38,13 @@ def run_restart(suspension_lap, stop_budget, forced_compound=None, degradation=1
             return lap == 2
         return original_should_pit(state, states, track, lap, *args, **kwargs)
 
-    def events(lap, **kwargs):
-        simulator.event_manager.current_lap = lap
-        if lap == suspension_lap:
-            return [simulator.event_manager.deploy_red_flag(lap, "Synthetic diagnostic")]
-        return []
+    control = simulator.event_manager
+    control.set_forced_red_flag(suspension_lap)
+    control._check_mechanical_failure = lambda *args, **kwargs: None
+    control._check_random_incident = lambda *args, **kwargs: None
+    control._deploy_safety_measure = lambda *args, **kwargs: None
 
     simulator._should_pit = should_pit
-    simulator.event_manager.process_lap = events
     simulator._choose_committed_dry_compound = lambda *args: TireCompound.HARD
     selected = []
     original_choose = simulator._choose_red_flag_tire

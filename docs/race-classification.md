@@ -73,6 +73,11 @@ actual laps and weather-strategy forecasts retain the original scheduled fuel
 distance. No further
 weather update, tyre fitting or incident is generated after the finish.
 
+Following a red-flag suspension, the first counted resumption lap is behind the
+safety car. It contributes distance and can announce timed expiry, but cannot
+earn green-lap credit for points. The following green lap has the normal restart
+restriction on Overtake Mode. See [resumption timing and limits](strategy-model.md#red-flag-suspension-timing).
+
 Results expose `race_time_limited` and `points_awarded`. The dashboard and CLI
 identify a time-limited finish and show actual points; CSV appends both fields.
 Classification uses the winner's completed distance. Points use the original

@@ -329,6 +329,9 @@ class ChronologicalRace:
         forecast_leader = self._forecast_leader()
         for driver_id in self.order:
             state = self.states[driver_id]
+            state.strategy_safety_car_snapshot = None
+            state.strategy_control_context = None
+            state.strategy_leading_finish_context = None
             state.strategy_finish_context = (
                 CustomPitFinishContext(resume, self.timeline.time_limit_seconds,
                                        self.timeline.time_limit_announced)

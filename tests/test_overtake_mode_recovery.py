@@ -155,8 +155,13 @@ def test_reusing_the_engine_does_not_retain_a_safety_car_recovery_gate(monkeypat
 def test_red_flag_collection_supersedes_the_previous_safety_car_gate(monkeypatch):
     engine, run, starts, _, releases = recovery_race(monkeypatch, red=True, service=400)
     run()
-    assert releases == [2] and engine.suspensions
+    assert releases == [2, 5] and engine.suspensions
     resumed = engine.suspensions[0][1]
+    # Collection clears the old recovery gate; the resumption SC has its own
+    # return at leading interval five and prohibits every initial burst.
+    resumption_starts = [row for row in starts if row["time"] == resumed]
+    assert resumption_starts
+    assert all(not row["allowed"] and not row["active"] for row in resumption_starts)
     assert any(row["time"] >= resumed and row["allowed"] for row in starts)
     assert any(row["time"] >= resumed and row["active"] for row in starts)
 

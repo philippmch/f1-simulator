@@ -40,6 +40,8 @@ def test_dry_entry_points_preserve_fuel_and_control(monkeypatch, action):
             physical_total_laps=60, sample_service=False,
         )
     else:
+        simulator.event_manager.deploy_red_flag(25)
+        simulator.event_manager.end_red_flag()
         simulator._fit_red_flag_tires(
             [state], Weather(), track, 25, physical_total_laps=60,
         )
@@ -47,7 +49,7 @@ def test_dry_entry_points_preserve_fuel_and_control(monkeypatch, action):
     for args, kwargs in calls:
         assert kwargs["physical_total_laps"] == 60
         assert args[5] == (5 if action == "restart" else 6)
-        assert kwargs.get("active_aero_enabled", True) is (action == "restart")
+        assert kwargs["active_aero_enabled"] is False
         assert kwargs.get("current_lap_time_modifier", 1) == (
-            1 if action == "restart" else 1.2
+            1.4 if action == "restart" else 1.2
         )

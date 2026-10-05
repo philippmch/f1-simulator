@@ -208,7 +208,7 @@ def test_free_distinct_dry_fit_is_used_without_a_paid_correction(
     ]
     assert result.tire_set_history[-1]["laps_used"] > 0
     assert result.race_suspension_seconds == pause
-    assert run["clock_marks"][-1]["time"] == pytest.approx(40.0 + pause)
+    assert run["clock_marks"][-1]["time"] == pytest.approx(44.0 + pause)
     if pause:
         assert run["suspensions"][0][1] - run["suspensions"][0][0] == pause
         assert run["clock_marks"][-1]["final_lap"] == 4

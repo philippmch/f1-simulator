@@ -191,7 +191,10 @@ def test_safety_car_restart_and_red_flag_overtake_mode_timeline() -> None:
     assert manager.is_restart_lap(6)
     assert not manager.is_overtake_mode_allowed(6)
     manager.process_lap(6, [], {}, track, Weather())
-    assert manager.is_overtake_mode_allowed(7)
+    assert manager.is_restart_lap(7)
+    assert not manager.is_overtake_mode_allowed(7)
+    manager.process_lap(7, [], {}, track, Weather())
+    assert manager.is_overtake_mode_allowed(8)
 
 
 def test_vsc_end_has_one_consistent_active_aero_and_overtake_timeline() -> None:

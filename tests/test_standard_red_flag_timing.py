@@ -24,10 +24,10 @@ def _controlled(monkeypatch, *, laps=3, paces=None, red=(1,), pause=600.0):
     simulator._process_overtakes = lambda *args, **kwargs: 0
     simulator.lap_simulator.calculate_lap_time = lambda **kwargs: paces[kwargs["driver"].id]
 
-    def events(lap, **kwargs):
-        return [RaceEvent(EventType.RED_FLAG, lap)] if lap in red else []
-
-    monkeypatch.setattr(simulator.event_manager, "process_lap", events)
+    control = simulator.event_manager
+    control.set_forced_red_flag(list(red))
+    for name in ("_check_mechanical_failure", "_check_random_incident", "_deploy_safety_measure"):
+        monkeypatch.setattr(control, name, lambda *args, **kwargs: None)
     return simulator, drivers, cars, track
 
 
@@ -52,16 +52,16 @@ def test_first_lap_red_flag_preserves_crossings_and_uses_common_resume(monkeypat
 
     resume = 110.0 + pause
     assert simulator.suspensions == [(90.0, resume, ("A", "B"))]
-    assert [row.total_time for row in results] == [290.0 + pause, 330.0 + pause]
+    assert [row.total_time for row in results] == [326.0 + pause, 346.0 + pause]
     assert [row.fastest_lap for row in results] == [90.0, 110.0]
     assert [(driver, lap) for driver, lap, _ in crossings] == [
         ("A", 1), ("B", 1), ("A", 2), ("B", 2), ("A", 3), ("B", 3),
     ]
     assert [time for driver, _, time in crossings if driver == "A"] == [
-        90.0, resume + 90.0, resume + 180.0,
+        90.0, resume + 126.0, resume + 216.0,
     ]
     assert [time for driver, _, time in crossings if driver == "B"] == [
-        110.0, resume + 110.0, resume + 220.0,
+        110.0, resume + 126.0, resume + 236.0,
     ]
 
 
@@ -85,25 +85,22 @@ def test_large_lag_is_collected_without_rewinding_completed_clocks(monkeypatch):
 
     assert simulator.suspensions == [(90.0, 300.0, ("A", "B"))]
     assert starts[0] == {"A": 90.0, "B": 300.0}
-    assert starts[1] == {"A": 390.0, "B": 600.0}
-    assert starts[2] == {"A": 480.0, "B": 900.0}
-    assert [row.total_time for row in results] == [480.0, 900.0]
+    assert starts[1] == {"A": 426.0, "B": 600.0}
+    assert starts[2] == {"A": 516.0, "B": 900.0}
+    assert [row.total_time for row in results] == [516.0, 900.0]
 
 
 def test_restart_retirement_rolls_back_to_pre_wait_completed_clock(monkeypatch):
     simulator, drivers, cars, track = _controlled(monkeypatch, pause=600.0)
 
-    def events(lap, **kwargs):
-        if lap == 1:
-            return [RaceEvent(EventType.RED_FLAG, lap)]
-        if lap == 2:
-            driver = next(driver for driver in kwargs["drivers"] if driver.id == "A")
+    def failure(driver, car, track, lap, weather):
+        if lap == 2 and driver.id == "A":
             driver.dnf = True
             driver.dnf_reason = "Restart failure"
-            return [RaceEvent(EventType.MECHANICAL_FAILURE, lap, ["A"])]
-        return []
+            return RaceEvent(EventType.MECHANICAL_FAILURE, lap, ["A"])
+        return None
 
-    monkeypatch.setattr(simulator.event_manager, "process_lap", events)
+    monkeypatch.setattr(simulator.event_manager, "_check_mechanical_failure", failure)
     results = simulator.simulate_race(
         drivers, cars, track, Weather(change_probability=0), ["A", "B"],
         starting_tires={"A": TireCompound.MEDIUM, "B": TireCompound.MEDIUM},
@@ -112,7 +109,7 @@ def test_restart_retirement_rolls_back_to_pre_wait_completed_clock(monkeypatch):
     survivor = next(row for row in results if row.driver_id == "B")
     assert retired.status == DriverStatus.DNF
     assert retired.laps_completed == 1 and retired.total_time == 90.0
-    assert survivor.laps_completed == 3 and survivor.total_time == 930.0
+    assert survivor.laps_completed == 3 and survivor.total_time == 946.0
 
 
 def test_over_cap_restart_horizon_is_used_by_refit_and_pit_planning(monkeypatch):
@@ -145,7 +142,7 @@ def test_over_cap_restart_horizon_is_used_by_refit_and_pit_planning(monkeypatch)
 
     assert simulator.suspensions == [(90.0, 4110.0, ("A", "B"))]
     assert [(row.driver_id, row.laps_completed, row.total_time) for row in results] == [
-        ("A", 3, 4290.0), ("B", 3, 4330.0),
+        ("A", 3, 4326.0), ("B", 3, 4346.0),
     ]
     assert refit_horizons == [(1, 3)]
     assert pit_horizons == [("A", 3), ("B", 3)]
@@ -237,7 +234,7 @@ def test_finite_pool_wear_is_conserved_through_a_free_restart_fit(monkeypatch):
     )
 
     assert simulator.suspensions == [(90.0, 690.0, ("A",))]
-    assert result.laps_completed == 3 and result.total_time == 870.0
+    assert result.laps_completed == 3 and result.total_time == 906.0
     assert sum(stint["laps_used"] for stint in result.tire_set_history) == 3
     ages = {item["id"]: item["age"] for item in records}
     for stint in result.tire_set_history:
@@ -262,11 +259,11 @@ def test_suspension_ledger_resets_when_simulator_is_reused(monkeypatch):
     second = simulator.simulate_race(
         drivers, cars, track, Weather(change_probability=0), ["A", "B"], **kwargs,
     )
-    expected = [(90.0, 710.0, ("A", "B")), (890.0, 1530.0, ("A", "B"))]
+    expected = [(90.0, 710.0, ("A", "B")), (926.0, 1546.0, ("A", "B"))]
     assert first_ledger == expected
     assert [row.total_time for row in second] == [row.total_time for row in first]
     assert simulator.suspensions == expected
-    assert [row.total_time for row in second] == [1620.0, 1640.0]
+    assert [row.total_time for row in second] == [1672.0, 1672.0]
 
     # A simulator instance reused for an empty grid must not expose the prior
     # race's suspension history.

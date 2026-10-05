@@ -45,12 +45,12 @@ def run_restart(name, engine, forced_compound=None):
     simulator.event_manager._check_mechanical_failure = lambda *args, **kwargs: None
     simulator.event_manager._check_random_incident = lambda *args, **kwargs: None
 
-    def control(lap, *args, **kwargs):
-        simulator.event_manager.current_lap = lap
-        return ([simulator.event_manager.deploy_red_flag(lap, "Synthetic diagnostic")]
-                if lap == 1 else [])
-
-    simulator.event_manager.process_lap = control
+    control = simulator.event_manager
+    control.set_forced_red_flag(1)
+    control._deploy_safety_measure = lambda *args, **kwargs: None
+    # These fixed-weather alternatives isolate one suspension and its native
+    # resumption, without sampling additional severe-weather suspensions.
+    control._check_severe_weather_red_flag = lambda *args, **kwargs: None
     choose = simulator._choose_red_flag_tire
     selections = []
 

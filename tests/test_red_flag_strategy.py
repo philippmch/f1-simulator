@@ -26,7 +26,7 @@ def fixture(laps=30, stress=0.7):
     return state, track
 
 
-def exhaustive_cost(state, track, candidate, laps, paid_budget, wet):
+def exhaustive_cost(state, track, candidate, laps, paid_budget, wet, modifier=1.):
     """Enumerate every lap-by-lap keep/change action, including repeated sets."""
     best = inf
     initial_used = set(state.tire_compound_history) | {candidate.value}
@@ -38,13 +38,14 @@ def exhaustive_cost(state, track, candidate, laps, paid_budget, wet):
             continue
         age, cost, compound = 0, 0.0, candidate
         used = initial_used.copy()
-        for action in (None, *actions):
+        for offset, action in enumerate((None, *actions)):
             if action is not None:
                 compound, age = action, 0
                 used.add(compound.value)
                 cost += track.pit_lane_delta + expected_stationary_time(state.car)
-            cost += LapSimulator.tire_pace_contribution(
+            running = LapSimulator.tire_pace_contribution(
                 state.driver, state.car, track, TIRE_COMPOUNDS[compound], age)
+            cost += running * (modifier if offset == 0 else 1.)
             age += 1
         if wet or len(used) >= 2:
             best = min(best, cost)
@@ -52,18 +53,23 @@ def exhaustive_cost(state, track, candidate, laps, paid_budget, wet):
 
 
 @pytest.mark.parametrize("remaining", [1, 2, 5])
+@pytest.mark.parametrize("resumption", [False, True])
 @pytest.mark.parametrize("paid_used,wet", [(0, False), (1, False), (1, True),
                                           (2, False), (3, False), (3, True)])
-def test_choice_matches_exhaustive_remaining_race(remaining, paid_used, wet):
+def test_choice_matches_exhaustive_remaining_race(remaining, paid_used, wet, resumption):
     state, track = fixture(stress=1.0)
     state.tire_laps = 1  # The oracle credits the completed current stint.
     state.pit_stops = paid_used
     if wet:
         state.tire_compound_history.insert(0, "intermediate")
-    costs = {c: exhaustive_cost(state, track, c, remaining, 3 - paid_used, wet)
+    costs = {c: exhaustive_cost(state, track, c, remaining, 3 - paid_used, wet,
+                               1.4 if resumption else 1.)
              for c in SLICKS}
-    choice = RaceSimulator()._choose_red_flag_tire(state, Weather(), track,
-                                                  track.total_laps - remaining)
+    simulator = RaceSimulator()
+    if resumption:
+        simulator.event_manager.deploy_red_flag(track.total_laps - remaining)
+        simulator.event_manager.end_red_flag()
+    choice = simulator._choose_red_flag_tire(state, Weather(), track, track.total_laps - remaining)
     assert costs[choice] == pytest.approx(min(costs.values()))
 
 
@@ -75,6 +81,34 @@ def test_horizon_and_wear_change_free_set_choice():
     state.tire_compound_history = ["soft", "medium"]
     assert sim._choose_red_flag_tire(state, Weather(), track, 59) == TireCompound.SOFT
     assert sim._choose_red_flag_tire(state, Weather(), track, 10) == TireCompound.HARD
+
+
+def test_counted_sc_resumption_changes_free_dry_choice_at_stint_crossover():
+    sim = RaceSimulator()
+    state, track = fixture(80, .7)
+    state.tire_laps = 1
+    state.pit_stops = 3  # No further paid stops; both required dry specs already ran.
+    state.tire_compound_history = ["soft", "medium"]
+    assert sim._choose_red_flag_tire(state, Weather(), track, 47) == TireCompound.HARD
+    sim.event_manager.deploy_red_flag(47)
+    sim.event_manager.end_red_flag()
+    selected = sim._choose_red_flag_tire(state, Weather(), track, 47)
+
+    # Execute full mean lap physics independently for every free alternative.
+    # Only the first lap is under SC; the fitting is free and no later stop exists.
+    costs = {}
+    for compound in SLICKS:
+        costs[compound] = 0.
+        for age, lap in enumerate(range(48, 81)):
+            state.driver.current_tire_laps = age
+            running = sim.lap_simulator.calculate_lap_time(
+                state.driver, state.car, track, TIRE_COMPOUNDS[compound], Weather(),
+                lap, 80, active_aero_enabled=age > 0, sample_variation=False,
+            )
+            costs[compound] += running * (1.4 if age == 0 else 1.)
+    assert selected == TireCompound.MEDIUM
+    assert costs[selected] == pytest.approx(min(costs.values()))
+    assert costs[TireCompound.MEDIUM] < costs[TireCompound.HARD]
 
 
 def test_free_change_can_repeat_compound_and_consumes_no_rng():

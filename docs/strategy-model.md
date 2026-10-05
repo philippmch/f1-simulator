@@ -758,9 +758,12 @@ evolving-surface projection as ordinary transition planning. A free intermediate
 can therefore avoid a later paid stop as the track wets; a usable slick can
 avoid fitting intermediates just before the surface dries. Future paid fits
 still obey the ordinary weather-selection rules and stop allowances. The free set
-must run at least one lap before another stop; future service and pit-lane time
-are priced as green running. A suspension after lap N leaves `total_laps - N`
-racing laps, starting with lap N+1. Critically mismatched free candidates are excluded.
+must run at least one lap before another stop. The first counted lap after
+resumption uses the observed SC pace and disabled Active Aero; subsequent
+running, service and pit-lane time are forecast as green. The dry, wet and
+finite-inventory free choices share that observed first-lap control. A suspension
+after lap N leaves `total_laps - N` counted laps, starting with lap N+1.
+Critically mismatched free candidates are excluded.
 The race applies its usual between-lap weather update before selecting the free
 set, so that choice uses the conditions in which racing resumes. This avoids
 fitting a set for the completed lap's weather and then paying to replace it on
@@ -815,9 +818,29 @@ This is not a prediction of incident clearance or weather recovery. The
 simulator's `suspensions` trace records each signal clock, common restart clock
 and surviving order, and resets for each race.
 
+Both engines release the collected field behind the safety car for one counted
+lap, following [FIA sporting regulations B5.15.2(f)-(g)](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_b_sporting_-_iss_09_-_2026-10-01.pdf).
+This represents the minimum resumption circulation at lap resolution; its
+duration is a model assumption, rather than a prediction of the Race Director's
+decision. It uses the ordinary SC queue pace, prohibits passing and Active Aero,
+and uses neutralized energy recharge. The circulation consumes tyre life and
+race distance, including when it is the last lap. It cannot establish green-lap
+points eligibility. The following green lap retains the normal SC restart
+delay for Overtake Mode. Free fitting costs remain unscaled and are paid once.
+
+The event ledger records a one-lap `safety_car` event at the suspension's completed
+leading interval, marked as announced after that crossing and described as
+red-flag resumption. SC deployment counts and Monte Carlo event rates include
+this procedural deployment. It requires no extra random draw. An assumed SC/VSC
+schedule, including an empty schedule, disables random SC/VSC only; it cannot
+remove the resumption procedure. A request during its circulation is suppressed
+by the observed existing neutralization. Another suspension supersedes it,
+while a final-crossing red flag creates no resumption event.
+
 In a controlled three-lap race with constant 90- and 110-second cars and a red
 flag after lap one, the original crossings remain 90 and 110 seconds. With the
-default pause, both cars restart at 710 seconds and finish at 890 and 930
+default pause, both cars restart at 710 seconds, complete the SC circulation at
+836 seconds, and finish the following green lap at 926 and 946
 seconds. Their fastest laps remain 90 and 110 seconds.
 
 Results expose `race_suspension_seconds`: the sum of completed race-wide
@@ -842,7 +865,9 @@ Collection and pause extend the existing two-hour finish threshold, with at
 most one hour of accumulated extension. An already announced final lap stays
 latched. Restart tyre selection and subsequent pit planning use the common
 resume clock and extended deadline; physical fuel still follows the original
-scheduled distance. A red flag at the actual scheduled or timed finish records
+scheduled distance. The observed resumption SC pace enters the free-fit horizon
+as well as subsequent pit planning, so it can itself trigger timed expiry at its
+completed leading crossing. A red flag at the actual scheduled or timed finish records
 the event but starts no suspension, fits no tyres and evolves no extra weather.
 
 Forecasts distinguish the last completed crossing from the next lap's release
@@ -860,7 +885,9 @@ shared release clocks for the ordinary team service queue.
 
 The standard engine still resolves collection once per shared lap. It does
 not model partially completed sectors, cars held at a closed pit exit during
-collection, detailed restart formation, abandonment or results countback.
+collection, sector-level resumption, standing-start grid formation, additional
+director-ordered circulation, compulsory full-wet starts, unlapping, special
+resumption pit-exit procedures, abandonment or results countback.
 The chronological engine schedules those individual crossings and pit exits,
 while retaining its own documented lap-resolution limitations.
 

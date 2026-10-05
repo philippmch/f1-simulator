@@ -194,7 +194,11 @@ def test_native_red_flag_priority_does_not_destroy_later_requests(engine):
     history = simulator.event_manager.get_control_schedule_history()
     assert history[0] == schedule[0] | {"status": "suppressed", "reason": "red_flag"}
     assert history[1] == schedule[1] | {"status": "applied", "reason": "scheduled_announcement"}
-    assert simulator.event_manager.safety_car_deployments == 0
+    assert simulator.event_manager.safety_car_deployments == 1  # Procedural resumption.
+    resumption, = [event for event in simulator.event_manager.events
+                   if event.event_type == EventType.SAFETY_CAR]
+    assert resumption.lap == 2 and resumption.duration_laps == 1
+    assert "resumption" in resumption.description
     assert simulator.event_manager.vsc_deployments == 1
     assert result[0].race_suspension_seconds > 0
 

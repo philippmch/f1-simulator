@@ -10,6 +10,9 @@ Both race engines execute it using their existing observed control and countdown
 Omit `control_schedule`, or pass `null`/Python `None`, for the usual automatic
 SC/VSC model. An explicit `[]` disables random SC/VSC deployments. Individual
 incidents, mechanical failures and red flags remain active in either mode.
+After a suspension, both engines still execute one counted SC resumption lap.
+That procedural deployment is included in SC event counts; an empty assumed
+schedule cannot guarantee a race without SC running when a red flag occurs.
 
 For example, this JSON source requests SC after leading crossing 12, followed
 by VSC after leading crossing 26:
@@ -96,6 +99,10 @@ one of these outcomes:
 | `applied` | The announcement was deployed (`scheduled_announcement`). |
 | `suppressed` | The due request lost priority to `red_flag`, `no_survivors`, or an existing neutralization. |
 | `not_reached` | The race ended before the request was processed (`race_ended_before_request`). |
+
+A due request during the counted red-flag resumption is suppressed by
+`existing_neutralization`. The procedural SC itself does not fabricate an entry
+in the requested schedule or its outcome history.
 
 Applied records do **not** prove that all requested intervals ran. A later
 suspension or the finish can interrupt the duration. Requested duration remains

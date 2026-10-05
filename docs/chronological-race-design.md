@@ -226,6 +226,15 @@ order, including passes made before the signal but before a line crossing.
 Cars in service retain their last recorded rank slots. All survivors receive
 one free tyre choice using the shared restart weather.
 
+Release is followed by one counted SC circulation before green racing. Running
+conditions are captured after free fits or held paid service: pace, Active Aero,
+passing, energy recharge and tyre life use the ordinary SC rules. The circulation
+cannot earn green-lap credit for points, and its observed pace enters the frozen
+restart forecasts. When the SC returns, every continuing car still needs its
+own subsequent line crossing before Overtake Mode becomes available. This also
+applies to lapped cars and unfinished resumption laps. The ledger's procedural
+SC event contributes to SC counts even under an empty assumed control schedule.
+
 The common restart occurs after collection plus `red_flag_pause_seconds`, which
 defaults to 600 seconds and can be configured on `ChronologicalRace` or
 `simulate_chronological_race`. This is a ten-minute notice assumption, not a
@@ -241,8 +250,9 @@ the two-hour threshold, with a maximum extension of one hour. An already
 announced final lap stays fixed. This follows the timing framework in
 [FIA sporting regulations B2.5.3, B5.14.2 and B5.15.2](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_b_sporting_-_iss_09_-_2026-10-01.pdf).
 Collection remains a lap-resolution approximation: it does not recalculate
-partially driven sectors at reduced speed. The model also omits the detailed
-restart formation procedure, abandonment and results countback. The standard
+partially driven sectors at reduced speed. The model also omits standing-start
+grid formation, extra director-ordered circulation, compulsory full-wet starts,
+unlapping, special resumption pit-exit procedures, abandonment and results countback. The standard
 engine also uses collection plus a shared pause, but collects at the end of a
 synchronous lap; see [standard suspension timing](strategy-model.md#red-flag-suspension-timing).
 

@@ -137,5 +137,7 @@ def test_red_flag_pause_and_free_refit_do_not_add_recharge(monkeypatch, engine):
     assert results[0].race_suspension_seconds > 0
     assert suspensions
     assert [lap for lap, _, _ in recharges] == [1, 2, 3]
-    assert [neutralized for _, neutralized, _ in recharges] == [False, False, False]
-    assert [energy for _, _, energy in recharges] == pytest.approx([0.54, 0.58, 0.62])
+    # Only completed laps recharge; suspension waiting and free fitting add
+    # none. The counted circulation supplies the ordinary neutralized step.
+    assert [neutralized for _, neutralized, _ in recharges] == [False, True, False]
+    assert [energy for _, _, energy in recharges] == pytest.approx([0.54, 0.66, 0.70])

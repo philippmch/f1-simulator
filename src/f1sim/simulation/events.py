@@ -828,6 +828,9 @@ class EventManager:
         Returns:
             RaceEvent for the red flag
         """
+        if self.current_lap != lap:
+            self._lap_overtake_mode_snapshot = None
+        self.current_lap = lap
         self.red_flag_active = True
         self.red_flag_deployments += 1
         # Clear any active SC/VSC
@@ -849,12 +852,35 @@ class EventManager:
             description=f"Red flag: {reason}",
         )
 
-    def end_red_flag(self) -> None:
-        """End the red flag period and prepare for restart."""
+    def end_red_flag(self, *, resume: bool = True) -> None:
+        """Release a suspended race behind the SC for one counted lap.
+
+        This is the minimum lap-resolution resumption procedure. The next
+        green lap retains the ordinary SC restart delay. Repeated calls do
+        not deploy another SC; callers ending at the flag may skip resumption.
+        """
+        if not self.red_flag_active:
+            return
         self.red_flag_active = False
+        if not resume:
+            return
         self.red_flag_just_ended = True
         if self.current_lap is not None:
             self.red_flag_restart_lap_number = self.current_lap + 1
+        self.safety_car_active = True
+        self.safety_car_laps_remaining = 1
+        self.safety_car_deployments += 1
+        self.sc_just_ended = False
+        self.sc_restart_lap = False
+        self.sc_restart_lap_number = None
+        if self.current_lap is not None:
+            self.events.append(RaceEvent(
+                event_type=EventType.SAFETY_CAR,
+                lap=self.current_lap,
+                duration_laps=1,
+                description="Safety car deployed for red-flag resumption",
+                announced_after_crossing=True,
+            ))
 
     def is_red_flag_active(self) -> bool:
         """Check if red flag is currently active."""

@@ -91,8 +91,9 @@ def test_engine_reports_zero_without_suspension_and_final_lap_flag(monkeypatch, 
 def test_engine_accumulates_repeated_suspensions(monkeypatch, engine):
     results = _controlled_run(monkeypatch, engine, laps=4, red=(1, 3))
 
-    assert get_race_suspension_seconds(results) == 1260.0
-    assert all(row.race_suspension_seconds == 1260.0 for row in results)
+    # The resumption SC queue removes one lap of the original 20-second pace gap.
+    assert get_race_suspension_seconds(results) == 1240.0
+    assert all(row.race_suspension_seconds == 1240.0 for row in results)
 
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])

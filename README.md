@@ -44,7 +44,8 @@ for its assumptions and remaining limitations.
 Full safety cars close gaps through subsequent running, preserving completed
 lap times and pit-service accounting; see [queue timing and limits](docs/strategy-model.md#safety-car-queues-and-elapsed-time).
 Red flags collect the surviving field before a shared restart, preserving
-completed crossings and extending the finish deadline for the modeled wait;
+completed crossings and extending the finish deadline for the modeled wait.
+Cars resume for one counted lap behind the safety car before green racing;
 see [suspension timing](docs/strategy-model.md#red-flag-suspension-timing).
 Results and reports include completed race suspension time and the number of
 races with recorded timing, keeping older unknown values distinct from zero.
@@ -530,7 +531,8 @@ For a controlled SC/VSC experiment, choose **Assumed announcements** in the
 dashboard or pass `--control-schedule 12:sc:4,26:vsc:2` in the CLI. Strategies
 observe these announcements at their crossings; future deployments are unknown
 to forecasts. An empty assumed schedule (`--control-schedule none`) disables
-random SC/VSC, while red flags retain priority. Saved reports distinguish
+random SC/VSC, while red flags retain priority and resume behind the safety car.
+Saved reports distinguish
 requested announcements from complete recorded execution evidence. See
 [SC/VSC scenarios](docs/control-schedules.md) for replay, pit-window examples
 and weighted scenario overrides.

@@ -179,24 +179,25 @@ def test_chronological_window_uses_lapped_drivers_own_lap(monkeypatch):
 
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])
-def test_free_red_flag_fit_does_not_consume_or_trigger_window(monkeypatch, engine):
+def test_free_red_flag_fit_preserves_window_for_observed_sc_resumption(monkeypatch, engine):
     simulator = RaceSimulator(np.random.default_rng(19))
     manager = simulator.event_manager
 
-    def control(lap, *args, **kwargs):
-        manager.current_lap = lap
-        return [manager.deploy_red_flag(lap, "window test")] if lap == 2 else []
-
-    monkeypatch.setattr(manager, "process_lap", control)
+    manager.set_forced_red_flag(2)
+    for name in ("_check_mechanical_failure", "_check_random_incident", "_deploy_safety_measure"):
+        monkeypatch.setattr(manager, name, lambda *args, **kwargs: None)
     track = Track(id="T", name="Restart", country="T", total_laps=8, base_lap_time=90)
     execute = simulator.simulate_race if engine == "standard" else ChronologicalRace(simulator).run
     result, = execute([Driver(id="A", name="A", team_id="A")],
                       {"A": Car(team_id="A", team_name="A")}, track,
                       Weather(change_probability=0), ["A"], starting_tires={"A": "medium"},
                       pit_plans={"A": [window("neutralized")]})
-    assert result.pit_laps == [6]
+    # The free suspension fit leaves the paid instruction intact. Its next
+    # own-lap decision now observes the procedural SC and can use the window.
+    assert result.pit_laps == [3]
     assert result.pit_plan_history[0]["status"] == "executed"
-    assert result.pit_plan_history[0]["actual_lap"] == 6
+    assert result.pit_plan_history[0]["actual_lap"] == 3
+    assert result.pit_stop_details[0]["control"] == "safety_car"
 
 
 @pytest.mark.parametrize("engine", ["standard", "chronological"])

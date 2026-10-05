@@ -96,11 +96,13 @@ def test_live_escalation_fits_once_and_restarts_without_paid_stop(monkeypatch):
         starting_tires={"A": TireCompound.INTERMEDIATE},
     )
     assert [event.event_type for event in control.events] == [
-        EventType.SAFETY_CAR, EventType.RED_FLAG,
+        EventType.SAFETY_CAR, EventType.RED_FLAG, EventType.SAFETY_CAR,
     ]
     assert fits == [2]
     assert control.red_flag_restart_lap_number == 3
-    assert control.sc_restart_lap_number is None
+    assert control.sc_restart_lap_number == 4
+    assert control.events[-1].duration_laps == 1
+    assert "resumption" in control.events[-1].description
     assert result.pit_stops == 0 and result.pit_laps == []
     assert result.strategy == [TireCompound.INTERMEDIATE, TireCompound.WET]
     assert result.laps_completed == 3

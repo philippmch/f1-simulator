@@ -124,6 +124,8 @@ def test_failed_free_fit_is_retired_before_releasing_survivors(monkeypatch, surv
     monkeypatch.setattr(control, "_deploy_safety_measure", lambda *args, **kwargs: None)
     monkeypatch.setattr(control, "_check_mechanical_failure", lambda *args, **kwargs: None)
     monkeypatch.setattr(control, "_check_random_incident", lambda *args, **kwargs: None)
+    # Hold the prescribed weather without sampling another storm suspension.
+    monkeypatch.setattr(control, "_check_severe_weather_red_flag", lambda *args, **kwargs: None)
     monkeypatch.setattr(simulator, "_should_pit", lambda *args, **kwargs: False)
     fit_ids, running_ids = [], []
     resume = engine._resume_if_collected

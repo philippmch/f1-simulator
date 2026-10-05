@@ -945,11 +945,18 @@ class RaceSimulator(InventoryStrategyMixin):
                     final_lap, lap, leader.total_time,
                     observed_running_pace.get(leader.driver.id),
                     finish_clock.time_limit_seconds,
+                    self.event_manager.get_lap_time_modifier(),
                     next_lap_start_time=resume,
+                    time_limit_announced=finish_clock.time_limit_announced,
                 )
                 restart_track = (track if restart_final_lap == track.total_laps else
                                  track.model_copy(update={"total_laps": restart_final_lap}))
                 for state in states:
+                    # Collection replaces the previous traffic/control view.
+                    # A free set cannot inherit a queue from before suspension.
+                    state.strategy_safety_car_snapshot = None
+                    state.strategy_control_context = None
+                    state.strategy_leading_finish_context = None
                     state.strategy_finish_context = (
                         CustomPitFinishContext(resume, finish_clock.time_limit_seconds,
                                                finish_clock.time_limit_announced)
@@ -3565,13 +3572,11 @@ class RaceSimulator(InventoryStrategyMixin):
             current_lap: Lap completed before suspension
             defer_tire_fit: Skip fitting when a caller will apply it separately
         """
+        # Release control before the free choice observes its SC resumption.
+        # Clock advancement belongs to the live loop; past clocks stay intact.
+        self.event_manager.end_red_flag(resume=current_lap < track.total_laps)
         if not defer_tire_fit:
             self._fit_red_flag_tires(states, weather, track, current_lap)
-
-        # Keep race-control ordering unchanged.  Clock advancement belongs to
-        # the live race loop, which records collection and pause explicitly;
-        # direct callers retain only the free-fit/repair behavior.
-        self.event_manager.end_red_flag()
 
     def _fit_red_flag_tires(
         self, states: list[DriverRaceState], weather: Weather, track: Track, current_lap: int,
@@ -3773,6 +3778,9 @@ class RaceSimulator(InventoryStrategyMixin):
             return plan_dry_stop(
                 state.driver, state.car, track, TIRE_COMPOUNDS[compound], 0,
                 remaining_laps, budget, prospective_used, wet_exemption,
+                pit_lane_factor=self._pit_lane_factor(),
+                current_lap_time_modifier=self.event_manager.get_lap_time_modifier(),
+                active_aero_enabled=self.event_manager.is_active_aero_allowed(),
                 physical_total_laps=physical_total_laps,
                 tire_pace_multiplier=self.lap_simulator.weather_pace_multiplier(
                     state.driver, state.car, weather,
