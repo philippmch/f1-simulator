@@ -18,7 +18,12 @@ from f1sim.simulation.custom_pit_strategy import (
     CustomPitFinishContext,
     choose_custom_pit_replacement,
 )
-from f1sim.simulation.events import EventManager, EventType, RaceEvent
+from f1sim.simulation.events import (
+    EventManager,
+    EventType,
+    RaceEvent,
+    completed_lap_was_neutralized,
+)
 from f1sim.simulation.execution import validate_starting_tire_ages, validate_starting_tires
 from f1sim.simulation.finish_strategy import (
     LeadingFinishContext,
@@ -779,6 +784,9 @@ class RaceSimulator(InventoryStrategyMixin):
             # Resolve random/mechanical incidents and race-control events
             # after all on-track incidents have been collected.
             active_drivers = [s.driver for s in states if s.status == DriverStatus.RACING]
+            control_before_events = (self.event_manager.safety_car_active
+                                     or self.event_manager.vsc_active
+                                     or self.event_manager.red_flag_active)
             lap_events = self.event_manager.process_lap(
                 lap=lap,
                 drivers=active_drivers,
@@ -886,16 +894,11 @@ class RaceSimulator(InventoryStrategyMixin):
                 neutralized=lap_started_neutralized,
             )
 
-            # A deployment during the lap disqualifies the whole lap, even
-            # when the flag has already ended by this point (notably red flags).
-            lap_was_neutralized = (
-                lap_started_neutralized
-                or self.event_manager.safety_car_active
-                or self.event_manager.vsc_active
-                or self.event_manager.red_flag_active
-                or any(event.event_type in (
-                    EventType.SAFETY_CAR, EventType.VIRTUAL_SAFETY_CAR, EventType.RED_FLAG,
-                ) for event in lap_events)
+            # Incidents during this lap break green credit. A scheduled
+            # announcement after its crossing applies to the next interval.
+            lap_was_neutralized = completed_lap_was_neutralized(
+                self.event_manager, lap_events,
+                started_neutralized=lap_started_neutralized or control_before_events,
             )
             consecutive_green_laps = 0 if lap_was_neutralized else consecutive_green_laps + 1
             has_two_green_laps |= consecutive_green_laps >= 2

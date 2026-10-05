@@ -265,6 +265,13 @@ deployment detected at its completion affects subsequent running rather than
 retroactively changing its energy gain. The standard engine uses the same
 completed-lap convention.
 
+Green-lap eligibility for points separately tracks the whole own lap, including
+paid service and control signals received after running was sampled. It retains
+that exposure even when control clears before pit exit or a lapped survivor's
+leading crossing. This does not change captured physics, recharge or crossing
+times. A scheduled SC/VSC announcement after the leading crossing preserves
+the completed leader's green credit while affecting other unfinished laps.
+
 Full safety-car catch-up closes gaps through future running time, preserving
 every previous crossing and pit exit. Followers use the queue leader's neutralized
 pace and approach a one-second gap, bounded below by their own free-running pace.
@@ -351,7 +358,9 @@ shared leader finish clock without individual crossing records.
 
 Race control resolves the completed leading interval before recording its
 crossing and possible chequered flag. Final-interval SC, VSC and red flags still
-count in the event ledger and break the green-lap sequence used for points.
+count in the event ledger. Interventions sampled during that lap break the
+green-lap sequence used for points; a scheduled SC/VSC announcement after the
+crossing preserves its completed green credit.
 Their passing restriction remains active for trailing cars. Pending running
 times retain their starting conditions, so those cars finish at their actual
 next crossings without instantaneous gap compression. A final red flag does

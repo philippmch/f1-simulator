@@ -27,7 +27,12 @@ from f1sim.simulation.chronological_finish import (
 )
 from f1sim.simulation.control_schedule import validate_control_schedule
 from f1sim.simulation.custom_pit_strategy import CustomPitFinishContext
-from f1sim.simulation.events import EventManager, EventType, RaceEvent
+from f1sim.simulation.events import (
+    EventManager,
+    EventType,
+    RaceEvent,
+    completed_lap_was_neutralized,
+)
 from f1sim.simulation.execution import validate_starting_tire_ages, validate_starting_tires
 from f1sim.simulation.finish_strategy import (
     LeadingFinishContext,
@@ -99,6 +104,9 @@ class _PendingLap:
     safety_car: bool = False
     sc_queue_pace: float | None = None
     expected_exit: float | None = None
+    # Points eligibility follows the whole own lap, including paid service
+    # and later signals. The captured running physics remains unchanged.
+    saw_neutralization: bool = False
 
 
 @dataclass
@@ -1289,6 +1297,7 @@ class ChronologicalRace:
             restart_boost=control.is_restart_lap(interval),
             safety_car=control.safety_car_active,
             expected_exit=expected_exit,
+            saw_neutralization=neutralized,
         )
         self.pending[driver_id] = pending
         state.overtake_mode_active_lap = False
@@ -1511,7 +1520,9 @@ class ChronologicalRace:
         """Freeze running conditions at track entry, after any paid service."""
         control = self.simulator.event_manager
         pending.weather = self.weather.model_copy(deep=True)
+        pending.saw_neutralization |= pending.neutralized
         pending.neutralized = not control.is_active_aero_allowed()
+        pending.saw_neutralization |= pending.neutralized
         pending.lap_time_modifier = control.get_lap_time_modifier()
         pending.active_aero_enabled = control.is_active_aero_allowed()
         interval = self.control_intervals + 1
@@ -1716,11 +1727,22 @@ class ChronologicalRace:
     def _leader_interval(self, pending):
         control = self.simulator.event_manager
         was_safety_car = control.safety_car_active
+        before_control = (control.safety_car_active or control.vsc_active
+                          or control.red_flag_active)
         # Leadership can pass to a lapped survivor. Race-control cadence still
         # advances once per leading interval rather than replaying its old laps.
         self.control_intervals += 1
         events = control.process_lap(self.control_intervals, [], {}, self.track, pending.weather,
                                      incidents_this_lap=self.incidents)
+        observed_control = (before_control or control.safety_car_active or control.vsc_active
+                            or control.red_flag_active or any(event.event_type in (
+                                EventType.SAFETY_CAR, EventType.VIRTUAL_SAFETY_CAR,
+                                EventType.RED_FLAG,
+                            ) for event in events))
+        if observed_control:
+            for unfinished in self.pending.values():
+                if unfinished is not pending:
+                    unfinished.saw_neutralization = True
         if control.safety_car_active or control.vsc_active or control.red_flag_active:
             # Disable activation immediately even on a green lap still running
             # when the signal changes. Its sampled crossing and already spent
@@ -1739,9 +1761,11 @@ class ChronologicalRace:
                 if state.status == DriverStatus.RACING
             }
         self.incidents = 0
-        neutral = pending.neutralized or any(event.event_type in (
-            EventType.SAFETY_CAR, EventType.VIRTUAL_SAFETY_CAR, EventType.RED_FLAG,
-        ) for event in events)
+        neutral = completed_lap_was_neutralized(
+            control, events,
+            started_neutralized=(pending.neutralized or before_control
+                                 or getattr(pending, "saw_neutralization", False)),
+        )
         self.green_streak = 0 if neutral else self.green_streak + 1
         self.has_two_green |= self.green_streak >= 2
         return any(event.event_type == EventType.RED_FLAG for event in events)

@@ -45,10 +45,17 @@ including an empty schedule. Forced red flags retain priority.
 ## Observation and strategy
 
 An announcement is processed after the chosen leading crossing. It does not
-retroactively slow the completed lap. Continuing cars observe the active
+retroactively slow the completed lap or remove its green-lap credit for points.
+It does invalidate green credit for other unfinished own laps exposed to the
+procedure. Continuing cars observe the active
 SC/VSC and countdown at their next decisions; already sampled running remains
 committed. The standard engine advances together, while chronological cars
 can be on different own laps or in service when an announcement occurs.
+
+For example, an announcement after two green leading laps preserves the
+required consecutive pair even if every remaining lap runs under SC/VSC.
+An intervention sampled during the second lap instead breaks that pair.
+Actual awards still depend on completed distance and classification.
 
 In the chronological engine, the shared race-control count keeps increasing
 if a lapped survivor inherits the lead. It does not replay the retired leader's

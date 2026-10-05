@@ -79,9 +79,15 @@ Classification uses the winner's completed distance. Points use the original
 scheduled distance, with reduced schedules below 25%, 50% and 75%, and require
 two consecutive complete green laps, following A2.2.1 of the [2026 General
 Provisions, Issue 03](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_a_general_provisions_-_iss_03_-_2026-06-25.pdf).
-In this lap model, a lap starting or ending under neutralization, or containing
-a new SC, VSC or red flag, breaks that consecutive-lap sequence. Earlier valid
-pairs remain valid. A classified retirement can earn points, while a scoring
+In this lap model, a completed leading lap that encounters SC, VSC or a red
+flag breaks that consecutive-lap sequence. A scheduled SC/VSC announcement
+occurs after its chosen crossing and preserves that completed lap's green
+credit, including at the finish. Automatic and forced interventions sampled
+during a lap still invalidate it. The chronological engine retains control
+exposure across the entire own lap, including paid service and later signals:
+a green track-entry snapshot or subsequent clearance cannot erase that
+exposure if a lapped car later inherits the lead. Earlier valid pairs remain
+valid. A classified retirement can earn points, while a scoring
 finish probability counts positive awards rather than merely a top-ten place.
 Legacy result objects without an explicit points award retain the previous
 classification-based full-points fallback.

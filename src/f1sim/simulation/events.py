@@ -46,6 +46,27 @@ class RaceEvent:
     # Reporting only: these asymmetric losses were already applied by the
     # battle resolver and must not be charged again as pending consequences.
     applied_time_losses: dict[str, float] = field(default_factory=dict)
+    # Scheduled SC/VSC requests are observed after the completed leading
+    # crossing. They affect unfinished work, not that crossing's green credit.
+    announced_after_crossing: bool = False
+
+
+def completed_lap_was_neutralized(control, events, *, started_neutralized):
+    """Keep completed-lap eligibility separate from subsequent control state."""
+    kinds = {EventType.SAFETY_CAR, EventType.VIRTUAL_SAFETY_CAR, EventType.RED_FLAG}
+    if started_neutralized or any(
+        event.event_type in kinds and not getattr(event, "announced_after_crossing", False)
+        for event in events
+    ):
+        return True
+    after = {event.event_type for event in events
+             if event.event_type in kinds and getattr(event, "announced_after_crossing", False)}
+    active = {kind for kind, enabled in (
+        (EventType.SAFETY_CAR, control.safety_car_active),
+        (EventType.VIRTUAL_SAFETY_CAR, control.vsc_active),
+        (EventType.RED_FLAG, control.red_flag_active),
+    ) if enabled}
+    return bool(active - after)
 
 
 class EventManager:
@@ -149,7 +170,8 @@ class EventManager:
             kind, description = EventType.VIRTUAL_SAFETY_CAR, "Virtual safety car"
         self._record_scheduled_control(lap, "applied", "scheduled_announcement")
         return RaceEvent(event_type=kind, lap=lap, duration_laps=duration,
-                         description=f"{description} deployed (scheduled scenario)")
+                         description=f"{description} deployed (scheduled scenario)",
+                         announced_after_crossing=True)
 
     def reset(self) -> None:
         """Reset event state for new race."""
