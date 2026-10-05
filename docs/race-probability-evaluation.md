@@ -151,6 +151,45 @@ sampling error to those probabilities and their squared-error scores. Compare
 results with their recorded budgets and assumptions. The following diagnostic
 quantifies finite-trial score noise without fitting a probability correction.
 
+### References informed by earlier performance
+
+Each new fold also freezes two simple historical references before the target is
+simulated or scored. Their cutoff is `target_round - 1`, using the same earlier
+constructor standings and modeled entrant identities as the holdout assembly:
+
+- `constructor_points_share_v1` divides each represented constructor's share of
+  earlier points equally among its modeled drivers. It normalizes over represented
+  constructors, so the reference is conditional on the modeled roster. Standings
+  points can include sprint points.
+- `prior_race_wins_share_v1` assigns each modeled driver their unsmoothed share of
+  resolved earlier race winners in that roster. Unresolved winners and winners
+  outside the modeled roster are recorded as excluded evidence. A zero share
+  means no recorded earlier win, not that a future win is impossible.
+
+Both references assign zero probability to no classified winner. Missing prior
+standings, missing modeled constructors, zero total represented points or no
+resolved earlier winners make the corresponding reference unavailable: its
+probabilities and score are `null`. In particular, the opening event has no
+usable history. We do not substitute an equal-chance forecast for missing data.
+These fixed formulas are not fitted to target outcomes. They are more informative
+comparisons than equal chance, but neither is an expert forecast accounting for
+the current grid, weather, strategy or changes in competitiveness.
+
+Per-fold `baselines` preserve the policies, cutoffs, earlier evidence,
+probabilities, availability reasons and recomputed scores. Top-level
+`baseline_comparisons` reports model and reference mean Brier scores on their
+**identical scored events**, with equal event weighting. The selected, scored and
+unpaired event counts make missing history visible. Model-minus-reference deltas
+are negative when the model scores better. The adjusted delta uses the same
+common events for which the model's finite-trial correction is available and
+reports that count separately; deterministic references need no correction.
+
+Offline rescoring rebuilds these references from recorded evidence and rejects
+inconsistent probabilities, policies, cutoffs or future-round evidence. This
+checks internal consistency, not the authenticity of the original provider data.
+Older saved reports without historical references remain supported; rescoring
+does not invent missing evidence.
+
 ### Finite-trial score diagnostics
 
 Every scored event now also includes `score.mc_adjustment`. It reports the
@@ -321,3 +360,46 @@ equal-chance baseline. All original winner counts, forecasts, saved model inputs
 and source URLs were retained. The original empirical mean remains 0.8026.
 These numbers use the same 1,500 already-recorded trials and observed outcomes;
 the lower adjusted loss supplies no new evidence of predictive improvement.
+
+### 5 October snapshot with historical references
+
+The new chronological run scored all 16 completed targets, with 100 trials each
+(1,600 total), seed 42, four process workers, the default three-event form window
+and fixed dry rainfall. Earlier evidence was collected before simulation;
+neither baseline formula was fitted or selected from the resulting scores.
+
+```powershell
+python examples/evaluate_race_probabilities.py --all --trials 100 --seed 42 --engine chronological --parallel --workers 4 --progress --fetch-budget 180
+```
+
+| Comparison | Common scored events | Model mean Brier | Reference mean Brier | Model minus reference |
+|---|---:|---:|---:|---:|
+| Equal chance | 16 | 0.831250 | 0.953813 | −0.122563 |
+| Earlier constructor points | 15 | 0.819987 | 0.812755 | +0.007232 |
+| Earlier race-win frequency | 15 | 0.819987 | 0.885549 | −0.065563 |
+
+Both historical references are unavailable at the opening event. The corresponding
+finite-trial-adjusted mean deltas on the same 15 events are **+0.000875** against
+constructor points and **−0.071920** against earlier race wins. The adjusted
+all-event model mean is 0.824697. These diagnostics do not establish statistical
+significance or an advantage over constructor points.
+
+Rounds 1 and 14 model only 19 and 20 entrants; the other rounds model 22. The
+observed winners at rounds 1, 7, 9, 11, 12 and 16 received empirical probabilities
+of 0.03, 0.05, 0.05, 0.01, 0.02 and 0.00 respectively. The round 16 zero is zero
+wins in 100 trials, with a conditional 95% Wilson upper bound of 0.03699.
+The fixed dry assumption does not reproduce that event's rain-affected race
+conditions, described in the [FIA race report](https://www.fia.com/news/f1-verstappen-wins-dramatic-bahrain-grand-prix-malaysia-ahead-antonelli-and-hamilton).
+This mismatch limits interpretation; it does not establish which model change
+would improve the forecast. No live coefficients were changed from these scores.
+
+The derived report is locally saved as
+`output/quality-milestone-2026-10-05/live-evaluation.json`, SHA-256
+`991c9e218ca356fed1f51500a8530cc32f4621f8ffd8235941ddd0be69902616`.
+Its simulation source fingerprint is
+`0be91808485992d123f2b4a41d7df42b85abdb57afc16a25c6f6c3dd24830bed`,
+with Python 3.11.9, NumPy 2.4.6 and Pydantic 2.13.5. The fetch timestamp is
+`2026-10-05T10:29:15.750863Z`. Python sources remained unchanged throughout the
+run; concurrent dashboard and documentation edits did not alter simulation.
+Offline rescoring preserved the original report bytes, counts, model inputs and
+historical references and reproduced every aggregate score without new trials.

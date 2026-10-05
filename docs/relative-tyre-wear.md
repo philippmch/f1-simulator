@@ -181,3 +181,29 @@ zero. Omitting one event moves the unadjusted soft-minus-hard estimate between
 confounding do not support changing the simulator's preset wear coefficients.
 The value of this first run is a reproducible baseline for additional evidence,
 not a calibration result.
+
+## Seven-event evidence checkpoint — 5 October 2026
+
+The current evaluator was reapplied offline to the saved version-1 Canada,
+Italy, Spain, Britain, Belgium, Hungary and Azerbaijan normalized reports. This
+adds event-sample coverage to the first comparison above, not fresh timing data.
+The pooled fit uses 6,096 eligible laps from 151 driver-event clusters, with
+equal total event weights.
+
+| Contrast | Estimate (s/lap) | Approximate range | Driver-trend adjusted estimate | Adjusted range |
+|---|---:|---|---:|---|
+| Soft minus hard | 0.01356 | −0.00763 to 0.03475 | 0.01243 | −0.02946 to 0.05431 |
+| Medium minus hard | 0.00711 | −0.00599 to 0.02020 | 0.00272 | −0.02445 to 0.02989 |
+| Soft minus medium | 0.00645 | −0.01030 to 0.02320 | 0.00971 | −0.01999 to 0.03940 |
+
+All pooled ranges cross zero. This descriptive, confounded evidence continues
+to withhold support for updating universal wear coefficients. No simulator
+coefficient changed. The following command reproduces the saved-input check;
+live recollection can yield different revised source data.
+
+```powershell
+python examples/evaluate_relative_tyre_wear.py output/relative-wear-canadian-2026-09-26.json output/relative-wear-italian-2026-09-26.json output/relative-wear-spanish-2026-09-26.json output/relative-wear-british-2026-09-27.json output/relative-wear-belgian-2026-09-27.json output/relative-wear-hungarian-2026-09-27.json output/relative-wear-azerbaijan-2026-09-27.json
+```
+
+The new local report and source-bound receipt are
+`output/quality-milestone-2026-10-05/tyre-evidence.log` and `tyre-evidence.json`.

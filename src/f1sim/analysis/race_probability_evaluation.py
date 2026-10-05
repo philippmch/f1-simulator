@@ -26,6 +26,11 @@ from f1sim.analysis.race_probability_scores import (
     summarize_winner_trials,
 )
 from f1sim.analysis.scenarios import scenario_weather_from_label
+from f1sim.analysis.winner_baselines import (
+    build_winner_baselines,
+    score_saved_winner_baselines,
+    summarize_baseline_comparisons,
+)
 from f1sim.cancellation import raise_if_cancelled
 from f1sim.data.current import CurrentSeasonDataError, CurrentSeasonDataLoader
 from f1sim.models import Weather
@@ -268,10 +273,17 @@ def rescore_saved_winner_evaluation(report: Mapping[str, Any]) -> dict[str, Any]
                for probability, count in count_records):
             raise ValueError("forecast probabilities must match its winner counts")
         updated["score"] = score if fold["status"] == "scored" else None
+        if "baselines" in fold:
+            updated["baselines"] = score_saved_winner_baselines(
+                fold["baselines"], roster, target_round=round_number,
+                observed_winner=observed_id,
+            )
         rescored.append(updated)
     updated_report = deepcopy(dict(report))
     updated_report["folds"] = rescored
     updated_report["aggregate"] = _aggregate(rescored)
+    if any("baselines" in fold for fold in rescored):
+        updated_report["baseline_comparisons"] = summarize_baseline_comparisons(rescored)
     updated_report["rescoring"] = {
         "method": "finite_ensemble_multiclass_brier_v1",
         "basis": "recorded_winner_counts_and_observed_categories",
@@ -396,12 +408,33 @@ def evaluate_race_probabilities(
                 "coverage_error": exc,
             })
         else:
+            # Freeze the references before simulation and target scoring. Their
+            # evidence has the same cutoff as the model, with no target labels.
+            prior_outcomes = [
+                {"round": earlier, **_observed_winner(
+                    loader, _target_rows(loader, results, earlier), assembled.aliases,
+                    {driver.id for driver in assembled.drivers},
+                )}
+                for earlier in sorted({
+                    _round_number(row.get("round")) for row in events
+                    if _round_number(row.get("round")) is not None
+                    and _round_number(row.get("round")) < round_number
+                })
+                if any(_round_number(row.get("round")) == earlier for row in results)
+            ]
+            baselines = build_winner_baselines(
+                {driver.id: driver.team_id for driver in assembled.drivers},
+                {loader._row_team_id(row): row["points"]
+                 for row in assembled.constructor_standings},
+                prior_outcomes, cutoff_round=round_number - 1,
+            )
             prepared_folds.append({
                 "event": event,
                 "round": round_number,
                 "target_results": target_results,
                 "event_seed": per_event_seed,
                 "assembled": assembled,
+                "baselines": baselines,
             })
         raise_if_cancelled(cancel_requested)
 
@@ -525,6 +558,10 @@ def evaluate_race_probabilities(
             reason = None
 
         coverage = assembled.metadata.coverage
+        baselines = score_saved_winner_baselines(
+            prepared["baselines"], driver_ids, target_round=round_number,
+            observed_winner=observed.get("winner_id") if status == "scored" else None,
+        )
         folds.append({
             "round": round_number,
             "race": event["race"],
@@ -536,6 +573,7 @@ def evaluate_race_probabilities(
             "forecast": forecast,
             "simulation_inputs": simulation.input_snapshot,
             "score": score,
+            "baselines": baselines,
             "training": {
                 "status": "assembled",
                 "cutoff_round": assembled.metadata.training_cutoff_round,
@@ -608,4 +646,5 @@ def evaluate_race_probabilities(
         "trials_per_event_policy": "event_seed_plus_zero_based_trial_index_prefix_stable",
         "folds": folds,
         "aggregate": _aggregate(folds),
+        "baseline_comparisons": summarize_baseline_comparisons(folds),
     }

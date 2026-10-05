@@ -386,6 +386,31 @@ On the same fresh snapshot, both target modes produced identical folds for
 completed rounds 1–15. Selecting round 16 alone, selecting all qualifying
 targets and running the CLI produced identical round 16 predictions and scores.
 
+## Completed-event checkpoint — 5 October 2026
+
+A fresh `python examples/evaluate_qualifying_pace.py --components --fetch-budget 180`
+snapshot scored 16 completed events and 346 driver observations. The following
+paired comparison uses the same 15 events and 319 observations with usable
+previous-Q1 predictions. Pace errors are percentage points.
+
+| Paired metric | Native model | Earlier team Q1 candidate | Previous Q1 |
+|---|---:|---:|---:|
+| Driver rank MAE (places) | 3.1097 | 2.9592 | 3.1850 |
+| Relative pace MAE | 0.6477 | 0.4680 | 0.5162 |
+| Pairwise concordance | 0.7951 | 0.8127 | 0.7899 |
+
+Across all 16 events, the candidate improved driver rank error in seven, tied
+three and worsened six. The equally weighted mean candidate-minus-native event
+rank-error delta was −0.1264 places; the median was zero. Candidate team ranking
+worsened on average by 0.0568 places. This remains mixed evidence, using revised
+provider data and assumed dry weather, with a candidate originally explored
+after inspecting earlier outcomes. No candidate was promoted to live ratings.
+
+The local derived report is
+`output/quality-milestone-2026-10-05/qualifying-evaluation.json`, SHA-256
+`2d7e3f07a786ddf1bf5ec81222d84cdfe8f6429fda563142f028bf43c8edc5b7`.
+Its source-bound receipt records native execution with unchanged Python sources.
+
 ## Interpretation limits
 
 This is a round holdout using today's revised provider data and today's model

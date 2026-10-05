@@ -13,6 +13,7 @@ const { checkControlSchedules } = require('./browser_control_schedules.cjs');
 const { checkScoringEvidence } = require('./browser_scoring_evidence.cjs');
 const { checkAbandonment } = require('./browser_abandonment.cjs');
 const { checkWetResumption } = require('./browser_wet_resumption.cjs');
+const { checkBasicSetup } = require('./browser_basic_setup.cjs');
 
 (async () => {
   const offline = process.env.F1SIM_OFFLINE === '1';
@@ -300,6 +301,7 @@ const { checkWetResumption } = require('./browser_wet_resumption.cjs');
     await page.waitForFunction(() => !connectionRefreshInProgress);
     assert(await page.locator('#btnRun').isEnabled(), 'Live calendar must be available');
     assert(await page.locator('#btnTyreSetup').isEnabled(), 'Tyre setup editor must be available');
+    await checkBasicSetup(page);
     await checkControlNavigation(page);
     await checkPitWindows(page);
     if (offline) await checkControlSchedules(page);

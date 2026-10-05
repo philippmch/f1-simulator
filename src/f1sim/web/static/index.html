@@ -100,6 +100,16 @@ body::before {
   flex-wrap: wrap;
 }
 
+.run-budget { padding: 0 2.5rem .8rem; color: var(--text-secondary); font-size: .8rem; }
+.advanced-settings > summary {
+  cursor: pointer;
+  padding: .8rem 2.5rem;
+  border-top: 1px solid var(--border-subtle);
+  font-size: .9rem;
+}
+.advanced-settings > summary:focus-visible { outline: 2px solid var(--f1-red); outline-offset: -3px; }
+.settings-hint { margin-left: .7rem; color: var(--text-secondary); font-size: .8rem; }
+
 .logo {
   display: flex;
   align-items: center;
@@ -1932,6 +1942,9 @@ input:focus-visible {
   .header { position: static; }
   .header-top { flex-direction: column; gap: 1rem; padding: 1rem 1.2rem; }
   .header-advanced { padding: 0.6rem 1.2rem 0.8rem; flex-wrap: wrap; }
+  .run-budget { padding: 0 1.2rem .8rem; }
+  .advanced-settings > summary { padding: .8rem 1.2rem; }
+  .settings-hint { display: block; margin: .3rem 0 0; }
   .status-banner { margin: 0.8rem 1rem 0; }
   .controls { flex-wrap: wrap; justify-content: center; }
   .controls, .control-group { min-width: 0; max-width: 100%; }
@@ -2003,12 +2016,15 @@ input:focus-visible {
         <span class="data-source-badge loading" id="dataSourceBadge" role="status" aria-live="polite" title="Where driver/car ratings come from">Checking backend...</span>
       </div>
     </div>
+    <div class="run-budget" id="runBudgetSummary" aria-live="polite"></div>
+    <details class="advanced-settings" id="advancedSettings">
+      <summary>More race settings<span class="settings-hint" id="advancedSettingsHint">Tyres, pit plans and weather experiments</span></summary>
     <div class="header-advanced">
       <div class="control-group control-group-scenarios">
         <span class="control-label" id="scenarioSetLabel">Scenario Set</span>
         <div class="scenario-selector" id="headerScenarioSelector" role="group" aria-labelledby="scenarioSetLabel"></div>
         <div class="scenario-preset-row" id="headerScenarioPresets"></div>
-        <div class="scenario-summary" id="scenarioSetSummary">Build a weather sweep for the backend run.</div>
+        <div class="scenario-summary" id="scenarioSetSummary">Choose weather scenarios to compare.</div>
         <input type="text" id="scenarioSetInput" value="" class="scenario-set-hidden" aria-hidden="true" tabindex="-1">
       </div>
       <div class="control-group">
@@ -2156,6 +2172,7 @@ input:focus-visible {
       </div>
       <button class="scenario-preset" type="button" id="btnRefresh" onclick="refreshLiveData()">Refresh live data</button>
     </div>
+    </details>
   </header>
 
   <!-- Tabs -->
@@ -2176,7 +2193,7 @@ input:focus-visible {
       <div class="empty-state" id="emptyRace">
         <div class="empty-icon">&#9201;</div>
         <div class="empty-title">No simulation yet</div>
-        <div class="empty-desc">Run the Python backend and start a simulation to see backend-generated race results</div>
+        <div class="empty-desc">Choose a circuit and weather, then run a simulation to explore race outcomes.</div>
       </div>
       <div class="pit-selection-panel" id="pitPlanSelectionPanel" hidden>
         <p class="pit-selection-intro">Enter 2–10 named plans before running. Custom plans accept <code>18:hard</code> or a control window such as <code>18-25@sc:hard</code>. Automatic uses the simulator plan; <code>none</code> keeps compulsory stops only.</p>
@@ -2564,6 +2581,42 @@ function setStatusMessage(message, tone = '') {
   status.textContent = message;
 }
 
+function focusRunInput(input) {
+  if (!input) return;
+  const settings = input.closest('#advancedSettings');
+  if (settings) settings.open = true;
+  input.focus();
+}
+
+function updateRunBudget() {
+  const count = Number(document.getElementById('simCount').value);
+  const scenarios = getSelectedScenarioNames().length;
+  const compare = document.getElementById('compareAutomaticInput').checked;
+  const selection = document.getElementById('pitPlanSelectionEnabled').checked;
+  const target = document.getElementById('runBudgetSummary');
+  if (!Number.isInteger(count) || count < 10 || count > 1000) {
+    target.textContent = 'Choose 10–1,000 races per weather scenario.';
+  } else {
+    const total = count * scenarios * (compare ? 2 : 1);
+    target.textContent = `${total.toLocaleString()} simulated races · ${count} per weather scenario`
+      + (compare ? ' · includes the automatic strategy reference' : '')
+      + (selection ? '. Plan selection adds training and validation races.' : '');
+  }
+  const custom = ['startingTiresInput', 'tireInventoryInput', 'pitPlansInput',
+    'tireWarmupInput', 'weatherScheduleInput'].some(id => document.getElementById(id).value.trim())
+    || document.getElementById('controlSourceSelect').value !== 'automatic'
+    || ['Q1', 'Q2', 'Q3'].some(session =>
+      document.getElementById(`qualifying${session}Condition`).value !== 'inherit')
+    || document.getElementById('seedInput').value !== '42'
+    || document.getElementById('raceEngineSelect').value !== 'chronological'
+    || document.getElementById('weatherModeSelect').value !== 'evolving'
+    || document.getElementById('rngPolicySelect').value !== 'isolated_weather_v1'
+    || document.getElementById('parallelSelect').value !== 'true'
+    || document.getElementById('workersInput').value.trim() !== '' || scenarios > 1;
+  document.getElementById('advancedSettingsHint').textContent = custom || compare || selection
+    ? 'Custom race settings apply to the next run' : 'Tyres, pit plans and weather experiments';
+}
+
 function toNumber(value, fallback = 0) {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
@@ -2842,6 +2895,7 @@ function syncScenarioControls() {
       el.textContent = describeScenarioSelection(selected);
     }
   });
+  updateRunBudget();
 }
 
 function setScenarioSelection(value, options = {}) {
@@ -3117,6 +3171,7 @@ function writeOptionalStorage(key, value) {
 }
 
 function saveUiPrefs() {
+  updateRunBudget();
   const compareAutomaticInput = document.getElementById('compareAutomaticInput');
   const payload = {
     focusScenario: weatherSelectEl.value,
@@ -3676,7 +3731,7 @@ function buildPitRivalScenarios() {
   const fail = (message, input) => {
     setStatusMessage(message, 'error');
     updatePitSelectionStatus(message);
-    input?.focus();
+    focusRunInput(input);
     return {ok: false};
   };
   const rows = pitRivalRows();
@@ -3930,7 +3985,7 @@ function buildPitPlanSelectionPayload(sourceSimulations) {
     const message = 'Candidate selection and automatic comparison cannot run together. Turn off automatic comparison or candidate selection.';
     setStatusMessage(message, 'error');
     updatePitSelectionStatus(message);
-    enabled.focus();
+    focusRunInput(enabled);
     return {ok: false};
   }
   const currentKey = currentPitSelectionRosterKey();
@@ -3940,7 +3995,7 @@ function buildPitPlanSelectionPayload(sourceSimulations) {
       : pitSelectionRosterError || 'Load the current race roster before starting candidate selection.';
     setStatusMessage(message, 'error');
     updatePitSelectionStatus(message);
-    enabled.focus();
+    focusRunInput(enabled);
     return {ok: false};
   }
   const rows = pitSelectionCandidateRows();
@@ -3948,7 +4003,7 @@ function buildPitPlanSelectionPayload(sourceSimulations) {
     const message = 'Candidate selection needs between 2 and 10 named plans.';
     setStatusMessage(message, 'error');
     updatePitSelectionStatus(message);
-    document.getElementById('addPitPlanCandidateBtn')?.focus();
+    focusRunInput(document.getElementById('addPitPlanCandidateBtn'));
     return {ok: false};
   }
   const targetMode = document.getElementById('pitPlanSelectionTargetMode').value;
@@ -3959,7 +4014,7 @@ function buildPitPlanSelectionPayload(sourceSimulations) {
     const message = 'Choose expected points, race win probability, or podium probability.';
     setStatusMessage(message, 'error');
     updatePitSelectionStatus(message);
-    objectiveInput.focus();
+    focusRunInput(objectiveInput);
     return {ok: false};
   }
   const targetMemberIds = pitSelectionTargetMemberIds();
@@ -3968,7 +4023,7 @@ function buildPitPlanSelectionPayload(sourceSimulations) {
     const message = 'Choose a current driver or constructor ID for the selection target.';
     setStatusMessage(message, 'error');
     updatePitSelectionStatus(message);
-    input.focus();
+    focusRunInput(input);
     return {ok: false};
   }
 
@@ -3982,14 +4037,14 @@ function buildPitPlanSelectionPayload(sourceSimulations) {
       const message = `Enter a candidate name of 1–80 characters for row ${index + 1}.`;
       setStatusMessage(message, 'error');
       updatePitSelectionStatus(message);
-      nameInput?.focus();
+      focusRunInput(nameInput);
       return {ok: false};
     }
     if (labels.has(label)) {
       const message = `Candidate names must be unique. Rename “${label}”.`;
       setStatusMessage(message, 'error');
       updatePitSelectionStatus(message);
-      nameInput.focus();
+      focusRunInput(nameInput);
       return {ok: false};
     }
     labels.add(label);
@@ -4006,7 +4061,7 @@ function buildPitPlanSelectionPayload(sourceSimulations) {
       const message = 'Target membership changed. Wait for the current roster, then review each candidate plan.';
       setStatusMessage(message, 'error');
       updatePitSelectionStatus(message);
-      enabled.focus();
+      focusRunInput(enabled);
       return {ok: false};
     }
     const memberPlans = Object.create(null);
@@ -4017,7 +4072,7 @@ function buildPitPlanSelectionPayload(sourceSimulations) {
         const message = `Enter ordered pit stops for ${memberId}, or use none for no elective stops.`;
         setStatusMessage(message, 'error');
         updatePitSelectionStatus(message);
-        field.focus();
+        focusRunInput(field);
         return {ok: false};
       }
       memberPlans[memberId] = parsed.instructions;
@@ -4028,7 +4083,7 @@ function buildPitPlanSelectionPayload(sourceSimulations) {
     const message = 'Choose one candidate as the fixed reference before running.';
     setStatusMessage(message, 'error');
     updatePitSelectionStatus(message);
-    rows[0]?.querySelector('.pit-selection-reference input')?.focus();
+    focusRunInput(rows[0]?.querySelector('.pit-selection-reference input'));
     return {ok: false};
   }
   const trainingInput = document.getElementById('pitPlanTrainingTrials');
@@ -4040,7 +4095,7 @@ function buildPitPlanSelectionPayload(sourceSimulations) {
     const message = 'Training and validation trials must each be a positive whole number up to 1,000.';
     setStatusMessage(message, 'error');
     updatePitSelectionStatus(message);
-    invalidTrials.focus();
+    focusRunInput(invalidTrials);
     invalidTrials.reportValidity();
     return {ok: false};
   }
@@ -4497,7 +4552,7 @@ function openTyreEditor() {
   const parsed = parseTyreSetupInputs();
   if (!parsed.ok) {
     setStatusMessage(parsed.message, 'error');
-    parsed.input?.focus();
+    focusRunInput(parsed.input);
     return;
   }
   const dialog = document.getElementById('tyreSetupDialog');
@@ -4528,6 +4583,7 @@ function applyTyreEditor() {
   }
   document.getElementById('startingTiresInput').value = result.startingRaw;
   document.getElementById('tireInventoryInput').value = result.inventoryRaw;
+  updateRunBudget();
   setStatusMessage('Tyre setup saved. Run a simulation to use these inputs.', 'success');
   document.getElementById('tyreSetupDialog')?.close('apply');
 }
@@ -4722,13 +4778,13 @@ function buildRunPayload() {
     const message = 'Candidate selection and automatic comparison cannot run together. Turn off automatic comparison or candidate selection.';
     setStatusMessage(message, 'error');
     updatePitSelectionStatus(message);
-    document.getElementById('pitPlanSelectionEnabled')?.focus();
+    focusRunInput(document.getElementById('pitPlanSelectionEnabled'));
     return null;
   }
   const rngPolicy = rngPolicyInput?.value;
   if (!['isolated_weather_v1', 'isolated_weather_mechanical_v1', 'isolated_race_v1'].includes(rngPolicy)) {
     setStatusMessage('Choose a valid random draw matching policy.', 'error');
-    rngPolicyInput?.focus();
+    focusRunInput(rngPolicyInput);
     return null;
   }
   if (simulationsInput.value.trim() === '') {
@@ -4753,6 +4809,7 @@ function buildRunPayload() {
     return null;
   }
   if (invalidInput) {
+    focusRunInput(invalidInput);
     invalidInput.reportValidity();
     setStatusMessage(`Invalid ${invalidInput.previousElementSibling?.textContent?.trim() || 'run'} value.`, 'error');
     return null;
@@ -4764,38 +4821,38 @@ function buildRunPayload() {
   const tyreSetup = parseTyreSetupInputs();
   if (!tyreSetup.ok) {
     setStatusMessage(tyreSetup.message, 'error');
-    tyreSetup.input?.focus();
+    focusRunInput(tyreSetup.input);
     return null;
   }
   const weatherScheduleSetup = parseWeatherScheduleInputs();
   if (!weatherScheduleSetup.ok) {
     setStatusMessage(weatherScheduleSetup.message, 'error');
-    weatherScheduleSetup.input.focus();
+    focusRunInput(weatherScheduleSetup.input);
     return null;
   }
   const controlScheduleSetup = document.getElementById('controlSourceSelect').value === 'scheduled'
     ? parseControlScheduleInputs() : {ok: true, schedule: null};
   if (!controlScheduleSetup.ok) {
     setStatusMessage(controlScheduleSetup.message, 'error');
-    controlScheduleSetup.input.focus();
+    focusRunInput(controlScheduleSetup.input);
     return null;
   }
   const qualifyingWeatherSetup = parseQualifyingWeatherInputs();
   if (!qualifyingWeatherSetup.ok) {
     setStatusMessage(qualifyingWeatherSetup.message, 'error');
-    qualifyingWeatherSetup.input.focus();
+    focusRunInput(qualifyingWeatherSetup.input);
     return null;
   }
   const warmupSetup = parseTireWarmupInput();
   if (!warmupSetup.ok) {
     setStatusMessage(warmupSetup.message, 'error');
-    warmupSetup.input.focus();
+    focusRunInput(warmupSetup.input);
     return null;
   }
   const pitPlanSetup = parsePitPlanInput();
   if (!pitPlanSetup.ok) {
     setStatusMessage(pitPlanSetup.message, 'error');
-    pitPlanSetup.input?.focus();
+    focusRunInput(pitPlanSetup.input);
     return null;
   }
   if (compareAutomatic && (pitPlanSetup.pitPlans === null
@@ -4804,7 +4861,7 @@ function buildRunPayload() {
       'Automatic comparison needs at least one custom pit plan. Enter a plan or turn comparison off.',
       'error',
     );
-    compareAutomaticInput?.focus();
+    focusRunInput(compareAutomaticInput);
     return null;
   }
   const pitSelectionSetup = buildPitPlanSelectionPayload(simulations);
@@ -5057,6 +5114,37 @@ function pitPlansSnapshot(scenario) {
     return request.pit_plans;
   }
   return undefined;
+}
+
+function renderInventorySnapshot(scenario) {
+  const saved = scenario?.simulation_inputs;
+  const request = simResults?.request;
+  let inventory;
+  if (saved && Object.hasOwn(saved, 'tire_inventory')) inventory = saved.tire_inventory;
+  else if (request && Object.hasOwn(request, 'tire_inventory')) inventory = request.tire_inventory;
+  else if (Number.isInteger(saved?.schema_version) && saved.schema_version >= 1
+      && saved.schema_version <= 13 && saved.schema_version !== 4) inventory = null;
+  else return '<div class="race-meta">Race tyre stock: input not recorded</div>';
+  if (inventory === null || (inventory && typeof inventory === 'object'
+      && !Array.isArray(inventory) && !Object.keys(inventory).length)) {
+    return '<div class="race-meta">Race tyre stock: unlimited sets</div>';
+  }
+  if (!inventory || typeof inventory !== 'object' || Array.isArray(inventory)) {
+    return '<div class="race-meta">Race tyre stock: input not recorded</div>';
+  }
+  const descriptions = Object.entries(inventory).map(([id, sets]) => {
+    if (!Array.isArray(sets)) return `${escapeHtml(id)}: sets not recorded`;
+    const tyres = sets.map(set => {
+      const compound = typeof set?.compound === 'string' ? titleFromKey(set.compound) : 'Unknown tyre';
+      const age = Number.isInteger(set?.age) && set.age >= 0
+        ? set.age === 0 ? 'fresh' : `${set.age} prior laps` : 'prior wear not recorded';
+      const allowance = Number.isInteger(set?.remaining_laps) && set.remaining_laps >= 0
+        ? `, ${set.remaining_laps} race ${set.remaining_laps === 1 ? 'lap' : 'laps'} left` : '';
+      return `${escapeHtml(compound)} (${age}${allowance})`;
+    });
+    return `${escapeHtml(id)}: ${sets.length} ${sets.length === 1 ? 'set' : 'sets'} — ${tyres.join(', ')}`;
+  });
+  return `<div class="race-meta">Race tyre stock: ${descriptions.join('; ')}. Unlisted drivers use unlimited sets.</div>`;
 }
 
 function renderPitPlanSnapshot(scenario) {
@@ -5604,7 +5692,7 @@ function renderRace() {
           const age = (scenario.simulation_inputs?.starting_tire_ages || simResults.request?.starting_tire_ages || {})[id];
           return `${id}=${compound}${age ? `@${age}` : ''}`;
         }).join(', ') || 'Automatic')}</div>
-        <div class="race-meta">Input race set pools: ${escapeHtml(JSON.stringify(scenario.simulation_inputs?.tire_inventory || simResults.request?.tire_inventory || {}))} · Unlisted drivers unlimited</div>
+        ${renderInventorySnapshot(scenario)}
         ${renderPitPlanSnapshot(scenario)}
         <div class="race-meta">${savedWeatherBehavior(scenario)}</div>
         ${renderRngPolicySnapshot(scenario)}
@@ -7209,6 +7297,9 @@ function renderScenarioLab() {
   }
 
   await refreshLiveData();
+
+  document.querySelector('.header').addEventListener('input', updateRunBudget);
+  document.querySelector('.header').addEventListener('change', updateRunBudget);
 
   document.getElementById('weatherModeSelect').addEventListener('change', saveUiPrefs);
   document.getElementById('weatherScheduleInput').addEventListener('change', saveUiPrefs);

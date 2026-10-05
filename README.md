@@ -498,6 +498,14 @@ and lists pit-lane observations, including missing or conflicting evidence.
 See the [report definitions](docs/weather-calibration.md#observed-strategy-evidence)
 before using these observations for calibration.
 
+The dashboard starts with circuit, weather and trial count. **More race settings**
+opens tyre stock, pit plans and weather experiments. The visible race budget
+includes selected weather scenarios and an optional automatic-plan comparison;
+pit-plan selection uses additional training and validation runs. Invalid settings
+inside the disclosure open it and receive keyboard focus. The
+[5 October quality checkpoint](docs/app-quality.md) records validation results,
+forecast comparisons and the remaining calibration and speed limits.
+
 For qualifying pace evaluation, run
 `python examples/evaluate_qualifying_pace.py --race 13` (or omit `--race` for all
 completed current-season events). This compares predictions built from earlier
@@ -512,8 +520,10 @@ For race-winner probability evaluation, run
 `python examples/evaluate_race_probabilities.py --race 14 --trials 100 --seed 42`
 or select `--all` for all completed current-season targets. Each forecast uses
 earlier evidence and simulates its own qualifying session. The report compares
-winner probabilities with observed winners using multiclass Brier loss and an
-equal-chance baseline. See the [scope and assumptions](docs/race-probability-evaluation.md)
+winner probabilities with observed winners using multiclass Brier loss, an
+equal-chance reference, earlier constructor-points shares and earlier race-win
+frequencies. Each historical comparison scores the model and reference on the
+same events. See the [scope and assumptions](docs/race-probability-evaluation.md)
 before interpreting scores or Monte Carlo sampling intervals.
 The report also separates finite-trial score bias and conditional sampling error.
 Use `python examples/rescore_race_probabilities.py output/saved-evaluation.json`

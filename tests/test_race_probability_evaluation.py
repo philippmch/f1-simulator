@@ -163,6 +163,44 @@ def run_target(loader, **kwargs):
     )
 
 
+def test_performance_references_share_the_cutoff_and_keep_round_one_unavailable(
+    evaluation_data, fake_runner,
+):
+    loader, _, _, _ = evaluation_data
+    report = evaluation.evaluate_race_probabilities(loader, YEAR, all_targets=True, trials=4)
+    first = report["folds"][0]
+    assert all(item["status"] == "unavailable" for item in first["baselines"].values())
+    second = report["folds"][1]
+    points = second["baselines"]["constructor_points_share"]
+    assert points["cutoff_round"] == 1
+    assert points["probabilities"] == {"A1": 1/3, "A2": 1/3, "B1": 1/6, "B2": 1/6}
+    assert second["baselines"]["prior_race_wins_share"]["probabilities"]["A1"] == 1.
+    assert report["aggregate"]["scored_events"] == 3
+    assert all(item["scored_events"] == 2 for item in report["baseline_comparisons"].values())
+    rescored = evaluation.rescore_saved_winner_evaluation(report)
+    assert rescored["baseline_comparisons"] == report["baseline_comparisons"]
+
+
+def test_later_results_and_target_performance_cannot_change_frozen_baselines(
+    evaluation_data, fake_runner, monkeypatch,
+):
+    loader, results, qualifying, _ = evaluation_data
+    before = run_target(loader, trials=4)
+    changed = copy.deepcopy(results)
+    for item in changed:
+        if item["round"] >= 2:
+            item["position"] = "4"
+            item["FastestLap"]["Time"]["time"] = "0:01.000"
+    monkeypatch.setattr(loader, "_season_data", lambda _: copy.deepcopy((changed, qualifying)))
+    after = run_target(loader, trials=4)
+    first = before["folds"][0]["baselines"]
+    second = after["folds"][0]["baselines"]
+    assert {name: item["probabilities"] for name, item in first.items()} == {
+        name: item["probabilities"] for name, item in second.items()}
+    assert all(item["score"] is None for item in second.values())
+    assert after["baseline_comparisons"]["constructor_points_share"]["scored_events"] == 0
+
+
 @pytest.mark.parametrize("trials", (1, 4))
 def test_holdout_scores_include_trial_adjustment_without_additional_runs(
     evaluation_data, fake_runner, trials,
