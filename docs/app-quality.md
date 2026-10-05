@@ -2,9 +2,9 @@
 
 Continued development makes sense as a simulation and strategy experiment tool.
 The current checks support rule consistency, reproducibility and a working user
-workflow. The qualifying correction and weather-planning optimization now produce
-measurable gains. The calibrated forecast beats simple historical references
-in the recorded retrospective sample; prospective accuracy is still unproven.
+workflow. Qualifying, dry race timing and weather-planning changes produce
+measurable component gains. Winner improvements from this latest round of
+experiments failed their acceptance gates; prospective accuracy remains unproven.
 
 ## Completed improvements
 
@@ -14,8 +14,26 @@ and changes qualifying laps only. Default current-season loading and winner
 holdouts use the correction; the separate component diagnostic retains an
 explicit uncalibrated baseline. Source rounds and fallback are recorded, saved
 inputs retain the coefficient, and earlier snapshots load with zero correction.
-Recent qualifying weight zero disables it. Race pace, tyre wear, mechanical
-reliability and driver skill retain their prior values.
+Recent qualifying weight zero disables that qualifying correction. It leaves
+race pace, tyre wear, mechanical reliability and driver skill unchanged; the
+separate common dry race-clock correction below affects only race timing.
+
+The [dry race-clock correction](dry-race-clock.md) reduces equal-event conditional
+lap-time MAE from **3.8941 to 3.5949 seconds (7.7%)**, across 9,079 eligible laps
+in ten events. Every event improves, including the one-lap age sensitivity. The
+Canadian coefficient is fixed and only applies to fully dry modeled race laps
+in 2026 rounds after its training race. The original six-event 10% gate failed;
+a separately declared four-event expansion passed its 5% gates without refitting.
+Actual native physics reproduces the measured correction. This conditions on
+observed compounds and ages and does not establish better winner forecasts.
+
+[Forecast recording and scoring](recorded-forecasts.md) now saves explicit
+weather, frozen inputs, counts, probabilities, historical references and source
+provenance before qualifying. It refuses to overwrite a file and never reruns
+the model when scoring. Two 100-trial fixed-dry Singapore forecasts preserve
+the previous and corrected clock before the upcoming event. Their local clocks
+alone cannot prove timing; dated publication is separate evidence. The result
+is currently unscored because the event has not happened.
 
 Native clocked rain planning now merges histories after the compound-use rule
 is satisfied and scans safe forced stints when ordinary stops run out. Critical
@@ -40,7 +58,7 @@ formulas and evidence without fetching data or adding trials.
 
 ## Predictive evidence
 
-The fresh current-season snapshot covers 16 completed races, with 100
+The earlier qualifying-only snapshot covers 16 completed races, with 100
 chronological trials per race, seed 42 and assumed fixed dry rainfall. Every
 forecast uses earlier performance evidence and its own simulated qualifying.
 The paired calibration check retains those exact inputs, event seeds and trial
@@ -64,6 +82,8 @@ known target entrant identities, assumed weather and static venue physics limit
 this retrospective check. See [the original evaluation method](race-probability-evaluation.md)
 and [paired calibration evidence](pace-evaluation.md#qualifying-only-calibration-validation).
 Eight event scores improved and seven worsened; the opening score was unchanged.
+These winner figures describe the earlier qualifying-only revision, before
+the dry race-clock change.
 
 The protocol fixed the already inspected Q1 candidate before collecting and
 scoring additional Q2/Q3 labels. On 15 common events, Q2 normalized pace MAE
@@ -80,20 +100,31 @@ crosses zero. This descriptive evidence does not justify tuning the live wear
 coefficients. Mechanical reliability also remains an assumption distinct from
 observed finish rates. See [tyre evidence](relative-tyre-wear.md).
 
+The latest [experiment protocol](predictive-quality-protocol.md) records rejected
+teammate-gap, persistent uncertainty, common qualifying-to-race package and
+constructor-pooling candidates. The selected package change worsened eight-event
+validation winner loss by **22.1%**; the constructor forecast head improved only
+**1.3%**, below its 5% gate. Neither is deployed. The dry timing change does not
+resolve teammate separation or winner calibration.
+The dry clock's separate eight-event, 100-trial deployment regression check was
+near-neutral: winner Brier loss **0.845200 to 0.841725**. It passed the declared
+maximum 5% regression guard without establishing a winner improvement.
+
 ## Engineering and practical limits
 
 With calibration enabled by default, the source-bound implementation passed
-**9,566 Python tests**, with two skips and the existing TestClient deprecation
-warning, on native Windows Python 3.11. Another 289 focused checks passed on
-native Python 3.12, including default loading, independent labels, real worker
-grids, second-trial replay and exact planner decisions.
+**9,634 Python tests**, with two skips and the existing TestClient deprecation
+warning, on native Windows Python 3.11. Another **504** focused checks passed on
+native Python 3.12, including default loading, dry/wet and qualifying parity,
+real worker grids, second-trial replay and exact planner decisions.
 Published revisions run the full Python 3.11/3.12 Windows/Linux and browser CI
 checks. The full browser suite passed with production HTML and fresh native
 simulation fixtures, including
 keyboard access, hidden-input recovery, 320/390/1440-pixel layouts, exports and
 cancellation. The real API calendar, ratings and race run all returned 200 with
-22 drivers and 11 constructors. The ten-trial dry race exported nonzero qualifying
-corrections and executed through real workers, using ordinary native physics
+22 drivers and 11 constructors. The ten-trial dry race exported the fixed dry
+race-clock coefficient and nonzero qualifying corrections, and executed through
+real workers, using ordinary native physics
 and no allocator override. Local source-bound runs retained unchanged files;
 the final edits add documentation of these completed checks.
 
@@ -107,7 +138,10 @@ seconds in recursive rain-strategy solving, including nested work. Instrumented
 times are slower than normal execution. The newer isolated comparison is
 reported separately above; it is not a before/after API latency measurement.
 
-Earlier sporadic Windows access violations remain unexplained. Successful native
+Earlier sporadic Windows access violations remain unexplained. A fresh native
+Python 3.11 browser-fixture run again ended with `0xC0000005` in rain-transition
+planning. Its diagnostic is retained; a new native Python 3.12 fixture and browser
+run passed without an allocator override. Successful native
 tests, live runs and CI are useful evidence, but do not establish that this fault
 is fixed. The large dashboard document and rules shared across two race engines
 also make future changes costly; smaller internal modules should accompany a
@@ -125,7 +159,8 @@ specific behavior change with regression evidence.
    crash without masking it with an allocator workaround.
 
 Local source-bound receipts, derived reports and profiling artifacts are under
-the ignored `output/quality-milestone-2026-10-05/` and
-`output/model-accuracy-practicality-2026-10-05/` directories. Reproduction commands
+the ignored `output/quality-milestone-2026-10-05/`,
+`output/model-accuracy-practicality-2026-10-05/` and
+`output/predictive-quality-2026-10-05/` directories. Reproduction commands
 and snapshot identities are recorded in the linked evaluation documents; raw
 live feed caches are not committed.

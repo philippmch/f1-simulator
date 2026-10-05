@@ -63,6 +63,11 @@ An offline [relative tyre-wear evaluator](docs/relative-tyre-wear.md) compares
 compound trends in versioned timing evidence, with driver-cluster uncertainty
 and event sensitivity checks. It does not change the simulation's wear presets.
 
+The 2026 [dry race-clock correction](docs/dry-race-clock.md) reduces conditional
+lap-time error by 7.7% on ten historical events. This narrow timing result does
+not establish winner accuracy. Save a [forecast before qualifying](docs/recorded-forecasts.md)
+and score its frozen probabilities after the race to collect future evidence.
+
 For explicit first-lap-after-fitting assumptions, see
 [post-fit cost sensitivity](docs/tyre-wear.md#optional-post-fit-cost-sensitivity).
 It is disabled by default and is not calibrated tyre-temperature physics.
