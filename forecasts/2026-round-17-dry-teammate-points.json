@@ -1,0 +1,4381 @@
+{
+  "baselines": {
+    "constructor_points_share": {
+      "cutoff_round": 16,
+      "evidence": {
+        "constructor_points": {
+          "alpine": 68.0,
+          "aston_martin": 7.0,
+          "audi": 17.0,
+          "cadillac": 0.0,
+          "ferrari": 405.0,
+          "haas": 27.0,
+          "mclaren": 316.0,
+          "mercedes": 556.0,
+          "rb": 90.0,
+          "red_bull": 298.0,
+          "williams": 12.0
+        },
+        "entrant_teams": {
+          "ALB": "williams",
+          "ALO": "aston_martin",
+          "ANT": "mercedes",
+          "BEA": "haas",
+          "BOR": "audi",
+          "BOT": "cadillac",
+          "COL": "alpine",
+          "GAS": "alpine",
+          "HAD": "red_bull",
+          "HAM": "ferrari",
+          "HUL": "audi",
+          "LAW": "rb",
+          "LEC": "ferrari",
+          "LIN": "rb",
+          "NOR": "mclaren",
+          "OCO": "haas",
+          "PER": "cadillac",
+          "PIA": "mclaren",
+          "RUS": "mercedes",
+          "SAI": "williams",
+          "STR": "aston_martin",
+          "VER": "red_bull"
+        },
+        "prior_outcomes": [
+          {
+            "round": 1,
+            "status": "observed",
+            "winner_id": "RUS"
+          },
+          {
+            "round": 2,
+            "status": "observed",
+            "winner_id": "ANT"
+          },
+          {
+            "round": 3,
+            "status": "observed",
+            "winner_id": "ANT"
+          },
+          {
+            "round": 4,
+            "status": "observed",
+            "winner_id": "ANT"
+          },
+          {
+            "round": 5,
+            "status": "observed",
+            "winner_id": "ANT"
+          },
+          {
+            "round": 6,
+            "status": "observed",
+            "winner_id": "ANT"
+          },
+          {
+            "round": 7,
+            "status": "observed",
+            "winner_id": "HAM"
+          },
+          {
+            "round": 8,
+            "status": "observed",
+            "winner_id": "RUS"
+          },
+          {
+            "round": 9,
+            "status": "observed",
+            "winner_id": "LEC"
+          },
+          {
+            "round": 10,
+            "status": "observed",
+            "winner_id": "ANT"
+          },
+          {
+            "round": 11,
+            "status": "observed",
+            "winner_id": "NOR"
+          },
+          {
+            "round": 12,
+            "status": "observed",
+            "winner_id": "NOR"
+          },
+          {
+            "round": 13,
+            "status": "observed",
+            "winner_id": "ANT"
+          },
+          {
+            "round": 14,
+            "status": "observed",
+            "winner_id": "ANT"
+          },
+          {
+            "round": 15,
+            "status": "observed",
+            "winner_id": "RUS"
+          },
+          {
+            "round": 16,
+            "status": "observed",
+            "winner_id": "VER"
+          }
+        ]
+      },
+      "no_classified_winner_probability": 0.0,
+      "policy": "constructor_points_share_v1",
+      "probabilities": {
+        "ALB": 0.0033407572383073497,
+        "ALO": 0.0019487750556792874,
+        "ANT": 0.15478841870824053,
+        "BEA": 0.007516703786191537,
+        "BOR": 0.004732739420935412,
+        "BOT": 0.0,
+        "COL": 0.01893095768374165,
+        "GAS": 0.01893095768374165,
+        "HAD": 0.08296213808463251,
+        "HAM": 0.11275055679287305,
+        "HUL": 0.004732739420935412,
+        "LAW": 0.02505567928730512,
+        "LEC": 0.11275055679287305,
+        "LIN": 0.02505567928730512,
+        "NOR": 0.08797327394209355,
+        "OCO": 0.007516703786191537,
+        "PER": 0.0,
+        "PIA": 0.08797327394209355,
+        "RUS": 0.15478841870824053,
+        "SAI": 0.0033407572383073497,
+        "STR": 0.0019487750556792874,
+        "VER": 0.08296213808463251
+      },
+      "reason": null,
+      "score": null,
+      "status": "available"
+    },
+    "prior_race_wins_share": {
+      "cutoff_round": 16,
+      "evidence": {
+        "constructor_points": {
+          "alpine": 68.0,
+          "aston_martin": 7.0,
+          "audi": 17.0,
+          "cadillac": 0.0,
+          "ferrari": 405.0,
+          "haas": 27.0,
+          "mclaren": 316.0,
+          "mercedes": 556.0,
+          "rb": 90.0,
+          "red_bull": 298.0,
+          "williams": 12.0
+        },
+        "entrant_teams": {
+          "ALB": "williams",
+          "ALO": "aston_martin",
+          "ANT": "mercedes",
+          "BEA": "haas",
+          "BOR": "audi",
+          "BOT": "cadillac",
+          "COL": "alpine",
+          "GAS": "alpine",
+          "HAD": "red_bull",
+          "HAM": "ferrari",
+          "HUL": "audi",
+          "LAW": "rb",
+          "LEC": "ferrari",
+          "LIN": "rb",
+          "NOR": "mclaren",
+          "OCO": "haas",
+          "PER": "cadillac",
+          "PIA": "mclaren",
+          "RUS": "mercedes",
+          "SAI": "williams",
+          "STR": "aston_martin",
+          "VER": "red_bull"
+        },
+        "prior_outcomes": [
+          {
+            "round": 1,
+            "status": "observed",
+            "winner_id": "RUS"
+          },
+          {
+            "round": 2,
+            "status": "observed",
+            "winner_id": "ANT"
+          },
+          {
+            "round": 3,
+            "status": "observed",
+            "winner_id": "ANT"
+          },
+          {
+            "round": 4,
+            "status": "observed",
+            "winner_id": "ANT"
+          },
+          {
+            "round": 5,
+            "status": "observed",
+            "winner_id": "ANT"
+          },
+          {
+            "round": 6,
+            "status": "observed",
+            "winner_id": "ANT"
+          },
+          {
+            "round": 7,
+            "status": "observed",
+            "winner_id": "HAM"
+          },
+          {
+            "round": 8,
+            "status": "observed",
+            "winner_id": "RUS"
+          },
+          {
+            "round": 9,
+            "status": "observed",
+            "winner_id": "LEC"
+          },
+          {
+            "round": 10,
+            "status": "observed",
+            "winner_id": "ANT"
+          },
+          {
+            "round": 11,
+            "status": "observed",
+            "winner_id": "NOR"
+          },
+          {
+            "round": 12,
+            "status": "observed",
+            "winner_id": "NOR"
+          },
+          {
+            "round": 13,
+            "status": "observed",
+            "winner_id": "ANT"
+          },
+          {
+            "round": 14,
+            "status": "observed",
+            "winner_id": "ANT"
+          },
+          {
+            "round": 15,
+            "status": "observed",
+            "winner_id": "RUS"
+          },
+          {
+            "round": 16,
+            "status": "observed",
+            "winner_id": "VER"
+          }
+        ]
+      },
+      "no_classified_winner_probability": 0.0,
+      "policy": "prior_race_wins_share_v1",
+      "probabilities": {
+        "ALB": 0.0,
+        "ALO": 0.0,
+        "ANT": 0.5,
+        "BEA": 0.0,
+        "BOR": 0.0,
+        "BOT": 0.0,
+        "COL": 0.0,
+        "GAS": 0.0,
+        "HAD": 0.0,
+        "HAM": 0.0625,
+        "HUL": 0.0,
+        "LAW": 0.0,
+        "LEC": 0.0625,
+        "LIN": 0.0,
+        "NOR": 0.125,
+        "OCO": 0.0,
+        "PER": 0.0,
+        "PIA": 0.0,
+        "RUS": 0.1875,
+        "SAI": 0.0,
+        "STR": 0.0,
+        "VER": 0.0625
+      },
+      "reason": null,
+      "score": null,
+      "status": "available"
+    }
+  },
+  "content_sha256": "7253d10f73dcbf70c7645b8571fa2f66aafa6cb225e71736e5e21d97146d3439",
+  "event": {
+    "circuit_id": "marina_bay",
+    "date": "2026-10-11",
+    "race": "Singapore Grand Prix",
+    "round": 17
+  },
+  "kind": "pre_qualifying_race_forecast",
+  "metadata": {
+    "num_simulations": 100,
+    "race_engine": "chronological",
+    "seed": 42
+  },
+  "performance_rounds": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16
+  ],
+  "provenance": {
+    "cache": "disabled",
+    "completed_rounds": [
+      14,
+      15,
+      16
+    ],
+    "fetched_at": "2026-10-07T20:16:02.882786Z",
+    "fresh_fetch": true,
+    "qualifying_rounds": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16
+    ],
+    "season": 2026,
+    "source": "jolpica+formula1.com",
+    "urls": [
+      "https://api.jolpi.ca/ergast/f1/2026/races/?limit=100&offset=0",
+      "https://api.jolpi.ca/ergast/f1/2026/results.json?limit=100&offset=0",
+      "https://api.jolpi.ca/ergast/f1/2026/results.json?limit=100&offset=100",
+      "https://api.jolpi.ca/ergast/f1/2026/results.json?limit=100&offset=200",
+      "https://api.jolpi.ca/ergast/f1/2026/results.json?limit=100&offset=300",
+      "https://api.jolpi.ca/ergast/f1/2026/qualifying.json?limit=100&offset=0",
+      "https://api.jolpi.ca/ergast/f1/2026/qualifying.json?limit=100&offset=100",
+      "https://api.jolpi.ca/ergast/f1/2026/qualifying.json?limit=100&offset=200",
+      "https://api.jolpi.ca/ergast/f1/2026/qualifying.json?limit=100&offset=300",
+      "https://www.formula1.com/en/teams",
+      "https://api.jolpi.ca/ergast/f1/2026/driverstandings.json?limit=100&offset=0",
+      "https://api.jolpi.ca/ergast/f1/2026/constructorstandings.json?limit=100&offset=0"
+    ]
+  },
+  "qualifying_forecast": {
+    "ALB": {
+      "mean_position": 17.32,
+      "pole_count": 0,
+      "pole_probability": 0.0
+    },
+    "ALO": {
+      "mean_position": 19.45,
+      "pole_count": 0,
+      "pole_probability": 0.0
+    },
+    "ANT": {
+      "mean_position": 5.2,
+      "pole_count": 0,
+      "pole_probability": 0.0
+    },
+    "BEA": {
+      "mean_position": 15.46,
+      "pole_count": 0,
+      "pole_probability": 0.0
+    },
+    "BOR": {
+      "mean_position": 12.21,
+      "pole_count": 0,
+      "pole_probability": 0.0
+    },
+    "BOT": {
+      "mean_position": 21.8,
+      "pole_count": 0,
+      "pole_probability": 0.0
+    },
+    "COL": {
+      "mean_position": 9.16,
+      "pole_count": 0,
+      "pole_probability": 0.0
+    },
+    "GAS": {
+      "mean_position": 9.32,
+      "pole_count": 0,
+      "pole_probability": 0.0
+    },
+    "HAD": {
+      "mean_position": 1.91,
+      "pole_count": 45,
+      "pole_probability": 0.45
+    },
+    "HAM": {
+      "mean_position": 3.94,
+      "pole_count": 4,
+      "pole_probability": 0.04
+    },
+    "HUL": {
+      "mean_position": 12.04,
+      "pole_count": 0,
+      "pole_probability": 0.0
+    },
+    "LAW": {
+      "mean_position": 12.83,
+      "pole_count": 0,
+      "pole_probability": 0.0
+    },
+    "LEC": {
+      "mean_position": 3.72,
+      "pole_count": 4,
+      "pole_probability": 0.04
+    },
+    "LIN": {
+      "mean_position": 13.11,
+      "pole_count": 0,
+      "pole_probability": 0.0
+    },
+    "NOR": {
+      "mean_position": 7.17,
+      "pole_count": 0,
+      "pole_probability": 0.0
+    },
+    "OCO": {
+      "mean_position": 15.52,
+      "pole_count": 0,
+      "pole_probability": 0.0
+    },
+    "PER": {
+      "mean_position": 21.2,
+      "pole_count": 0,
+      "pole_probability": 0.0
+    },
+    "PIA": {
+      "mean_position": 7.34,
+      "pole_count": 0,
+      "pole_probability": 0.0
+    },
+    "RUS": {
+      "mean_position": 5.6,
+      "pole_count": 0,
+      "pole_probability": 0.0
+    },
+    "SAI": {
+      "mean_position": 17.37,
+      "pole_count": 0,
+      "pole_probability": 0.0
+    },
+    "STR": {
+      "mean_position": 19.55,
+      "pole_count": 0,
+      "pole_probability": 0.0
+    },
+    "VER": {
+      "mean_position": 1.78,
+      "pole_count": 47,
+      "pole_probability": 0.47
+    }
+  },
+  "qualifying_starts_at": "2026-10-10T13:00:00+00:00",
+  "recorded_at": "2026-10-07T20:19:10.871688+00:00",
+  "roster": [
+    {
+      "id": "ALB",
+      "name": "Alexander Albon",
+      "team_name": "Williams"
+    },
+    {
+      "id": "ALO",
+      "name": "Fernando Alonso",
+      "team_name": "Aston Martin"
+    },
+    {
+      "id": "ANT",
+      "name": "Kimi Antonelli",
+      "team_name": "Mercedes"
+    },
+    {
+      "id": "BEA",
+      "name": "Oliver Bearman",
+      "team_name": "Haas F1 Team"
+    },
+    {
+      "id": "BOR",
+      "name": "Gabriel Bortoleto",
+      "team_name": "Audi"
+    },
+    {
+      "id": "BOT",
+      "name": "Valtteri Bottas",
+      "team_name": "Cadillac"
+    },
+    {
+      "id": "COL",
+      "name": "Franco Colapinto",
+      "team_name": "Alpine"
+    },
+    {
+      "id": "GAS",
+      "name": "Pierre Gasly",
+      "team_name": "Alpine"
+    },
+    {
+      "id": "HAD",
+      "name": "Isack Hadjar",
+      "team_name": "Red Bull Racing"
+    },
+    {
+      "id": "HAM",
+      "name": "Lewis Hamilton",
+      "team_name": "Ferrari"
+    },
+    {
+      "id": "HUL",
+      "name": "Nico Hulkenberg",
+      "team_name": "Audi"
+    },
+    {
+      "id": "LAW",
+      "name": "Liam Lawson",
+      "team_name": "Racing Bulls"
+    },
+    {
+      "id": "LEC",
+      "name": "Charles Leclerc",
+      "team_name": "Ferrari"
+    },
+    {
+      "id": "LIN",
+      "name": "Arvid Lindblad",
+      "team_name": "Racing Bulls"
+    },
+    {
+      "id": "NOR",
+      "name": "Lando Norris",
+      "team_name": "McLaren"
+    },
+    {
+      "id": "OCO",
+      "name": "Esteban Ocon",
+      "team_name": "Haas F1 Team"
+    },
+    {
+      "id": "PER",
+      "name": "Sergio Perez",
+      "team_name": "Cadillac"
+    },
+    {
+      "id": "PIA",
+      "name": "Oscar Piastri",
+      "team_name": "McLaren"
+    },
+    {
+      "id": "RUS",
+      "name": "George Russell",
+      "team_name": "Mercedes"
+    },
+    {
+      "id": "SAI",
+      "name": "Carlos Sainz",
+      "team_name": "Williams"
+    },
+    {
+      "id": "STR",
+      "name": "Lance Stroll",
+      "team_name": "Aston Martin"
+    },
+    {
+      "id": "VER",
+      "name": "Max Verstappen",
+      "team_name": "Red Bull Racing"
+    }
+  ],
+  "schema_version": 2,
+  "simulation_inputs": {
+    "cars": {
+      "alpine": {
+        "base_pace": 0.7903261617562471,
+        "brakes_reliability": 0.95,
+        "cooling_reliability": 0.95,
+        "downforce_level": 0.84,
+        "electrical_reliability": 0.95,
+        "engine_reliability": 0.95,
+        "gearbox_reliability": 0.95,
+        "pit_stop_avg": 2.5,
+        "pit_stop_std": 0.3,
+        "reliability": 0.95,
+        "straight_line_speed": 0.84,
+        "team_id": "alpine",
+        "team_name": "Alpine",
+        "tire_degradation_factor": 1.0,
+        "wet_performance": 0.7903261617562471
+      },
+      "aston_martin": {
+        "base_pace": 0.7633687679458896,
+        "brakes_reliability": 0.95,
+        "cooling_reliability": 0.95,
+        "downforce_level": 0.84,
+        "electrical_reliability": 0.95,
+        "engine_reliability": 0.95,
+        "gearbox_reliability": 0.95,
+        "pit_stop_avg": 2.5,
+        "pit_stop_std": 0.3,
+        "reliability": 0.95,
+        "straight_line_speed": 0.84,
+        "team_id": "aston_martin",
+        "team_name": "Aston Martin",
+        "tire_degradation_factor": 1.0,
+        "wet_performance": 0.7633687679458896
+      },
+      "audi": {
+        "base_pace": 0.7682558340036583,
+        "brakes_reliability": 0.95,
+        "cooling_reliability": 0.95,
+        "downforce_level": 0.84,
+        "electrical_reliability": 0.95,
+        "engine_reliability": 0.95,
+        "gearbox_reliability": 0.95,
+        "pit_stop_avg": 2.5,
+        "pit_stop_std": 0.3,
+        "reliability": 0.95,
+        "straight_line_speed": 0.84,
+        "team_id": "audi",
+        "team_name": "Audi",
+        "tire_degradation_factor": 1.0,
+        "wet_performance": 0.7682558340036583
+      },
+      "cadillac": {
+        "base_pace": 0.76,
+        "brakes_reliability": 0.95,
+        "cooling_reliability": 0.95,
+        "downforce_level": 0.84,
+        "electrical_reliability": 0.95,
+        "engine_reliability": 0.95,
+        "gearbox_reliability": 0.95,
+        "pit_stop_avg": 2.5,
+        "pit_stop_std": 0.3,
+        "reliability": 0.95,
+        "straight_line_speed": 0.84,
+        "team_id": "cadillac",
+        "team_name": "Cadillac",
+        "tire_degradation_factor": 1.0,
+        "wet_performance": 0.76
+      },
+      "ferrari": {
+        "base_pace": 0.9352436636922292,
+        "brakes_reliability": 0.95,
+        "cooling_reliability": 0.95,
+        "downforce_level": 0.84,
+        "electrical_reliability": 0.95,
+        "engine_reliability": 0.95,
+        "gearbox_reliability": 0.95,
+        "pit_stop_avg": 2.5,
+        "pit_stop_std": 0.3,
+        "reliability": 0.95,
+        "straight_line_speed": 0.84,
+        "team_id": "ferrari",
+        "team_name": "Ferrari",
+        "tire_degradation_factor": 1.0,
+        "wet_performance": 0.9352436636922292
+      },
+      "haas": {
+        "base_pace": 0.7723204415939449,
+        "brakes_reliability": 0.95,
+        "cooling_reliability": 0.95,
+        "downforce_level": 0.84,
+        "electrical_reliability": 0.95,
+        "engine_reliability": 0.95,
+        "gearbox_reliability": 0.95,
+        "pit_stop_avg": 2.5,
+        "pit_stop_std": 0.3,
+        "reliability": 0.95,
+        "straight_line_speed": 0.84,
+        "team_id": "haas",
+        "team_name": "Haas F1 Team",
+        "tire_degradation_factor": 1.0,
+        "wet_performance": 0.7723204415939449
+      },
+      "mclaren": {
+        "base_pace": 0.8968864366228334,
+        "brakes_reliability": 0.95,
+        "cooling_reliability": 0.95,
+        "downforce_level": 0.84,
+        "electrical_reliability": 0.95,
+        "engine_reliability": 0.95,
+        "gearbox_reliability": 0.95,
+        "pit_stop_avg": 2.5,
+        "pit_stop_std": 0.3,
+        "reliability": 0.95,
+        "straight_line_speed": 0.84,
+        "team_id": "mclaren",
+        "team_name": "McLaren",
+        "tire_degradation_factor": 1.0,
+        "wet_performance": 0.8968864366228334
+      },
+      "mercedes": {
+        "base_pace": 1.0,
+        "brakes_reliability": 0.95,
+        "cooling_reliability": 0.95,
+        "downforce_level": 0.84,
+        "electrical_reliability": 0.95,
+        "engine_reliability": 0.95,
+        "gearbox_reliability": 0.95,
+        "pit_stop_avg": 2.5,
+        "pit_stop_std": 0.3,
+        "reliability": 0.95,
+        "straight_line_speed": 0.84,
+        "team_id": "mercedes",
+        "team_name": "Mercedes",
+        "tire_degradation_factor": 1.0,
+        "wet_performance": 1.0
+      },
+      "rb": {
+        "base_pace": 0.7995502590867841,
+        "brakes_reliability": 0.95,
+        "cooling_reliability": 0.95,
+        "downforce_level": 0.84,
+        "electrical_reliability": 0.95,
+        "engine_reliability": 0.95,
+        "gearbox_reliability": 0.95,
+        "pit_stop_avg": 2.5,
+        "pit_stop_std": 0.3,
+        "reliability": 0.95,
+        "straight_line_speed": 0.84,
+        "team_id": "rb",
+        "team_name": "Racing Bulls",
+        "tire_degradation_factor": 1.0,
+        "wet_performance": 0.7995502590867841
+      },
+      "red_bull": {
+        "base_pace": 0.8893248750272527,
+        "brakes_reliability": 0.95,
+        "cooling_reliability": 0.95,
+        "downforce_level": 0.84,
+        "electrical_reliability": 0.95,
+        "engine_reliability": 0.95,
+        "gearbox_reliability": 0.95,
+        "pit_stop_avg": 2.5,
+        "pit_stop_std": 0.3,
+        "reliability": 0.95,
+        "straight_line_speed": 0.84,
+        "team_id": "red_bull",
+        "team_name": "Red Bull Racing",
+        "tire_degradation_factor": 1.0,
+        "wet_performance": 0.8893248750272527
+      },
+      "williams": {
+        "base_pace": 0.7658212314026743,
+        "brakes_reliability": 0.95,
+        "cooling_reliability": 0.95,
+        "downforce_level": 0.84,
+        "electrical_reliability": 0.95,
+        "engine_reliability": 0.95,
+        "gearbox_reliability": 0.95,
+        "pit_stop_avg": 2.5,
+        "pit_stop_std": 0.3,
+        "reliability": 0.95,
+        "straight_line_speed": 0.84,
+        "team_id": "williams",
+        "team_name": "Williams",
+        "tire_degradation_factor": 1.0,
+        "wet_performance": 0.7658212314026743
+      }
+    },
+    "drivers": [
+      {
+        "consistency": 0.9839443373412279,
+        "current_tire_laps": 0,
+        "dnf": false,
+        "dnf_reason": null,
+        "id": "ALB",
+        "name": "Alexander Albon",
+        "overtaking_skill": 0.885803558650956,
+        "pit_stops": 0,
+        "position": 0,
+        "qualifying_pace_adjustment": 0.007780000928224269,
+        "skill_rating": 0.905803558650956,
+        "team_id": "williams",
+        "tire_management": 0.9839443373412279,
+        "total_race_time": 0.0,
+        "wet_skill_modifier": 0.9967888674682456
+      },
+      {
+        "consistency": 0.992,
+        "current_tire_laps": 0,
+        "dnf": false,
+        "dnf_reason": null,
+        "id": "ALO",
+        "name": "Fernando Alonso",
+        "overtaking_skill": 0.9210163258490742,
+        "pit_stops": 0,
+        "position": 0,
+        "qualifying_pace_adjustment": 0.012723363023822674,
+        "skill_rating": 0.9410163258490742,
+        "team_id": "aston_martin",
+        "tire_management": 0.992,
+        "total_race_time": 0.0,
+        "wet_skill_modifier": 0.9984
+      },
+      {
+        "consistency": 0.9603249912514469,
+        "current_tire_laps": 0,
+        "dnf": false,
+        "dnf_reason": null,
+        "id": "ANT",
+        "name": "Kimi Antonelli",
+        "overtaking_skill": 0.9100260049503404,
+        "pit_stops": 0,
+        "position": 0,
+        "qualifying_pace_adjustment": 0.0010930146250002336,
+        "skill_rating": 0.9300260049503404,
+        "team_id": "mercedes",
+        "tire_management": 0.9603249912514469,
+        "total_race_time": 0.0,
+        "wet_skill_modifier": 0.9920649982502894
+      },
+      {
+        "consistency": 0.992,
+        "current_tire_laps": 0,
+        "dnf": false,
+        "dnf_reason": null,
+        "id": "BEA",
+        "name": "Oliver Bearman",
+        "overtaking_skill": 0.9097527096563851,
+        "pit_stops": 0,
+        "position": 0,
+        "qualifying_pace_adjustment": 0.005321579075409126,
+        "skill_rating": 0.9297527096563851,
+        "team_id": "haas",
+        "tire_management": 0.992,
+        "total_race_time": 0.0,
+        "wet_skill_modifier": 0.9984
+      },
+      {
+        "consistency": 0.9820657816968617,
+        "current_tire_laps": 0,
+        "dnf": false,
+        "dnf_reason": null,
+        "id": "BOR",
+        "name": "Gabriel Bortoleto",
+        "overtaking_skill": 0.9045720979222452,
+        "pit_stops": 0,
+        "position": 0,
+        "qualifying_pace_adjustment": 0.0018076130954991262,
+        "skill_rating": 0.9245720979222453,
+        "team_id": "audi",
+        "tire_management": 0.9820657816968617,
+        "total_race_time": 0.0,
+        "wet_skill_modifier": 0.9964131563393723
+      },
+      {
+        "consistency": 0.9577997805152623,
+        "current_tire_laps": 0,
+        "dnf": false,
+        "dnf_reason": null,
+        "id": "BOT",
+        "name": "Valtteri Bottas",
+        "overtaking_skill": 0.8392597279341979,
+        "pit_stops": 0,
+        "position": 0,
+        "qualifying_pace_adjustment": 0.021656677340876382,
+        "skill_rating": 0.8592597279341979,
+        "team_id": "cadillac",
+        "tire_management": 0.9577997805152623,
+        "total_race_time": 0.0,
+        "wet_skill_modifier": 0.9915599561030525
+      },
+      {
+        "consistency": 0.9731682450615936,
+        "current_tire_laps": 0,
+        "dnf": false,
+        "dnf_reason": null,
+        "id": "COL",
+        "name": "Franco Colapinto",
+        "overtaking_skill": 0.8997941889242772,
+        "pit_stops": 0,
+        "position": 0,
+        "qualifying_pace_adjustment": -0.0012502788766701593,
+        "skill_rating": 0.9197941889242772,
+        "team_id": "alpine",
+        "tire_management": 0.9731682450615936,
+        "total_race_time": 0.0,
+        "wet_skill_modifier": 0.9946336490123187
+      },
+      {
+        "consistency": 0.9731682450615936,
+        "current_tire_laps": 0,
+        "dnf": false,
+        "dnf_reason": null,
+        "id": "GAS",
+        "name": "Pierre Gasly",
+        "overtaking_skill": 0.9002058110757228,
+        "pit_stops": 0,
+        "position": 0,
+        "qualifying_pace_adjustment": -0.0012502788766701593,
+        "skill_rating": 0.9202058110757229,
+        "team_id": "alpine",
+        "tire_management": 0.9731682450615936,
+        "total_race_time": 0.0,
+        "wet_skill_modifier": 0.9946336490123187
+      },
+      {
+        "consistency": 0.979826353896467,
+        "current_tire_laps": 0,
+        "dnf": false,
+        "dnf_reason": null,
+        "id": "HAD",
+        "name": "Isack Hadjar",
+        "overtaking_skill": 0.9022176132121084,
+        "pit_stops": 0,
+        "position": 0,
+        "qualifying_pace_adjustment": -0.005121593055879901,
+        "skill_rating": 0.9222176132121084,
+        "team_id": "red_bull",
+        "tire_management": 0.979826353896467,
+        "total_race_time": 0.0,
+        "wet_skill_modifier": 0.9959652707792934
+      },
+      {
+        "consistency": 0.9879139361501458,
+        "current_tire_laps": 0,
+        "dnf": false,
+        "dnf_reason": null,
+        "id": "HAM",
+        "name": "Lewis Hamilton",
+        "overtaking_skill": 0.9002608242044862,
+        "pit_stops": 0,
+        "position": 0,
+        "qualifying_pace_adjustment": -0.0021920130865769943,
+        "skill_rating": 0.9202608242044862,
+        "team_id": "ferrari",
+        "tire_management": 0.9879139361501458,
+        "total_race_time": 0.0,
+        "wet_skill_modifier": 0.9975827872300291
+      },
+      {
+        "consistency": 0.9820657816968621,
+        "current_tire_laps": 0,
+        "dnf": false,
+        "dnf_reason": null,
+        "id": "HUL",
+        "name": "Nico Hulkenberg",
+        "overtaking_skill": 0.8954279020777537,
+        "pit_stops": 0,
+        "position": 0,
+        "qualifying_pace_adjustment": 0.0018075405792770602,
+        "skill_rating": 0.9154279020777537,
+        "team_id": "audi",
+        "tire_management": 0.9820657816968621,
+        "total_race_time": 0.0,
+        "wet_skill_modifier": 0.9964131563393724
+      },
+      {
+        "consistency": 0.9843094717028071,
+        "current_tire_laps": 0,
+        "dnf": false,
+        "dnf_reason": null,
+        "id": "LAW",
+        "name": "Liam Lawson",
+        "overtaking_skill": 0.9093729460960349,
+        "pit_stops": 0,
+        "position": 0,
+        "qualifying_pace_adjustment": 0.003421931803608807,
+        "skill_rating": 0.9293729460960349,
+        "team_id": "rb",
+        "tire_management": 0.9843094717028071,
+        "total_race_time": 0.0,
+        "wet_skill_modifier": 0.9968618943405614
+      },
+      {
+        "consistency": 0.9879139361501458,
+        "current_tire_laps": 0,
+        "dnf": false,
+        "dnf_reason": null,
+        "id": "LEC",
+        "name": "Charles Leclerc",
+        "overtaking_skill": 0.8997391757955139,
+        "pit_stops": 0,
+        "position": 0,
+        "qualifying_pace_adjustment": -0.002191985786957795,
+        "skill_rating": 0.9197391757955139,
+        "team_id": "ferrari",
+        "tire_management": 0.9879139361501458,
+        "total_race_time": 0.0,
+        "wet_skill_modifier": 0.9975827872300291
+      },
+      {
+        "consistency": 0.992,
+        "current_tire_laps": 0,
+        "dnf": false,
+        "dnf_reason": null,
+        "id": "LIN",
+        "name": "Arvid Lindblad",
+        "overtaking_skill": 0.8840234109260626,
+        "pit_stops": 0,
+        "position": 0,
+        "qualifying_pace_adjustment": 0.0034220038567754013,
+        "skill_rating": 0.9040234109260626,
+        "team_id": "rb",
+        "tire_management": 0.992,
+        "total_race_time": 0.0,
+        "wet_skill_modifier": 0.9984
+      },
+      {
+        "consistency": 0.9866667047812442,
+        "current_tire_laps": 0,
+        "dnf": false,
+        "dnf_reason": null,
+        "id": "NOR",
+        "name": "Lando Norris",
+        "overtaking_skill": 0.9002088565625341,
+        "pit_stops": 0,
+        "position": 0,
+        "qualifying_pace_adjustment": -0.0001578575085752646,
+        "skill_rating": 0.9202088565625341,
+        "team_id": "mclaren",
+        "tire_management": 0.9866667047812442,
+        "total_race_time": 0.0,
+        "wet_skill_modifier": 0.9973333409562488
+      },
+      {
+        "consistency": 0.992,
+        "current_tire_laps": 0,
+        "dnf": false,
+        "dnf_reason": null,
+        "id": "OCO",
+        "name": "Esteban Ocon",
+        "overtaking_skill": 0.8902472903436149,
+        "pit_stops": 0,
+        "position": 0,
+        "qualifying_pace_adjustment": 0.005321452863737928,
+        "skill_rating": 0.910247290343615,
+        "team_id": "haas",
+        "tire_management": 0.992,
+        "total_race_time": 0.0,
+        "wet_skill_modifier": 0.9984
+      },
+      {
+        "consistency": 0.9577997805152628,
+        "current_tire_laps": 0,
+        "dnf": false,
+        "dnf_reason": null,
+        "id": "PER",
+        "name": "Sergio Perez",
+        "overtaking_skill": 0.9607402720658011,
+        "pit_stops": 0,
+        "position": 0,
+        "qualifying_pace_adjustment": 0.021658000760889598,
+        "skill_rating": 0.9807402720658012,
+        "team_id": "cadillac",
+        "tire_management": 0.9577997805152628,
+        "total_race_time": 0.0,
+        "wet_skill_modifier": 0.9915599561030526
+      },
+      {
+        "consistency": 0.9866667047812442,
+        "current_tire_laps": 0,
+        "dnf": false,
+        "dnf_reason": null,
+        "id": "PIA",
+        "name": "Oscar Piastri",
+        "overtaking_skill": 0.8997911434374659,
+        "pit_stops": 0,
+        "position": 0,
+        "qualifying_pace_adjustment": -0.00015784145283654296,
+        "skill_rating": 0.9197911434374659,
+        "team_id": "mclaren",
+        "tire_management": 0.9866667047812442,
+        "total_race_time": 0.0,
+        "wet_skill_modifier": 0.9973333409562488
+      },
+      {
+        "consistency": 0.9603249912514469,
+        "current_tire_laps": 0,
+        "dnf": false,
+        "dnf_reason": null,
+        "id": "RUS",
+        "name": "George Russell",
+        "overtaking_skill": 0.8899739950496597,
+        "pit_stops": 0,
+        "position": 0,
+        "qualifying_pace_adjustment": 0.0010945358980778842,
+        "skill_rating": 0.9099739950496597,
+        "team_id": "mercedes",
+        "tire_management": 0.9603249912514469,
+        "total_race_time": 0.0,
+        "wet_skill_modifier": 0.9920649982502894
+      },
+      {
+        "consistency": 0.9839443373412279,
+        "current_tire_laps": 0,
+        "dnf": false,
+        "dnf_reason": null,
+        "id": "SAI",
+        "name": "Carlos Sainz",
+        "overtaking_skill": 0.9141964413490441,
+        "pit_stops": 0,
+        "position": 0,
+        "qualifying_pace_adjustment": 0.007780250912200362,
+        "skill_rating": 0.9341964413490441,
+        "team_id": "williams",
+        "tire_management": 0.9839443373412279,
+        "total_race_time": 0.0,
+        "wet_skill_modifier": 0.9967888674682456
+      },
+      {
+        "consistency": 0.992,
+        "current_tire_laps": 0,
+        "dnf": false,
+        "dnf_reason": null,
+        "id": "STR",
+        "name": "Lance Stroll",
+        "overtaking_skill": 0.8789836741509258,
+        "pit_stops": 0,
+        "position": 0,
+        "qualifying_pace_adjustment": 0.012722955941715363,
+        "skill_rating": 0.8989836741509258,
+        "team_id": "aston_martin",
+        "tire_management": 0.992,
+        "total_race_time": 0.0,
+        "wet_skill_modifier": 0.9984
+      },
+      {
+        "consistency": 0.9815781968249807,
+        "current_tire_laps": 0,
+        "dnf": false,
+        "dnf_reason": null,
+        "id": "VER",
+        "name": "Max Verstappen",
+        "overtaking_skill": 0.9152810939874106,
+        "pit_stops": 0,
+        "position": 0,
+        "qualifying_pace_adjustment": -0.00512207598127635,
+        "skill_rating": 0.9352810939874107,
+        "team_id": "red_bull",
+        "tire_management": 0.9815781968249807,
+        "total_race_time": 0.0,
+        "wet_skill_modifier": 0.9963156393649961
+      }
+    ],
+    "rng_policy": "isolated_weather_v1",
+    "runtime": {
+      "f1sim": "0.2.0",
+      "numpy": "2.5.3",
+      "pydantic": "2.13.5",
+      "python": "3.12.14",
+      "simulation_source_sha256": "45092c73e9bced8073f88fd1fc4e4230023dc9b013381e1c14ba7dd72ff5d3c1"
+    },
+    "schema_version": 2,
+    "starting_tires": {},
+    "track": {
+      "active_aero_zones": [
+        {
+          "activation_point_pct": 0.0,
+          "sector": 1,
+          "time_gain": 0.25,
+          "zone_id": 1
+        },
+        {
+          "activation_point_pct": 0.0,
+          "sector": 2,
+          "time_gain": 0.25,
+          "zone_id": 2
+        },
+        {
+          "activation_point_pct": 0.0,
+          "sector": 3,
+          "time_gain": 0.25,
+          "zone_id": 3
+        }
+      ],
+      "base_lap_time": 99.0,
+      "country": "Singapore",
+      "dry_race_pace_adjustment": 0.003905707495222259,
+      "id": "marina_bay",
+      "name": "Marina Bay Street Circuit",
+      "overtake_difficulty": 0.86,
+      "overtake_mode_detection_gap": 1.0,
+      "overtake_mode_effectiveness": 1.0,
+      "pit_lane_delta": 24.0,
+      "safety_car_probability": 0.62,
+      "sectors": [
+        {
+          "base_time": 33.0,
+          "is_high_speed": false,
+          "number": 1,
+          "overtake_opportunity": 0.5
+        },
+        {
+          "base_time": 33.0,
+          "is_high_speed": false,
+          "number": 2,
+          "overtake_opportunity": 0.5
+        },
+        {
+          "base_time": 33.0,
+          "is_high_speed": false,
+          "number": 3,
+          "overtake_opportunity": 0.5
+        }
+      ],
+      "tire_stress": 0.58,
+      "total_laps": 62,
+      "weather_variability": 0.36
+    },
+    "weather": {
+      "air_temperature": 25.0,
+      "change_probability": 0.0,
+      "condition": "dry",
+      "humidity": 0.5,
+      "rain_intensity": 0.0,
+      "track_temperature": 35.0,
+      "track_wetness": 0.0
+    }
+  },
+  "started_at": "2026-10-07T20:15:58.327470+00:00",
+  "target_performance_used": false,
+  "timing_evidence": "local_clock; independent publication not verified",
+  "training_cutoff_round": 16,
+  "weather_assumption": "specified fixed rainfall; surface wetness evolves",
+  "winner_estimate": {
+    "allocation": {
+      "cutoff_round": 16,
+      "entrant_teams": {
+        "ALB": "williams",
+        "ALO": "aston_martin",
+        "ANT": "mercedes",
+        "BEA": "haas",
+        "BOR": "audi",
+        "BOT": "cadillac",
+        "COL": "alpine",
+        "GAS": "alpine",
+        "HAD": "red_bull",
+        "HAM": "ferrari",
+        "HUL": "audi",
+        "LAW": "rb",
+        "LEC": "ferrari",
+        "LIN": "rb",
+        "NOR": "mclaren",
+        "OCO": "haas",
+        "PER": "cadillac",
+        "PIA": "mclaren",
+        "RUS": "mercedes",
+        "SAI": "williams",
+        "STR": "aston_martin",
+        "VER": "red_bull"
+      },
+      "minimum_entries_per_driver": 2,
+      "policy": "teammate_race_points_v1",
+      "prior_points_per_driver": 25.0,
+      "prior_race_points": [
+        {
+          "driver_id": "ALB",
+          "points": 0.0,
+          "round": 1,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "ALO",
+          "points": 0.0,
+          "round": 1,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "ANT",
+          "points": 18.0,
+          "round": 1,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "BEA",
+          "points": 6.0,
+          "round": 1,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "BOR",
+          "points": 2.0,
+          "round": 1,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "BOT",
+          "points": 0.0,
+          "round": 1,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "COL",
+          "points": 0.0,
+          "round": 1,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "GAS",
+          "points": 1.0,
+          "round": 1,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "HAD",
+          "points": 0.0,
+          "round": 1,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "HAM",
+          "points": 12.0,
+          "round": 1,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "HUL",
+          "points": 0.0,
+          "round": 1,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "LAW",
+          "points": 0.0,
+          "round": 1,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "LEC",
+          "points": 15.0,
+          "round": 1,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "LIN",
+          "points": 4.0,
+          "round": 1,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "NOR",
+          "points": 10.0,
+          "round": 1,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "OCO",
+          "points": 0.0,
+          "round": 1,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "PER",
+          "points": 0.0,
+          "round": 1,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "PIA",
+          "points": 0.0,
+          "round": 1,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "RUS",
+          "points": 25.0,
+          "round": 1,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "SAI",
+          "points": 0.0,
+          "round": 1,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "STR",
+          "points": 0.0,
+          "round": 1,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "VER",
+          "points": 8.0,
+          "round": 1,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "ALB",
+          "points": 0.0,
+          "round": 2,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "ALO",
+          "points": 0.0,
+          "round": 2,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "ANT",
+          "points": 25.0,
+          "round": 2,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "BEA",
+          "points": 10.0,
+          "round": 2,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "BOR",
+          "points": 0.0,
+          "round": 2,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "BOT",
+          "points": 0.0,
+          "round": 2,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "COL",
+          "points": 1.0,
+          "round": 2,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "GAS",
+          "points": 8.0,
+          "round": 2,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "HAD",
+          "points": 4.0,
+          "round": 2,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "HAM",
+          "points": 15.0,
+          "round": 2,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "HUL",
+          "points": 0.0,
+          "round": 2,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "LAW",
+          "points": 6.0,
+          "round": 2,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "LEC",
+          "points": 12.0,
+          "round": 2,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "LIN",
+          "points": 0.0,
+          "round": 2,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "NOR",
+          "points": 0.0,
+          "round": 2,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "OCO",
+          "points": 0.0,
+          "round": 2,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "PER",
+          "points": 0.0,
+          "round": 2,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "PIA",
+          "points": 0.0,
+          "round": 2,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "RUS",
+          "points": 18.0,
+          "round": 2,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "SAI",
+          "points": 2.0,
+          "round": 2,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "STR",
+          "points": 0.0,
+          "round": 2,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "VER",
+          "points": 0.0,
+          "round": 2,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "ALB",
+          "points": 0.0,
+          "round": 3,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "ALO",
+          "points": 0.0,
+          "round": 3,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "ANT",
+          "points": 25.0,
+          "round": 3,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "BEA",
+          "points": 0.0,
+          "round": 3,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "BOR",
+          "points": 0.0,
+          "round": 3,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "BOT",
+          "points": 0.0,
+          "round": 3,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "COL",
+          "points": 0.0,
+          "round": 3,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "GAS",
+          "points": 6.0,
+          "round": 3,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "HAD",
+          "points": 0.0,
+          "round": 3,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "HAM",
+          "points": 8.0,
+          "round": 3,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "HUL",
+          "points": 0.0,
+          "round": 3,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "LAW",
+          "points": 2.0,
+          "round": 3,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "LEC",
+          "points": 15.0,
+          "round": 3,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "LIN",
+          "points": 0.0,
+          "round": 3,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "NOR",
+          "points": 10.0,
+          "round": 3,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "OCO",
+          "points": 1.0,
+          "round": 3,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "PER",
+          "points": 0.0,
+          "round": 3,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "PIA",
+          "points": 18.0,
+          "round": 3,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "RUS",
+          "points": 12.0,
+          "round": 3,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "SAI",
+          "points": 0.0,
+          "round": 3,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "STR",
+          "points": 0.0,
+          "round": 3,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "VER",
+          "points": 4.0,
+          "round": 3,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "ALB",
+          "points": 1.0,
+          "round": 4,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "ALO",
+          "points": 0.0,
+          "round": 4,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "ANT",
+          "points": 25.0,
+          "round": 4,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "BEA",
+          "points": 0.0,
+          "round": 4,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "BOR",
+          "points": 0.0,
+          "round": 4,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "BOT",
+          "points": 0.0,
+          "round": 4,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "COL",
+          "points": 6.0,
+          "round": 4,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "GAS",
+          "points": 0.0,
+          "round": 4,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "HAD",
+          "points": 0.0,
+          "round": 4,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "HAM",
+          "points": 8.0,
+          "round": 4,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "HUL",
+          "points": 0.0,
+          "round": 4,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "LAW",
+          "points": 0.0,
+          "round": 4,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "LEC",
+          "points": 4.0,
+          "round": 4,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "LIN",
+          "points": 0.0,
+          "round": 4,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "NOR",
+          "points": 18.0,
+          "round": 4,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "OCO",
+          "points": 0.0,
+          "round": 4,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "PER",
+          "points": 0.0,
+          "round": 4,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "PIA",
+          "points": 15.0,
+          "round": 4,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "RUS",
+          "points": 12.0,
+          "round": 4,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "SAI",
+          "points": 2.0,
+          "round": 4,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "STR",
+          "points": 0.0,
+          "round": 4,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "VER",
+          "points": 10.0,
+          "round": 4,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "ALB",
+          "points": 0.0,
+          "round": 5,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "ALO",
+          "points": 0.0,
+          "round": 5,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "ANT",
+          "points": 25.0,
+          "round": 5,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "BEA",
+          "points": 1.0,
+          "round": 5,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "BOR",
+          "points": 0.0,
+          "round": 5,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "BOT",
+          "points": 0.0,
+          "round": 5,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "COL",
+          "points": 8.0,
+          "round": 5,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "GAS",
+          "points": 4.0,
+          "round": 5,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "HAD",
+          "points": 10.0,
+          "round": 5,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "HAM",
+          "points": 18.0,
+          "round": 5,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "HUL",
+          "points": 0.0,
+          "round": 5,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "LAW",
+          "points": 6.0,
+          "round": 5,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "LEC",
+          "points": 12.0,
+          "round": 5,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "LIN",
+          "points": 0.0,
+          "round": 5,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "NOR",
+          "points": 0.0,
+          "round": 5,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "OCO",
+          "points": 0.0,
+          "round": 5,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "PER",
+          "points": 0.0,
+          "round": 5,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "PIA",
+          "points": 0.0,
+          "round": 5,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "RUS",
+          "points": 0.0,
+          "round": 5,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "SAI",
+          "points": 2.0,
+          "round": 5,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "STR",
+          "points": 0.0,
+          "round": 5,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "VER",
+          "points": 15.0,
+          "round": 5,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "ALB",
+          "points": 4.0,
+          "round": 6,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "ALO",
+          "points": 1.0,
+          "round": 6,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "ANT",
+          "points": 25.0,
+          "round": 6,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "BEA",
+          "points": 0.0,
+          "round": 6,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "BOR",
+          "points": 0.0,
+          "round": 6,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "BOT",
+          "points": 0.0,
+          "round": 6,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "COL",
+          "points": 0.0,
+          "round": 6,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "GAS",
+          "points": 6.0,
+          "round": 6,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "HAD",
+          "points": 15.0,
+          "round": 6,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "HAM",
+          "points": 18.0,
+          "round": 6,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "HUL",
+          "points": 0.0,
+          "round": 6,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "LAW",
+          "points": 10.0,
+          "round": 6,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "LEC",
+          "points": 0.0,
+          "round": 6,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "LIN",
+          "points": 8.0,
+          "round": 6,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "NOR",
+          "points": 0.0,
+          "round": 6,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "OCO",
+          "points": 2.0,
+          "round": 6,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "PER",
+          "points": 0.0,
+          "round": 6,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "PIA",
+          "points": 12.0,
+          "round": 6,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "RUS",
+          "points": 0.0,
+          "round": 6,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "SAI",
+          "points": 0.0,
+          "round": 6,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "STR",
+          "points": 0.0,
+          "round": 6,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "VER",
+          "points": 0.0,
+          "round": 6,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "ALB",
+          "points": 0.0,
+          "round": 7,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "ALO",
+          "points": 0.0,
+          "round": 7,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "ANT",
+          "points": 0.0,
+          "round": 7,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "BEA",
+          "points": 0.0,
+          "round": 7,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "BOR",
+          "points": 0.0,
+          "round": 7,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "BOT",
+          "points": 0.0,
+          "round": 7,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "COL",
+          "points": 1.0,
+          "round": 7,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "GAS",
+          "points": 6.0,
+          "round": 7,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "HAD",
+          "points": 8.0,
+          "round": 7,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "HAM",
+          "points": 25.0,
+          "round": 7,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "HUL",
+          "points": 0.0,
+          "round": 7,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "LAW",
+          "points": 4.0,
+          "round": 7,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "LEC",
+          "points": 0.0,
+          "round": 7,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "LIN",
+          "points": 2.0,
+          "round": 7,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "NOR",
+          "points": 15.0,
+          "round": 7,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "OCO",
+          "points": 0.0,
+          "round": 7,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "PER",
+          "points": 0.0,
+          "round": 7,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "PIA",
+          "points": 10.0,
+          "round": 7,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "RUS",
+          "points": 18.0,
+          "round": 7,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "SAI",
+          "points": 0.0,
+          "round": 7,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "STR",
+          "points": 0.0,
+          "round": 7,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "VER",
+          "points": 12.0,
+          "round": 7,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "ALB",
+          "points": 0.0,
+          "round": 8,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "ALO",
+          "points": 0.0,
+          "round": 8,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "ANT",
+          "points": 15.0,
+          "round": 8,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "BEA",
+          "points": 0.0,
+          "round": 8,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "BOR",
+          "points": 0.0,
+          "round": 8,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "BOT",
+          "points": 0.0,
+          "round": 8,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "COL",
+          "points": 0.0,
+          "round": 8,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "GAS",
+          "points": 0.0,
+          "round": 8,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "HAD",
+          "points": 8.0,
+          "round": 8,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "HAM",
+          "points": 10.0,
+          "round": 8,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "HUL",
+          "points": 0.0,
+          "round": 8,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "LAW",
+          "points": 2.0,
+          "round": 8,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "LEC",
+          "points": 4.0,
+          "round": 8,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "LIN",
+          "points": 1.0,
+          "round": 8,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "NOR",
+          "points": 6.0,
+          "round": 8,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "OCO",
+          "points": 0.0,
+          "round": 8,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "PER",
+          "points": 0.0,
+          "round": 8,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "PIA",
+          "points": 12.0,
+          "round": 8,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "RUS",
+          "points": 25.0,
+          "round": 8,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "SAI",
+          "points": 0.0,
+          "round": 8,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "STR",
+          "points": 0.0,
+          "round": 8,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "VER",
+          "points": 18.0,
+          "round": 8,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "ALB",
+          "points": 0.0,
+          "round": 9,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "ALO",
+          "points": 0.0,
+          "round": 9,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "ANT",
+          "points": 0.0,
+          "round": 9,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "BEA",
+          "points": 0.0,
+          "round": 9,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "BOR",
+          "points": 4.0,
+          "round": 9,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "BOT",
+          "points": 0.0,
+          "round": 9,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "COL",
+          "points": 2.0,
+          "round": 9,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "GAS",
+          "points": 1.0,
+          "round": 9,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "HAD",
+          "points": 10.0,
+          "round": 9,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "HAM",
+          "points": 15.0,
+          "round": 9,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "HUL",
+          "points": 0.0,
+          "round": 9,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "LAW",
+          "points": 8.0,
+          "round": 9,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "LEC",
+          "points": 25.0,
+          "round": 9,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "LIN",
+          "points": 6.0,
+          "round": 9,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "NOR",
+          "points": 12.0,
+          "round": 9,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "OCO",
+          "points": 0.0,
+          "round": 9,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "PER",
+          "points": 0.0,
+          "round": 9,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "PIA",
+          "points": 0.0,
+          "round": 9,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "RUS",
+          "points": 18.0,
+          "round": 9,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "SAI",
+          "points": 0.0,
+          "round": 9,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "STR",
+          "points": 0.0,
+          "round": 9,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "VER",
+          "points": 0.0,
+          "round": 9,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "ALB",
+          "points": 0.0,
+          "round": 10,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "ALO",
+          "points": 0.0,
+          "round": 10,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "ANT",
+          "points": 25.0,
+          "round": 10,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "BEA",
+          "points": 0.0,
+          "round": 10,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "BOR",
+          "points": 4.0,
+          "round": 10,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "BOT",
+          "points": 0.0,
+          "round": 10,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "COL",
+          "points": 1.0,
+          "round": 10,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "GAS",
+          "points": 0.0,
+          "round": 10,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "HAD",
+          "points": 8.0,
+          "round": 10,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "HAM",
+          "points": 12.0,
+          "round": 10,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "HUL",
+          "points": 0.0,
+          "round": 10,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "LAW",
+          "points": 0.0,
+          "round": 10,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "LEC",
+          "points": 18.0,
+          "round": 10,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "LIN",
+          "points": 2.0,
+          "round": 10,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "NOR",
+          "points": 6.0,
+          "round": 10,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "OCO",
+          "points": 0.0,
+          "round": 10,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "PER",
+          "points": 0.0,
+          "round": 10,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "PIA",
+          "points": 10.0,
+          "round": 10,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "RUS",
+          "points": 0.0,
+          "round": 10,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "SAI",
+          "points": 0.0,
+          "round": 10,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "STR",
+          "points": 0.0,
+          "round": 10,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "VER",
+          "points": 15.0,
+          "round": 10,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "ALB",
+          "points": 0.0,
+          "round": 11,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "ALO",
+          "points": 0.0,
+          "round": 11,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "ANT",
+          "points": 15.0,
+          "round": 11,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "BEA",
+          "points": 0.0,
+          "round": 11,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "BOR",
+          "points": 0.0,
+          "round": 11,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "BOT",
+          "points": 0.0,
+          "round": 11,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "COL",
+          "points": 0.0,
+          "round": 11,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "GAS",
+          "points": 0.0,
+          "round": 11,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "HAD",
+          "points": 8.0,
+          "round": 11,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "HAM",
+          "points": 10.0,
+          "round": 11,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "HUL",
+          "points": 2.0,
+          "round": 11,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "LAW",
+          "points": 4.0,
+          "round": 11,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "LEC",
+          "points": 12.0,
+          "round": 11,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "LIN",
+          "points": 1.0,
+          "round": 11,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "NOR",
+          "points": 25.0,
+          "round": 11,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "OCO",
+          "points": 0.0,
+          "round": 11,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "PER",
+          "points": 0.0,
+          "round": 11,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "PIA",
+          "points": 0.0,
+          "round": 11,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "RUS",
+          "points": 6.0,
+          "round": 11,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "SAI",
+          "points": 0.0,
+          "round": 11,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "STR",
+          "points": 0.0,
+          "round": 11,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "VER",
+          "points": 18.0,
+          "round": 11,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "ALB",
+          "points": 0.0,
+          "round": 12,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "ALO",
+          "points": 2.0,
+          "round": 12,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "ANT",
+          "points": 18.0,
+          "round": 12,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "BEA",
+          "points": 0.0,
+          "round": 12,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "BOR",
+          "points": 0.0,
+          "round": 12,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "BOT",
+          "points": 0.0,
+          "round": 12,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "COL",
+          "points": 0.0,
+          "round": 12,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "GAS",
+          "points": 1.0,
+          "round": 12,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "HAM",
+          "points": 12.0,
+          "round": 12,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "HUL",
+          "points": 4.0,
+          "round": 12,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "LAW",
+          "points": 6.0,
+          "round": 12,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "LEC",
+          "points": 10.0,
+          "round": 12,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "LIN",
+          "points": 0.0,
+          "round": 12,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "NOR",
+          "points": 25.0,
+          "round": 12,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "OCO",
+          "points": 0.0,
+          "round": 12,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "PER",
+          "points": 0.0,
+          "round": 12,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "PIA",
+          "points": 8.0,
+          "round": 12,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "RUS",
+          "points": 15.0,
+          "round": 12,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "SAI",
+          "points": 0.0,
+          "round": 12,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "STR",
+          "points": 0.0,
+          "round": 12,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "VER",
+          "points": 0.0,
+          "round": 12,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "ALB",
+          "points": 0.0,
+          "round": 13,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "ALO",
+          "points": 0.0,
+          "round": 13,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "ANT",
+          "points": 25.0,
+          "round": 13,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "BEA",
+          "points": 0.0,
+          "round": 13,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "BOR",
+          "points": 0.0,
+          "round": 13,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "BOT",
+          "points": 0.0,
+          "round": 13,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "COL",
+          "points": 2.0,
+          "round": 13,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "GAS",
+          "points": 6.0,
+          "round": 13,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "HAM",
+          "points": 8.0,
+          "round": 13,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "HUL",
+          "points": 0.0,
+          "round": 13,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "LAW",
+          "points": 0.0,
+          "round": 13,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "LEC",
+          "points": 0.0,
+          "round": 13,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "LIN",
+          "points": 4.0,
+          "round": 13,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "NOR",
+          "points": 12.0,
+          "round": 13,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "OCO",
+          "points": 0.0,
+          "round": 13,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "PER",
+          "points": 0.0,
+          "round": 13,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "PIA",
+          "points": 10.0,
+          "round": 13,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "RUS",
+          "points": 18.0,
+          "round": 13,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "SAI",
+          "points": 0.0,
+          "round": 13,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "STR",
+          "points": 0.0,
+          "round": 13,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "VER",
+          "points": 15.0,
+          "round": 13,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "ALB",
+          "points": 0.0,
+          "round": 14,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "ALO",
+          "points": 0.0,
+          "round": 14,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "ANT",
+          "points": 25.0,
+          "round": 14,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "BEA",
+          "points": 0.0,
+          "round": 14,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "BOR",
+          "points": 0.0,
+          "round": 14,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "BOT",
+          "points": 0.0,
+          "round": 14,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "COL",
+          "points": 6.0,
+          "round": 14,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "GAS",
+          "points": 0.0,
+          "round": 14,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "HAM",
+          "points": 0.0,
+          "round": 14,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "HUL",
+          "points": 1.0,
+          "round": 14,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "LAW",
+          "points": 8.0,
+          "round": 14,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "LEC",
+          "points": 12.0,
+          "round": 14,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "LIN",
+          "points": 2.0,
+          "round": 14,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "NOR",
+          "points": 15.0,
+          "round": 14,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "OCO",
+          "points": 0.0,
+          "round": 14,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "PER",
+          "points": 0.0,
+          "round": 14,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "PIA",
+          "points": 4.0,
+          "round": 14,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "RUS",
+          "points": 10.0,
+          "round": 14,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "SAI",
+          "points": 0.0,
+          "round": 14,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "STR",
+          "points": 0.0,
+          "round": 14,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "VER",
+          "points": 18.0,
+          "round": 14,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "ALB",
+          "points": 0.0,
+          "round": 15,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "ALO",
+          "points": 0.0,
+          "round": 15,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "ANT",
+          "points": 10.0,
+          "round": 15,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "BEA",
+          "points": 2.0,
+          "round": 15,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "BOR",
+          "points": 0.0,
+          "round": 15,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "BOT",
+          "points": 0.0,
+          "round": 15,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "COL",
+          "points": 0.0,
+          "round": 15,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "GAS",
+          "points": 0.0,
+          "round": 15,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "HAD",
+          "points": 15.0,
+          "round": 15,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "HAM",
+          "points": 8.0,
+          "round": 15,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "HUL",
+          "points": 0.0,
+          "round": 15,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "LAW",
+          "points": 0.0,
+          "round": 15,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "LEC",
+          "points": 12.0,
+          "round": 15,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "LIN",
+          "points": 6.0,
+          "round": 15,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "NOR",
+          "points": 0.0,
+          "round": 15,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "OCO",
+          "points": 4.0,
+          "round": 15,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "PER",
+          "points": 0.0,
+          "round": 15,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "PIA",
+          "points": 0.0,
+          "round": 15,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "RUS",
+          "points": 25.0,
+          "round": 15,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "SAI",
+          "points": 1.0,
+          "round": 15,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "STR",
+          "points": 0.0,
+          "round": 15,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "VER",
+          "points": 18.0,
+          "round": 15,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "ALB",
+          "points": 0.0,
+          "round": 16,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "ALO",
+          "points": 4.0,
+          "round": 16,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "ANT",
+          "points": 18.0,
+          "round": 16,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "BEA",
+          "points": 0.0,
+          "round": 16,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "BOR",
+          "points": 0.0,
+          "round": 16,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "BOT",
+          "points": 0.0,
+          "round": 16,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "COL",
+          "points": 0.0,
+          "round": 16,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "GAS",
+          "points": 0.0,
+          "round": 16,
+          "team_id": "alpine"
+        },
+        {
+          "driver_id": "HAD",
+          "points": 10.0,
+          "round": 16,
+          "team_id": "red_bull"
+        },
+        {
+          "driver_id": "HAM",
+          "points": 15.0,
+          "round": 16,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "HUL",
+          "points": 0.0,
+          "round": 16,
+          "team_id": "audi"
+        },
+        {
+          "driver_id": "LAW",
+          "points": 6.0,
+          "round": 16,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "LEC",
+          "points": 12.0,
+          "round": 16,
+          "team_id": "ferrari"
+        },
+        {
+          "driver_id": "LIN",
+          "points": 1.0,
+          "round": 16,
+          "team_id": "rb"
+        },
+        {
+          "driver_id": "NOR",
+          "points": 2.0,
+          "round": 16,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "OCO",
+          "points": 0.0,
+          "round": 16,
+          "team_id": "haas"
+        },
+        {
+          "driver_id": "PER",
+          "points": 0.0,
+          "round": 16,
+          "team_id": "cadillac"
+        },
+        {
+          "driver_id": "PIA",
+          "points": 8.0,
+          "round": 16,
+          "team_id": "mclaren"
+        },
+        {
+          "driver_id": "RUS",
+          "points": 0.0,
+          "round": 16,
+          "team_id": "mercedes"
+        },
+        {
+          "driver_id": "SAI",
+          "points": 0.0,
+          "round": 16,
+          "team_id": "williams"
+        },
+        {
+          "driver_id": "STR",
+          "points": 0.0,
+          "round": 16,
+          "team_id": "aston_martin"
+        },
+        {
+          "driver_id": "VER",
+          "points": 25.0,
+          "round": 16,
+          "team_id": "red_bull"
+        }
+      ],
+      "teams": {
+        "alpine": {
+          "entries": {
+            "COL": 16,
+            "GAS": 16
+          },
+          "points": {
+            "COL": 27.0,
+            "GAS": 39.0
+          },
+          "reason": null,
+          "status": "calibrated",
+          "training_rounds": {
+            "COL": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ],
+            "GAS": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          },
+          "weights": {
+            "COL": 0.4482758620689655,
+            "GAS": 0.5517241379310345
+          }
+        },
+        "aston_martin": {
+          "entries": {
+            "ALO": 16,
+            "STR": 16
+          },
+          "points": {
+            "ALO": 7.0,
+            "STR": 0.0
+          },
+          "reason": null,
+          "status": "calibrated",
+          "training_rounds": {
+            "ALO": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ],
+            "STR": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          },
+          "weights": {
+            "ALO": 0.5614035087719298,
+            "STR": 0.43859649122807015
+          }
+        },
+        "audi": {
+          "entries": {
+            "BOR": 16,
+            "HUL": 16
+          },
+          "points": {
+            "BOR": 10.0,
+            "HUL": 7.0
+          },
+          "reason": null,
+          "status": "calibrated",
+          "training_rounds": {
+            "BOR": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ],
+            "HUL": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          },
+          "weights": {
+            "BOR": 0.5223880597014925,
+            "HUL": 0.47761194029850745
+          }
+        },
+        "cadillac": {
+          "entries": {
+            "BOT": 16,
+            "PER": 16
+          },
+          "points": {
+            "BOT": 0.0,
+            "PER": 0.0
+          },
+          "reason": null,
+          "status": "calibrated",
+          "training_rounds": {
+            "BOT": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ],
+            "PER": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          },
+          "weights": {
+            "BOT": 0.5,
+            "PER": 0.5
+          }
+        },
+        "ferrari": {
+          "entries": {
+            "HAM": 16,
+            "LEC": 16
+          },
+          "points": {
+            "HAM": 194.0,
+            "LEC": 163.0
+          },
+          "reason": null,
+          "status": "calibrated",
+          "training_rounds": {
+            "HAM": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ],
+            "LEC": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          },
+          "weights": {
+            "HAM": 0.538083538083538,
+            "LEC": 0.4619164619164619
+          }
+        },
+        "haas": {
+          "entries": {
+            "BEA": 16,
+            "OCO": 16
+          },
+          "points": {
+            "BEA": 19.0,
+            "OCO": 7.0
+          },
+          "reason": null,
+          "status": "calibrated",
+          "training_rounds": {
+            "BEA": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ],
+            "OCO": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          },
+          "weights": {
+            "BEA": 0.5789473684210527,
+            "OCO": 0.42105263157894735
+          }
+        },
+        "mclaren": {
+          "entries": {
+            "NOR": 16,
+            "PIA": 16
+          },
+          "points": {
+            "NOR": 156.0,
+            "PIA": 107.0
+          },
+          "reason": null,
+          "status": "calibrated",
+          "training_rounds": {
+            "NOR": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ],
+            "PIA": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          },
+          "weights": {
+            "NOR": 0.5782747603833865,
+            "PIA": 0.4217252396166134
+          }
+        },
+        "mercedes": {
+          "entries": {
+            "ANT": 16,
+            "RUS": 16
+          },
+          "points": {
+            "ANT": 294.0,
+            "RUS": 202.0
+          },
+          "reason": null,
+          "status": "calibrated",
+          "training_rounds": {
+            "ANT": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ],
+            "RUS": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          },
+          "weights": {
+            "ANT": 0.5842490842490843,
+            "RUS": 0.4157509157509158
+          }
+        },
+        "rb": {
+          "entries": {
+            "LAW": 13,
+            "LIN": 16
+          },
+          "points": {
+            "LAW": 48.0,
+            "LIN": 37.0
+          },
+          "reason": null,
+          "status": "calibrated",
+          "training_rounds": {
+            "LAW": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              15,
+              16
+            ],
+            "LIN": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          },
+          "weights": {
+            "LAW": 0.5407407407407407,
+            "LIN": 0.45925925925925926
+          }
+        },
+        "red_bull": {
+          "entries": {
+            "HAD": 13,
+            "VER": 16
+          },
+          "points": {
+            "HAD": 96.0,
+            "VER": 176.0
+          },
+          "reason": null,
+          "status": "calibrated",
+          "training_rounds": {
+            "HAD": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              15,
+              16
+            ],
+            "VER": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          },
+          "weights": {
+            "HAD": 0.37577639751552794,
+            "VER": 0.6242236024844721
+          }
+        },
+        "williams": {
+          "entries": {
+            "ALB": 16,
+            "SAI": 16
+          },
+          "points": {
+            "ALB": 5.0,
+            "SAI": 7.0
+          },
+          "reason": null,
+          "status": "calibrated",
+          "training_rounds": {
+            "ALB": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ],
+            "SAI": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          },
+          "weights": {
+            "ALB": 0.4838709677419355,
+            "SAI": 0.5161290322580645
+          }
+        }
+      }
+    },
+    "drivers": {
+      "ALB": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.017900079777573706
+        },
+        "native_probability": 0.0,
+        "native_win_count": 0,
+        "probability": 0.0
+      },
+      "ALO": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.02076827969514984
+        },
+        "native_probability": 0.0,
+        "native_win_count": 0,
+        "probability": 0.0
+      },
+      "ANT": {
+        "mc_sampling_interval_95": {
+          "lower": 0.07311732109187229,
+          "upper": 0.16229764974215263
+        },
+        "native_probability": 0.1,
+        "native_win_count": 10,
+        "probability": 0.11100732600732602
+      },
+      "BEA": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.021417288435623277
+        },
+        "native_probability": 0.0,
+        "native_win_count": 0,
+        "probability": 0.0
+      },
+      "BOR": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.01932496174991788
+        },
+        "native_probability": 0.0,
+        "native_win_count": 0,
+        "probability": 0.0
+      },
+      "BOT": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.01849674910349283
+        },
+        "native_probability": 0.0,
+        "native_win_count": 0,
+        "probability": 0.0
+      },
+      "COL": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0007922971322009781,
+          "upper": 0.02442484656286789
+        },
+        "native_probability": 0.0,
+        "native_win_count": 0,
+        "probability": 0.004482758620689655
+      },
+      "GAS": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0009751349319396654,
+          "upper": 0.030061349615837406
+        },
+        "native_probability": 0.01,
+        "native_win_count": 1,
+        "probability": 0.005517241379310345
+      },
+      "HAD": {
+        "mc_sampling_interval_95": {
+          "lower": 0.15901571147801555,
+          "upper": 0.23123569059862484
+        },
+        "native_probability": 0.22,
+        "native_win_count": 22,
+        "probability": 0.19540372670807454
+      },
+      "HAM": {
+        "mc_sampling_interval_95": {
+          "lower": 0.08981327510987178,
+          "upper": 0.17881773121890343
+        },
+        "native_probability": 0.07,
+        "native_win_count": 7,
+        "probability": 0.12914004914004915
+      },
+      "HUL": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.017668536457067775
+        },
+        "native_probability": 0.0,
+        "native_win_count": 0,
+        "probability": 0.0
+      },
+      "LAW": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.020003891623036688
+        },
+        "native_probability": 0.0,
+        "native_win_count": 0,
+        "probability": 0.0
+      },
+      "LEC": {
+        "mc_sampling_interval_95": {
+          "lower": 0.07709998045961597,
+          "upper": 0.1535056322792413
+        },
+        "native_probability": 0.17,
+        "native_win_count": 17,
+        "probability": 0.11085995085995086
+      },
+      "LIN": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.01698960658394897
+        },
+        "native_probability": 0.0,
+        "native_win_count": 0,
+        "probability": 0.0
+      },
+      "NOR": {
+        "mc_sampling_interval_95": {
+          "lower": 0.009057693362524342,
+          "upper": 0.05688530127462342
+        },
+        "native_probability": 0.02,
+        "native_win_count": 2,
+        "probability": 0.02313099041533546
+      },
+      "OCO": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.01557620977136238
+        },
+        "native_probability": 0.0,
+        "native_win_count": 0,
+        "probability": 0.0
+      },
+      "PER": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.01849674910349283
+        },
+        "native_probability": 0.0,
+        "native_win_count": 0,
+        "probability": 0.0
+      },
+      "PIA": {
+        "mc_sampling_interval_95": {
+          "lower": 0.006605610629023277,
+          "upper": 0.041485413084255754
+        },
+        "native_probability": 0.02,
+        "native_win_count": 2,
+        "probability": 0.016869009584664536
+      },
+      "RUS": {
+        "mc_sampling_interval_95": {
+          "lower": 0.05203019400581507,
+          "upper": 0.11549080404849107
+        },
+        "native_probability": 0.09,
+        "native_win_count": 9,
+        "probability": 0.078992673992674
+      },
+      "SAI": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.01909341842941195
+        },
+        "native_probability": 0.0,
+        "native_win_count": 0,
+        "probability": 0.0
+      },
+      "STR": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.016225218511835816
+        },
+        "native_probability": 0.0,
+        "native_win_count": 0,
+        "probability": 0.0
+      },
+      "VER": {
+        "mc_sampling_interval_95": {
+          "lower": 0.2641500661742242,
+          "upper": 0.3841187918208561
+        },
+        "native_probability": 0.3,
+        "native_win_count": 30,
+        "probability": 0.3245962732919255
+      }
+    },
+    "interval_metadata": {
+      "confidence": 0.95,
+      "method": "wilson_fixed_teammate_allocation_v1",
+      "scope": "monte_carlo_sampling_with_frozen_point_history",
+      "units": "fraction"
+    },
+    "no_classified_winner_probability": 0.0,
+    "policy": "teammate_race_points_v1",
+    "trials": 100
+  },
+  "winner_forecast": {
+    "drivers": {
+      "ALB": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.03699349820698566
+        },
+        "probability": 0.0,
+        "wins": 0
+      },
+      "ALO": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.03699349820698566
+        },
+        "probability": 0.0,
+        "wins": 0
+      },
+      "ANT": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0552291370606751,
+          "upper": 0.17436566150491345
+        },
+        "probability": 0.1,
+        "wins": 10
+      },
+      "BEA": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.03699349820698566
+        },
+        "probability": 0.0,
+        "wins": 0
+      },
+      "BOR": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.03699349820698566
+        },
+        "probability": 0.0,
+        "wins": 0
+      },
+      "BOT": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.03699349820698566
+        },
+        "probability": 0.0,
+        "wins": 0
+      },
+      "COL": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.03699349820698566
+        },
+        "probability": 0.0,
+        "wins": 0
+      },
+      "GAS": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0017674320641406435,
+          "upper": 0.054486196178705294
+        },
+        "probability": 0.01,
+        "wins": 1
+      },
+      "HAD": {
+        "mc_sampling_interval_95": {
+          "lower": 0.15001282384605397,
+          "upper": 0.31070353514985793
+        },
+        "probability": 0.22,
+        "wins": 22
+      },
+      "HAM": {
+        "mc_sampling_interval_95": {
+          "lower": 0.03431926106727268,
+          "upper": 0.13749514739073498
+        },
+        "probability": 0.07,
+        "wins": 7
+      },
+      "HUL": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.03699349820698566
+        },
+        "probability": 0.0,
+        "wins": 0
+      },
+      "LAW": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.03699349820698566
+        },
+        "probability": 0.0,
+        "wins": 0
+      },
+      "LEC": {
+        "mc_sampling_interval_95": {
+          "lower": 0.1089356611405993,
+          "upper": 0.2554800476760112
+        },
+        "probability": 0.17,
+        "wins": 17
+      },
+      "LIN": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.03699349820698566
+        },
+        "probability": 0.0,
+        "wins": 0
+      },
+      "NOR": {
+        "mc_sampling_interval_95": {
+          "lower": 0.00550196755016235,
+          "upper": 0.07001179072854388
+        },
+        "probability": 0.02,
+        "wins": 2
+      },
+      "OCO": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.03699349820698566
+        },
+        "probability": 0.0,
+        "wins": 0
+      },
+      "PER": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.03699349820698566
+        },
+        "probability": 0.0,
+        "wins": 0
+      },
+      "PIA": {
+        "mc_sampling_interval_95": {
+          "lower": 0.00550196755016235,
+          "upper": 0.07001179072854388
+        },
+        "probability": 0.02,
+        "wins": 2
+      },
+      "RUS": {
+        "mc_sampling_interval_95": {
+          "lower": 0.04807254000256516,
+          "upper": 0.1622621285271631
+        },
+        "probability": 0.09,
+        "wins": 9
+      },
+      "SAI": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.03699349820698566
+        },
+        "probability": 0.0,
+        "wins": 0
+      },
+      "STR": {
+        "mc_sampling_interval_95": {
+          "lower": 0.0,
+          "upper": 0.03699349820698566
+        },
+        "probability": 0.0,
+        "wins": 0
+      },
+      "VER": {
+        "mc_sampling_interval_95": {
+          "lower": 0.2189488529493276,
+          "upper": 0.3958485463334666
+        },
+        "probability": 0.3,
+        "wins": 30
+      }
+    },
+    "interval_metadata": {
+      "confidence": 0.95,
+      "method": "wilson",
+      "scope": "monte_carlo_sampling",
+      "units": "fraction"
+    },
+    "no_classified_winner": {
+      "count": 0,
+      "mc_sampling_interval_95": {
+        "lower": 0.0,
+        "upper": 0.03699349820698566
+      },
+      "probability": 0.0
+    },
+    "trials": 100
+  },
+  "year": 2026
+}

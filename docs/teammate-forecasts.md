@@ -62,3 +62,34 @@ estimate's loss as `winner_score` and native loss as `native_winner_score`.
 It rebuilds the saved allocation to verify its probabilities and never refits
 it from later results. Existing schema-1 records remain immutable and continue
 to score their original native probabilities.
+
+## Frozen validation evidence
+
+The [normalized validation record](../evidence/teammate-points-2026-10-07.json)
+contains the seven native ensembles' counts, prior point history, constructor
+references, input snapshots, seeds and scores. It contains derived observations
+and models, not raw live-feed responses. Its content seal detects accidental
+changes; it does not independently authenticate the simulation execution.
+
+Recompute the published loss offline with the installed production helper:
+
+```python
+import json
+from pathlib import Path
+from statistics import mean
+from f1sim.analysis.race_probability_scores import summarize_winner_counts
+from f1sim.analysis.teammate_forecast import build_teammate_allocation, score_teammate_forecast
+
+evidence = json.loads(Path("evidence/teammate-points-2026-10-07.json").read_text())
+scores = []
+for event in evidence["events"]:
+    native = summarize_winner_counts(event["native_win_counts"], event["no_classified_winner_count"])
+    allocation = build_teammate_allocation(event["entrant_teams"], event["earlier_race_points"],
+                                           cutoff_round=event["cutoff_round"])
+    scores.append(score_teammate_forecast(native, allocation, event["observed_winner"])["brier_score"])
+print(mean(scores))  # 0.8171935237932408
+```
+
+Each event also has `simulation_inputs` and `metadata` suitable for the existing
+offline replay contract when saved as its own file. Exact native reproduction
+still depends on matching the model and dependency versions.

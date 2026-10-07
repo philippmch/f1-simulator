@@ -72,3 +72,14 @@ their original local-clock disclaimer. The dated GitHub publication of the
 containing commit is separate evidence of pre-event availability. Scores remain
 unavailable until the event has a classified result; no future accuracy is
 claimed today. Run the scoring command against each original path afterwards.
+
+The [teammate-point forecast](../forecasts/2026-round-17-dry-teammate-points.json)
+adds the schema-2 estimate, again with 100 trials and seed 42. It completed at
+**2026-10-07 20:19:10 UTC**, using only performance rounds 1–16. Its seal is
+`7253d10f73dcbf70c7645b8571fa2f66aafa6cb225e71736e5e21d97146d3439`.
+The actual fresh native run reproduced the corrected-clock record's physical
+inputs, qualifying forecast and native winner counts exactly, aside from the
+runtime/source fingerprint. The new estimate and frozen point history are
+separate. The first two records retain their original bytes and seals. The
+new record also retains its local-clock disclaimer; dated publication is
+separate evidence. It remains unscored until the race has an observed result.
