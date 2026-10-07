@@ -1131,6 +1131,32 @@ const { checkBasicSetup } = require('./browser_basic_setup.cjs');
         `${interval.lower.toFixed(1)}–${interval.upper.toFixed(1)}%`));
       if (stats.win_rate === 0) assert(interval.upper > 0);
     }
+    if (offline && fixture.calibrated_payload) {
+      await page.evaluate(calibrated => {
+        window.nativeForecastPayload = simResults;
+        simResults = calibrated;
+        renderStats();
+      }, fixture.calibrated_payload);
+      const calibratedScenario = Object.values(fixture.calibrated_payload.scenarios)[0];
+      const ranked = Object.entries(calibratedScenario.driver_statistics)
+        .sort((a, b) => b[1].estimated_win_rate - a[1].estimated_win_rate);
+      assert((await page.locator('#statsContent .summary-card').first().innerText()).includes(ranked[0][0]));
+      assert((await page.locator('#statsContent').innerText()).includes('Earlier race points adjust win estimates'));
+      await page.locator('#probabilityIntervals summary').click();
+      const changed = ranked.find(([, row]) => Math.abs(row.estimated_win_rate - row.win_rate) > .1);
+      assert(changed, 'The calibrated fixture must visibly differ from native counts');
+      const [id, stats] = changed;
+      const row = page.locator('#probabilityIntervals tbody tr').filter({
+        has: page.locator('th', {hasText: new RegExp(`^${id}$`)}),
+      });
+      assert((await row.innerText()).includes(`${stats.estimated_win_rate.toFixed(1)}%`));
+      assert.equal(await row.locator('td').nth(2).innerText(), `${stats.wins} (${stats.win_rate.toFixed(1)}%)`);
+      await page.evaluate(() => {
+        simResults = window.nativeForecastPayload;
+        delete window.nativeForecastPayload;
+        renderStats();
+      });
+    }
     const pitStatistics = Object.values(payload.scenarios)[0].pit_stop_statistics;
     const pitDecisionStatistics = Object.values(payload.scenarios)[0].pit_decision_statistics;
     const strategyStatistics = Object.values(payload.scenarios)[0].strategy_statistics;

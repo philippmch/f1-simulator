@@ -302,6 +302,21 @@ class SimulationResults:
     weather_histories: list[list[dict]] = field(default_factory=list)
     control_schedule_histories: list[list[dict] | None] | None = None
     race_points_contexts: list[dict | None] | None = None
+    winner_allocation: dict | None = None
+
+    def get_winner_forecast(self) -> dict | None:
+        """Reported win estimates; native counts remain in driver_stats."""
+        if self.winner_allocation is None:
+            return None
+        from f1sim.analysis.race_probability_scores import summarize_winner_counts
+        from f1sim.analysis.teammate_forecast import teammate_winner_forecast
+
+        wins = {driver: stats.wins for driver, stats in self.driver_stats.items()}
+        if any(len(stats.positions) != self.num_simulations
+               for stats in self.driver_stats.values()):
+            raise ValueError("A calibrated forecast requires complete driver trial counts")
+        native = summarize_winner_counts(wins, self.num_simulations - sum(wins.values()))
+        return teammate_winner_forecast(native, self.winner_allocation)
 
     def get_race_scoring_context(self, index: int = 0) -> dict | None:
         """Describe a recorded trial without guessing from its finishing places."""
@@ -909,7 +924,7 @@ class SimulationResults:
         classification-aware aggregation; retirement is counted independently.
         These are individual intervals, not simultaneous bounds across drivers.
         """
-        return {
+        intervals = {
             driver_id: {
                 "confidence": 0.95,
                 "method": "wilson",
@@ -921,9 +936,23 @@ class SimulationResults:
             }
             for driver_id, stats in self.driver_stats.items()
         }
+        forecast = self.get_winner_forecast()
+        if forecast is not None:
+            for driver, row in forecast["drivers"].items():
+                intervals[driver]["win"] = {
+                    key: value * 100 for key, value in row["mc_sampling_interval_95"].items()
+                }
+                intervals[driver]["win_method"] = forecast["interval_metadata"]["method"]
+                intervals[driver]["win_conditioning"] = "frozen_earlier_race_point_history"
+        return intervals
 
     def get_win_probabilities(self) -> dict[str, float]:
-        """Get win probabilities ranked by observed rate, including partial samples."""
+        """Rank reported win estimates; without history use native observed rates."""
+        forecast = self.get_winner_forecast()
+        if forecast is not None:
+            probabilities = {driver: row["probability"] * 100
+                             for driver, row in forecast["drivers"].items()}
+            return dict(sorted(probabilities.items(), key=lambda row: row[1], reverse=True))
         return {
             driver_id: stats.win_rate
             for driver_id, stats in sorted(
@@ -1339,6 +1368,7 @@ class MonteCarloRunner:
         *,
         weather_schedule: list[dict] | None = None,
         control_schedule: list[dict] | None = None,
+        winner_allocation: dict | None = None,
     ):
         """Initialize Monte Carlo runner.
 
@@ -1360,6 +1390,8 @@ class MonteCarloRunner:
                 None keeps automatic control, [] disables random SC/VSC deployments.
             tire_warmup: Optional assumed seconds on the first running lap after each fitting.
                 Openings and qualifying are ready; zero disables the sensitivity overlay.
+            winner_allocation: Frozen earlier race points for reported win estimates;
+                does not affect the simulation or its native win counts.
         """
         self.control_schedule = validate_control_schedule(
             control_schedule, total_laps=getattr(track, "total_laps", None),
@@ -1372,6 +1404,11 @@ class MonteCarloRunner:
         self.race_engine = validate_race_engine(race_engine)
         self.rng_policy = validate_rng_policy(rng_policy)
         validate_unique_ids((driver.id for driver in drivers), "drivers")
+        from f1sim.analysis.teammate_forecast import validate_teammate_allocation
+
+        self.winner_allocation = (validate_teammate_allocation(
+            winner_allocation, {driver.id: driver.team_id for driver in drivers},
+        ) if winner_allocation is not None else None)
         self.starting_tires = validate_starting_tires(starting_tires, (d.id for d in drivers))
         self.starting_tire_ages = validate_starting_tire_ages(
             starting_tire_ages, self.starting_tires, (d.id for d in drivers),
@@ -1438,6 +1475,11 @@ class MonteCarloRunner:
 
         _raise_if_cancelled(cancel_requested)
         validate_unique_ids((driver.id for driver in self.drivers), "drivers")
+        from f1sim.analysis.teammate_forecast import validate_teammate_allocation
+
+        winner_allocation = (validate_teammate_allocation(
+            self.winner_allocation, {driver.id: driver.team_id for driver in self.drivers},
+        ) if self.winner_allocation is not None else None)
         control_schedule = validate_control_schedule(
             self.control_schedule, total_laps=self.track.total_laps,
         )
@@ -1595,6 +1637,7 @@ class MonteCarloRunner:
                 if control_schedule is not None else None
             ),
             race_points_contexts=[counts.get("race_points_context") for counts in all_event_counts],
+            winner_allocation=winner_allocation,
         )
 
     def _aggregate_statistics(

@@ -15,6 +15,7 @@ from f1sim.analysis.montecarlo import MonteCarloRunner
 from f1sim.analysis.race_probability_evaluation import _observed_winner, _target_rows
 from f1sim.analysis.race_probability_scores import score_winner_counts, summarize_winner_trials
 from f1sim.analysis.replay import _load_saved_runner
+from f1sim.analysis.teammate_forecast import score_teammate_forecast, teammate_winner_forecast
 from f1sim.analysis.winner_baselines import build_winner_baselines, score_saved_winner_baselines
 from f1sim.cancellation import raise_if_cancelled
 from f1sim.models import Weather
@@ -118,7 +119,13 @@ def record_race_forecast(loader, year, target_race, *, trials=100, seed=42, weat
         deep=True, update={"change_probability": 0.0},
     )
     raise_if_cancelled(cancel_requested)
-    simulation = MonteCarloRunner(drivers, cars, track, assumed, seed=seed).run(
+    allocation_method = getattr(loader, "get_winner_allocation", None)
+    allocation = allocation_method(year, target, drivers) if callable(allocation_method) else None
+    runner = MonteCarloRunner(
+        drivers, cars, track, assumed, seed=seed,
+        **({"winner_allocation": allocation} if allocation is not None else {}),
+    )
+    simulation = runner.run(
         trials, parallel=parallel, max_workers=max_workers, progress_callback=progress_callback,
         cancel_requested=cancel_requested,
     )
@@ -127,7 +134,8 @@ def record_race_forecast(loader, year, target_race, *, trials=100, seed=42, weat
     if recorded >= deadline:
         raise ValueError("Forecast finished after qualifying started; no pre-event record is valid")
     body = {
-        "schema_version": 1, "kind": "pre_qualifying_race_forecast", "year": year,
+        "schema_version": 2 if allocation is not None else 1,
+        "kind": "pre_qualifying_race_forecast", "year": year,
         "event": {key: event.get(key) for key in ("round", "race", "circuit_id", "date")},
         "started_at": started.isoformat(), "recorded_at": recorded.isoformat(),
         "qualifying_starts_at": deadline.isoformat(),
@@ -143,6 +151,8 @@ def record_race_forecast(loader, year, target_race, *, trials=100, seed=42, weat
         "qualifying_forecast": _qualifying_summary(simulation.qualifying_results, ids),
         "baselines": baselines,
     }
+    if allocation is not None:
+        body["winner_estimate"] = teammate_winner_forecast(body["winner_forecast"], allocation)
     return {**body, "content_sha256": _digest(body)}
 
 
@@ -171,7 +181,7 @@ def _validate_recorded_forecast(record):
     body = {key: value for key, value in record.items() if key != "content_sha256"}
     if record.get("content_sha256") != _digest(body):
         raise ValueError("Recorded forecast content seal does not match")
-    if (type(record.get("schema_version")) is not int or record["schema_version"] != 1
+    if (type(record.get("schema_version")) is not int or record["schema_version"] not in (1, 2)
             or record.get("kind") != "pre_qualifying_race_forecast"):
         raise ValueError("Unsupported recorded forecast format")
     if type(record.get("year")) is not int or not 1 <= record["year"] <= 9999:
@@ -236,6 +246,21 @@ def _validate_recorded_forecast(record):
         raise ValueError("Qualifying mean positions do not match complete trial permutations")
     score_saved_winner_baselines(record["baselines"], ids, target_round=target,
                                  observed_winner=None)
+    if record["schema_version"] == 2:
+        estimate = record.get("winner_estimate")
+        if not isinstance(estimate, dict) or not isinstance(estimate.get("allocation"), dict):
+            raise ValueError("Schema 2 requires a frozen teammate winner estimate")
+        if estimate["allocation"].get("cutoff_round") != target - 1:
+            raise ValueError("Winner estimate must use the forecast's earlier cutoff")
+        rebuilt = teammate_winner_forecast(winner, estimate["allocation"])
+        if _digest(estimate) != _digest(rebuilt):
+            raise ValueError("Winner estimate must match native counts and frozen point history")
+        raw_drivers = record.get("simulation_inputs", {}).get("drivers", [])
+        teams = {row["id"]: row["team_id"] for row in raw_drivers}
+        if teams != estimate["allocation"]["entrant_teams"] or len(raw_drivers) != len(ids):
+            raise ValueError("Winner allocation must match the saved simulation constructors")
+    elif "winner_estimate" in record:
+        raise ValueError("Schema 1 forecasts cannot contain a calibrated winner estimate")
     return score
 
 
@@ -272,6 +297,11 @@ def score_recorded_forecast(record, loader, results, qualifying):
         {identity: row["wins"] for identity, row in winner["drivers"].items()},
         winner["no_classified_winner"]["count"], observed["winner_id"],
     )
+    native_score = score
+    if record["schema_version"] == 2:
+        score = score_teammate_forecast(
+            winner, record["winner_estimate"]["allocation"], observed["winner_id"],
+        )
     q_rows = _target_rows(loader, qualifying, target)
     poles = [row for row in q_rows if loader._row_position(row) == 1]
     pole_id = loader._resolve_row_driver(poles[0], aliases) if len(poles) == 1 else None
@@ -296,6 +326,9 @@ def score_recorded_forecast(record, loader, results, qualifying):
         "forecast_sha256": record["content_sha256"], "recorded_at": record["recorded_at"],
         "timing_evidence": record["timing_evidence"], "observed_winner": observed["winner_id"],
         "winner_score": score, "observed_pole": pole_id, "pole_score": pole_score,
+        **({"native_winner_score": native_score,
+            "winner_policy": record["winner_estimate"]["policy"]}
+           if record["schema_version"] == 2 else {}),
         "qualifying_position_mae": sum(errors) / len(errors) if errors else None,
         "qualifying_scored_drivers": len(errors),
         "qualifying_observed_drivers": len(q_rows), "forecast_drivers": len(ids),

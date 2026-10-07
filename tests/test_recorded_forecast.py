@@ -42,6 +42,10 @@ class ForecastLoader(CurrentSeasonDataLoader):
     def _season_data(self, year):
         return self.rows, self.qualifying_rows
 
+    def get_winner_allocation(self, year, race, drivers):
+        # Legacy-record coverage remains separate from the new allocation tests.
+        return None
+
     def get_weighted_driver_stats(self, year, race):
         return {identity: DriverStats(driver_id=identity, driver_name=identity,
                                       team_id="a", team_name="A", constructor_points=10)
@@ -67,6 +71,70 @@ def result(identity, position, *, qualifying=False):
     if not qualifying:
         row.update(status="Finished", laps="3")
     return row
+
+
+class AllocationForecastLoader(ForecastLoader):
+    def __init__(self):
+        super().__init__()
+        self.event["round"] = 3
+        for number in (1, 2):
+            for identity, points in (("AA", 25), ("BB", 0)):
+                row = result(identity, 1 if identity == "AA" else 2)
+                row.update(round=number, points=str(points))
+                self.rows.append(row)
+
+    def get_event_schedule(self, year):
+        return [{"round": 1}, {"round": 2}, self.event]
+
+    def get_winner_allocation(self, year, race, drivers):
+        return CurrentSeasonDataLoader.get_winner_allocation(self, year, race, drivers)
+
+
+def test_schema_two_freezes_points_preserves_raw_counts_and_scores_without_refitting(
+    tmp_path, monkeypatch,
+):
+    loader = AllocationForecastLoader()
+    record = record_race_forecast(loader, loader.instant.year, 3, trials=2,
+                                now=lambda: loader.instant)
+    assert record["schema_version"] == 2
+    assert record["winner_estimate"]["drivers"]["AA"]["probability"] == .75
+    assert record["winner_estimate"]["allocation"]["cutoff_round"] == 2
+    assert record["performance_rounds"] == [1, 2]
+    path = save_recorded_forecast(tmp_path / "calibrated.json", record)
+    before = path.read_bytes()
+    assert load_recorded_forecast(path) == record
+    monkeypatch.setattr(loader, "get_winner_allocation",
+                        lambda *a: pytest.fail("Scoring cannot refit from live points"))
+    monkeypatch.setattr("f1sim.analysis.montecarlo.MonteCarloRunner.run",
+                        lambda *a, **k: pytest.fail("Scoring cannot rerun a simulation"))
+    observed = [result("AA", 1), result("BB", 2)]
+    for row in observed:
+        row["round"] = 3
+    score = score_recorded_forecast(record, loader, observed, [])
+    assert score["winner_score"]["brier_score"] == .125
+    assert score["winner_policy"] == "teammate_race_points_v1"
+    assert "native_winner_score" in score
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("edit", ["probability", "weights", "target_points", "constructor"])
+def test_resealed_schema_two_record_rejects_modified_or_leaking_forecasts(edit):
+    loader = AllocationForecastLoader()
+    record = record_race_forecast(loader, loader.instant.year, 3, trials=1,
+                                now=lambda: loader.instant)
+    estimate = record["winner_estimate"]
+    if edit == "probability":
+        estimate["drivers"]["AA"]["probability"] = .6
+    elif edit == "weights":
+        estimate["allocation"]["teams"]["a"]["weights"]["AA"] = .6
+    elif edit == "target_points":
+        estimate["allocation"]["prior_race_points"][0]["round"] = 3
+    else:
+        record["simulation_inputs"]["drivers"][0]["team_id"] = "another_constructor"
+    body = {key: value for key, value in record.items() if key != "content_sha256"}
+    record["content_sha256"] = _digest(body)
+    with pytest.raises(ValueError):
+        validate_recorded_forecast(record)
 
 
 def test_real_forecast_round_trip_score_and_existing_file_preservation(tmp_path, monkeypatch):

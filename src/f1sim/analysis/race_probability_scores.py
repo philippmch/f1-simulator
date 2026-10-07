@@ -24,6 +24,22 @@ _INTERVAL_METADATA = {
 }
 
 
+def summarize_winner_counts(wins, no_winner_count):
+    """Summarize already aggregated native counts with the same trial contract."""
+    score_winner_counts(wins, no_winner_count, None)
+    trials = sum(wins.values()) + no_winner_count
+    return {
+        "trials": int(trials),
+        "drivers": {driver: {"wins": int(count), "probability": count / trials,
+            "mc_sampling_interval_95": _fraction_wilson_interval(count, trials)}
+            for driver, count in wins.items()},
+        "no_classified_winner": {"count": int(no_winner_count),
+            "probability": no_winner_count / trials,
+            "mc_sampling_interval_95": _fraction_wilson_interval(no_winner_count, trials)},
+        "interval_metadata": dict(_INTERVAL_METADATA),
+    }
+
+
 def summarize_winner_trials(
     race_results: Iterable[Iterable[Any]],
     driver_ids: Iterable[str],

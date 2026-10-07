@@ -110,7 +110,34 @@ The dry clock's separate eight-event, 100-trial deployment regression check was
 near-neutral: winner Brier loss **0.845200 to 0.841725**. It passed the declared
 maximum 5% regression guard without establishing a winner improvement.
 
+The [teammate race-point forecast](teammate-forecasts.md) retains each simulated
+constructor win probability and allocates it using strictly earlier driver
+race points with a fixed 25-point prior. Its seven-event 100-trial check improved
+winner Brier loss 4.1% and failed the 5% gate. A single verified resolution at
+400 trials passed: **0.863825 to 0.817194**, or **5.4% lower**, versus a
+0.854928 constructor reference. The production implementation reproduces every
+score and point-history cutoff. Four events improve and three worsen; much of
+the gain comes from Belgium, and the remaining six together worsen 1.4% without
+that event. This small retrospective sample establishes neither future skill
+nor a race-position or strategy-counterfactual improvement. Native win counts
+remain separate from reported estimates in the API, dashboard and exports.
+
+The separate [fastest-lap](race-form-accuracy-protocol.md),
+[completed-race](completed-race-form-protocol.md) and
+[pit-service](pit-service-accuracy-protocol.md) policies failed their fixed
+acceptance gates and were removed. Their implementation checks and partial
+metric gains do not override those failures.
+
 ## Engineering and practical limits
+
+The teammate forecast implementation passed a fresh source-bound **9,662-test**
+native Windows Python 3.11 suite, with two skips and the existing TestClient
+warning, plus **239** focused Python 3.12 checks. Real workers and second-trial
+replay preserved the native race outcomes in both engines. The 22-driver live
+API, packaged wheel and complete browser checks passed, including the calibrated
+win display, separate raw counts and exports. No allocator override was used.
+The earlier sporadic Windows native crash remains unresolved; these successful
+checks do not establish a fix.
 
 With calibration enabled by default, the source-bound implementation passed
 **9,634 Python tests**, with two skips and the existing TestClient deprecation

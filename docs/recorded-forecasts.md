@@ -25,6 +25,14 @@ inputs, runtime/source provenance, the assumed weather, timestamps, winner
 counts and probabilities, qualifying pole counts and mean positions, and frozen
 historical references. Raw live feed caches are not committed.
 
+New records use schema 2 with a separate `winner_estimate` from the
+[teammate point allocation](teammate-forecasts.md). The original
+`winner_forecast` still contains native simulation counts and probabilities.
+The estimate freezes its strictly earlier point history, constructor mapping
+and allocation. Scoring returns calibrated `winner_score` and separate
+`native_winner_score`, with the appropriate finite-ensemble corrections.
+Schema-1 files continue to score their original native probabilities.
+
 The writer refuses to overwrite an existing record. A SHA-256 seal covers its
 contents, and loading verifies counts, probabilities, timing, training boundaries
 and the saved simulation models. The seal detects accidental alteration; it does

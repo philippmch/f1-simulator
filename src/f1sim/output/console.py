@@ -461,6 +461,10 @@ class ConsoleOutput:
 
         # Win probabilities
         print("\nWIN PROBABILITIES:")
+        forecast = results.get_winner_forecast()
+        if forecast is not None:
+            print("Estimates use simulated constructor wins and earlier race points.")
+            print("Raw simulated wins and rates appear in each driver's detailed analysis.")
         print("-" * 50)
         win_probs = results.get_win_probabilities()
         for i, (driver_id, prob) in enumerate(win_probs.items()):
@@ -610,6 +614,8 @@ class ConsoleOutput:
 
         print(f"\nOverall Statistics ({results.num_simulations} races):")
         print(f"  Wins:           {stats.wins:4d} ({stats.win_rate:.1f}%)")
+        if results.get_winner_forecast() is not None:
+            print(f"  Win estimate:   {results.get_win_probabilities()[driver_id]:.1f}%")
         print(f"  Podiums:        {stats.podiums:4d} ({stats.podium_rate:.1f}%)")
         print(f"  Points finishes:{stats.points_finishes:4d}")
         print(f"  DNFs:           {stats.dnfs:4d} ({stats.dnf_rate:.1f}%)")

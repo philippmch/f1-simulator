@@ -2631,6 +2631,30 @@ class CurrentSeasonDataLoader:
         self._driver_stats = stats
         return copy.deepcopy(stats)
 
+    def get_winner_allocation(self, year, target_race, drivers):
+        """Freeze earlier Grand Prix points for the current modeled seats."""
+        from f1sim.analysis.teammate_forecast import build_teammate_allocation
+
+        self._assert_current_year(year)
+        target = int(self._event_for_race(year, target_race)["round"])
+        results, _ = self._season_data(year)
+        roster = [{"id": driver.id, "name": driver.name, "team_name": driver.team_id}
+                  for driver in drivers]
+        _, aliases = self._build_active_driver_map(roster, {})
+        calendar_rounds = {int(event["round"]) for event in self.get_event_schedule(year)}
+        earlier = []
+        for row in results:
+            number = _as_int(row.get("round"))
+            if number is None or number not in calendar_rounds or not 1 <= number < target:
+                continue
+            driver = self._resolve_row_driver(row, aliases)
+            team = self._row_team_id(row)
+            if driver is not None and team is not None:
+                earlier.append({"round": number, "driver_id": driver, "team_id": team,
+                                "points": _as_float(row.get("points"))})
+        return build_teammate_allocation({driver.id: driver.team_id for driver in drivers},
+                                        earlier, cutoff_round=target - 1)
+
     def _calibrate_qualifying_stats(self, stats, year, event, results, qualifying, events):
         """Return qualifying-adjusted stats and evidence without altering race ratings."""
         from f1sim.analysis.qualifying_calibration import calibrate_qualifying_drivers

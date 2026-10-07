@@ -68,6 +68,13 @@ lap-time error by 7.7% on ten historical events. This narrow timing result does
 not establish winner accuracy. Save a [forecast before qualifying](docs/recorded-forecasts.md)
 and score its frozen probabilities after the race to collect future evidence.
 
+Live [race-win estimates](docs/teammate-forecasts.md) now allocate each simulated
+constructor's wins using strictly earlier teammate race points, retaining raw
+simulation counts separately. The fixed policy lowered seven-event retrospective
+winner Brier loss by 5.4% at 400 trials; the gain is concentrated in one event
+and does not establish future accuracy. The protocol records the initial
+100-trial gate failure and every event's change.
+
 For explicit first-lap-after-fitting assumptions, see
 [post-fit cost sensitivity](docs/tyre-wear.md#optional-post-fit-cost-sensitivity).
 It is disabled by default and is not calibrated tyre-temperature physics.

@@ -347,6 +347,9 @@ def main() -> int:
     # Create models from fresh current-season data.
     print("\nCreating simulation models...")
     drivers = loader.create_drivers_from_stats(driver_stats)
+    allocation_method = getattr(loader, "get_winner_allocation", None)
+    winner_allocation = (allocation_method(current_season, args.race, drivers)
+                         if callable(allocation_method) else None)
     try:
         compounds, ages = args.starting_tires or ({}, {})
         tire_inventory = validate_tire_inventory(
@@ -432,6 +435,7 @@ def main() -> int:
             **({"qualifying_weather": args.qualifying_weather} if args.qualifying_weather else {}),
             **({"weather_schedule": weather_schedule} if weather_schedule else {}),
             **({"control_schedule": control_schedule} if control_schedule is not None else {}),
+            **({"winner_allocation": winner_allocation} if winner_allocation is not None else {}),
         )
 
         scenario_result = runner.run(

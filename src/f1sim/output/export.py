@@ -493,6 +493,8 @@ class Exporter:
                 "max_workers": results.max_workers,
             },
             "win_probabilities": results.get_win_probabilities(),
+            **({"winner_forecast": forecast}
+               if (forecast := results.get_winner_forecast()) is not None else {}),
             "probability_intervals": results.get_probability_intervals(),
             "event_rates": results.get_event_rates(),
             "event_rate_trials": results.get_event_rate_trials(),
@@ -531,6 +533,7 @@ class Exporter:
         summaries = {}
         top_5 = results.get_top_n_finish_probabilities(5)
         top_10 = results.get_top_n_finish_probabilities(10)
+        win_estimates = results.get_win_probabilities()
 
         for driver_id, stats in results.driver_stats.items():
             trials = len(stats.positions)
@@ -541,6 +544,7 @@ class Exporter:
                 "points_per_race": stats.total_points / trials if trials else None,
                 "wins": stats.wins,
                 "win_rate": stats.win_rate,
+                "estimated_win_rate": win_estimates.get(driver_id, stats.win_rate),
                 "podiums": stats.podiums,
                 "podium_rate": stats.podium_rate,
                 "points_finishes": stats.points_finishes,
@@ -584,6 +588,8 @@ class Exporter:
                 "parallel": results.parallel,
                 "max_workers": results.max_workers,
                 "win_probabilities": results.get_win_probabilities(),
+                **({"winner_forecast": forecast}
+                   if (forecast := results.get_winner_forecast()) is not None else {}),
                 "probability_intervals": results.get_probability_intervals(),
                 "driver_statistics": self._driver_statistics(results),
                 "pit_stop_statistics": results.get_pit_stop_statistics(),
@@ -772,6 +778,23 @@ class Exporter:
                    '<p>No tyre sequences were recorded.</p>') + '</details>'
             )
         strategy_html = "".join(strategy_sections) or "<p>No tyre sequences were recorded.</p>"
+        forecast = results.get_winner_forecast()
+        forecast_html = ""
+        if forecast is not None:
+            forecast_rows = "".join(
+                f'<tr><th scope="row">{escape(str(driver))}</th>'
+                f'<td>{row["probability"] * 100:.1f}%</td>'
+                f'<td>{row["native_win_count"]} ({row["native_probability"] * 100:.1f}%)</td></tr>'
+                for driver, row in forecast["drivers"].items()
+            )
+            forecast_html = (
+                '<div class="card" id="winner-forecast"><h2>Win estimates and simulated wins</h2>'
+                '<p>Estimates use simulated constructor wins and earlier race points. '
+                'The simulated counts remain separate.</p><div class="table-wrap"><table>'
+                '<thead><tr><th scope="col">Driver</th><th scope="col">Win estimate</th>'
+                '<th scope="col">Simulated wins</th></tr></thead>'
+                f'<tbody>{forecast_rows}</tbody></table></div></div>'
+            )
 
         html = f"""<!doctype html>
 <html lang=\"en\">
@@ -815,6 +838,7 @@ class Exporter:
     {escape(json.dumps((results.input_snapshot or {}).get('tire_inventory', {})))}
   </div>
   <div class=\"grid\">
+    {forecast_html}
     <div class="card" id="race-scoring"><h2>Race points</h2>
       {scoring_html}
       <p>Points depend on the winner's completed distance and two consecutive complete

@@ -1264,7 +1264,8 @@ which strategy is better.</p>
 truncated retirement runs. Shares use races with recorded sequences; missing
 records appear separately. Sequence frequencies do not measure which strategy
 is best. A requested opening tyre may be replaced before lap one.</p>
-<p>Individual 95% Wilson intervals describe sampling uncertainty,
+<p>Individual 95% Wilson intervals, scaled by fixed teammate weights for calibrated
+win estimates, describe sampling uncertainty,
 not real-world accuracy or intervals of differences between scenarios.
 Equal seeds do not freeze later race events.</p>
 <p>With independent weather draws, matching weather inputs and seeds give the

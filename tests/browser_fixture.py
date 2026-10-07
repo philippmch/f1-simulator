@@ -12,6 +12,7 @@ from time import perf_counter
 
 from f1sim.analysis import MonteCarloRunner, scenario_weather_from_label
 from f1sim.analysis.paired_comparison import paired_comparison_statistics
+from f1sim.analysis.teammate_forecast import build_teammate_allocation
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.output.comparison import render_comparison_report
 from f1sim.web.server import (
@@ -207,9 +208,25 @@ def build_fixture(*, progress=False) -> dict:
             {"automatic": automatic_result, "custom": custom_result},
             reference_scenario="automatic",
         )
+    calibrated_results = copy.deepcopy(results)
+    allocation = build_teammate_allocation(
+        {driver.id: driver.team_id for driver in drivers},
+        [{"round": number, "driver_id": driver.id, "team_id": driver.team_id,
+          "points": 25. if index % 2 == 0 else 0.}
+         for number in (1, 2) for index, driver in enumerate(drivers)],
+        cutoff_round=2,
+    )
+    for result in calibrated_results.values():
+        result.winner_allocation = copy.deepcopy(allocation)
+    calibrated_payload = copy.deepcopy(payload)
+    calibrated_payload["scenarios"] = _summarize_scenario_results(
+        calibrated_results, scenario_weather=weather,
+    )["scenarios"]
+    calibrated_payload["comparison_report_html"] = render_comparison_report(calibrated_results)
     return {
         "html": build_dashboard_html(), "payload": payload,
         "comparison_payload": comparison_payload,
+        "calibrated_payload": calibrated_payload,
         "calendar": {"events": [{"round": 1, "race": track.name, "location": "Test"}]},
     }
 

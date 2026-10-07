@@ -426,6 +426,7 @@ def _serialize_driver_statistics(results: Any) -> dict[str, Any]:
     top_5 = _safe_call(results, "get_top_n_finish_probabilities", 5, default={}) or {}
     top_10 = _safe_call(results, "get_top_n_finish_probabilities", 10, default={}) or {}
     intervals = _safe_call(results, "get_probability_intervals", default={}) or {}
+    win_estimates = _safe_call(results, "get_win_probabilities", default={}) or {}
     ordered_ids = list(
         (_safe_call(results, "get_win_probabilities", default={}) or driver_stats).keys()
     )
@@ -442,6 +443,7 @@ def _serialize_driver_statistics(results: Any) -> dict[str, Any]:
             "team_key": _normalize_team_id(stats.team),
             "wins": stats.wins,
             "win_rate": stats.win_rate,
+            "estimated_win_rate": win_estimates.get(driver_id, stats.win_rate),
             "podiums": stats.podiums,
             "podium_rate": stats.podium_rate,
             "points_finishes": stats.points_finishes,
@@ -551,6 +553,9 @@ def _summarize_scenario_results(
             "seed": results.seed,
             "top3_win_probabilities": top_3,
             "win_probabilities": list(win_probs.items()),
+            **({"winner_forecast": forecast} if (forecast := _safe_call(
+                results, "get_winner_forecast", default=None,
+            )) is not None else {}),
             "top_5_finish_probabilities": list(
                 (
                     _safe_call(results, "get_top_n_finish_probabilities", 5, default={}) or {}
@@ -832,6 +837,9 @@ def run_dashboard_simulation(
 
     _check_dashboard_cancellation(cancel_requested)
     drivers = loader.create_drivers_from_stats(driver_stats)
+    allocation_method = getattr(loader, "get_winner_allocation", None)
+    winner_allocation = (allocation_method(request.year, round_number, drivers)
+                         if callable(allocation_method) else None)
     tire_inventory = validate_tire_inventory(
         request.tire_inventory, request.starting_tires, request.starting_tire_ages,
         (d.id for d in drivers),
@@ -968,6 +976,8 @@ def run_dashboard_simulation(
         if cancel_requested is not None:
             run_kwargs["cancel_requested"] = cancel_requested
         result = runner.run(**run_kwargs)
+        if winner_allocation is not None:
+            result.winner_allocation = deepcopy(winner_allocation)
         runtime = max(time.perf_counter() - t0, 1e-9)
         scenario_results[scenario.name] = result
         scenario_meta[scenario.name] = {
@@ -1072,6 +1082,8 @@ def run_dashboard_simulation(
             _check_dashboard_cancellation(cancel_requested)
             reference_t0 = time.perf_counter()
             reference_result = reference_runner.run(**run_kwargs)
+            if winner_allocation is not None:
+                reference_result.winner_allocation = deepcopy(winner_allocation)
             reference_runtime = max(time.perf_counter() - reference_t0, 1e-9)
             _check_dashboard_cancellation(cancel_requested)
             automatic_results[scenario.name] = reference_result

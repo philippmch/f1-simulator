@@ -180,6 +180,20 @@ def _load_saved_runner(
         if not pit_plans:
             raise ValueError("Schema 5 pit_plans must be a nonempty mapping")
     validate_pit_plan_snapshot(inputs, pit_plans or {})
+    allocation = None
+    estimate = saved.get("winner_estimate")
+    if estimate is None:
+        candidate = saved.get("winner_forecast")
+        if isinstance(candidate, dict) and "policy" in candidate:
+            estimate = candidate
+    if estimate is not None:
+        from f1sim.analysis.teammate_forecast import validate_teammate_allocation
+
+        if not isinstance(estimate, dict) or "allocation" not in estimate:
+            raise ValueError("Saved winner estimates require their frozen point allocation")
+        allocation = validate_teammate_allocation(
+            estimate["allocation"], {driver.id: driver.team_id for driver in drivers},
+        )
     return MonteCarloRunner(
         drivers, cars, track, weather, seed=seed,
         race_engine=engine,
@@ -192,4 +206,5 @@ def _load_saved_runner(
         **({"qualifying_weather": qualifying_weather} if qualifying_weather else {}),
         **({"weather_schedule": weather_schedule} if weather_schedule else {}),
         **({"control_schedule": control_schedule} if control_schedule is not None else {}),
+        **({"winner_allocation": allocation} if allocation is not None else {}),
     ), count
