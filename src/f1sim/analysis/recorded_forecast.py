@@ -1,4 +1,4 @@
-"""Record pre-qualifying forecasts and score their immutable probabilities later."""
+"""Record forecasts before qualifying or after published qualifying, then score later."""
 
 from __future__ import annotations
 
@@ -7,10 +7,14 @@ import json
 import math
 from collections import defaultdict
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from f1sim.analysis.forecast_errors import compare_winner_errors
+from f1sim.analysis.grid_winner_reference import (
+    build_grid_winner_references,
+    score_saved_grid_references,
+)
 from f1sim.analysis.holdout_folds import _integer
 from f1sim.analysis.montecarlo import MonteCarloRunner
 from f1sim.analysis.practice_winner_reference import (
@@ -25,6 +29,11 @@ from f1sim.analysis.winner_baselines import build_winner_baselines, score_saved_
 from f1sim.analysis.winner_policy import simulation_winner_allocation
 from f1sim.cancellation import raise_if_cancelled
 from f1sim.models import Weather
+from f1sim.simulation.execution import (
+    validate_pit_lane_starters,
+    validate_starting_grid,
+    validate_starting_grid_snapshot,
+)
 
 
 def _timestamp(value):
@@ -88,14 +97,19 @@ def _qualifying_summary(trials, driver_ids):
 
 def record_race_forecast(loader, year, target_race, *, trials=100, seed=42, weather=None,
                          parallel=False, max_workers=None, progress_callback=None,
-                         cancel_requested=None, now=None):
-    """Build and record a future-event forecast without target performance data.
+                         cancel_requested=None, now=None, stage="pre_qualifying"):
+    """Record a future race before qualifying or with the published GP starting grid.
 
     The local timestamp and content seal detect accidental alteration. They do
     not prove independent publication; archive the file before the event for
-    that stronger claim. Finishing after qualifying starts rejects the record.
+    that stronger claim. Each stage rejects a run finishing after its deadline.
+    Post-qualifying runs may observe GP qualifying and the published grid, but
+    never the target race result. Their simulated qualifying is diagnostic only.
     """
     loader._assert_current_year(year)
+    if stage not in ("pre_qualifying", "post_qualifying"):
+        raise ValueError("Forecast stage must be pre_qualifying or post_qualifying")
+    post_qualifying = stage == "post_qualifying"
     if type(trials) is not int or not 1 <= trials <= 10_000:
         raise ValueError("trials must be an integer from 1 to 10000")
     if cancel_requested is not None and not callable(cancel_requested):
@@ -104,12 +118,23 @@ def record_race_forecast(loader, year, target_race, *, trials=100, seed=42, weat
     clock = now if now is not None else lambda: datetime.now(timezone.utc)
     started = _clock_time(clock)
     event = loader._event_for_race(year, target_race)
-    deadline = _qualifying_start(event)
-    if started >= deadline:
-        raise ValueError("A pre-event forecast must start before qualifying")
+    if post_qualifying:
+        session = event.get("sessions", {}).get("Qualifying", {})
+        if not session.get("date") or not session.get("time") or not event.get("time"):
+            raise ValueError("Post-qualifying recording needs dated GP qualifying and race times")
+        qualifying_start = _timestamp(f'{session["date"]}T{session["time"]}')
+        deadline = _timestamp(f'{event["date"]}T{event["time"]}')
+        if not qualifying_start + timedelta(hours=1) <= started < deadline:
+            raise ValueError("Post-qualifying forecast must follow GP qualifying before the race")
+    else:
+        qualifying_start = deadline = _qualifying_start(event)
+        if started >= deadline:
+            raise ValueError("A pre-event forecast must start before qualifying")
     target = int(event["round"])
     results, qualifying = loader._season_data(year)
-    if any((_integer(row.get("round")) or 0) >= target for row in (*results, *qualifying)):
+    if (any((_integer(row.get("round")) or 0) >= target for row in results)
+            or any((_integer(row.get("round")) or 0) >= target + int(post_qualifying)
+                   for row in qualifying)):
         raise ValueError("Target or later performance exists; a pre-event forecast is unavailable")
     stats = loader.get_weighted_driver_stats(year, target)
     drivers = sorted(loader.create_drivers_from_stats(stats), key=lambda driver: driver.id)
@@ -119,10 +144,28 @@ def record_race_forecast(loader, year, target_race, *, trials=100, seed=42, weat
               for driver in drivers]
     _, aliases = loader._build_active_driver_map(roster, {})
     ids = [driver.id for driver in drivers]
+    starting_grid, pit_lane_starters = None, []
+    grid_evidence = None
+    if post_qualifying:
+        starting_grid = validate_starting_grid(loader.get_starting_grid(year, target, drivers), ids)
+        if starting_grid is None:
+            raise ValueError("Post-qualifying recording requires the complete published race grid")
+        grid_evidence = loader.get_provenance().get("race_grid")
+        pit_method = getattr(loader, "get_pit_lane_starters", None)
+        pit_lane_starters = validate_pit_lane_starters(
+            pit_method() if callable(pit_method) else None, starting_grid,
+        )
+        # Validate the fetched source before performing any trials.
+        build_grid_winner_references(
+            ids, grid_evidence, year=year, target_round=target,
+            recorded_at=_clock_time(clock).isoformat(),
+            qualifying_starts_at=qualifying_start.isoformat(), race_starts_at=deadline.isoformat(),
+        )
     race_rounds = sorted({number for row in results
                          if (number := _integer(row.get("round"))) is not None and number > 0})
     earlier_rounds = sorted({number for row in (*results, *qualifying)
-                            if (number := _integer(row.get("round"))) is not None and number > 0})
+                            if (number := _integer(row.get("round"))) is not None
+                            and 0 < number < target})
     prior_outcomes = [{"round": number, **_observed_winner(
         loader, _target_rows(loader, results, number), aliases, set(ids),
     )} for number in race_rounds]
@@ -135,10 +178,14 @@ def record_race_forecast(loader, year, target_race, *, trials=100, seed=42, weat
         deep=True, update={"change_probability": 0.0},
     )
     raise_if_cancelled(cancel_requested)
-    allocation = simulation_winner_allocation(loader, year, target, drivers, assumed)
+    allocation = simulation_winner_allocation(
+        loader, year, target, drivers, assumed, starting_grid=starting_grid,
+    )
     runner = MonteCarloRunner(
         drivers, cars, track, assumed, seed=seed,
         **({"winner_allocation": allocation} if allocation is not None else {}),
+        **({"starting_grid": starting_grid} if starting_grid is not None else {}),
+        **({"pit_lane_starters": pit_lane_starters} if pit_lane_starters else {}),
     )
     simulation = runner.run(
         trials, parallel=parallel, max_workers=max_workers, progress_callback=progress_callback,
@@ -147,13 +194,14 @@ def record_race_forecast(loader, year, target_race, *, trials=100, seed=42, weat
     raise_if_cancelled(cancel_requested)
     recorded = _clock_time(clock)
     if recorded >= deadline:
-        raise ValueError("Forecast finished after qualifying started; no pre-event record is valid")
+        label = "the race" if post_qualifying else "qualifying"
+        raise ValueError(f"Forecast finished after {label} started; no pre-event record is valid")
     body = {
         "schema_version": 2 if allocation is not None else 1,
         "kind": "pre_qualifying_race_forecast", "year": year,
         "event": {key: event.get(key) for key in ("round", "race", "circuit_id", "date")},
         "started_at": started.isoformat(), "recorded_at": recorded.isoformat(),
-        "qualifying_starts_at": deadline.isoformat(),
+        "qualifying_starts_at": qualifying_start.isoformat(),
         "timing_evidence": "local_clock; independent publication not verified",
         "training_cutoff_round": target - 1, "performance_rounds": earlier_rounds,
         "target_performance_used": False,
@@ -169,12 +217,23 @@ def record_race_forecast(loader, year, target_race, *, trials=100, seed=42, weat
     if allocation is not None:
         body["winner_estimate"] = teammate_winner_forecast(body["winner_forecast"], allocation)
     practice = body["provenance"].get("qualifying_forecast", {}).get("practice_observations")
-    if practice is not None:
+    if practice is not None and not post_qualifying:
         body["practice_reference"] = build_practice_winner_reference(
             ids, practice, year=year, target_round=target,
             recorded_at=body["recorded_at"], qualifying_starts_at=body["qualifying_starts_at"],
         )
         body["schema_version"] = 3
+    if post_qualifying:
+        body["event"]["time"] = event["time"]
+        body.update(schema_version=4, kind="post_qualifying_race_forecast",
+                    race_starts_at=deadline.isoformat(), target_performance_used=True,
+                    target_race_performance_used=False, qualifying_observation_round=target,
+                    qualifying_forecast_scope="simulation_diagnostic_not_scored")
+        body["grid_references"] = build_grid_winner_references(
+            ids, grid_evidence, year=year, target_round=target,
+            recorded_at=recorded.isoformat(), qualifying_starts_at=qualifying_start.isoformat(),
+            race_starts_at=deadline.isoformat(),
+        )
     return {**body, "content_sha256": _digest(body)}
 
 
@@ -203,14 +262,24 @@ def _validate_recorded_forecast(record):
     body = {key: value for key, value in record.items() if key != "content_sha256"}
     if record.get("content_sha256") != _digest(body):
         raise ValueError("Recorded forecast content seal does not match")
-    if (type(record.get("schema_version")) is not int or record["schema_version"] not in (1, 2, 3)
-            or record.get("kind") != "pre_qualifying_race_forecast"):
+    post_qualifying = record.get("schema_version") == 4
+    expected_kind = ("post_qualifying_race_forecast" if post_qualifying
+                     else "pre_qualifying_race_forecast")
+    if (type(record.get("schema_version")) is not int
+            or record["schema_version"] not in (1, 2, 3, 4)
+            or record.get("kind") != expected_kind):
         raise ValueError("Unsupported recorded forecast format")
     if type(record.get("year")) is not int or not 1 <= record["year"] <= 9999:
         raise ValueError("Recorded forecast needs a valid year")
     started, recorded, deadline = (_timestamp(record[key]) for key in (
         "started_at", "recorded_at", "qualifying_starts_at"))
-    if not started <= recorded < deadline:
+    if post_qualifying:
+        race_start = _timestamp(record.get("race_starts_at"))
+        if not deadline + timedelta(hours=1) <= started <= recorded < race_start:
+            raise ValueError("Recorded forecast must follow GP qualifying and precede the race")
+        if race_start.year != record["year"]:
+            raise ValueError("Recorded forecast year does not match the race")
+    elif not started <= recorded < deadline:
         raise ValueError("Recorded forecast must precede qualifying")
     if record["year"] != deadline.year:
         raise ValueError("Recorded forecast year does not match the qualifying session")
@@ -219,15 +288,24 @@ def _validate_recorded_forecast(record):
             or any(not isinstance(event.get(key), str) or not event[key].strip()
                    for key in ("race", "circuit_id", "date"))):
         raise ValueError("Recorded forecast needs a dated event and circuit identity")
+    if post_qualifying:
+        if (not isinstance(event.get("time"), str)
+                or _timestamp(f'{event["date"]}T{event["time"]}') != race_start
+                or record.get("qualifying_forecast_scope") != "simulation_diagnostic_not_scored"):
+            raise ValueError("Post-qualifying timing and scope must match the saved event")
     target = record["event"]["round"]
     if (type(target) is not int or target < 1
             or type(record["training_cutoff_round"]) is not int
             or record["training_cutoff_round"] != target - 1
-            or record.get("target_performance_used") is not False
+            or record.get("target_performance_used") is not post_qualifying
             or not isinstance(record["performance_rounds"], list)
             or any(type(number) is not int or not 1 <= number < target
                    for number in record["performance_rounds"])):
         raise ValueError("Recorded forecast contains invalid training boundaries")
+    if post_qualifying and (record.get("target_race_performance_used") is not False
+                            or type(record.get("qualifying_observation_round")) is not int
+                            or record["qualifying_observation_round"] != target):
+        raise ValueError("Post-qualifying forecasts cannot use target race performance")
     trials = record["metadata"]["num_simulations"]
     if type(trials) is not int or not 1 <= trials <= 10_000:
         raise ValueError("Recorded forecast needs a trial count from 1 to 10000")
@@ -279,8 +357,24 @@ def _validate_recorded_forecast(record):
             raise ValueError("Practice reference must match the forecast's fetched observations")
     elif "practice_reference" in record:
         raise ValueError("A recorded practice reference requires schema 3")
+    if post_qualifying:
+        reference = score_saved_grid_references(
+            record.get("grid_references"), ids, year=record["year"], target_round=target,
+            recorded_at=record["recorded_at"], qualifying_starts_at=record["qualifying_starts_at"],
+            race_starts_at=record["race_starts_at"],
+        )
+        evidence = reference["evidence"]
+        inputs = record.get("simulation_inputs", {})
+        validate_starting_grid_snapshot(inputs, ids)
+        if (evidence != record.get("provenance", {}).get("race_grid")
+                or _timestamp(evidence["fetched_at"]) < started
+                or evidence["starting_grid"] != inputs.get("starting_grid")
+                or evidence.get("pit_lane_starters", []) != inputs.get("pit_lane_starters", [])):
+            raise ValueError("Grid references must match the fresh simulated start context")
+    elif "grid_references" in record:
+        raise ValueError("A recorded published-grid reference requires schema 4")
     if (record["schema_version"] == 2
-            or (record["schema_version"] == 3 and "winner_estimate" in record)):
+            or (record["schema_version"] in (3, 4) and "winner_estimate" in record)):
         estimate = record.get("winner_estimate")
         if not isinstance(estimate, dict) or not isinstance(estimate.get("allocation"), dict):
             raise ValueError("Schema 2 requires a frozen teammate winner estimate")
@@ -336,7 +430,10 @@ def score_recorded_forecast(record, loader, results, qualifying):
         score = score_teammate_forecast(
             winner, record["winner_estimate"]["allocation"], observed["winner_id"],
         )
-    q_rows = _target_rows(loader, qualifying, target)
+    post_qualifying = record["schema_version"] == 4
+    # Target qualifying is an observed input after qualifying, never a scored
+    # forecast of that same session. Preserve legacy pre-qualifying scoring.
+    q_rows = [] if post_qualifying else _target_rows(loader, qualifying, target)
     poles = [row for row in q_rows if loader._row_position(row) == 1]
     pole_id = loader._resolve_row_driver(poles[0], aliases) if len(poles) == 1 else None
     grid = record["qualifying_forecast"]
@@ -371,6 +468,23 @@ def score_recorded_forecast(record, loader, results, qualifying):
                 probabilities, reference["probabilities"], observed["winner_id"],
                 no_winner_probability=no_winner_probability,
             )}
+    elif post_qualifying:
+        reference = score_saved_grid_references(
+            record["grid_references"], ids, year=record["year"], target_round=target,
+            recorded_at=record["recorded_at"], qualifying_starts_at=record["qualifying_starts_at"],
+            race_starts_at=record["race_starts_at"], observed_winner=observed["winner_id"],
+        )
+        modeled = record.get("winner_estimate", winner)
+        probabilities = {key: row["probability"] for key, row in modeled["drivers"].items()}
+        no_winner_probability = (modeled["no_classified_winner_probability"]
+            if "winner_estimate" in record else modeled["no_classified_winner"]["probability"])
+        practice_comparison = {"grid_references": reference,
+            "winner_error_comparisons": {
+                name: compare_winner_errors(
+                    probabilities, value["probabilities"], observed["winner_id"],
+                    no_winner_probability=no_winner_probability,
+                ) for name, value in reference["references"].items()
+            }, "forecast_stage": "post_qualifying"}
     return {
         "status": "scored", "year": record["year"], "round": target,
         "forecast_sha256": record["content_sha256"], "recorded_at": record["recorded_at"],

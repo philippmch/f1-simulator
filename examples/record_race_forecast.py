@@ -1,4 +1,4 @@
-"""Save a sealed forecast before qualifying; preserve it for later scoring."""
+"""Save a sealed forecast before qualifying or after the published GP grid."""
 
 import argparse
 import json
@@ -21,6 +21,9 @@ def main():
     parser.add_argument("--race", required=True, help="Future current-season round or name")
     parser.add_argument("--output", required=True, help="New JSON file; refuses to overwrite")
     parser.add_argument("--scenario", choices=("dry", "light_rain", "heavy_rain"), required=True)
+    parser.add_argument("--stage", choices=("pre_qualifying", "post_qualifying"),
+                        default="pre_qualifying",
+                        help="Post-qualifying requires the confirmed GP grid before the race")
     parser.add_argument("--trials", type=int, default=100)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--parallel", action="store_true")
@@ -63,6 +66,7 @@ def main():
             parallel=args.parallel, max_workers=args.workers,
             progress_callback=progress,
             cancel_requested=cancelled.is_set,
+            stage=args.stage,
         )
         raise_if_cancelled(cancelled.is_set)
         path = save_recorded_forecast(args.output, record)

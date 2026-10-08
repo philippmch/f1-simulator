@@ -1,4 +1,11 @@
-# Forecasts recorded before qualifying
+# Forecasts recorded before a race
+
+For the primary after-qualifying workflow, use `--stage post_qualifying`.
+It requires the published Grand Prix grid and freezes grid references before
+the race. See [post-qualifying forecasts](post-qualifying-forecasts.md) for the
+input boundary, pit-lane approximation and evaluation standard.
+
+The default `--stage pre_qualifying` retains the earlier workflow below.
 
 Save a current-season forecast before qualifying and score that same file after
 the race. This preserves the probabilities that were actually predicted; the
