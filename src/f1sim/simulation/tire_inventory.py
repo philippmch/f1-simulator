@@ -123,7 +123,7 @@ def validate_tire_usage_snapshot(snapshot, inventory):
     """An older replay must never silently reinterpret a new usage constraint."""
     limited = has_tire_usage_limits(inventory)
     version = snapshot.get("schema_version")
-    if version == 9 or (version in (10, 11, 12, 13, 14)
+    if version == 9 or (version in (10, 11, 12, 13, 14, 15)
                         and (limited or "tire_usage_policy" in snapshot)):
         if not limited or snapshot.get("tire_usage_policy") != TIRE_USAGE_POLICY:
             raise ValueError(

@@ -1326,7 +1326,7 @@ class CurrentSeasonDataLoader:
     def get_starting_grid(self, year, race, drivers) -> list[str] | None:
         """Prefer a fresh complete published GP grid after qualifying.
 
-        Unavailable, incomplete and unsupported pit-lane grids retain simulated
+        Unavailable and incomplete published grids retain simulated
         qualifying. No persisted result grid is used as a live fallback.
         """
         from f1sim.data.grid import fetch_current_starting_grid
@@ -1346,6 +1346,10 @@ class CurrentSeasonDataLoader:
             return None
         self._race_grid = {"mode": "published", **evidence}
         return evidence["starting_grid"].copy()
+
+    def get_pit_lane_starters(self):
+        """Copy pit queue context from the most recent published grid lookup."""
+        return list((self._race_grid or {}).get("pit_lane_starters", []))
 
     # ------------------------------------------------------------------
     # Current calendar

@@ -1,0 +1,2445 @@
+{
+  "kind": "published_current_season_grid_coverage",
+  "year": 2026,
+  "recorded_at": "2026-10-08T18:11:45.410441+00:00",
+  "information_boundary": "after_gp_qualifying_before_race_retrospective_assumption",
+  "independent_untouched_test": false,
+  "prospectively_recorded": false,
+  "grid_sources_fetched_after_races": true,
+  "pit_lane_start_assumption_seconds": 5.0,
+  "events": [
+    {
+      "year": 2026,
+      "round": 1,
+      "entrants": [
+        {
+          "id": "ALB",
+          "name": "Alexander Albon",
+          "team_id": "williams"
+        },
+        {
+          "id": "ALO",
+          "name": "Fernando Alonso",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "ANT",
+          "name": "Andrea Kimi Antonelli",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "BEA",
+          "name": "Oliver Bearman",
+          "team_id": "haas"
+        },
+        {
+          "id": "BOR",
+          "name": "Gabriel Bortoleto",
+          "team_id": "audi"
+        },
+        {
+          "id": "BOT",
+          "name": "Valtteri Bottas",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "COL",
+          "name": "Franco Colapinto",
+          "team_id": "alpine"
+        },
+        {
+          "id": "GAS",
+          "name": "Pierre Gasly",
+          "team_id": "alpine"
+        },
+        {
+          "id": "HAD",
+          "name": "Isack Hadjar",
+          "team_id": "red_bull"
+        },
+        {
+          "id": "HAM",
+          "name": "Lewis Hamilton",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "HUL",
+          "name": "Nico H\u00fclkenberg",
+          "team_id": "audi"
+        },
+        {
+          "id": "LAW",
+          "name": "Liam Lawson",
+          "team_id": "rb"
+        },
+        {
+          "id": "LEC",
+          "name": "Charles Leclerc",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "LIN",
+          "name": "Arvid Lindblad",
+          "team_id": "rb"
+        },
+        {
+          "id": "NOR",
+          "name": "Lando Norris",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "OCO",
+          "name": "Esteban Ocon",
+          "team_id": "haas"
+        },
+        {
+          "id": "PER",
+          "name": "Sergio P\u00e9rez",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "PIA",
+          "name": "Oscar Piastri",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "RUS",
+          "name": "George Russell",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "SAI",
+          "name": "Carlos Sainz",
+          "team_id": "williams"
+        },
+        {
+          "id": "STR",
+          "name": "Lance Stroll",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "VER",
+          "name": "Max Verstappen",
+          "team_id": "red_bull"
+        }
+      ],
+      "starting_grid": [
+        "RUS",
+        "ANT",
+        "HAD",
+        "LEC",
+        "PIA",
+        "NOR",
+        "HAM",
+        "LAW",
+        "LIN",
+        "BOR",
+        "HUL",
+        "BEA",
+        "OCO",
+        "GAS",
+        "ALB",
+        "COL",
+        "ALO",
+        "PER",
+        "BOT",
+        "VER",
+        "SAI",
+        "STR"
+      ],
+      "pit_lane_starters": [],
+      "source_url": "https://www.formula1.com/en/results/2026/races/1279/australia/starting-grid",
+      "collected_at": "2026-10-08T16:46:44.697530+00:00",
+      "source_document_sha256": "b366a215bdedf229c6398cc91f8809f40c15a327dde589d43436ee170f9edf10",
+      "earlier_race_performance_rounds": [],
+      "qualifying_observation_round": 1,
+      "target_race_performance_used": false
+    },
+    {
+      "year": 2026,
+      "round": 2,
+      "entrants": [
+        {
+          "id": "ALB",
+          "name": "Alexander Albon",
+          "team_id": "williams"
+        },
+        {
+          "id": "ALO",
+          "name": "Fernando Alonso",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "ANT",
+          "name": "Andrea Kimi Antonelli",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "BEA",
+          "name": "Oliver Bearman",
+          "team_id": "haas"
+        },
+        {
+          "id": "BOR",
+          "name": "Gabriel Bortoleto",
+          "team_id": "audi"
+        },
+        {
+          "id": "BOT",
+          "name": "Valtteri Bottas",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "COL",
+          "name": "Franco Colapinto",
+          "team_id": "alpine"
+        },
+        {
+          "id": "GAS",
+          "name": "Pierre Gasly",
+          "team_id": "alpine"
+        },
+        {
+          "id": "HAD",
+          "name": "Isack Hadjar",
+          "team_id": "red_bull"
+        },
+        {
+          "id": "HAM",
+          "name": "Lewis Hamilton",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "HUL",
+          "name": "Nico H\u00fclkenberg",
+          "team_id": "audi"
+        },
+        {
+          "id": "LAW",
+          "name": "Liam Lawson",
+          "team_id": "rb"
+        },
+        {
+          "id": "LEC",
+          "name": "Charles Leclerc",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "LIN",
+          "name": "Arvid Lindblad",
+          "team_id": "rb"
+        },
+        {
+          "id": "NOR",
+          "name": "Lando Norris",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "OCO",
+          "name": "Esteban Ocon",
+          "team_id": "haas"
+        },
+        {
+          "id": "PER",
+          "name": "Sergio P\u00e9rez",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "PIA",
+          "name": "Oscar Piastri",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "RUS",
+          "name": "George Russell",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "SAI",
+          "name": "Carlos Sainz",
+          "team_id": "williams"
+        },
+        {
+          "id": "STR",
+          "name": "Lance Stroll",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "VER",
+          "name": "Max Verstappen",
+          "team_id": "red_bull"
+        }
+      ],
+      "starting_grid": [
+        "ANT",
+        "RUS",
+        "HAM",
+        "LEC",
+        "PIA",
+        "NOR",
+        "GAS",
+        "VER",
+        "HAD",
+        "BEA",
+        "HUL",
+        "COL",
+        "OCO",
+        "LAW",
+        "LIN",
+        "BOR",
+        "SAI",
+        "ALO",
+        "BOT",
+        "STR",
+        "PER",
+        "ALB"
+      ],
+      "pit_lane_starters": [
+        "ALB"
+      ],
+      "source_url": "https://www.formula1.com/en/results/2026/races/1280/china/starting-grid",
+      "collected_at": "2026-10-08T16:46:44.548304+00:00",
+      "source_document_sha256": "1ab42371f234d6fad57c131a778c83e94610aafcaa6f7cf0731158a2b1d850c4",
+      "earlier_race_performance_rounds": [
+        1
+      ],
+      "qualifying_observation_round": 2,
+      "target_race_performance_used": false
+    },
+    {
+      "year": 2026,
+      "round": 3,
+      "entrants": [
+        {
+          "id": "ALB",
+          "name": "Alexander Albon",
+          "team_id": "williams"
+        },
+        {
+          "id": "ALO",
+          "name": "Fernando Alonso",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "ANT",
+          "name": "Andrea Kimi Antonelli",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "BEA",
+          "name": "Oliver Bearman",
+          "team_id": "haas"
+        },
+        {
+          "id": "BOR",
+          "name": "Gabriel Bortoleto",
+          "team_id": "audi"
+        },
+        {
+          "id": "BOT",
+          "name": "Valtteri Bottas",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "COL",
+          "name": "Franco Colapinto",
+          "team_id": "alpine"
+        },
+        {
+          "id": "GAS",
+          "name": "Pierre Gasly",
+          "team_id": "alpine"
+        },
+        {
+          "id": "HAD",
+          "name": "Isack Hadjar",
+          "team_id": "red_bull"
+        },
+        {
+          "id": "HAM",
+          "name": "Lewis Hamilton",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "HUL",
+          "name": "Nico H\u00fclkenberg",
+          "team_id": "audi"
+        },
+        {
+          "id": "LAW",
+          "name": "Liam Lawson",
+          "team_id": "rb"
+        },
+        {
+          "id": "LEC",
+          "name": "Charles Leclerc",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "LIN",
+          "name": "Arvid Lindblad",
+          "team_id": "rb"
+        },
+        {
+          "id": "NOR",
+          "name": "Lando Norris",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "OCO",
+          "name": "Esteban Ocon",
+          "team_id": "haas"
+        },
+        {
+          "id": "PER",
+          "name": "Sergio P\u00e9rez",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "PIA",
+          "name": "Oscar Piastri",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "RUS",
+          "name": "George Russell",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "SAI",
+          "name": "Carlos Sainz",
+          "team_id": "williams"
+        },
+        {
+          "id": "STR",
+          "name": "Lance Stroll",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "VER",
+          "name": "Max Verstappen",
+          "team_id": "red_bull"
+        }
+      ],
+      "starting_grid": [
+        "ANT",
+        "RUS",
+        "PIA",
+        "LEC",
+        "NOR",
+        "HAM",
+        "GAS",
+        "HAD",
+        "BOR",
+        "LIN",
+        "VER",
+        "OCO",
+        "HUL",
+        "LAW",
+        "COL",
+        "SAI",
+        "ALB",
+        "BEA",
+        "PER",
+        "BOT",
+        "ALO",
+        "STR"
+      ],
+      "pit_lane_starters": [],
+      "source_url": "https://www.formula1.com/en/results/2026/races/1281/japan/starting-grid",
+      "collected_at": "2026-10-08T16:46:44.547301+00:00",
+      "source_document_sha256": "a0d42c4d7df9c085568d7cd5a0327ab7948c8a53d2bd7ee22d824b00be311219",
+      "earlier_race_performance_rounds": [
+        1,
+        2
+      ],
+      "qualifying_observation_round": 3,
+      "target_race_performance_used": false
+    },
+    {
+      "year": 2026,
+      "round": 4,
+      "entrants": [
+        {
+          "id": "ALB",
+          "name": "Alexander Albon",
+          "team_id": "williams"
+        },
+        {
+          "id": "ALO",
+          "name": "Fernando Alonso",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "ANT",
+          "name": "Andrea Kimi Antonelli",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "BEA",
+          "name": "Oliver Bearman",
+          "team_id": "haas"
+        },
+        {
+          "id": "BOR",
+          "name": "Gabriel Bortoleto",
+          "team_id": "audi"
+        },
+        {
+          "id": "BOT",
+          "name": "Valtteri Bottas",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "COL",
+          "name": "Franco Colapinto",
+          "team_id": "alpine"
+        },
+        {
+          "id": "GAS",
+          "name": "Pierre Gasly",
+          "team_id": "alpine"
+        },
+        {
+          "id": "HAD",
+          "name": "Isack Hadjar",
+          "team_id": "red_bull"
+        },
+        {
+          "id": "HAM",
+          "name": "Lewis Hamilton",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "HUL",
+          "name": "Nico H\u00fclkenberg",
+          "team_id": "audi"
+        },
+        {
+          "id": "LAW",
+          "name": "Liam Lawson",
+          "team_id": "rb"
+        },
+        {
+          "id": "LEC",
+          "name": "Charles Leclerc",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "LIN",
+          "name": "Arvid Lindblad",
+          "team_id": "rb"
+        },
+        {
+          "id": "NOR",
+          "name": "Lando Norris",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "OCO",
+          "name": "Esteban Ocon",
+          "team_id": "haas"
+        },
+        {
+          "id": "PER",
+          "name": "Sergio P\u00e9rez",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "PIA",
+          "name": "Oscar Piastri",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "RUS",
+          "name": "George Russell",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "SAI",
+          "name": "Carlos Sainz",
+          "team_id": "williams"
+        },
+        {
+          "id": "STR",
+          "name": "Lance Stroll",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "VER",
+          "name": "Max Verstappen",
+          "team_id": "red_bull"
+        }
+      ],
+      "starting_grid": [
+        "ANT",
+        "VER",
+        "LEC",
+        "NOR",
+        "RUS",
+        "HAM",
+        "PIA",
+        "COL",
+        "GAS",
+        "HUL",
+        "LAW",
+        "BEA",
+        "SAI",
+        "OCO",
+        "ALB",
+        "LIN",
+        "ALO",
+        "STR",
+        "BOT",
+        "PER",
+        "BOR",
+        "HAD"
+      ],
+      "pit_lane_starters": [
+        "HAD"
+      ],
+      "source_url": "https://www.formula1.com/en/results/2026/races/1284/miami/starting-grid",
+      "collected_at": "2026-10-08T16:46:44.293225+00:00",
+      "source_document_sha256": "fc61ad1452584aec2d22183c4b00ea8b32ac4d9d5af43d239ab3adc8cbe6d6b9",
+      "earlier_race_performance_rounds": [
+        1,
+        2,
+        3
+      ],
+      "qualifying_observation_round": 4,
+      "target_race_performance_used": false
+    },
+    {
+      "year": 2026,
+      "round": 5,
+      "entrants": [
+        {
+          "id": "ALB",
+          "name": "Alexander Albon",
+          "team_id": "williams"
+        },
+        {
+          "id": "ALO",
+          "name": "Fernando Alonso",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "ANT",
+          "name": "Andrea Kimi Antonelli",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "BEA",
+          "name": "Oliver Bearman",
+          "team_id": "haas"
+        },
+        {
+          "id": "BOR",
+          "name": "Gabriel Bortoleto",
+          "team_id": "audi"
+        },
+        {
+          "id": "BOT",
+          "name": "Valtteri Bottas",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "COL",
+          "name": "Franco Colapinto",
+          "team_id": "alpine"
+        },
+        {
+          "id": "GAS",
+          "name": "Pierre Gasly",
+          "team_id": "alpine"
+        },
+        {
+          "id": "HAD",
+          "name": "Isack Hadjar",
+          "team_id": "red_bull"
+        },
+        {
+          "id": "HAM",
+          "name": "Lewis Hamilton",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "HUL",
+          "name": "Nico H\u00fclkenberg",
+          "team_id": "audi"
+        },
+        {
+          "id": "LAW",
+          "name": "Liam Lawson",
+          "team_id": "rb"
+        },
+        {
+          "id": "LEC",
+          "name": "Charles Leclerc",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "LIN",
+          "name": "Arvid Lindblad",
+          "team_id": "rb"
+        },
+        {
+          "id": "NOR",
+          "name": "Lando Norris",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "OCO",
+          "name": "Esteban Ocon",
+          "team_id": "haas"
+        },
+        {
+          "id": "PER",
+          "name": "Sergio P\u00e9rez",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "PIA",
+          "name": "Oscar Piastri",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "RUS",
+          "name": "George Russell",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "SAI",
+          "name": "Carlos Sainz",
+          "team_id": "williams"
+        },
+        {
+          "id": "STR",
+          "name": "Lance Stroll",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "VER",
+          "name": "Max Verstappen",
+          "team_id": "red_bull"
+        }
+      ],
+      "starting_grid": [
+        "RUS",
+        "ANT",
+        "NOR",
+        "PIA",
+        "HAM",
+        "VER",
+        "HAD",
+        "LEC",
+        "LIN",
+        "COL",
+        "HUL",
+        "LAW",
+        "BOR",
+        "GAS",
+        "SAI",
+        "BEA",
+        "OCO",
+        "ALB",
+        "ALO",
+        "PER",
+        "BOT",
+        "STR"
+      ],
+      "pit_lane_starters": [
+        "STR"
+      ],
+      "source_url": "https://www.formula1.com/en/results/2026/races/1285/canada/starting-grid",
+      "collected_at": "2026-10-08T16:46:44.844309+00:00",
+      "source_document_sha256": "3962e26472bcfd01baf458d9e138021fe9f4ec8e9532dec275b88b4aca26e1f3",
+      "earlier_race_performance_rounds": [
+        2,
+        3,
+        4
+      ],
+      "qualifying_observation_round": 5,
+      "target_race_performance_used": false
+    },
+    {
+      "year": 2026,
+      "round": 6,
+      "entrants": [
+        {
+          "id": "ALB",
+          "name": "Alexander Albon",
+          "team_id": "williams"
+        },
+        {
+          "id": "ALO",
+          "name": "Fernando Alonso",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "ANT",
+          "name": "Andrea Kimi Antonelli",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "BEA",
+          "name": "Oliver Bearman",
+          "team_id": "haas"
+        },
+        {
+          "id": "BOR",
+          "name": "Gabriel Bortoleto",
+          "team_id": "audi"
+        },
+        {
+          "id": "BOT",
+          "name": "Valtteri Bottas",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "COL",
+          "name": "Franco Colapinto",
+          "team_id": "alpine"
+        },
+        {
+          "id": "GAS",
+          "name": "Pierre Gasly",
+          "team_id": "alpine"
+        },
+        {
+          "id": "HAD",
+          "name": "Isack Hadjar",
+          "team_id": "red_bull"
+        },
+        {
+          "id": "HAM",
+          "name": "Lewis Hamilton",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "HUL",
+          "name": "Nico H\u00fclkenberg",
+          "team_id": "audi"
+        },
+        {
+          "id": "LAW",
+          "name": "Liam Lawson",
+          "team_id": "rb"
+        },
+        {
+          "id": "LEC",
+          "name": "Charles Leclerc",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "LIN",
+          "name": "Arvid Lindblad",
+          "team_id": "rb"
+        },
+        {
+          "id": "NOR",
+          "name": "Lando Norris",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "OCO",
+          "name": "Esteban Ocon",
+          "team_id": "haas"
+        },
+        {
+          "id": "PER",
+          "name": "Sergio P\u00e9rez",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "PIA",
+          "name": "Oscar Piastri",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "RUS",
+          "name": "George Russell",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "SAI",
+          "name": "Carlos Sainz",
+          "team_id": "williams"
+        },
+        {
+          "id": "STR",
+          "name": "Lance Stroll",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "VER",
+          "name": "Max Verstappen",
+          "team_id": "red_bull"
+        }
+      ],
+      "starting_grid": [
+        "ANT",
+        "VER",
+        "HAM",
+        "LEC",
+        "HAD",
+        "RUS",
+        "PIA",
+        "NOR",
+        "GAS",
+        "LAW",
+        "ALB",
+        "SAI",
+        "HUL",
+        "COL",
+        "LIN",
+        "BOR",
+        "OCO",
+        "PER",
+        "BEA",
+        "BOT",
+        "ALO",
+        "STR"
+      ],
+      "pit_lane_starters": [],
+      "source_url": "https://www.formula1.com/en/results/2026/races/1286/monaco/starting-grid",
+      "collected_at": "2026-10-08T16:46:45.115839+00:00",
+      "source_document_sha256": "5c20312f99a0663a4668264203e9c765796c59d516cfb19bebc47b393c91a663",
+      "earlier_race_performance_rounds": [
+        3,
+        4,
+        5
+      ],
+      "qualifying_observation_round": 6,
+      "target_race_performance_used": false
+    },
+    {
+      "year": 2026,
+      "round": 7,
+      "entrants": [
+        {
+          "id": "ALB",
+          "name": "Alexander Albon",
+          "team_id": "williams"
+        },
+        {
+          "id": "ALO",
+          "name": "Fernando Alonso",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "ANT",
+          "name": "Andrea Kimi Antonelli",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "BEA",
+          "name": "Oliver Bearman",
+          "team_id": "haas"
+        },
+        {
+          "id": "BOR",
+          "name": "Gabriel Bortoleto",
+          "team_id": "audi"
+        },
+        {
+          "id": "BOT",
+          "name": "Valtteri Bottas",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "COL",
+          "name": "Franco Colapinto",
+          "team_id": "alpine"
+        },
+        {
+          "id": "GAS",
+          "name": "Pierre Gasly",
+          "team_id": "alpine"
+        },
+        {
+          "id": "HAD",
+          "name": "Isack Hadjar",
+          "team_id": "red_bull"
+        },
+        {
+          "id": "HAM",
+          "name": "Lewis Hamilton",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "HUL",
+          "name": "Nico H\u00fclkenberg",
+          "team_id": "audi"
+        },
+        {
+          "id": "LAW",
+          "name": "Liam Lawson",
+          "team_id": "rb"
+        },
+        {
+          "id": "LEC",
+          "name": "Charles Leclerc",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "LIN",
+          "name": "Arvid Lindblad",
+          "team_id": "rb"
+        },
+        {
+          "id": "NOR",
+          "name": "Lando Norris",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "OCO",
+          "name": "Esteban Ocon",
+          "team_id": "haas"
+        },
+        {
+          "id": "PER",
+          "name": "Sergio P\u00e9rez",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "PIA",
+          "name": "Oscar Piastri",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "RUS",
+          "name": "George Russell",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "SAI",
+          "name": "Carlos Sainz",
+          "team_id": "williams"
+        },
+        {
+          "id": "STR",
+          "name": "Lance Stroll",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "VER",
+          "name": "Max Verstappen",
+          "team_id": "red_bull"
+        }
+      ],
+      "starting_grid": [
+        "RUS",
+        "HAM",
+        "ANT",
+        "NOR",
+        "VER",
+        "HAD",
+        "PIA",
+        "LAW",
+        "HUL",
+        "LEC",
+        "LIN",
+        "BOR",
+        "COL",
+        "GAS",
+        "BEA",
+        "SAI",
+        "OCO",
+        "ALB",
+        "PER",
+        "BOT",
+        "STR",
+        "ALO"
+      ],
+      "pit_lane_starters": [
+        "ALO"
+      ],
+      "source_url": "https://www.formula1.com/en/results/2026/races/1287/barcelona-catalunya/starting-grid",
+      "collected_at": "2026-10-08T16:46:45.114839+00:00",
+      "source_document_sha256": "5c6b60d20593e48c90c2c2e16994b097b228f3050b7a29f61e1585e9dfb34d68",
+      "earlier_race_performance_rounds": [
+        4,
+        5,
+        6
+      ],
+      "qualifying_observation_round": 7,
+      "target_race_performance_used": false
+    },
+    {
+      "year": 2026,
+      "round": 8,
+      "entrants": [
+        {
+          "id": "ALB",
+          "name": "Alexander Albon",
+          "team_id": "williams"
+        },
+        {
+          "id": "ALO",
+          "name": "Fernando Alonso",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "ANT",
+          "name": "Andrea Kimi Antonelli",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "BEA",
+          "name": "Oliver Bearman",
+          "team_id": "haas"
+        },
+        {
+          "id": "BOR",
+          "name": "Gabriel Bortoleto",
+          "team_id": "audi"
+        },
+        {
+          "id": "BOT",
+          "name": "Valtteri Bottas",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "COL",
+          "name": "Franco Colapinto",
+          "team_id": "alpine"
+        },
+        {
+          "id": "GAS",
+          "name": "Pierre Gasly",
+          "team_id": "alpine"
+        },
+        {
+          "id": "HAD",
+          "name": "Isack Hadjar",
+          "team_id": "red_bull"
+        },
+        {
+          "id": "HAM",
+          "name": "Lewis Hamilton",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "HUL",
+          "name": "Nico H\u00fclkenberg",
+          "team_id": "audi"
+        },
+        {
+          "id": "LAW",
+          "name": "Liam Lawson",
+          "team_id": "rb"
+        },
+        {
+          "id": "LEC",
+          "name": "Charles Leclerc",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "LIN",
+          "name": "Arvid Lindblad",
+          "team_id": "rb"
+        },
+        {
+          "id": "NOR",
+          "name": "Lando Norris",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "OCO",
+          "name": "Esteban Ocon",
+          "team_id": "haas"
+        },
+        {
+          "id": "PER",
+          "name": "Sergio P\u00e9rez",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "PIA",
+          "name": "Oscar Piastri",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "RUS",
+          "name": "George Russell",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "SAI",
+          "name": "Carlos Sainz",
+          "team_id": "williams"
+        },
+        {
+          "id": "STR",
+          "name": "Lance Stroll",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "VER",
+          "name": "Max Verstappen",
+          "team_id": "red_bull"
+        }
+      ],
+      "starting_grid": [
+        "RUS",
+        "LEC",
+        "HAM",
+        "ANT",
+        "VER",
+        "NOR",
+        "PIA",
+        "HAD",
+        "LAW",
+        "LIN",
+        "GAS",
+        "BOR",
+        "BEA",
+        "HUL",
+        "OCO",
+        "COL",
+        "SAI",
+        "ALB",
+        "PER",
+        "BOT",
+        "ALO",
+        "STR"
+      ],
+      "pit_lane_starters": [],
+      "source_url": "https://www.formula1.com/en/results/2026/races/1288/austria/starting-grid",
+      "collected_at": "2026-10-08T16:46:45.263973+00:00",
+      "source_document_sha256": "019a55c22cf05f061f845cdbc91650e932b743f0928158d673591868888006c9",
+      "earlier_race_performance_rounds": [
+        5,
+        6,
+        7
+      ],
+      "qualifying_observation_round": 8,
+      "target_race_performance_used": false
+    },
+    {
+      "year": 2026,
+      "round": 9,
+      "entrants": [
+        {
+          "id": "ALB",
+          "name": "Alexander Albon",
+          "team_id": "williams"
+        },
+        {
+          "id": "ALO",
+          "name": "Fernando Alonso",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "ANT",
+          "name": "Andrea Kimi Antonelli",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "BEA",
+          "name": "Oliver Bearman",
+          "team_id": "haas"
+        },
+        {
+          "id": "BOR",
+          "name": "Gabriel Bortoleto",
+          "team_id": "audi"
+        },
+        {
+          "id": "BOT",
+          "name": "Valtteri Bottas",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "COL",
+          "name": "Franco Colapinto",
+          "team_id": "alpine"
+        },
+        {
+          "id": "GAS",
+          "name": "Pierre Gasly",
+          "team_id": "alpine"
+        },
+        {
+          "id": "HAD",
+          "name": "Isack Hadjar",
+          "team_id": "red_bull"
+        },
+        {
+          "id": "HAM",
+          "name": "Lewis Hamilton",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "HUL",
+          "name": "Nico H\u00fclkenberg",
+          "team_id": "audi"
+        },
+        {
+          "id": "LAW",
+          "name": "Liam Lawson",
+          "team_id": "rb"
+        },
+        {
+          "id": "LEC",
+          "name": "Charles Leclerc",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "LIN",
+          "name": "Arvid Lindblad",
+          "team_id": "rb"
+        },
+        {
+          "id": "NOR",
+          "name": "Lando Norris",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "OCO",
+          "name": "Esteban Ocon",
+          "team_id": "haas"
+        },
+        {
+          "id": "PER",
+          "name": "Sergio P\u00e9rez",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "PIA",
+          "name": "Oscar Piastri",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "RUS",
+          "name": "George Russell",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "SAI",
+          "name": "Carlos Sainz",
+          "team_id": "williams"
+        },
+        {
+          "id": "STR",
+          "name": "Lance Stroll",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "VER",
+          "name": "Max Verstappen",
+          "team_id": "red_bull"
+        }
+      ],
+      "starting_grid": [
+        "ANT",
+        "LEC",
+        "HAM",
+        "RUS",
+        "HAD",
+        "NOR",
+        "VER",
+        "PIA",
+        "LIN",
+        "LAW",
+        "BOR",
+        "HUL",
+        "BEA",
+        "SAI",
+        "GAS",
+        "ALB",
+        "OCO",
+        "BOT",
+        "COL",
+        "PER",
+        "ALO",
+        "STR"
+      ],
+      "pit_lane_starters": [],
+      "source_url": "https://www.formula1.com/en/results/2026/races/1289/great-britain/starting-grid",
+      "collected_at": "2026-10-08T16:46:45.409448+00:00",
+      "source_document_sha256": "0fc6e834d28fb3a3186580bf541143f16fb880485b0e4bc3c51cf997dfdb5d36",
+      "earlier_race_performance_rounds": [
+        6,
+        7,
+        8
+      ],
+      "qualifying_observation_round": 9,
+      "target_race_performance_used": false
+    },
+    {
+      "year": 2026,
+      "round": 10,
+      "entrants": [
+        {
+          "id": "ALB",
+          "name": "Alexander Albon",
+          "team_id": "williams"
+        },
+        {
+          "id": "ALO",
+          "name": "Fernando Alonso",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "ANT",
+          "name": "Andrea Kimi Antonelli",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "BEA",
+          "name": "Oliver Bearman",
+          "team_id": "haas"
+        },
+        {
+          "id": "BOR",
+          "name": "Gabriel Bortoleto",
+          "team_id": "audi"
+        },
+        {
+          "id": "BOT",
+          "name": "Valtteri Bottas",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "COL",
+          "name": "Franco Colapinto",
+          "team_id": "alpine"
+        },
+        {
+          "id": "GAS",
+          "name": "Pierre Gasly",
+          "team_id": "alpine"
+        },
+        {
+          "id": "HAD",
+          "name": "Isack Hadjar",
+          "team_id": "red_bull"
+        },
+        {
+          "id": "HAM",
+          "name": "Lewis Hamilton",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "HUL",
+          "name": "Nico H\u00fclkenberg",
+          "team_id": "audi"
+        },
+        {
+          "id": "LAW",
+          "name": "Liam Lawson",
+          "team_id": "rb"
+        },
+        {
+          "id": "LEC",
+          "name": "Charles Leclerc",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "LIN",
+          "name": "Arvid Lindblad",
+          "team_id": "rb"
+        },
+        {
+          "id": "NOR",
+          "name": "Lando Norris",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "OCO",
+          "name": "Esteban Ocon",
+          "team_id": "haas"
+        },
+        {
+          "id": "PER",
+          "name": "Sergio P\u00e9rez",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "PIA",
+          "name": "Oscar Piastri",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "RUS",
+          "name": "George Russell",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "SAI",
+          "name": "Carlos Sainz",
+          "team_id": "williams"
+        },
+        {
+          "id": "STR",
+          "name": "Lance Stroll",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "VER",
+          "name": "Max Verstappen",
+          "team_id": "red_bull"
+        }
+      ],
+      "starting_grid": [
+        "ANT",
+        "VER",
+        "RUS",
+        "LEC",
+        "HAM",
+        "PIA",
+        "LIN",
+        "BOR",
+        "LAW",
+        "GAS",
+        "COL",
+        "HUL",
+        "NOR",
+        "BEA",
+        "ALB",
+        "OCO",
+        "BOT",
+        "PER",
+        "SAI",
+        "STR",
+        "HAD",
+        "ALO"
+      ],
+      "pit_lane_starters": [],
+      "source_url": "https://www.formula1.com/en/results/2026/races/1290/belgium/starting-grid",
+      "collected_at": "2026-10-08T16:46:45.680337+00:00",
+      "source_document_sha256": "fde128661406ecd646e743a1af342e624c3e1f913c8cb9424d0575e5e110919d",
+      "earlier_race_performance_rounds": [
+        7,
+        8,
+        9
+      ],
+      "qualifying_observation_round": 10,
+      "target_race_performance_used": false
+    },
+    {
+      "year": 2026,
+      "round": 11,
+      "entrants": [
+        {
+          "id": "ALB",
+          "name": "Alexander Albon",
+          "team_id": "williams"
+        },
+        {
+          "id": "ALO",
+          "name": "Fernando Alonso",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "ANT",
+          "name": "Andrea Kimi Antonelli",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "BEA",
+          "name": "Oliver Bearman",
+          "team_id": "haas"
+        },
+        {
+          "id": "BOR",
+          "name": "Gabriel Bortoleto",
+          "team_id": "audi"
+        },
+        {
+          "id": "BOT",
+          "name": "Valtteri Bottas",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "COL",
+          "name": "Franco Colapinto",
+          "team_id": "alpine"
+        },
+        {
+          "id": "GAS",
+          "name": "Pierre Gasly",
+          "team_id": "alpine"
+        },
+        {
+          "id": "HAD",
+          "name": "Isack Hadjar",
+          "team_id": "red_bull"
+        },
+        {
+          "id": "HAM",
+          "name": "Lewis Hamilton",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "HUL",
+          "name": "Nico H\u00fclkenberg",
+          "team_id": "audi"
+        },
+        {
+          "id": "LAW",
+          "name": "Liam Lawson",
+          "team_id": "rb"
+        },
+        {
+          "id": "LEC",
+          "name": "Charles Leclerc",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "LIN",
+          "name": "Arvid Lindblad",
+          "team_id": "rb"
+        },
+        {
+          "id": "NOR",
+          "name": "Lando Norris",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "OCO",
+          "name": "Esteban Ocon",
+          "team_id": "haas"
+        },
+        {
+          "id": "PER",
+          "name": "Sergio P\u00e9rez",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "PIA",
+          "name": "Oscar Piastri",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "RUS",
+          "name": "George Russell",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "SAI",
+          "name": "Carlos Sainz",
+          "team_id": "williams"
+        },
+        {
+          "id": "STR",
+          "name": "Lance Stroll",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "VER",
+          "name": "Max Verstappen",
+          "team_id": "red_bull"
+        }
+      ],
+      "starting_grid": [
+        "NOR",
+        "LEC",
+        "PIA",
+        "VER",
+        "HAM",
+        "RUS",
+        "ANT",
+        "HAD",
+        "LIN",
+        "HUL",
+        "LAW",
+        "GAS",
+        "COL",
+        "BOR",
+        "OCO",
+        "ALO",
+        "BEA",
+        "SAI",
+        "ALB",
+        "STR",
+        "BOT",
+        "PER"
+      ],
+      "pit_lane_starters": [
+        "PER"
+      ],
+      "source_url": "https://www.formula1.com/en/results/2026/races/1291/hungary/starting-grid",
+      "collected_at": "2026-10-08T16:46:45.681337+00:00",
+      "source_document_sha256": "50d7f4e56ecedb71da69b38257fcb1f2db2882fc76b825d16e7862f812c0965d",
+      "earlier_race_performance_rounds": [
+        8,
+        9,
+        10
+      ],
+      "qualifying_observation_round": 11,
+      "target_race_performance_used": false
+    },
+    {
+      "year": 2026,
+      "round": 12,
+      "entrants": [
+        {
+          "id": "ALB",
+          "name": "Alexander Albon",
+          "team_id": "williams"
+        },
+        {
+          "id": "ALO",
+          "name": "Fernando Alonso",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "ANT",
+          "name": "Andrea Kimi Antonelli",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "BEA",
+          "name": "Oliver Bearman",
+          "team_id": "haas"
+        },
+        {
+          "id": "BOR",
+          "name": "Gabriel Bortoleto",
+          "team_id": "audi"
+        },
+        {
+          "id": "BOT",
+          "name": "Valtteri Bottas",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "COL",
+          "name": "Franco Colapinto",
+          "team_id": "alpine"
+        },
+        {
+          "id": "GAS",
+          "name": "Pierre Gasly",
+          "team_id": "alpine"
+        },
+        {
+          "id": "HAM",
+          "name": "Lewis Hamilton",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "HUL",
+          "name": "Nico H\u00fclkenberg",
+          "team_id": "audi"
+        },
+        {
+          "id": "LAW",
+          "name": "Liam Lawson",
+          "team_id": "red_bull"
+        },
+        {
+          "id": "LEC",
+          "name": "Charles Leclerc",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "LIN",
+          "name": "Arvid Lindblad",
+          "team_id": "rb"
+        },
+        {
+          "id": "NOR",
+          "name": "Lando Norris",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "OCO",
+          "name": "Esteban Ocon",
+          "team_id": "haas"
+        },
+        {
+          "id": "PER",
+          "name": "Sergio P\u00e9rez",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "PIA",
+          "name": "Oscar Piastri",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "RUS",
+          "name": "George Russell",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "SAI",
+          "name": "Carlos Sainz",
+          "team_id": "williams"
+        },
+        {
+          "id": "STR",
+          "name": "Lance Stroll",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "TSU",
+          "name": "Yuki Tsunoda",
+          "team_id": "rb"
+        },
+        {
+          "id": "VER",
+          "name": "Max Verstappen",
+          "team_id": "red_bull"
+        }
+      ],
+      "starting_grid": [
+        "NOR",
+        "RUS",
+        "ANT",
+        "PIA",
+        "HAM",
+        "LEC",
+        "VER",
+        "LAW",
+        "BOR",
+        "LIN",
+        "GAS",
+        "TSU",
+        "HUL",
+        "COL",
+        "OCO",
+        "ALB",
+        "SAI",
+        "ALO",
+        "STR",
+        "BEA",
+        "BOT",
+        "PER"
+      ],
+      "pit_lane_starters": [
+        "PER"
+      ],
+      "source_url": "https://www.formula1.com/en/results/2026/races/1292/netherlands/starting-grid",
+      "collected_at": "2026-10-08T16:46:45.832166+00:00",
+      "source_document_sha256": "8e5d2a90672aa87d426c120049df7f250cf6d54c4edc4c7c76ad982d97196309",
+      "earlier_race_performance_rounds": [
+        9,
+        10,
+        11
+      ],
+      "qualifying_observation_round": 12,
+      "target_race_performance_used": false
+    },
+    {
+      "year": 2026,
+      "round": 13,
+      "entrants": [
+        {
+          "id": "ALB",
+          "name": "Alexander Albon",
+          "team_id": "williams"
+        },
+        {
+          "id": "ALO",
+          "name": "Fernando Alonso",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "ANT",
+          "name": "Andrea Kimi Antonelli",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "BEA",
+          "name": "Oliver Bearman",
+          "team_id": "haas"
+        },
+        {
+          "id": "BOR",
+          "name": "Gabriel Bortoleto",
+          "team_id": "audi"
+        },
+        {
+          "id": "BOT",
+          "name": "Valtteri Bottas",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "COL",
+          "name": "Franco Colapinto",
+          "team_id": "alpine"
+        },
+        {
+          "id": "GAS",
+          "name": "Pierre Gasly",
+          "team_id": "alpine"
+        },
+        {
+          "id": "HAM",
+          "name": "Lewis Hamilton",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "HUL",
+          "name": "Nico H\u00fclkenberg",
+          "team_id": "audi"
+        },
+        {
+          "id": "LAW",
+          "name": "Liam Lawson",
+          "team_id": "red_bull"
+        },
+        {
+          "id": "LEC",
+          "name": "Charles Leclerc",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "LIN",
+          "name": "Arvid Lindblad",
+          "team_id": "rb"
+        },
+        {
+          "id": "NOR",
+          "name": "Lando Norris",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "OCO",
+          "name": "Esteban Ocon",
+          "team_id": "haas"
+        },
+        {
+          "id": "PER",
+          "name": "Sergio P\u00e9rez",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "PIA",
+          "name": "Oscar Piastri",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "RUS",
+          "name": "George Russell",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "SAI",
+          "name": "Carlos Sainz",
+          "team_id": "williams"
+        },
+        {
+          "id": "STR",
+          "name": "Lance Stroll",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "TSU",
+          "name": "Yuki Tsunoda",
+          "team_id": "rb"
+        },
+        {
+          "id": "VER",
+          "name": "Max Verstappen",
+          "team_id": "red_bull"
+        }
+      ],
+      "starting_grid": [
+        "GAS",
+        "RUS",
+        "LEC",
+        "HAM",
+        "VER",
+        "PIA",
+        "COL",
+        "NOR",
+        "LIN",
+        "BOR",
+        "BEA",
+        "HUL",
+        "SAI",
+        "OCO",
+        "TSU",
+        "BOT",
+        "PER",
+        "STR",
+        "ANT",
+        "ALB",
+        "ALO",
+        "LAW"
+      ],
+      "pit_lane_starters": [
+        "ALO",
+        "LAW"
+      ],
+      "source_url": "https://www.formula1.com/en/results/2026/races/1293/italy/starting-grid",
+      "collected_at": "2026-10-08T16:46:45.969783+00:00",
+      "source_document_sha256": "596245d612e99a512f6c0b77c9a6c91e8647b18ae8749ddc9de8c5707090331e",
+      "earlier_race_performance_rounds": [
+        10,
+        11,
+        12
+      ],
+      "qualifying_observation_round": 13,
+      "target_race_performance_used": false
+    },
+    {
+      "year": 2026,
+      "round": 14,
+      "entrants": [
+        {
+          "id": "ALB",
+          "name": "Alexander Albon",
+          "team_id": "williams"
+        },
+        {
+          "id": "ALO",
+          "name": "Fernando Alonso",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "ANT",
+          "name": "Andrea Kimi Antonelli",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "BEA",
+          "name": "Oliver Bearman",
+          "team_id": "haas"
+        },
+        {
+          "id": "BOR",
+          "name": "Gabriel Bortoleto",
+          "team_id": "audi"
+        },
+        {
+          "id": "BOT",
+          "name": "Valtteri Bottas",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "COL",
+          "name": "Franco Colapinto",
+          "team_id": "alpine"
+        },
+        {
+          "id": "GAS",
+          "name": "Pierre Gasly",
+          "team_id": "alpine"
+        },
+        {
+          "id": "HAM",
+          "name": "Lewis Hamilton",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "HUL",
+          "name": "Nico H\u00fclkenberg",
+          "team_id": "audi"
+        },
+        {
+          "id": "LAW",
+          "name": "Liam Lawson",
+          "team_id": "red_bull"
+        },
+        {
+          "id": "LEC",
+          "name": "Charles Leclerc",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "LIN",
+          "name": "Arvid Lindblad",
+          "team_id": "rb"
+        },
+        {
+          "id": "NOR",
+          "name": "Lando Norris",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "OCO",
+          "name": "Esteban Ocon",
+          "team_id": "haas"
+        },
+        {
+          "id": "PER",
+          "name": "Sergio P\u00e9rez",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "PIA",
+          "name": "Oscar Piastri",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "RUS",
+          "name": "George Russell",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "SAI",
+          "name": "Carlos Sainz",
+          "team_id": "williams"
+        },
+        {
+          "id": "STR",
+          "name": "Lance Stroll",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "TSU",
+          "name": "Yuki Tsunoda",
+          "team_id": "rb"
+        },
+        {
+          "id": "VER",
+          "name": "Max Verstappen",
+          "team_id": "red_bull"
+        }
+      ],
+      "starting_grid": [
+        "NOR",
+        "ANT",
+        "VER",
+        "HAM",
+        "LEC",
+        "RUS",
+        "PIA",
+        "LAW",
+        "COL",
+        "LIN",
+        "HUL",
+        "BOR",
+        "OCO",
+        "GAS",
+        "TSU",
+        "ALB",
+        "ALO",
+        "PER",
+        "BOT",
+        "SAI",
+        "STR",
+        "BEA"
+      ],
+      "pit_lane_starters": [
+        "BEA"
+      ],
+      "source_url": "https://www.formula1.com/en/results/2026/races/1294/spain/starting-grid",
+      "collected_at": "2026-10-08T16:46:46.233689+00:00",
+      "source_document_sha256": "2a3041586fb3089e7b0f27116103ed2834bdf7ff07c1cce2dc4e5a7b451e111c",
+      "earlier_race_performance_rounds": [
+        11,
+        12,
+        13
+      ],
+      "qualifying_observation_round": 14,
+      "target_race_performance_used": false
+    },
+    {
+      "year": 2026,
+      "round": 15,
+      "entrants": [
+        {
+          "id": "ALB",
+          "name": "Alexander Albon",
+          "team_id": "williams"
+        },
+        {
+          "id": "ALO",
+          "name": "Fernando Alonso",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "ANT",
+          "name": "Andrea Kimi Antonelli",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "BEA",
+          "name": "Oliver Bearman",
+          "team_id": "haas"
+        },
+        {
+          "id": "BOR",
+          "name": "Gabriel Bortoleto",
+          "team_id": "audi"
+        },
+        {
+          "id": "BOT",
+          "name": "Valtteri Bottas",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "COL",
+          "name": "Franco Colapinto",
+          "team_id": "alpine"
+        },
+        {
+          "id": "GAS",
+          "name": "Pierre Gasly",
+          "team_id": "alpine"
+        },
+        {
+          "id": "HAD",
+          "name": "Isack Hadjar",
+          "team_id": "red_bull"
+        },
+        {
+          "id": "HAM",
+          "name": "Lewis Hamilton",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "HUL",
+          "name": "Nico H\u00fclkenberg",
+          "team_id": "audi"
+        },
+        {
+          "id": "LAW",
+          "name": "Liam Lawson",
+          "team_id": "rb"
+        },
+        {
+          "id": "LEC",
+          "name": "Charles Leclerc",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "LIN",
+          "name": "Arvid Lindblad",
+          "team_id": "rb"
+        },
+        {
+          "id": "NOR",
+          "name": "Lando Norris",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "OCO",
+          "name": "Esteban Ocon",
+          "team_id": "haas"
+        },
+        {
+          "id": "PER",
+          "name": "Sergio P\u00e9rez",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "PIA",
+          "name": "Oscar Piastri",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "RUS",
+          "name": "George Russell",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "SAI",
+          "name": "Carlos Sainz",
+          "team_id": "williams"
+        },
+        {
+          "id": "STR",
+          "name": "Lance Stroll",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "VER",
+          "name": "Max Verstappen",
+          "team_id": "red_bull"
+        }
+      ],
+      "starting_grid": [
+        "RUS",
+        "LEC",
+        "PIA",
+        "HAD",
+        "NOR",
+        "HAM",
+        "GAS",
+        "VER",
+        "COL",
+        "BEA",
+        "LAW",
+        "ALB",
+        "OCO",
+        "SAI",
+        "LIN",
+        "ANT",
+        "BOR",
+        "HUL",
+        "BOT",
+        "PER",
+        "ALO",
+        "STR"
+      ],
+      "pit_lane_starters": [],
+      "source_url": "https://www.formula1.com/en/results/2026/races/1295/azerbaijan/starting-grid",
+      "collected_at": "2026-10-08T16:46:46.111307+00:00",
+      "source_document_sha256": "97c95b4fab0b9b24fcb77ce291f1bce3d938b5a47b96d8c34d3259ba0bef3e71",
+      "earlier_race_performance_rounds": [
+        12,
+        13,
+        14
+      ],
+      "qualifying_observation_round": 15,
+      "target_race_performance_used": false
+    },
+    {
+      "year": 2026,
+      "round": 16,
+      "entrants": [
+        {
+          "id": "ALB",
+          "name": "Alexander Albon",
+          "team_id": "williams"
+        },
+        {
+          "id": "ALO",
+          "name": "Fernando Alonso",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "ANT",
+          "name": "Andrea Kimi Antonelli",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "BEA",
+          "name": "Oliver Bearman",
+          "team_id": "haas"
+        },
+        {
+          "id": "BOR",
+          "name": "Gabriel Bortoleto",
+          "team_id": "audi"
+        },
+        {
+          "id": "BOT",
+          "name": "Valtteri Bottas",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "COL",
+          "name": "Franco Colapinto",
+          "team_id": "alpine"
+        },
+        {
+          "id": "GAS",
+          "name": "Pierre Gasly",
+          "team_id": "alpine"
+        },
+        {
+          "id": "HAD",
+          "name": "Isack Hadjar",
+          "team_id": "red_bull"
+        },
+        {
+          "id": "HAM",
+          "name": "Lewis Hamilton",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "HUL",
+          "name": "Nico H\u00fclkenberg",
+          "team_id": "audi"
+        },
+        {
+          "id": "LAW",
+          "name": "Liam Lawson",
+          "team_id": "rb"
+        },
+        {
+          "id": "LEC",
+          "name": "Charles Leclerc",
+          "team_id": "ferrari"
+        },
+        {
+          "id": "LIN",
+          "name": "Arvid Lindblad",
+          "team_id": "rb"
+        },
+        {
+          "id": "NOR",
+          "name": "Lando Norris",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "OCO",
+          "name": "Esteban Ocon",
+          "team_id": "haas"
+        },
+        {
+          "id": "PER",
+          "name": "Sergio P\u00e9rez",
+          "team_id": "cadillac"
+        },
+        {
+          "id": "PIA",
+          "name": "Oscar Piastri",
+          "team_id": "mclaren"
+        },
+        {
+          "id": "RUS",
+          "name": "George Russell",
+          "team_id": "mercedes"
+        },
+        {
+          "id": "SAI",
+          "name": "Carlos Sainz",
+          "team_id": "williams"
+        },
+        {
+          "id": "STR",
+          "name": "Lance Stroll",
+          "team_id": "aston_martin"
+        },
+        {
+          "id": "VER",
+          "name": "Max Verstappen",
+          "team_id": "red_bull"
+        }
+      ],
+      "starting_grid": [
+        "VER",
+        "HAM",
+        "ANT",
+        "LEC",
+        "NOR",
+        "PIA",
+        "RUS",
+        "HAD",
+        "GAS",
+        "BOR",
+        "LAW",
+        "ALO",
+        "SAI",
+        "STR",
+        "HUL",
+        "BEA",
+        "OCO",
+        "ALB",
+        "BOT",
+        "PER",
+        "COL",
+        "LIN"
+      ],
+      "pit_lane_starters": [],
+      "source_url": "https://www.formula1.com/en/results/2026/races/1308/bahrain/starting-grid",
+      "collected_at": "2026-10-08T16:46:46.360671+00:00",
+      "source_document_sha256": "8226c024288d882f9e3c04ae8f4bd0ce3b261cb96f5244a586cef647707774cc",
+      "earlier_race_performance_rounds": [
+        13,
+        14,
+        15
+      ],
+      "qualifying_observation_round": 16,
+      "target_race_performance_used": false
+    }
+  ],
+  "summary": {
+    "events": 16,
+    "complete_fields": 16,
+    "pit_lane_events": 8,
+    "pit_lane_starters": 9
+  },
+  "content_sha256": "193a4c5e41c6b3f29ede9c417f4908623fd81325ba1f2d5fc1ee46a8a7a0025c"
+}

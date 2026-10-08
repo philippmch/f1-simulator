@@ -6,6 +6,8 @@ from f1sim.models.tire import TireCompound
 
 RACE_ENGINES = ("standard", "chronological")
 DEFAULT_RACE_ENGINE = "chronological"
+PIT_LANE_START_POLICY = "delayed_pit_lane_release_5s_v1"
+PIT_LANE_START_DELAY_SECONDS = 5.0
 
 
 def validate_starting_grid(value, driver_ids=None):
@@ -25,13 +27,43 @@ def validate_starting_grid(value, driver_ids=None):
 
 def validate_starting_grid_snapshot(snapshot, driver_ids):
     version = snapshot.get("schema_version")
-    if version == 14:
+    if version in (14, 15):
         if "starting_grid" not in snapshot or snapshot["starting_grid"] is None:
-            raise ValueError("Schema 14 requires an explicit starting_grid")
-        return validate_starting_grid(snapshot["starting_grid"], driver_ids)
+            raise ValueError(f"Schema {version} requires an explicit starting_grid")
+        grid = validate_starting_grid(snapshot["starting_grid"], driver_ids)
+        validate_pit_lane_start_snapshot(snapshot, grid)
+        return grid
     if "starting_grid" in snapshot:
-        raise ValueError("Explicit starting_grid requires schema 14")
+        raise ValueError("Explicit starting_grid requires schema 14 or 15")
+    validate_pit_lane_start_snapshot(snapshot, None)
     return None
+
+
+def validate_pit_lane_starters(value, starting_grid):
+    """Require a supplied full grid and preserve the published pit queue order."""
+    if value is None or value == []:
+        return []
+    if not isinstance(value, list) or not 1 <= len(value) <= 29:
+        raise ValueError("pit_lane_starters must be a list of at most 29 driver IDs")
+    if any(not isinstance(driver, str) or not driver.strip() for driver in value):
+        raise ValueError("pit_lane_starters driver IDs must be nonempty strings")
+    if len(set(value)) != len(value):
+        raise ValueError("pit_lane_starters must not contain duplicate drivers")
+    grid = validate_starting_grid(starting_grid)
+    if grid is None or len(value) >= len(grid) or grid[-len(value):] != value:
+        raise ValueError("pit_lane_starters must be the ordered tail of a supplied starting_grid")
+    return value.copy()
+
+
+def validate_pit_lane_start_snapshot(snapshot, starting_grid):
+    if snapshot.get("schema_version") == 15:
+        starters = validate_pit_lane_starters(snapshot.get("pit_lane_starters"), starting_grid)
+        if not starters or snapshot.get("pit_lane_start_policy") != PIT_LANE_START_POLICY:
+            raise ValueError("Schema 15 requires pit_lane_starters and a supported start policy")
+        return starters
+    if "pit_lane_starters" in snapshot or "pit_lane_start_policy" in snapshot:
+        raise ValueError("Pit-lane starting inputs require schema 15")
+    return []
 
 
 def validate_starting_tires(

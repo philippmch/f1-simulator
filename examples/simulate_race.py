@@ -357,6 +357,8 @@ def main() -> int:
     starting_grid = (grid_method(current_season, args.race, drivers)
                      if args.race_grid == "auto" and not args.qualifying_weather
                      and callable(grid_method) else None)
+    pit_method = getattr(loader, "get_pit_lane_starters", None)
+    pit_lane_starters = (pit_method() if starting_grid is not None and callable(pit_method) else [])
     print("Race grid: " + ("published starting order" if starting_grid is not None
                            else "simulated qualifying"))
     try:
@@ -451,6 +453,7 @@ def main() -> int:
             **({"control_schedule": control_schedule} if control_schedule is not None else {}),
             **({"winner_allocation": winner_allocation} if winner_allocation is not None else {}),
             **({"starting_grid": starting_grid} if starting_grid is not None else {}),
+            **({"pit_lane_starters": pit_lane_starters} if pit_lane_starters else {}),
         )
 
         scenario_result = runner.run(

@@ -25,7 +25,12 @@ from f1sim.simulation.events import (
     RaceEvent,
     completed_lap_was_neutralized,
 )
-from f1sim.simulation.execution import validate_starting_tire_ages, validate_starting_tires
+from f1sim.simulation.execution import (
+    PIT_LANE_START_DELAY_SECONDS,
+    validate_pit_lane_starters,
+    validate_starting_tire_ages,
+    validate_starting_tires,
+)
 from f1sim.simulation.finish_strategy import (
     LeadingFinishContext,
     ReplacementOption,
@@ -447,7 +452,7 @@ class RaceSimulator(InventoryStrategyMixin):
         starting_tire_ages: dict[str, int] | None = None,
         tire_inventory: dict[str, list[dict]] | None = None,
         pit_plans: dict[str, list[dict]] | None = None,
-        *, weather_schedule=None,
+        *, weather_schedule=None, pit_lane_starters=None,
     ) -> list[RaceResult]:
         """Simulate a complete race.
 
@@ -479,6 +484,7 @@ class RaceSimulator(InventoryStrategyMixin):
         )
         validate_unique_ids(driver_ids, "drivers")
         validate_unique_ids(starting_grid, "starting_grid")
+        pit_lane_starters = validate_pit_lane_starters(pit_lane_starters, starting_grid)
         starting_tires = validate_starting_tires(starting_tires, (d.id for d in drivers))
         ages = validate_starting_tire_ages(starting_tire_ages, starting_tires,
                                            (d.id for d in drivers))
@@ -551,6 +557,8 @@ class RaceSimulator(InventoryStrategyMixin):
                     driver=driver,
                     car=car,
                     position=pos,
+                    total_time=(PIT_LANE_START_DELAY_SECONDS
+                                if driver_id in pit_lane_starters else 0.0),
                     tire_laps=ages.get(driver_id, 0),
                     prior_tire_laps=ages.get(driver_id, 0),
                     current_tire=TIRE_COMPOUNDS[tire_compound].model_copy(deep=True),

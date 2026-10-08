@@ -55,6 +55,7 @@ from f1sim.simulation.abandonment import serialize_abandonment, serialize_abando
 from f1sim.simulation.control_schedule import control_schedule_policy, validate_control_schedule
 from f1sim.simulation.execution import (
     DEFAULT_RACE_ENGINE,
+    validate_pit_lane_starters,
     validate_race_engine,
     validate_starting_grid,
     validate_starting_tire_ages,
@@ -159,6 +160,7 @@ class DashboardRunRequest:
     qualifying_mode: str = "simulated"
     race_grid_mode: str = "auto"
     starting_grid: list[StrictStr] | None = None
+    pit_lane_starters: list[StrictStr] | None = None
     parallel: StrictBool = True
     max_workers: StrictInt | None = None
     race_engine: str = DEFAULT_RACE_ENGINE
@@ -193,6 +195,7 @@ def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
     if request.race_grid_mode not in ("auto", "simulated"):
         raise ValueError("race_grid_mode must be auto or simulated")
     validate_starting_grid(request.starting_grid)
+    validate_pit_lane_starters(request.pit_lane_starters, request.starting_grid)
     if request.starting_grid is not None and request.race_grid_mode == "simulated":
         raise ValueError("starting_grid conflicts with simulated race_grid_mode")
     validate_control_schedule(request.control_schedule)
@@ -755,6 +758,10 @@ def _dashboard_runner(
         kwargs["starting_grid"] = validate_starting_grid(
             request.starting_grid, (d.id for d in drivers),
         )
+    if request.pit_lane_starters:
+        kwargs["pit_lane_starters"] = validate_pit_lane_starters(
+            request.pit_lane_starters, request.starting_grid,
+        )
     return MonteCarloRunner(**kwargs)
 
 
@@ -789,6 +796,8 @@ def _dashboard_request_metadata(
         "race_grid_mode": request.race_grid_mode,
         **({"starting_grid": request.starting_grid.copy()}
            if request.starting_grid is not None else {}),
+        **({"pit_lane_starters": request.pit_lane_starters.copy()}
+           if request.pit_lane_starters else {}),
         "parallel": request.parallel,
         "max_workers": effective_max_workers,
         "requested_max_workers": request.max_workers,
@@ -862,6 +871,10 @@ def run_dashboard_simulation(
     if (grid is None and request.race_grid_mode == "auto"
             and not request.qualifying_weather and callable(grid_method)):
         grid = grid_method(request.year, request.race, drivers)
+        if grid is not None:
+            pit_method = getattr(loader, "get_pit_lane_starters", None)
+            request = replace(request, pit_lane_starters=(pit_method() if callable(pit_method)
+                                                         else None))
     if grid is not None:
         # Every weather, reference and strategy variant inherits the same grid.
         request = replace(request, starting_grid=grid)

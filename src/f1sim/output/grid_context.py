@@ -11,5 +11,8 @@ def race_grid_context(snapshot):
         grid = validate_starting_grid_snapshot(snapshot, drivers)
     except (KeyError, TypeError, ValueError):
         return "Race grid: invalid saved starting order."
+    pit = snapshot.get("pit_lane_starters", [])
     return ("Race starts from supplied order: " + ", ".join(grid)
+            + (". Pit-lane starters: " + ", ".join(pit)
+               + " (assumed 5-second delayed release)" if pit else "")
             + ". Qualifying lap results remain simulated and do not set this race grid.")

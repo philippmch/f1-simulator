@@ -34,7 +34,12 @@ from f1sim.simulation.events import (
     RaceEvent,
     completed_lap_was_neutralized,
 )
-from f1sim.simulation.execution import validate_starting_tire_ages, validate_starting_tires
+from f1sim.simulation.execution import (
+    PIT_LANE_START_DELAY_SECONDS,
+    validate_pit_lane_starters,
+    validate_starting_tire_ages,
+    validate_starting_tires,
+)
 from f1sim.simulation.finish_strategy import (
     LeadingFinishContext,
     RivalFinishForecast,
@@ -146,7 +151,8 @@ class ChronologicalRace:
         self._overtake_restart_waiting: set[str] = set()
 
     def run(self, drivers, cars, track, weather, starting_grid, *, starting_tires=None,
-            starting_tire_ages=None, tire_inventory=None, pit_plans=None, weather_schedule=None):
+            starting_tire_ages=None, tire_inventory=None, pit_plans=None, weather_schedule=None,
+            pit_lane_starters=None):
         schedule = validate_weather_schedule(weather_schedule, total_laps=track.total_laps)
         control_schedule = getattr(self.simulator.event_manager, "control_schedule", None)
         if control_schedule is not None:
@@ -162,6 +168,7 @@ class ChronologicalRace:
         )
         validate_unique_ids(driver_ids, "driver")
         validate_unique_ids(starting_grid, "starting grid")
+        pit_lane_starters = validate_pit_lane_starters(pit_lane_starters, starting_grid)
         starting_tires = validate_starting_tires(starting_tires, (d.id for d in drivers))
         ages = validate_starting_tire_ages(starting_tire_ages, starting_tires,
                                            (d.id for d in drivers))
@@ -215,7 +222,7 @@ class ChronologicalRace:
                     self.states[driver_id], inventory, selected_set,
                 )
         self.timeline = RaceFinishTimeline(track.total_laps, self.states)
-        self.order = list(self.states)
+        self.order = [identity for identity in self.states if identity not in pit_lane_starters]
         self.pending = {}
         self.queue = []
         self.serial = count()
@@ -247,10 +254,21 @@ class ChronologicalRace:
         if self.states:
             self.simulator._record_weather(1, self.weather)
         for state in self.states.values():
-            self._start_lap(state, 0.0)
+            if state.driver.id in pit_lane_starters:
+                # Whole-lap start approximation, distinct from a paid pit stop.
+                # Queue order is the published order; no tyre fitting or service.
+                heapq.heappush(self.queue, (PIT_LANE_START_DELAY_SECONDS, next(self.serial),
+                                           0, "start", state.driver.id, 0))
+            else:
+                self._start_lap(state, 0.0)
         while self.queue:
             raise_if_cancelled()
             now, _, _, kind, driver_id, generation = heapq.heappop(self.queue)
+            if kind == "start":
+                self.order.append(driver_id)
+                self.pit_exits.append((driver_id, 1, now))
+                self._start_lap(self.states[driver_id], now)
+                continue
             pending = self.pending.get(driver_id)
             if pending is None or generation != pending.generation:
                 continue
@@ -1892,7 +1910,7 @@ class ChronologicalRace:
 def simulate_chronological_race(simulator, drivers, cars, track, weather, starting_grid,
                                 *, starting_tires=None, starting_tire_ages=None,
                                 red_flag_pause_seconds=600.0, tire_inventory=None,
-                                pit_plans=None, weather_schedule=None):
+                                pit_plans=None, weather_schedule=None, pit_lane_starters=None):
     """Run chronological car timing using the supplied simulator's physics."""
     schedule = validate_weather_schedule(weather_schedule, total_laps=track.total_laps)
     return ChronologicalRace(simulator, red_flag_pause_seconds=red_flag_pause_seconds).run(
@@ -1900,6 +1918,7 @@ def simulate_chronological_race(simulator, drivers, cars, track, weather, starti
         starting_tire_ages=starting_tire_ages,
         tire_inventory=tire_inventory,
         pit_plans=pit_plans,
+        **({"pit_lane_starters": pit_lane_starters} if pit_lane_starters else {}),
         **({"weather_schedule": schedule} if schedule else {}),
     )
 
