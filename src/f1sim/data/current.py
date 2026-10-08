@@ -2797,7 +2797,8 @@ class CurrentSeasonDataLoader:
                 }) for driver in adjusted}
                 evidence = {**forecast, "practice_source_url": practice["source_url"],
                             "practice_started_at": practice["practice_started_at"],
-                            "practice_identity_coverage": practice["identity_coverage"]}
+                            "practice_identity_coverage": practice["identity_coverage"],
+                            "practice_observations": copy.deepcopy(practice)}
             except (CurrentSeasonDataError, ValueError) as error:
                 evidence = {**evidence, "practice_fallback": "invalid_or_unavailable_practice",
                             "practice_reason": str(error)}

@@ -10,8 +10,13 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 
+from f1sim.analysis.forecast_errors import compare_winner_errors
 from f1sim.analysis.holdout_folds import _integer
 from f1sim.analysis.montecarlo import MonteCarloRunner
+from f1sim.analysis.practice_winner_reference import (
+    build_practice_winner_reference,
+    score_saved_practice_reference,
+)
 from f1sim.analysis.race_probability_evaluation import _observed_winner, _target_rows
 from f1sim.analysis.race_probability_scores import score_winner_counts, summarize_winner_trials
 from f1sim.analysis.replay import _load_saved_runner
@@ -39,7 +44,17 @@ def _qualifying_start(event):
                     if isinstance(key, str) and key.lower() == "qualifying"), None)
     if not isinstance(session, dict) or not session.get("date") or not session.get("time"):
         raise ValueError("Recording needs a dated qualifying session with an explicit UTC time")
-    return _timestamp(f'{session["date"]}T{session["time"]}')
+    starts = [_timestamp(f'{session["date"]}T{session["time"]}')]
+    sprint_sessions = [value for key, value in sessions.items()
+                       if isinstance(key, str)
+                       and key.lower() in ("sprintqualifying", "sprintshootout")]
+    if event.get("sprint") and not sprint_sessions:
+        raise ValueError("Recording a sprint event needs a dated sprint qualifying session")
+    for sprint in sprint_sessions:
+        if not isinstance(sprint, dict) or not sprint.get("date") or not sprint.get("time"):
+            raise ValueError("Recording needs a dated sprint qualifying session")
+        starts.append(_timestamp(f'{sprint["date"]}T{sprint["time"]}'))
+    return min(starts)
 
 
 def _digest(body):
@@ -153,6 +168,13 @@ def record_race_forecast(loader, year, target_race, *, trials=100, seed=42, weat
     }
     if allocation is not None:
         body["winner_estimate"] = teammate_winner_forecast(body["winner_forecast"], allocation)
+    practice = body["provenance"].get("qualifying_forecast", {}).get("practice_observations")
+    if practice is not None:
+        body["practice_reference"] = build_practice_winner_reference(
+            ids, practice, year=year, target_round=target,
+            recorded_at=body["recorded_at"], qualifying_starts_at=body["qualifying_starts_at"],
+        )
+        body["schema_version"] = 3
     return {**body, "content_sha256": _digest(body)}
 
 
@@ -181,7 +203,7 @@ def _validate_recorded_forecast(record):
     body = {key: value for key, value in record.items() if key != "content_sha256"}
     if record.get("content_sha256") != _digest(body):
         raise ValueError("Recorded forecast content seal does not match")
-    if (type(record.get("schema_version")) is not int or record["schema_version"] not in (1, 2)
+    if (type(record.get("schema_version")) is not int or record["schema_version"] not in (1, 2, 3)
             or record.get("kind") != "pre_qualifying_race_forecast"):
         raise ValueError("Unsupported recorded forecast format")
     if type(record.get("year")) is not int or not 1 <= record["year"] <= 9999:
@@ -246,7 +268,19 @@ def _validate_recorded_forecast(record):
         raise ValueError("Qualifying mean positions do not match complete trial permutations")
     score_saved_winner_baselines(record["baselines"], ids, target_round=target,
                                  observed_winner=None)
-    if record["schema_version"] == 2:
+    if record["schema_version"] == 3:
+        practice_reference = score_saved_practice_reference(
+            record.get("practice_reference"), ids, year=record["year"], target_round=target,
+            recorded_at=record["recorded_at"], qualifying_starts_at=record["qualifying_starts_at"],
+        )
+        if practice_reference["evidence"] != record.get("provenance", {}).get(
+            "qualifying_forecast", {},
+        ).get("practice_observations"):
+            raise ValueError("Practice reference must match the forecast's fetched observations")
+    elif "practice_reference" in record:
+        raise ValueError("A recorded practice reference requires schema 3")
+    if (record["schema_version"] == 2
+            or (record["schema_version"] == 3 and "winner_estimate" in record)):
         estimate = record.get("winner_estimate")
         if not isinstance(estimate, dict) or not isinstance(estimate.get("allocation"), dict):
             raise ValueError("Schema 2 requires a frozen teammate winner estimate")
@@ -298,7 +332,7 @@ def score_recorded_forecast(record, loader, results, qualifying):
         winner["no_classified_winner"]["count"], observed["winner_id"],
     )
     native_score = score
-    if record["schema_version"] == 2:
+    if "winner_estimate" in record:
         score = score_teammate_forecast(
             winner, record["winner_estimate"]["allocation"], observed["winner_id"],
         )
@@ -321,6 +355,22 @@ def score_recorded_forecast(record, loader, results, qualifying):
               for identity, position in observed_positions.items()
               if identity in grid and position is not None]
     assert record == snapshot
+    practice_comparison = {}
+    if record["schema_version"] == 3:
+        reference = score_saved_practice_reference(
+            record["practice_reference"], ids, year=record["year"], target_round=target,
+            recorded_at=record["recorded_at"], qualifying_starts_at=record["qualifying_starts_at"],
+            observed_winner=observed["winner_id"],
+        )
+        modeled = record.get("winner_estimate", winner)
+        probabilities = {key: row["probability"] for key, row in modeled["drivers"].items()}
+        no_winner_probability = (modeled["no_classified_winner_probability"]
+            if "winner_estimate" in record else modeled["no_classified_winner"]["probability"])
+        practice_comparison = {"practice_reference": reference,
+            "winner_error_comparison": compare_winner_errors(
+                probabilities, reference["probabilities"], observed["winner_id"],
+                no_winner_probability=no_winner_probability,
+            )}
     return {
         "status": "scored", "year": record["year"], "round": target,
         "forecast_sha256": record["content_sha256"], "recorded_at": record["recorded_at"],
@@ -328,7 +378,8 @@ def score_recorded_forecast(record, loader, results, qualifying):
         "winner_score": score, "observed_pole": pole_id, "pole_score": pole_score,
         **({"native_winner_score": native_score,
             "winner_policy": record["winner_estimate"]["policy"]}
-           if record["schema_version"] == 2 else {}),
+           if "winner_estimate" in record else {}),
+        **practice_comparison,
         "qualifying_position_mae": sum(errors) / len(errors) if errors else None,
         "qualifying_scored_drivers": len(errors),
         "qualifying_observed_drivers": len(q_rows), "forecast_drivers": len(ids),

@@ -4,6 +4,26 @@ Save a current-season forecast before qualifying and score that same file after
 the race. This preserves the probabilities that were actually predicted; the
 scoring command never runs simulations or updates the model.
 
+The deadline is the first qualifying session, including sprint qualifying or
+sprint shootout. A sprint event without a known sprint qualifying time cannot
+be certified. Existing sealed records retain their original interpretation.
+
+When usable current practice supplied the qualifying forecast, new schema 3
+records also freeze the observed practice rows and the fixed
+`practice_rank_softmax_12_v1` reference. This uses `exp(12 * normalized_rank)`;
+the strength is `1 - (position - 1) / (field_size - 1)`, with a fixed .5
+strength for drivers missing a timed practice observation. It requires at least
+half the field and completed, fetched practice before the recording deadline.
+No race outcomes fit this reference. Both forecasts use the same entrants and
+information boundary, and later scoring rebuilds the reference from the saved
+observations without fetching updated practice results.
+
+The score report separates probability loss on the actual winner from excess
+probability assigned to other outcomes, with each driver's contribution. This
+identifies losses against the reference; a physical explanation still requires
+a controlled experiment. Schema 1 and 2 records remain readable and score as
+before. See [the current error analysis](forecast-error-analysis.md).
+
 ```powershell
 python examples/record_race_forecast.py --race 17 --scenario dry --trials 100 --seed 42 --parallel --workers 4 --output output/forecasts/2026-round-17-dry.json
 python examples/score_recorded_forecast.py output/forecasts/2026-round-17-dry.json

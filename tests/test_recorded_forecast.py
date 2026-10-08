@@ -284,3 +284,81 @@ def test_cli_cancellation_restores_signal_handler_and_publishes_nothing(
     assert signal.getsignal(signal.SIGINT) is previous
     assert not path.exists()
     assert capsys.readouterr().out == ""
+
+
+def add_practice(loader):
+    practice_started = loader.instant-timedelta(hours=2)
+    loader._qualifying_forecast = {"practice_observations": {
+        "year": loader.instant.year, "round": loader.event["round"], "session_number": 1,
+        "practice_started_at": practice_started.isoformat(),
+        "fetched_at": loader.instant.isoformat(),
+        "source_url": "https://example.org/practice/1",
+        "rows": [{"driver": "AA", "position": 1, "lap_seconds": 90., "laps": 20},
+                 {"driver": "BB", "position": 2, "lap_seconds": 91., "laps": 20}],
+    }}
+
+
+@pytest.mark.parametrize("allocated", [False, True])
+def test_new_practice_records_freeze_reference_and_attribute_errors_without_refetching(
+    allocated, tmp_path, monkeypatch,
+):
+    loader = AllocationForecastLoader() if allocated else ForecastLoader()
+    add_practice(loader)
+    record = record_race_forecast(loader, loader.instant.year, loader.event["round"], trials=2,
+                                now=lambda: loader.instant)
+    assert record["schema_version"] == 3
+    path = save_recorded_forecast(tmp_path/"practice.json", record)
+    assert load_recorded_forecast(path) == record
+    round_number = loader.event["round"]
+    observations = [dict(result("AA", 1), round=round_number),
+                    dict(result("BB", 2), round=round_number)]
+    monkeypatch.setattr("f1sim.analysis.recorded_forecast.MonteCarloRunner.run",
+                        lambda *a, **k: pytest.fail("scoring must never rerun"))
+    loader._qualifying_forecast["practice_observations"]["rows"][0]["position"] = 2
+    scored = score_recorded_forecast(record, loader, observations, [])
+    assert scored["practice_reference"]["evidence"]["rows"][0]["position"] == 1
+    assert scored["winner_error_comparison"]["model_brier"] == scored["winner_score"]["brier_score"]
+    assert (scored["winner_error_comparison"]["winner_probability_loss_difference"]
+            + scored["winner_error_comparison"]["other_outcome_loss_difference"]
+            == pytest.approx(scored["winner_error_comparison"]["model_minus_reference_brier"]))
+
+
+def test_resealed_reference_tampering_and_schema_downgrade_are_rejected():
+    loader = ForecastLoader()
+    add_practice(loader)
+    record = record_race_forecast(loader, loader.instant.year, 2, trials=1,
+                                now=lambda: loader.instant)
+    for mutation in ("probabilities", "provenance", "schema"):
+        changed = deepcopy(record)
+        if mutation == "probabilities":
+            changed["practice_reference"]["probabilities"]["AA"] = .5
+        elif mutation == "provenance":
+            evidence = changed["provenance"]["qualifying_forecast"]["practice_observations"]
+            evidence["source_url"] = "changed"
+        else:
+            changed["schema_version"] = 1
+        changed["content_sha256"] = _digest({k: v for k, v in changed.items()
+                                            if k != "content_sha256"})
+        with pytest.raises(ValueError):
+            validate_recorded_forecast(changed)
+
+
+@pytest.mark.parametrize("name", ["SprintQualifying", "SprintShootout"])
+def test_recording_cutoff_is_first_qualifying_including_sprint(name):
+    loader = ForecastLoader()
+    sprint = loader.instant + timedelta(hours=2)
+    loader.event["sessions"][name] = {"date": sprint.date().isoformat(),
+                                      "time": sprint.time().isoformat()+"Z"}
+    record = record_race_forecast(loader, loader.instant.year, 2, trials=1,
+                                now=lambda: loader.instant)
+    assert datetime.fromisoformat(record["qualifying_starts_at"]) == sprint
+    with pytest.raises(ValueError, match="before qualifying"):
+        record_race_forecast(loader, loader.instant.year, 2, trials=1,
+                             now=lambda: sprint+timedelta(minutes=1))
+
+
+def test_missing_sprint_qualifying_time_cannot_certify_a_pre_first_qualifying_forecast():
+    loader = ForecastLoader()
+    loader.event["sprint"] = True
+    with pytest.raises(ValueError, match="sprint qualifying"):
+        record_race_forecast(loader, loader.instant.year, 2, trials=1)
