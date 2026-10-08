@@ -128,7 +128,7 @@ class DriverStats(BaseModel):
     team_pace_rating: float = Field(default=0.85, ge=0.0, le=1.0)
     qualifying_pace_adjustment: float = Field(default=0.0, ge=-.1, le=.1, allow_inf_nan=False)
     qualifying_pace_source: Literal[
-        "native", "earlier_team_q1", "native_residual_fallback",
+        "native", "earlier_team_q1", "native_residual_fallback", "current_practice",
     ] = "native"
     qualifying_pace_training_rounds: tuple[int, ...] = ()
     consistency_rating: float = Field(default=0.94, ge=0.0, le=1.0)
@@ -921,6 +921,7 @@ class CurrentSeasonDataLoader:
         self._http_retries: list[dict[str, Any]] = []
         self._last_completed_rounds: list[int] = []
         self._last_qualifying_rounds: list[int] = []
+        self._qualifying_forecast: dict[str, Any] | None = None
 
     # ------------------------------------------------------------------
     # HTTP and season validation
@@ -1290,6 +1291,7 @@ class CurrentSeasonDataLoader:
         self._failed_urls.clear()
         self._last_completed_rounds.clear()
         self._last_qualifying_rounds.clear()
+        self._qualifying_forecast = None
         self._http_retries.clear()
         self._last_request_monotonic = 0.0
         self._fetch_budget_started = time.monotonic()
@@ -1309,6 +1311,8 @@ class CurrentSeasonDataLoader:
             "urls": list(dict.fromkeys(self._fetched_urls)),
             "completed_rounds": list(self._last_completed_rounds),
             "qualifying_rounds": list(self._last_qualifying_rounds),
+            **({"qualifying_forecast": copy.deepcopy(self._qualifying_forecast)}
+               if self._qualifying_forecast is not None else {}),
             **({"http_retries": copy.deepcopy(self._http_retries)} if self._http_retries else {}),
         }
 
@@ -2625,9 +2629,12 @@ class CurrentSeasonDataLoader:
         from f1sim.analysis.qualifying_calibration import DEFAULT_CURRENT_QUALIFYING_CALIBRATION
 
         if DEFAULT_CURRENT_QUALIFYING_CALIBRATION and quali_weight > 0:
-            stats, _ = self._calibrate_qualifying_stats(
+            stats, self._qualifying_forecast = self._calibrate_qualifying_stats(
                 stats, year, target_event, *self._season_data(year), self.get_event_schedule(year),
+                fetch_practice=True,
             )
+        else:
+            self._qualifying_forecast = None
         self._driver_stats = stats
         return copy.deepcopy(stats)
 
@@ -2655,7 +2662,8 @@ class CurrentSeasonDataLoader:
         return build_teammate_allocation({driver.id: driver.team_id for driver in drivers},
                                         earlier, cutoff_round=target - 1)
 
-    def _calibrate_qualifying_stats(self, stats, year, event, results, qualifying, events):
+    def _calibrate_qualifying_stats(self, stats, year, event, results, qualifying, events, *,
+                                  fetch_practice=False):
         """Return qualifying-adjusted stats and evidence without altering race ratings."""
         from f1sim.analysis.qualifying_calibration import calibrate_qualifying_drivers
         from f1sim.analysis.qualifying_history import build_historical_q1_events
@@ -2678,17 +2686,47 @@ class CurrentSeasonDataLoader:
             self.create_drivers_from_stats(stats), self.create_cars_from_stats(stats),
             track, history, target,
         )
-        if evidence.get("candidate_fallback") or not evidence.get("training_rounds"):
-            return copy.deepcopy(stats), evidence
-        output = {}
-        for driver in drivers:
-            coverage = evidence["source_coverage"][driver.team_id]
-            output[driver.id] = stats[driver.id].model_copy(update={
-                "qualifying_pace_adjustment": driver.qualifying_pace_adjustment,
-                "qualifying_pace_source": ("earlier_team_q1" if coverage["events"] else
-                                           "native_residual_fallback"),
-                "qualifying_pace_training_rounds": tuple(coverage["rounds"]),
-            })
+        output = copy.deepcopy(stats)
+        if not evidence.get("candidate_fallback") and evidence.get("training_rounds"):
+            for driver in drivers:
+                coverage = evidence["source_coverage"][driver.team_id]
+                output[driver.id] = stats[driver.id].model_copy(update={
+                    "qualifying_pace_adjustment": driver.qualifying_pace_adjustment,
+                    "qualifying_pace_source": ("earlier_team_q1" if coverage["events"] else
+                                               "native_residual_fallback"),
+                    "qualifying_pace_training_rounds": tuple(coverage["rounds"]),
+                })
+        # Historical holdout assembly deliberately does not fetch target sessions.
+        # Live inference may use completed practice before the first qualifying.
+        if fetch_practice and year == 2026:
+            from f1sim.analysis.practice_qualifying import calibrate_practice_qualifying_drivers
+            from f1sim.data.practice import build_current_qualifying_history, fetch_current_practice
+
+            try:
+                practice = fetch_current_practice(self, year, event, drivers, now=_utc_now())
+                if practice is None:
+                    return output, {**evidence, "practice_fallback": "no_usable_completed_practice"}
+                prefix = build_current_qualifying_history(
+                    self, events, results, qualifying, before_round=target,
+                )
+                adjusted, forecast = calibrate_practice_qualifying_drivers(
+                    self.create_drivers_from_stats(output), self.create_cars_from_stats(output),
+                    track, prefix, practice, year=year, target_round=target,
+                    circuit=event["circuit_id"],
+                )
+                if forecast.get("candidate_fallback"):
+                    return output, {**evidence, "practice_fallback": forecast["candidate_fallback"]}
+                output = {driver.id: output[driver.id].model_copy(update={
+                    "qualifying_pace_adjustment": driver.qualifying_pace_adjustment,
+                    "qualifying_pace_source": "current_practice",
+                    "qualifying_pace_training_rounds": tuple(forecast["history_rounds"]),
+                }) for driver in adjusted}
+                evidence = {**forecast, "practice_source_url": practice["source_url"],
+                            "practice_started_at": practice["practice_started_at"],
+                            "practice_identity_coverage": practice["identity_coverage"]}
+            except (CurrentSeasonDataError, ValueError) as error:
+                evidence = {**evidence, "practice_fallback": "invalid_or_unavailable_practice",
+                            "practice_reason": str(error)}
         return output, evidence
 
     def _build_driver_stats(

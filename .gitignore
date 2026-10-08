@@ -33,6 +33,8 @@ Thumbs.db
 /output/
 *.csv
 *.json
+# Fixed fitted coefficients are model parameters, not persisted live feeds.
+!src/f1sim/analysis/parameters/*.json
 
 # Jupyter
 .ipynb_checkpoints/

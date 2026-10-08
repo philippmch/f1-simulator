@@ -535,6 +535,13 @@ laps against Q1/Q2/Q3. The additional checks reduced pace error by 11% in Q2
 and 2.9% in Q3, while position ranking worsened in those sessions. See the
 [validation and deployment limits](docs/pace-evaluation.md#qualifying-only-calibration-validation).
 
+When completed pre-qualifying practice is available, the 2026 model now uses
+[practice-informed qualifying pace](docs/practice-qualifying.md). On 16 revised
+historical events, Q1 absolute lap-time error fell from 1.95 to 0.46 seconds
+and rank error from 3.33 to 2.55 places. Q2/Q3 also improved. Missing practice
+retains the earlier-team policy. These are qualifying gains; the paired
+race-winner comparison remains inconclusive.
+
 For race-winner probability evaluation, run
 `python examples/evaluate_race_probabilities.py --race 14 --trials 100 --seed 42`
 or select `--all` for all completed current-season targets. Each forecast uses
