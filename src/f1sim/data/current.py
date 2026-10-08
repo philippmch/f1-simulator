@@ -2666,6 +2666,52 @@ class CurrentSeasonDataLoader:
         self._driver_stats = stats
         return copy.deepcopy(stats)
 
+    def prefer_native_winner_forecast(
+        self, year, target_race, drivers, weather, *, qualifying_weather=None,
+        weather_schedule=None, starting_grid=None,
+    ):
+        """Use native chances for dry, practice-informed pre-qualifying runs.
+
+        The older point allocation was measured with the earlier qualifying
+        model. Current practice now supplies driver separation in the native
+        forecasts; pooling those chances back to points loses that information.
+        Unknown cutoffs and other forecast contexts retain the earlier policy.
+        """
+        from f1sim.analysis.practice_qualifying import PRACTICE_QUALIFYING_POLICY
+        from f1sim.data.practice import _timestamp
+
+        self._assert_current_year(year)
+        forecast = self._qualifying_forecast
+        if (year != 2026 or not isinstance(forecast, dict)
+                or forecast.get("policy") != PRACTICE_QUALIFYING_POLICY
+                or forecast.get("year") != year or forecast.get("candidate_fallback")
+                or qualifying_weather or weather_schedule or starting_grid is not None
+                or weather.rain_intensity != 0 or weather.track_wetness != 0
+                or weather.change_probability != 0):
+            return False
+        event = self._event_for_race(year, target_race)
+        if forecast.get("target_round") != int(event["round"]):
+            return False
+        sessions = event.get("sessions", {})
+        starts = [_timestamp(sessions.get(name))
+                  for name in ("Qualifying", "SprintQualifying", "SprintShootout")]
+        if event.get("sprint") and not any(starts[1:]):
+            return False
+        known = [start for start in starts if start is not None]
+        if not known or _utc_now() >= min(known):
+            return False
+        stats = self._driver_stats
+        if (not isinstance(stats, dict) or not drivers
+                or set(stats) != {driver.id for driver in drivers}):
+            return False
+        return all(
+            stats[driver.id].qualifying_pace_source == "current_practice"
+            and stats[driver.id].team_id == driver.team_id
+            and stats[driver.id].driver_skill_rating == driver.skill_rating
+            and stats[driver.id].qualifying_pace_adjustment == driver.qualifying_pace_adjustment
+            for driver in drivers
+        )
+
     def get_winner_allocation(self, year, target_race, drivers):
         """Freeze earlier Grand Prix points for the current modeled seats."""
         from f1sim.analysis.teammate_forecast import build_teammate_allocation

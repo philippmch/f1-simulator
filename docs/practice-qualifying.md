@@ -106,6 +106,12 @@ convincing winner improvement, even though the aggregate does not regress.
 The qualifying change is promoted for its measured qualifying improvement;
 the overall winner-quality milestone remains unmet.
 
+The subsequent [practice-era winner reporting comparison](practice-winner-forecast.md)
+uses complete 22-driver fields and finds that retaining the native simulated
+probabilities improves over redistributing them to earlier teammate points.
+That scoped reporting correction reduces winner Brier by 6.3% over 16
+400-trial events; the broader winner milestone still remains open.
+
 Before calling the app a strong race predictor, it needs a race-performance
 signal that improves winner probabilities beyond these unstable results and
 prospectively sealed forecasts with appropriate information cutoffs. Merely

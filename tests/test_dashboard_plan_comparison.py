@@ -8,6 +8,7 @@ import pytest
 
 from f1sim.analysis.cancellation import SimulationCancelled
 from f1sim.analysis.replay import replay_saved_simulation
+from f1sim.analysis.teammate_forecast import build_teammate_allocation
 from f1sim.models import Car, Driver, Track
 from f1sim.simulation.randomness import DEFAULT_RNG_POLICY
 from f1sim.web import server
@@ -93,6 +94,39 @@ def offline_loader(monkeypatch):
     monkeypatch.setattr(server, "_current_season", lambda: 2026)
     monkeypatch.setattr(server, "_get_loader", lambda: loader)
     return loader
+
+
+def test_winner_policy_is_selected_per_weather_and_shared_with_reference(monkeypatch, tmp_path):
+    loader = MultiDriverLoader()
+    choices = []
+    allocations = []
+
+    def prefer(year, race, drivers, weather, **context):
+        choices.append((weather.rain_intensity, context))
+        return weather.rain_intensity == 0
+
+    def allocate(year, race, drivers):
+        allocations.append(race)
+        return build_teammate_allocation({d.id: d.team_id for d in drivers}, [], cutoff_round=0)
+
+    monkeypatch.setattr(loader, "prefer_native_winner_forecast", prefer, raising=False)
+    monkeypatch.setattr(loader, "get_winner_allocation", allocate, raising=False)
+    monkeypatch.setattr(server, "_current_season", lambda: 2026)
+    monkeypatch.setattr(server, "_get_loader", lambda: loader)
+    payload = server.run_dashboard_simulation(_request())
+    assert len(choices) == 2 and allocations == [1]
+    assert choices[0][0] == 0 and choices[1][0] > 0
+    assert all(context == {"qualifying_weather": None, "weather_schedule": None,
+                           "starting_grid": None} for _, context in choices)
+    for result in (payload, payload["automatic_reference"]):
+        assert "winner_forecast" not in result["scenarios"]["dry"]
+        assert result["scenarios"]["light_rain"]["winner_forecast"]["policy"] == (
+            "teammate_race_points_v1"
+        )
+        path = tmp_path / ("custom.json" if result is payload else "reference.json")
+        path.write_text(json.dumps(result), encoding="utf-8")
+        replayed = replay_saved_simulation(path, 1, "dry")
+        assert replayed.winner_allocation is None
 
 
 @pytest.mark.parametrize(

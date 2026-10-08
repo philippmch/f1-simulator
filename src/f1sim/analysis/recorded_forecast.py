@@ -17,6 +17,7 @@ from f1sim.analysis.race_probability_scores import score_winner_counts, summariz
 from f1sim.analysis.replay import _load_saved_runner
 from f1sim.analysis.teammate_forecast import score_teammate_forecast, teammate_winner_forecast
 from f1sim.analysis.winner_baselines import build_winner_baselines, score_saved_winner_baselines
+from f1sim.analysis.winner_policy import simulation_winner_allocation
 from f1sim.cancellation import raise_if_cancelled
 from f1sim.models import Weather
 
@@ -119,8 +120,7 @@ def record_race_forecast(loader, year, target_race, *, trials=100, seed=42, weat
         deep=True, update={"change_probability": 0.0},
     )
     raise_if_cancelled(cancel_requested)
-    allocation_method = getattr(loader, "get_winner_allocation", None)
-    allocation = allocation_method(year, target, drivers) if callable(allocation_method) else None
+    allocation = simulation_winner_allocation(loader, year, target, drivers, assumed)
     runner = MonteCarloRunner(
         drivers, cars, track, assumed, seed=seed,
         **({"winner_allocation": allocation} if allocation is not None else {}),

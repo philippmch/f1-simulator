@@ -39,6 +39,7 @@ from f1sim.analysis.strategy_selection import (
     prepare_pit_plan_selection,
     validate_pit_plan_selection_request,
 )
+from f1sim.analysis.winner_policy import simulation_winner_allocation
 from f1sim.data import CurrentSeasonDataError, CurrentSeasonDataLoader
 from f1sim.models import Weather, WeatherCondition
 from f1sim.output.comparison import (
@@ -864,9 +865,6 @@ def run_dashboard_simulation(
     if grid is not None:
         # Every weather, reference and strategy variant inherits the same grid.
         request = replace(request, starting_grid=grid)
-    allocation_method = getattr(loader, "get_winner_allocation", None)
-    winner_allocation = (allocation_method(request.year, round_number, drivers)
-                         if callable(allocation_method) else None)
     tire_inventory = validate_tire_inventory(
         request.tire_inventory, request.starting_tires, request.starting_tire_ages,
         (d.id for d in drivers),
@@ -1002,6 +1000,11 @@ def run_dashboard_simulation(
         }
         if cancel_requested is not None:
             run_kwargs["cancel_requested"] = cancel_requested
+        winner_allocation = simulation_winner_allocation(
+            loader, request.year, round_number, drivers, scenario.weather,
+            qualifying_weather=request.qualifying_weather,
+            weather_schedule=request.weather_schedule, starting_grid=request.starting_grid,
+        )
         result = runner.run(**run_kwargs)
         if winner_allocation is not None:
             result.winner_allocation = deepcopy(winner_allocation)

@@ -30,6 +30,7 @@ from f1sim.analysis import (
     parse_scenario_labels,
     scenario_weather_from_label,
 )
+from f1sim.analysis.winner_policy import simulation_winner_allocation
 from f1sim.data import CurrentSeasonDataLoader
 from f1sim.models import Weather, WeatherCondition
 from f1sim.output import ConsoleOutput, Exporter
@@ -358,9 +359,6 @@ def main() -> int:
                      and callable(grid_method) else None)
     print("Race grid: " + ("published starting order" if starting_grid is not None
                            else "simulated qualifying"))
-    allocation_method = getattr(loader, "get_winner_allocation", None)
-    winner_allocation = (allocation_method(current_season, args.race, drivers)
-                         if callable(allocation_method) else None)
     try:
         compounds, ages = args.starting_tires or ({}, {})
         tire_inventory = validate_tire_inventory(
@@ -431,6 +429,11 @@ def main() -> int:
         scenario_seed = args.seed + idx * 1000
 
         print(f"\n--- Scenario: {scenario.name} (seed={scenario_seed}) ---")
+        winner_allocation = simulation_winner_allocation(
+            loader, current_season, args.race, drivers, scenario.weather,
+            qualifying_weather=args.qualifying_weather,
+            weather_schedule=weather_schedule, starting_grid=starting_grid,
+        )
         runner = MonteCarloRunner(
             drivers=drivers,
             cars=cars,
