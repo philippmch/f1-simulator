@@ -8,7 +8,7 @@ import os
 import time
 from collections.abc import Callable
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from importlib.resources import files
 from threading import Event
@@ -46,6 +46,7 @@ from f1sim.output.comparison import (
     render_rival_strategy_selection_report,
 )
 from f1sim.output.control_schedule_context import control_schedule_context
+from f1sim.output.grid_context import race_grid_context
 from f1sim.output.qualifying_context import qualifying_weather_context
 from f1sim.output.timing import finite_time, suspension_statistics
 from f1sim.output.weather_schedule_context import weather_schedule_context
@@ -54,6 +55,7 @@ from f1sim.simulation.control_schedule import control_schedule_policy, validate_
 from f1sim.simulation.execution import (
     DEFAULT_RACE_ENGINE,
     validate_race_engine,
+    validate_starting_grid,
     validate_starting_tire_ages,
     validate_starting_tires,
 )
@@ -154,6 +156,8 @@ class DashboardRunRequest:
     scenarios: str = "dry,light_rain"
     seed: StrictInt = 42
     qualifying_mode: str = "simulated"
+    race_grid_mode: str = "auto"
+    starting_grid: list[StrictStr] | None = None
     parallel: StrictBool = True
     max_workers: StrictInt | None = None
     race_engine: str = DEFAULT_RACE_ENGINE
@@ -185,6 +189,11 @@ def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
     """Validate resource bounds and return all scenarios before live I/O."""
 
     validate_weather_mode(request.weather_mode)
+    if request.race_grid_mode not in ("auto", "simulated"):
+        raise ValueError("race_grid_mode must be auto or simulated")
+    validate_starting_grid(request.starting_grid)
+    if request.starting_grid is not None and request.race_grid_mode == "simulated":
+        raise ValueError("starting_grid conflicts with simulated race_grid_mode")
     validate_control_schedule(request.control_schedule)
     validate_weather_schedule(request.weather_schedule)
     validate_qualifying_weather(request.qualifying_weather)
@@ -590,6 +599,9 @@ def _summarize_scenario_results(
             ) or {},
             "suspension_statistics": suspension_statistics(results),
             "simulation_inputs": getattr(results, "input_snapshot", None),
+            **({"race_grid_context": context} if (context := race_grid_context(
+                getattr(results, "input_snapshot", None),
+            )) else {}),
             "control_schedule_statistics": _safe_call(
                 results, "get_control_schedule_statistics", default={},
             ) or {},
@@ -738,6 +750,10 @@ def _dashboard_runner(
         kwargs["starting_tire_ages"] = copy_value(starting_tire_ages)
     if pit_plans:
         kwargs["pit_plans"] = copy_value(pit_plans)
+    if request.starting_grid is not None:
+        kwargs["starting_grid"] = validate_starting_grid(
+            request.starting_grid, (d.id for d in drivers),
+        )
     return MonteCarloRunner(**kwargs)
 
 
@@ -769,6 +785,9 @@ def _dashboard_request_metadata(
         "pit_plans": deepcopy(pit_plans),
         "weather_mode": request.weather_mode,
         "qualifying_mode": "simulated",
+        "race_grid_mode": request.race_grid_mode,
+        **({"starting_grid": request.starting_grid.copy()}
+           if request.starting_grid is not None else {}),
         "parallel": request.parallel,
         "max_workers": effective_max_workers,
         "requested_max_workers": request.max_workers,
@@ -837,6 +856,14 @@ def run_dashboard_simulation(
 
     _check_dashboard_cancellation(cancel_requested)
     drivers = loader.create_drivers_from_stats(driver_stats)
+    grid = validate_starting_grid(request.starting_grid, (d.id for d in drivers))
+    grid_method = getattr(loader, "get_starting_grid", None)
+    if (grid is None and request.race_grid_mode == "auto"
+            and not request.qualifying_weather and callable(grid_method)):
+        grid = grid_method(request.year, request.race, drivers)
+    if grid is not None:
+        # Every weather, reference and strategy variant inherits the same grid.
+        request = replace(request, starting_grid=grid)
     allocation_method = getattr(loader, "get_winner_allocation", None)
     winner_allocation = (allocation_method(request.year, round_number, drivers)
                          if callable(allocation_method) else None)

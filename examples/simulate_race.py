@@ -263,6 +263,11 @@ def main() -> int:
              "Disabled by default; opening and qualifying tyres are ready. Not calibrated.",
     )
     parser.add_argument(
+        "--race-grid", choices=("auto", "simulated"), default="auto",
+        help="Use a fresh complete published race grid after qualifying (default auto), "
+             "or keep simulated qualifying. Custom qualifying weather keeps the simulated grid.",
+    )
+    parser.add_argument(
         "--qualifying-weather", type=_qualifying_weather,
         help='Optional JSON object with Q1/Q2/Q3 Weather fields; each session is fixed. '
              'Omitted sessions use each race scenario weather.',
@@ -347,6 +352,12 @@ def main() -> int:
     # Create models from fresh current-season data.
     print("\nCreating simulation models...")
     drivers = loader.create_drivers_from_stats(driver_stats)
+    grid_method = getattr(loader, "get_starting_grid", None)
+    starting_grid = (grid_method(current_season, args.race, drivers)
+                     if args.race_grid == "auto" and not args.qualifying_weather
+                     and callable(grid_method) else None)
+    print("Race grid: " + ("published starting order" if starting_grid is not None
+                           else "simulated qualifying"))
     allocation_method = getattr(loader, "get_winner_allocation", None)
     winner_allocation = (allocation_method(current_season, args.race, drivers)
                          if callable(allocation_method) else None)
@@ -436,6 +447,7 @@ def main() -> int:
             **({"weather_schedule": weather_schedule} if weather_schedule else {}),
             **({"control_schedule": control_schedule} if control_schedule is not None else {}),
             **({"winner_allocation": winner_allocation} if winner_allocation is not None else {}),
+            **({"starting_grid": starting_grid} if starting_grid is not None else {}),
         )
 
         scenario_result = runner.run(

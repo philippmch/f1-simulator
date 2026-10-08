@@ -114,6 +114,13 @@ def red_flag_action_description(action):
 def validate_control_schedule_snapshot(snapshot, schedule):
     """Reject old inputs that would silently drop the experiment's control source."""
     version = snapshot.get("schema_version")
+    if version == 14:
+        if any(key in snapshot for key in ("control_schedule", "control_schedule_policy")):
+            if (schedule is None or "control_schedule" not in snapshot
+                    or snapshot.get("control_schedule_policy")
+                    != control_schedule_policy(schedule)):
+                raise ValueError("Schema 14 control schedule requires its supported policy")
+        return
     if type(version) is int and version in (11, 12, 13):
         expected = {11: CONTROL_SCHEDULE_POLICY, 12: RED_FLAG_CONTROL_SCHEDULE_POLICY,
                     13: WET_RESUMPTION_CONTROL_SCHEDULE_POLICY}[version]

@@ -8,6 +8,32 @@ RACE_ENGINES = ("standard", "chronological")
 DEFAULT_RACE_ENGINE = "chronological"
 
 
+def validate_starting_grid(value, driver_ids=None):
+    """Copy a complete ordered race grid; None keeps simulated qualifying."""
+    if value is None:
+        return None
+    if not isinstance(value, list) or not 1 <= len(value) <= 30:
+        raise ValueError("starting_grid must be a nonempty ordered list of at most 30 driver IDs")
+    if any(not isinstance(driver, str) or not driver.strip() for driver in value):
+        raise ValueError("starting_grid driver IDs must be nonempty strings")
+    if len(set(value)) != len(value):
+        raise ValueError("starting_grid must not contain duplicate drivers")
+    if driver_ids is not None and set(value) != set(driver_ids):
+        raise ValueError("starting_grid must contain every modeled driver exactly once")
+    return value.copy()
+
+
+def validate_starting_grid_snapshot(snapshot, driver_ids):
+    version = snapshot.get("schema_version")
+    if version == 14:
+        if "starting_grid" not in snapshot or snapshot["starting_grid"] is None:
+            raise ValueError("Schema 14 requires an explicit starting_grid")
+        return validate_starting_grid(snapshot["starting_grid"], driver_ids)
+    if "starting_grid" in snapshot:
+        raise ValueError("Explicit starting_grid requires schema 14")
+    return None
+
+
 def validate_starting_tires(
     value: object, driver_ids: Iterable[str] | None = None,
 ) -> dict[str, str]:

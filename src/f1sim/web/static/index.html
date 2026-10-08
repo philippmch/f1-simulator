@@ -2038,6 +2038,13 @@ input:focus-visible {
         </select>
       </div>
       <div class="control-group">
+        <label class="control-label" for="raceGridModeSelect">Race grid</label>
+        <select id="raceGridModeSelect" title="After qualifying, use the latest complete published race order. Custom qualifying weather keeps the simulated grid.">
+          <option value="auto" selected>Published when available</option>
+          <option value="simulated">Simulated qualifying</option>
+        </select>
+      </div>
+      <div class="control-group">
         <label class="control-label" for="raceEngineSelect">Race model</label>
         <select id="raceEngineSelect" title="Lap-aware models individual car timing and lapped finishes. Standard is faster for large batches.">
           <option value="standard">Standard</option>
@@ -4874,6 +4881,7 @@ function buildRunPayload() {
     scenarios: getScenarioSetValue(),
     seed,
     qualifying_mode: 'simulated',
+    race_grid_mode: document.getElementById('raceGridModeSelect').value,
     race_engine: document.getElementById('raceEngineSelect').value,
     rng_policy: rngPolicy,
     starting_tires: tyreSetup.startingTires,
@@ -5123,7 +5131,7 @@ function renderInventorySnapshot(scenario) {
   if (saved && Object.hasOwn(saved, 'tire_inventory')) inventory = saved.tire_inventory;
   else if (request && Object.hasOwn(request, 'tire_inventory')) inventory = request.tire_inventory;
   else if (Number.isInteger(saved?.schema_version) && saved.schema_version >= 1
-      && saved.schema_version <= 13 && saved.schema_version !== 4) inventory = null;
+      && saved.schema_version <= 14 && saved.schema_version !== 4) inventory = null;
   else return '<div class="race-meta">Race tyre stock: input not recorded</div>';
   if (inventory === null || (inventory && typeof inventory === 'object'
       && !Array.isArray(inventory) && !Object.keys(inventory).length)) {
@@ -5672,7 +5680,7 @@ function renderRace() {
 
   const pills = [
     simResults.provenance?.source || 'Fresh current-season data',
-    'Simulated qualifying',
+    scenario.simulation_inputs?.starting_grid ? 'Supplied race grid' : 'Simulated qualifying',
     (scenario.race_engine || simResults.request?.race_engine) === 'chronological'
       ? 'Lap-aware model' : 'Standard race model',
     Number.isInteger(scenario.sample_index) ? `Representative run ${scenario.sample_index + 1}` : '',
@@ -5699,6 +5707,7 @@ function renderRace() {
         ${renderWarmupSnapshot(scenario)}
         ${renderWeatherScheduleSnapshot(scenario)}
         ${renderQualifyingWeatherSnapshot(scenario)}
+        ${scenario.race_grid_context ? `<div class="race-meta">${escapeHtml(scenario.race_grid_context)}</div>` : ''}
         <div class="race-meta">Completed race suspension: ${formatSuspensionSeconds(sampleSuspension)}</div>
         <div class="race-meta">${abandonment ? 'Race-wide collection and decision waiting. Countback clocks exclude later running and suspension.' : "Race-wide collection + restart pause; already in finish clocks, not an individual driver's stopped or driving time."}</div>
         <div class="race-meta">${escapeHtml(track.country || 'Unknown country')} &middot; Scenario ${escapeHtml(titleFromKey(name))}${topTeam ? ` &middot; Top constructor ${escapeHtml(topTeam[0])}` : ''}</div>

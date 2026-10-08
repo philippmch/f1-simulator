@@ -21,7 +21,7 @@ def control_schedule_statistics(snapshot, histories, recorded_races, expected_ra
     if not isinstance(snapshot, dict):
         return summary
     if (type(snapshot.get("schema_version")) is not int
-            or snapshot["schema_version"] not in range(1, 14)):
+            or snapshot["schema_version"] not in range(1, 15)):
         summary["source"] = "invalid"
         return summary
     try:

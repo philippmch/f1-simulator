@@ -9,6 +9,7 @@ from f1sim.output.control_schedule_context import (
     control_schedule_context,
     control_schedule_evidence_text,
 )
+from f1sim.output.grid_context import race_grid_context
 from f1sim.output.paired_context import (
     FINISHED_TIME_NOTE,
     finished_race_time_text,
@@ -248,6 +249,8 @@ class ConsoleOutput:
                 print(f"  {context}")
             if context := qualifying_weather_context(results[label].input_snapshot):
                 print(f"  {context}")
+            if context := race_grid_context(results[label].input_snapshot):
+                print(f"  {context}")
             if context := weather_schedule_context(results[label].input_snapshot):
                 print(f"  {context}")
             if context := control_schedule_context(results[label].input_snapshot):
@@ -427,6 +430,8 @@ class ConsoleOutput:
         if context := warmup_context(results.input_snapshot):
             print(context)
         if context := qualifying_weather_context(results.input_snapshot):
+            print(context)
+        if context := race_grid_context(results.input_snapshot):
             print(context)
         if context := weather_schedule_context(results.input_snapshot):
             print(context)
@@ -684,6 +689,8 @@ class ConsoleOutput:
         for label, result in scenario_results.items():
             print(f"{label}: {scoring_statistics_text(result)}")
             if context := qualifying_weather_context(result.input_snapshot):
+                print(f"{label}: {context}")
+            if context := race_grid_context(result.input_snapshot):
                 print(f"{label}: {context}")
             if context := weather_schedule_context(result.input_snapshot):
                 print(f"{label}: {context}")

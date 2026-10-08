@@ -59,6 +59,8 @@ def _runner_variant(runner: MonteCarloRunner, **overrides) -> MonteCarloRunner:
         values["weather_schedule"] = deepcopy(runner.weather_schedule)
     if getattr(runner, "control_schedule", None) is not None:
         values["control_schedule"] = deepcopy(runner.control_schedule)
+    if getattr(runner, "starting_grid", None) is not None:
+        values["starting_grid"] = runner.starting_grid.copy()
     values.update(overrides)
     return MonteCarloRunner(
         [driver.model_copy(deep=True) for driver in runner.drivers],
@@ -143,6 +145,8 @@ def compare_saved_race_engines(
                if getattr(runner, "control_schedule", None) is not None else {}),
             **({"qualifying_weather": deepcopy(runner.qualifying_weather)}
                if getattr(runner, "qualifying_weather", None) else {}),
+            **({"starting_grid": runner.starting_grid.copy()}
+               if getattr(runner, "starting_grid", None) is not None else {}),
         )
         results[label] = variant.run(
             int(num_simulations), parallel=parallel,
@@ -226,6 +230,8 @@ def compare_saved_starting_tires(
                if getattr(runner, "control_schedule", None) is not None else {}),
             **({"qualifying_weather": deepcopy(runner.qualifying_weather)}
                if getattr(runner, "qualifying_weather", None) else {}),
+            **({"starting_grid": runner.starting_grid.copy()}
+               if getattr(runner, "starting_grid", None) is not None else {}),
         )
         variant_runners[label] = variant
 

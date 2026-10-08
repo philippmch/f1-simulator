@@ -7,7 +7,7 @@ A Formula 1 race simulator whose live runs use **only the current UTC season**. 
 - Fetches the current active calendar from Jolpica, including mid-season cancellations and replacement venues.
 - Fetches the official 22-seat lineup from Formula1.com so reserve, former, and FP-only drivers do not enter the grid.
 - Calibrates driver form and team pace from completed current-season races, retaining observed finish rates separately from mechanical reliability assumptions.
-- Simulates qualifying for every run; a completed event's real grid or result is never replayed.
+- Simulates qualifying lap results. After Grand Prix qualifying, live runs can use a fresh complete published race starting order; before qualifying, the grid remains simulated. [Grid policy and limits](docs/published-grid.md).
 - Runs completed and future current-season venues. Future races use the live event identity plus circuit physics configuration and current-season form.
 - Keeps fetched F1 data in short-lived memory only. It does not create a data cache or silently fall back to an older season.
 - Returns source and fetch-time provenance with calendar, ratings, and simulation responses.

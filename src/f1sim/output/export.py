@@ -12,6 +12,7 @@ from uuid import uuid4
 from f1sim.analysis.montecarlo import SimulationResults
 from f1sim.output.abandonment_context import abandonment_statistics_html
 from f1sim.output.control_schedule_context import control_schedule_statistics_html
+from f1sim.output.grid_context import race_grid_context
 from f1sim.output.qualifying_context import qualifying_weather_context
 from f1sim.output.scoring_context import scoring_statistics_html
 from f1sim.output.timing import (
@@ -714,6 +715,8 @@ class Exporter:
         warmup_html = f"<p>{warmup_text}</p>" if warmup_text else ""
         qualifying_text = escape(qualifying_weather_context(results.input_snapshot))
         qualifying_html = f"<p>{qualifying_text}</p>" if qualifying_text else ""
+        grid_text = escape(race_grid_context(results.input_snapshot))
+        qualifying_html += f"<p>{grid_text}</p>" if grid_text else ""
         schedule_text = escape(weather_schedule_context(results.input_snapshot))
         schedule_html = f"<p>{schedule_text}</p>" if schedule_text else ""
         control_html = control_schedule_statistics_html(results)

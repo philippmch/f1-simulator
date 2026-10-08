@@ -922,6 +922,7 @@ class CurrentSeasonDataLoader:
         self._last_completed_rounds: list[int] = []
         self._last_qualifying_rounds: list[int] = []
         self._qualifying_forecast: dict[str, Any] | None = None
+        self._race_grid: dict[str, Any] | None = None
 
     # ------------------------------------------------------------------
     # HTTP and season validation
@@ -1292,6 +1293,7 @@ class CurrentSeasonDataLoader:
         self._last_completed_rounds.clear()
         self._last_qualifying_rounds.clear()
         self._qualifying_forecast = None
+        self._race_grid = None
         self._http_retries.clear()
         self._last_request_monotonic = 0.0
         self._fetch_budget_started = time.monotonic()
@@ -1313,11 +1315,37 @@ class CurrentSeasonDataLoader:
             "qualifying_rounds": list(self._last_qualifying_rounds),
             **({"qualifying_forecast": copy.deepcopy(self._qualifying_forecast)}
                if self._qualifying_forecast is not None else {}),
+            **({"race_grid": copy.deepcopy(self._race_grid)}
+               if self._race_grid is not None else {}),
             **({"http_retries": copy.deepcopy(self._http_retries)} if self._http_retries else {}),
         }
 
     def get_provenance(self) -> dict[str, Any]:
         return copy.deepcopy(self.provenance)
+
+    def get_starting_grid(self, year, race, drivers) -> list[str] | None:
+        """Prefer a fresh complete published GP grid after qualifying.
+
+        Unavailable, incomplete and unsupported pit-lane grids retain simulated
+        qualifying. No persisted result grid is used as a live fallback.
+        """
+        from f1sim.data.grid import fetch_current_starting_grid
+
+        self._assert_current_year(year)
+        self._race_grid = {"mode": "simulated", "reason": "qualifying_not_completed_or_unknown"}
+        try:
+            event = self._event_for_race(year, race)
+            evidence = fetch_current_starting_grid(
+                self, year, event, drivers, now=_utc_now(),
+            )
+        except CurrentSeasonDataError as error:
+            self._race_grid = {"mode": "simulated", "reason": "published_grid_unavailable",
+                               "detail": str(error)}
+            return None
+        if evidence is None:
+            return None
+        self._race_grid = {"mode": "published", **evidence}
+        return evidence["starting_grid"].copy()
 
     # ------------------------------------------------------------------
     # Current calendar

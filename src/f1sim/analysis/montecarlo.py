@@ -36,6 +36,7 @@ from f1sim.simulation.events import EventType
 from f1sim.simulation.execution import (
     DEFAULT_RACE_ENGINE,
     validate_race_engine,
+    validate_starting_grid,
     validate_starting_tire_ages,
     validate_starting_tires,
 )
@@ -1178,6 +1179,7 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     qualifying_weather = None
     weather_schedule = None
     control_schedule = None
+    supplied_grid = None
     rng_policy = "shared_v1"
     if len(args) == 5:
         drivers_data, cars_data, track_data, weather_data, seed = args
@@ -1218,6 +1220,13 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
                 "Simulation worker inputs must contain 5 through 13 items, "
                 "or 14 with a nonempty weather_schedule"
             )
+    elif len(args) == 16:
+        (drivers_data, cars_data, track_data, weather_data, seed,
+         race_engine, starting_tires, rng_policy, starting_tire_ages,
+         tire_inventory, pit_plans, tire_warmup, qualifying_weather,
+         weather_schedule, control_schedule, supplied_grid) = args
+        if supplied_grid is None:
+            raise ValueError("Sixteen-item worker inputs require starting_grid")
     elif len(args) == 15:
         (drivers_data, cars_data, track_data, weather_data, seed,
          race_engine, starting_tires, rng_policy, starting_tire_ages,
@@ -1229,7 +1238,8 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     else:
         raise ValueError(
             "Simulation worker inputs must contain 5 through 13 items, "
-            "14 with a nonempty weather_schedule, or 15 with control_schedule"
+            "14 with a nonempty weather_schedule, 15 with control_schedule, "
+            "or 16 with starting_grid"
         )
     qualifying_weather = validate_qualifying_weather(qualifying_weather)
     tire_warmup = validate_tire_warmup(tire_warmup)
@@ -1238,6 +1248,7 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
 
     # Reconstruct objects from serializable data
     drivers = [Driver.model_validate(d) for d in drivers_data]
+    supplied_grid = validate_starting_grid(supplied_grid, (driver.id for driver in drivers))
     opening_compounds = {
         key: TireCompound(value) for key, value in
         validate_starting_tires(starting_tires, (driver.id for driver in drivers)).items()
@@ -1270,7 +1281,8 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     quali_results = quali_sim.simulate_qualifying(
         drivers, cars, track, weather, **qualifying_kwargs,
     )
-    starting_grid = quali_sim.get_starting_grid(quali_results)
+    starting_grid = (supplied_grid if supplied_grid is not None else
+                     quali_sim.get_starting_grid(quali_results))
 
     # Run race
     race_kwargs = {
@@ -1369,6 +1381,7 @@ class MonteCarloRunner:
         weather_schedule: list[dict] | None = None,
         control_schedule: list[dict] | None = None,
         winner_allocation: dict | None = None,
+        starting_grid: list[str] | None = None,
     ):
         """Initialize Monte Carlo runner.
 
@@ -1392,6 +1405,8 @@ class MonteCarloRunner:
                 Openings and qualifying are ready; zero disables the sensitivity overlay.
             winner_allocation: Frozen earlier race points for reported win estimates;
                 does not affect the simulation or its native win counts.
+            starting_grid: Complete supplied race order, or None to use simulated qualifying.
+                Qualifying lap results are still simulated when a race grid is supplied.
         """
         self.control_schedule = validate_control_schedule(
             control_schedule, total_laps=getattr(track, "total_laps", None),
@@ -1403,6 +1418,9 @@ class MonteCarloRunner:
         self.tire_warmup = validate_tire_warmup(tire_warmup)
         self.race_engine = validate_race_engine(race_engine)
         self.rng_policy = validate_rng_policy(rng_policy)
+        self.starting_grid = validate_starting_grid(
+            starting_grid, (driver.id for driver in drivers),
+        )
         validate_unique_ids((driver.id for driver in drivers), "drivers")
         from f1sim.analysis.teammate_forecast import validate_teammate_allocation
 
@@ -1487,6 +1505,7 @@ class MonteCarloRunner:
             self.weather_schedule, total_laps=self.track.total_laps,
         )
         qualifying_weather = validate_qualifying_weather(self.qualifying_weather)
+        starting_grid = validate_starting_grid(self.starting_grid, (d.id for d in self.drivers))
         tire_warmup = validate_tire_warmup(self.tire_warmup)
         rng_policy = validate_rng_policy(self.rng_policy)
         starting_tires = validate_starting_tires(
@@ -1510,7 +1529,8 @@ class MonteCarloRunner:
         track_data = self.track.model_dump()
         weather_data = self.weather.model_dump()
         input_snapshot = {
-            "schema_version": (control_schedule_schema_version(control_schedule)
+            "schema_version": (14 if starting_grid is not None else
+                               control_schedule_schema_version(control_schedule)
                                if control_schedule is not None
                                else 10 if has_pit_plan_windows(pit_plans)
                                else 9 if has_tire_usage_limits(inventory)
@@ -1525,6 +1545,9 @@ class MonteCarloRunner:
             "rng_policy": rng_policy,
             "runtime": simulation_runtime(),
         }
+
+        if starting_grid is not None:
+            input_snapshot["starting_grid"] = starting_grid.copy()
 
         if control_schedule is not None:
             input_snapshot["control_schedule"] = deepcopy(control_schedule)
@@ -1553,6 +1576,9 @@ class MonteCarloRunner:
             (drivers_data, cars_data, track_data, weather_data, seed,
              self.race_engine, starting_tires, rng_policy, ages, deepcopy(inventory),
              deepcopy(pit_plans)) + (
+                 (tire_warmup.copy(), deepcopy(qualifying_weather), deepcopy(weather_schedule),
+                  deepcopy(control_schedule), starting_grid.copy())
+                 if starting_grid is not None else
                  (tire_warmup.copy(), deepcopy(qualifying_weather), deepcopy(weather_schedule),
                   deepcopy(control_schedule)) if control_schedule is not None else
                  (tire_warmup.copy(), deepcopy(qualifying_weather), deepcopy(weather_schedule))

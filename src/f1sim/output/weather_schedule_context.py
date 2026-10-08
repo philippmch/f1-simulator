@@ -13,7 +13,7 @@ def weather_schedule_context(snapshot) -> str:
         if not schedule:
             return ""
         if (type(snapshot.get("schema_version")) is not int
-                or snapshot["schema_version"] not in (8, 9, 10, 11, 12, 13)):
+                or snapshot["schema_version"] not in (8, 9, 10, 11, 12, 13, 14)):
             return "Prescribed race rainfall: unrecognized saved schema."
     except (TypeError, ValueError):
         return "Prescribed race rainfall: invalid saved schedule."

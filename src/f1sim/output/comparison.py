@@ -14,6 +14,7 @@ from f1sim.output.control_schedule_context import (
     control_schedule_statistics_html,
 )
 from f1sim.output.export import Exporter
+from f1sim.output.grid_context import race_grid_context
 from f1sim.output.paired_context import (
     FINISHED_TIME_NOTE,
     finished_race_time_text,
@@ -563,6 +564,7 @@ def _weather(result: SimulationResults) -> str:
             + atmosphere
             + (f"; {context}" if (context := warmup_context(snapshot)) else "")
             + (f"; {context}" if (context := qualifying_weather_context(snapshot)) else "")
+            + (f"; {context}" if (context := race_grid_context(snapshot)) else "")
             + (f"; {schedule}" if schedule else "")
             + (f"; {context}" if (context := control_schedule_context(snapshot)) else ""))
 
