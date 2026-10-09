@@ -118,3 +118,76 @@ def test_legacy_adapter_retains_three_argument_hook():
 
     assert simulation_winner_allocation(Legacy(), 2026, 2, [], Weather()) == "legacy"
     assert calls == [(2026, 2, [])]
+
+
+@pytest.fixture
+def published_grid_context(practice_context, monkeypatch):
+    loader, drivers, event, weather = practice_context
+    now = datetime(2026, 3, 28, 16, tzinfo=timezone.utc)
+    monkeypatch.setattr("f1sim.data.current._utc_now", lambda: now)
+    event.update(date="2026-03-29", time="14:00:00Z")
+    loader._qualifying_forecast = None
+    loader._race_grid = {
+        "mode": "published", "year": 2026, "round": 2,
+        "source_url": "https://www.formula1.com/en/results/2026/races/1234/test/starting-grid",
+        "starting_grid": [d.id for d in drivers], "pit_lane_starters": [drivers[-1].id],
+        "fetched_at": now.isoformat(), "qualifying_started_at": "2026-03-28T14:00:00Z",
+    }
+    return loader, drivers, event, weather
+
+
+@pytest.mark.parametrize("wet", [False, True])
+def test_verified_published_grid_keeps_native_driver_chances(
+    published_grid_context, monkeypatch, wet,
+):
+    loader, drivers, _, weather = published_grid_context
+    if wet:
+        weather.rain_intensity = .3
+        weather.track_wetness = .2
+    monkeypatch.setattr(loader, "get_winner_allocation",
+                        lambda *a: pytest.fail("Published-grid chances redistributed to points"))
+    before = deepcopy((loader._driver_stats, loader._race_grid, drivers))
+    assert simulation_winner_allocation(
+        loader, 2026, 2, drivers, weather, starting_grid=[d.id for d in drivers],
+    ) is None
+    assert (loader._driver_stats, loader._race_grid, drivers) == before
+
+
+@pytest.mark.parametrize("context", [
+    "wrong_grid", "partial_field", "wrong_round", "wrong_year", "unpublished",
+    "before_qualifying", "future_fetch", "race_started", "no_race_time",
+    "wrong_qualifying", "different_driver_model", "invalid_pit_queue",
+])
+def test_unverified_grid_context_retains_existing_policy(
+    published_grid_context, monkeypatch, context,
+):
+    loader, drivers, event, weather = published_grid_context
+    grid = [d.id for d in drivers]
+    if context == "wrong_grid":
+        grid.reverse()
+    elif context == "partial_field":
+        drivers = drivers[:-1]
+    elif context in ("wrong_round", "wrong_year"):
+        key = "round" if context == "wrong_round" else "year"
+        loader._race_grid[key] -= 1
+    elif context == "unpublished":
+        loader._race_grid["mode"] = "manual"
+    elif context in ("before_qualifying", "future_fetch"):
+        loader._race_grid["fetched_at"] = (
+            "2026-03-28T13:00:00Z" if context == "before_qualifying" else "2026-03-28T17:00:00Z"
+        )
+    elif context == "race_started":
+        event.update(date="2026-03-28", time="16:00:00Z")
+    elif context == "no_race_time":
+        del event["time"]
+    elif context == "wrong_qualifying":
+        loader._race_grid["qualifying_started_at"] = "2026-03-28T13:00:00Z"
+    elif context == "different_driver_model":
+        drivers[0].skill_rating -= .01
+    else:
+        loader._race_grid["pit_lane_starters"] = [grid[0]]
+    sentinel = object()
+    monkeypatch.setattr(loader, "get_winner_allocation", lambda *a: sentinel)
+    assert simulation_winner_allocation(
+        loader, 2026, 2, drivers, weather, starting_grid=grid,
+    ) is sentinel

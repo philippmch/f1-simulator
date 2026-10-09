@@ -2674,7 +2674,7 @@ class CurrentSeasonDataLoader:
         self, year, target_race, drivers, weather, *, qualifying_weather=None,
         weather_schedule=None, starting_grid=None,
     ):
-        """Use native chances for dry, practice-informed pre-qualifying runs.
+        """Use native chances with a verified grid or dry pre-qualifying practice.
 
         The older point allocation was measured with the earlier qualifying
         model. Current practice now supplies driver separation in the native
@@ -2685,6 +2685,32 @@ class CurrentSeasonDataLoader:
         from f1sim.data.practice import _timestamp
 
         self._assert_current_year(year)
+        if starting_grid is not None:
+            from f1sim.analysis.grid_winner_reference import build_grid_winner_references
+
+            event = self._event_for_race(year, target_race)
+            qualifying = _timestamp(event.get("sessions", {}).get("Qualifying"))
+            race_start = _timestamp({"date": event.get("date"), "time": event.get("time")})
+            if qualifying is None or race_start is None:
+                return False
+            try:
+                references = build_grid_winner_references(
+                    [driver.id for driver in drivers], self._race_grid, year=year,
+                    target_round=int(event["round"]), recorded_at=_utc_now().isoformat(),
+                    qualifying_starts_at=qualifying.isoformat(),
+                    race_starts_at=race_start.isoformat(),
+                )
+            except (ValueError, TypeError):
+                return False
+            stats = self._driver_stats
+            return (
+                references["evidence"]["starting_grid"] == starting_grid
+                and isinstance(stats, dict) and set(stats) == {d.id for d in drivers}
+                and all(stats[d.id].team_id == d.team_id
+                        and stats[d.id].driver_skill_rating == d.skill_rating
+                        and stats[d.id].qualifying_pace_adjustment == d.qualifying_pace_adjustment
+                        for d in drivers)
+            )
         forecast = self._qualifying_forecast
         if (year != 2026 or not isinstance(forecast, dict)
                 or forecast.get("policy") != PRACTICE_QUALIFYING_POLICY

@@ -5,6 +5,13 @@ using the published race starting grid. Sprint qualifying does not open this
 window. The race grid incorporates the publisher's grid penalties; the model
 does not apply the penalties again from the notes.
 
+New post-qualifying records report the simulation's driver win frequencies
+directly. Live dashboard and CLI runs also do this when their supplied grid
+matches verified published evidence after qualifying and before the race.
+Earlier points still inform the live driver and car inputs, but do not
+redistribute the resulting team wins afterward. Existing saved forecasts
+continue to score the policy and probabilities stored when they were created.
+
 ```powershell
 python examples/record_race_forecast.py --stage post_qualifying --race 17 --scenario dry --trials 400 --seed 1701007 --parallel --workers 8 --output output/forecasts/2026-round-17-after-qualifying.json
 python examples/score_recorded_forecast.py output/forecasts/2026-round-17-after-qualifying.json
@@ -118,6 +125,21 @@ race-pace model or reporting policy. The point comparison is a reporting
 comparison using the same complete-grid trials, not a reconstruction of the
 old app's fallback on unsupported pit-lane grids. These scores do not establish
 future predictive skill or a substantial reference-beating improvement.
+
+The [paired reporting decision](../evidence/post-qualifying-reporting-decision-2026.json)
+compares both policies on the same corrected trials. Native reporting yields
+Brier 0.48489 versus 0.61222 with teammate-point redistribution, a 20.8% lower
+development loss. This changes the reported forecast rather than improving
+the simulated pace by 20.8%. The paired interval includes zero, and the
+native score is only 1.1% below the best grid reference; substantial future
+reference-beating skill remains unproven. These measurements use fixed dry
+conditions and do not establish wet-weather forecast accuracy.
+
+Three further controlled changes failed the full winner gate: a 2023-fitted
+passing correction (0.52283), persistent uncertainty around unchanged native
+mean pace (0.57050), and a completed-Sprint pace update on the five applicable
+weekends (0.56549). The other eleven Sprint-candidate forecasts retained the
+corrected baseline counts. None of these physics changes is deployed.
 
 The numerical correction refuses a paid stop when its projected saving is
 within one billionth of a second of the existing decision threshold. A Monza

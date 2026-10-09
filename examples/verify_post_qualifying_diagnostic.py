@@ -173,6 +173,52 @@ def verify_pit_tie(path, baseline_path):
     return {"events": len(losses), "baseline_brier": original, "corrected_brier": corrected}
 
 
+def verify_reporting_decision(path, baseline_path, corrected_path):
+    """Compare both reporting policies on the exact same corrected trial counts."""
+    decision, baseline, corrected = map(sealed, (path, baseline_path, corrected_path))
+    if (decision["baseline_content_sha256"] != baseline["content_sha256"]
+            or decision["corrected_trials_content_sha256"] != corrected["content_sha256"]
+            or decision["prospectively_recorded"] is not False
+            or decision["independent_untouched_test"] is not False):
+        raise ValueError("Reporting decision scope differs from its paired trial evidence")
+    contexts = {e["round"]: e for e in expanded_events(baseline)}
+    counts = {r["round"]: r["wins"] for r in corrected["records"]}
+    if [r["round"] for r in decision["records"]] != list(contexts):
+        raise ValueError("Reporting comparison must retain every baseline event")
+    point, native = [], []
+    for row in decision["records"]:
+        event, wins = contexts[row["round"]], counts[row["round"]]
+        empty = 100 - sum(wins.values())
+        point.append(score_teammate_forecast(summarize_winner_counts(wins, empty),
+                      event["allocation"], event["observed_winner"])["brier_score"])
+        native.append(score_winner_counts(wins, empty, event["observed_winner"])["brier_score"])
+        same(point[-1], row["point_brier"])
+        same(native[-1], row["native_brier"])
+    point_mean, native_mean = math.fsum(point) / len(point), math.fsum(native) / len(native)
+    same(point_mean, decision["summary"]["existing_point_reporting_brier"])
+    same(native_mean, decision["summary"]["native_reporting_brier"])
+    same(1 - native_mean / point_mean, decision["summary"]["relative_reduction"])
+    rejected = {}
+    for experiment in decision["rejected_experiments"]:
+        if (experiment["production_changed"] is not False
+                or experiment["qualifying_and_grid_held_fixed"] is not True
+                or [r["round"] for r in experiment["records"]] != list(contexts)):
+            raise ValueError("Rejected experiment scope changed")
+        losses = []
+        for row in experiment["records"]:
+            event = contexts[row["round"]]
+            if (row["source_input_sha256"] != event["source_input_sha256"]
+                    or set(row["wins"]) != set(event["native_wins"])):
+                raise ValueError("Rejected experiment inputs differ from baseline")
+            losses.append(score_winner_counts(row["wins"], 100 - sum(row["wins"].values()),
+                          event["observed_winner"])["brier_score"])
+            same(losses[-1], row["brier_score"])
+        rejected[experiment["name"]] = math.fsum(losses) / len(losses)
+        same(rejected[experiment["name"]], experiment["mean_brier"])
+    return {"existing_point_reporting_brier": point_mean, "native_reporting_brier": native_mean,
+            "rejected_experiments": rejected}
+
+
 if __name__ == "__main__":
     root = Path(__file__).resolve().parents[1] / "evidence"
     print(json.dumps(verify(root / "post-qualifying-winner-diagnostic-2026.json",
@@ -180,4 +226,9 @@ if __name__ == "__main__":
     print(json.dumps(verify_pit_tie(
         root / "post-qualifying-pit-tie-2026.json",
         root / "post-qualifying-winner-diagnostic-2026.json",
+    ), indent=2))
+    print(json.dumps(verify_reporting_decision(
+        root / "post-qualifying-reporting-decision-2026.json",
+        root / "post-qualifying-winner-diagnostic-2026.json",
+        root / "post-qualifying-pit-tie-2026.json",
     ), indent=2))

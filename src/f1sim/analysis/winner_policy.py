@@ -5,7 +5,7 @@ def simulation_winner_allocation(
     loader, year, race, drivers, weather, *, qualifying_weather=None,
     weather_schedule=None, starting_grid=None,
 ):
-    """Retain native chances only in the adapter's verified practice context.
+    """Retain native chances in the adapter's verified practice or grid context.
 
     Legacy/custom adapters keep their earlier three-argument allocation hook.
     Saved simulations continue to use the allocation stored with their inputs.

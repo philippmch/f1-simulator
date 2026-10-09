@@ -178,7 +178,7 @@ def record_race_forecast(loader, year, target_race, *, trials=100, seed=42, weat
         deep=True, update={"change_probability": 0.0},
     )
     raise_if_cancelled(cancel_requested)
-    allocation = simulation_winner_allocation(
+    allocation = None if post_qualifying else simulation_winner_allocation(
         loader, year, target, drivers, assumed, starting_grid=starting_grid,
     )
     runner = MonteCarloRunner(

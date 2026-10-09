@@ -15,6 +15,7 @@ from f1sim.analysis.recorded_forecast import (
     score_recorded_forecast,
     validate_recorded_forecast,
 )
+from f1sim.models import Driver
 
 
 class PostQualifyingLoader(AllocationForecastLoader):
@@ -69,6 +70,8 @@ def test_post_qualifying_round_trip_scores_frozen_references_without_scoring_obs
     assert saved["qualifying_observation_round"] == 3
     assert saved["simulation_inputs"]["starting_grid"] == ["BB", "AA"]
     assert saved["simulation_inputs"]["schema_version"] == (15 if pit else 14)
+    assert "winner_estimate" not in saved
+    assert saved["simulation_inputs"].get("winner_allocation") is None
     path = save_recorded_forecast(tmp_path / "after-grid.json", saved)
     assert load_recorded_forecast(path) == saved
     before = path.read_bytes()
@@ -89,6 +92,36 @@ def test_post_qualifying_round_trip_scores_frozen_references_without_scoring_obs
     assert len(score["grid_references"]["references"]) == 3
     assert len(score["winner_error_comparisons"]) == 3
     assert path.read_bytes() == before
+
+
+def test_new_post_qualifying_records_do_not_redistribute_grid_chances_to_points(monkeypatch):
+    loader = PostQualifyingLoader()
+    monkeypatch.setattr(loader, "get_winner_allocation",
+                        lambda *a: pytest.fail("Confirmed-grid chances redistributed to points"))
+    saved = record(loader)
+    assert "winner_estimate" not in saved
+    assert saved["simulation_inputs"].get("winner_allocation") is None
+
+
+def test_saved_post_qualifying_point_policy_still_scores_without_refitting(monkeypatch):
+    from f1sim.analysis.teammate_forecast import teammate_winner_forecast
+
+    loader = PostQualifyingLoader()
+    saved = record(loader)
+    allocation = loader.get_winner_allocation(loader.instant.year, 3,
+        [Driver.model_validate(d) for d in saved["simulation_inputs"]["drivers"]])
+    saved["winner_estimate"] = teammate_winner_forecast(saved["winner_forecast"], allocation)
+    saved["simulation_inputs"]["winner_allocation"] = deepcopy(allocation)
+    saved["content_sha256"] = _digest({k: v for k, v in saved.items() if k != "content_sha256"})
+    before = deepcopy(saved)
+    monkeypatch.setattr(loader, "get_winner_allocation", lambda *a: pytest.fail("No refitting"))
+    observations = [result(identity, i) for i, identity in enumerate(("AA", "BB"), 1)]
+    for row in observations:
+        row["round"] = 3
+    score = score_recorded_forecast(saved, loader, observations, loader.qualifying_rows)
+    assert score["winner_policy"] == saved["winner_estimate"]["policy"]
+    assert "native_winner_score" in score
+    assert saved == before
 
 
 @pytest.mark.parametrize("change", ["race_result", "later_qualifying", "before_gp", "missing_grid",
