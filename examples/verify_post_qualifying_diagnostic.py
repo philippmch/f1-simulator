@@ -142,7 +142,42 @@ def verify(path, coverage_path):
     return report
 
 
+def verify_pit_tie(path, baseline_path):
+    """Check the small numerical correction against its unchanged input evidence."""
+    receipt, baseline = sealed(path), sealed(baseline_path)
+    if (receipt["baseline_content_sha256"] != baseline["content_sha256"]
+            or receipt["prospectively_recorded"] is not False
+            or receipt["independent_untouched_test"] is not False
+            or receipt["qualifying_grid_weather_seeds_held_fixed"] is not True
+            or receipt["trials_per_event"] != 100):
+        raise ValueError("Pit cost correction evidence scope changed")
+    contexts = {e["round"]: e for e in baseline["events"]}
+    records = receipt["records"]
+    if [r["round"] for r in records] != list(contexts):
+        raise ValueError("Pit cost correction must retain every baseline event")
+    losses = []
+    for row in records:
+        event = contexts[row["round"]]
+        if (row["source_input_sha256"] != event["source_input_sha256"]
+                or set(row["wins"]) != set(event["native_wins"])):
+            raise ValueError("Pit cost correction inputs differ from the baseline")
+        loss = score_winner_counts(row["wins"], 100 - sum(row["wins"].values()),
+                                   event["observed_winner"])["brier_score"]
+        same(loss, row["brier_score"])
+        losses.append(loss)
+    corrected = math.fsum(losses) / len(losses)
+    original = math.fsum(e["native_score"]["brier_score"] for e in contexts.values()) / len(losses)
+    same(corrected, receipt["summary"]["corrected_brier"])
+    same(original, receipt["summary"]["baseline_brier"])
+    same(original - corrected, receipt["summary"]["mean_gain"])
+    return {"events": len(losses), "baseline_brier": original, "corrected_brier": corrected}
+
+
 if __name__ == "__main__":
     root = Path(__file__).resolve().parents[1] / "evidence"
     print(json.dumps(verify(root / "post-qualifying-winner-diagnostic-2026.json",
                             root / "published-grid-coverage-2026.json"), indent=2))
+    print(json.dumps(verify_pit_tie(
+        root / "post-qualifying-pit-tie-2026.json",
+        root / "post-qualifying-winner-diagnostic-2026.json",
+    ), indent=2))

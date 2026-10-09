@@ -250,14 +250,14 @@ class DryPitDecision:
     wait_laps: int | None = None
 
     def should_pit(self, timing_bias: float = 0.0) -> bool:
-        """Style can move a near tie by at most 0.1 seconds total."""
+        """Style moves ties by at most 0.1 seconds; rounding alone cannot pit."""
         if self.compound is None:
             return False
         if (self.pit_now_laps is not None and self.wait_laps is not None
                 and self.pit_now_laps != self.wait_laps):
             return self.pit_now_laps > self.wait_laps
         return self.compound is not None and self.pit_now_cost < (
-            self.wait_cost + max(-0.1, min(0.1, timing_bias))
+            self.wait_cost + max(-0.1, min(0.1, timing_bias)) - 1e-9
         )
 
 

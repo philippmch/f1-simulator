@@ -103,6 +103,7 @@ Prospectively recorded forecast files remain unchanged.
 | Forecast or candidate | Mean winner Brier, lower is better |
 | --- | ---: |
 | Native model with the published grid | 0.49351 |
+| Native model after the numerical pit-cost tie correction | 0.48489 |
 | Existing teammate-point reporting on those same counts | 0.61338 |
 | Fixed grid scale 6 | 0.70633 |
 | Fixed grid scale 12 | 0.55676 |
@@ -117,6 +118,16 @@ race-pace model or reporting policy. The point comparison is a reporting
 comparison using the same complete-grid trials, not a reconstruction of the
 old app's fallback on unsupported pit-lane grids. These scores do not establish
 future predictive skill or a substantial reference-beating improvement.
+
+The numerical correction refuses a paid stop when its projected saving is
+within one billionth of a second of the existing decision threshold. A Monza
+trace had accepted a stop for only 9.09e-13 seconds of saving. The
+[paired correction evidence](../evidence/post-qualifying-pit-tie-2026.json)
+retains all 16 input contexts and seeds: mean native Brier falls by 1.75%.
+The paired 95% bootstrap interval for the gain is -0.00465 to 0.02009, so
+this sample does not establish a reliable forecast improvement. The numerical
+correctness fix still falls short of the 10% reference improvement required
+above. The same verifier checks its saved win counts.
 
 One concrete failure is Monza: the native model recorded zero Antonelli wins
 in its 100-trial development replay from P19. The tyre supplier reports an

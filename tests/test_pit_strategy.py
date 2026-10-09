@@ -10,6 +10,7 @@ from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
 from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.pit_strategy import (
     SLICKS,
+    DryPitDecision,
     expected_stationary_time,
     plan_dry_stop,
 )
@@ -379,11 +380,35 @@ def test_projection_is_rng_free_and_service_expectation_matches_sampled_executio
 
 
 def test_bounded_timing_preference_cannot_overrule_material_cost():
-    from f1sim.simulation.pit_strategy import DryPitDecision
-
     assert not DryPitDecision(11, 10, TireCompound.SOFT).should_pit(100)
     assert DryPitDecision(10.05, 10, TireCompound.SOFT).should_pit(0.1)
     assert not DryPitDecision(9.95, 10, TireCompound.SOFT).should_pit(-0.1)
+
+
+@pytest.mark.parametrize("bias", [-0.1, 0.0, 0.1])
+def test_rounding_at_race_scale_cannot_trigger_a_paid_stop(bias):
+    # The Monza trace accepted a stop for 9.09e-13 seconds of projected saving.
+    wait = 4500.0
+    threshold = wait + bias
+    assert not DryPitDecision(
+        np.nextafter(threshold, -inf), wait, TireCompound.SOFT,
+    ).should_pit(bias)
+    assert not DryPitDecision(threshold, wait, TireCompound.SOFT).should_pit(bias)
+    assert DryPitDecision(threshold - 1e-6, wait, TireCompound.SOFT).should_pit(bias)
+
+
+@pytest.mark.parametrize("pit_laps,wait_laps,expected", [(50, 49, True), (49, 50, False)])
+def test_distance_takes_precedence_over_pit_cost_tolerance(pit_laps, wait_laps, expected):
+    assert DryPitDecision(
+        4500.0, 4500.0, TireCompound.SOFT, pit_laps, wait_laps,
+    ).should_pit() is expected
+
+
+def test_tie_tolerance_preserves_infeasible_plan_handling():
+    assert not DryPitDecision(0.0, inf, None).should_pit()
+    assert not DryPitDecision(inf, inf, TireCompound.SOFT).should_pit()
+    assert not DryPitDecision(inf, 4500.0, TireCompound.SOFT).should_pit()
+    assert DryPitDecision(4500.0, inf, TireCompound.SOFT).should_pit()
 
 
 @pytest.mark.parametrize("stress", [0.3, 0.9])
