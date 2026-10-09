@@ -2994,9 +2994,21 @@ class CurrentSeasonDataLoader:
         qualifying_relative(quali_rows, driver_qual_delta, team_recent_qual)
         qualifying_relative(target_qualifying_rows, driver_track_delta, team_target_qual)
 
+        speed_rounds = {
+            _as_int(row.get("round"), 0) or 0
+            for row in race_rows
+            if (speed := self._row_race_metric(row)[1]) is not None and speed > 0
+        }
+
         def race_speed(row: Mapping[str, Any]) -> float | None:
-            _, speed = self._row_race_metric(row)
-            return speed
+            time, speed = self._row_race_metric(row)
+            if (not target_qualifying_rows
+                    or (_as_int(row.get("round"), 0) or 0) in speed_rounds):
+                return speed
+            # Current providers can omit AverageSpeed while retaining lap time.
+            # Distance cancels in the within-event comparison. Choose one unit
+            # for the whole event, so inverse seconds never mix with km/h.
+            return 1.0 / time if time is not None and math.isfinite(time) and time > 0 else None
 
         group_relative(race_rows, race_speed, False, driver_race_delta, team_form_race)
 
@@ -3007,6 +3019,20 @@ class CurrentSeasonDataLoader:
         }
         team_raw: dict[str, float] = {}
         max_points = max(team_points.values(), default=0.0)
+        team_signals = []
+        for bucket, weight in (
+            (team_target_qual, max(0.0, float(track_weight))),
+            (team_form_race, max(0.0, float(form_weight))),
+            (team_recent_qual, max(0.0, float(quali_weight))),
+        ):
+            values = {team: median(rows) for team, rows in bucket.items() if rows}
+            if target_qualifying_rows:
+                # Points span roughly one unit; timing residuals span hundredths.
+                # Give observed signals the same field scale before weighting.
+                scale = max((abs(value) for value in values.values()), default=0.0)
+                values = ({team: 0.5 * value / scale for team, value in values.items()}
+                          if scale > 1e-9 else {})
+            team_signals.append((values, weight))
         for team_id in team_ids:
             constructor_score = (
                 team_points.get(team_id, 0.0) / max_points if max_points > 0 else 0.5
@@ -3014,15 +3040,10 @@ class CurrentSeasonDataLoader:
             # Keep each live signal in its own bucket.  The public weights
             # control both driver and team pace, and an unavailable or zeroed
             # bucket contributes nothing rather than an implicit zero score.
-            weighted_total = constructor_score
-            for bucket, weight in (
-                (team_target_qual, max(0.0, float(track_weight))),
-                (team_form_race, max(0.0, float(form_weight))),
-                (team_recent_qual, max(0.0, float(quali_weight))),
-            ):
-                values = bucket.get(team_id)
-                if values and weight > 0.0:
-                    weighted_total += median(values) * weight
+            weighted_total = constructor_score - (0.5 if target_qualifying_rows else 0.0)
+            for values, weight in team_signals:
+                if team_id in values and weight > 0.0:
+                    weighted_total += values[team_id] * weight
             # Residuals are signed deviations around zero. Missing or neutral
             # evidence must not dilute the constructor anchor by changing a
             # team's denominator independently of the rest of the field.

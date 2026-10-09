@@ -111,6 +111,7 @@ Prospectively recorded forecast files remain unchanged.
 | --- | ---: |
 | Native model with the published grid | 0.49351 |
 | Native model after the numerical pit-cost tie correction | 0.48489 |
+| Native model after the post-qualifying input correction | 0.42728 |
 | Existing teammate-point reporting on those same counts | 0.61338 |
 | Fixed grid scale 6 | 0.70633 |
 | Fixed grid scale 12 | 0.55676 |
@@ -119,7 +120,9 @@ Prospectively recorded forecast files remain unchanged.
 | That correction with earlier-race residual uncertainty | 0.58865 |
 | 2023-fitted earlier green race pace weighted by circuit | 0.49727 |
 
-The native model is approximately tied with the strongest grid reference.
+Before the input correction, the native model was approximately tied with the
+strongest grid reference. The corrected 2026 development score is 12.9% lower
+than that reference, but its paired interval still includes zero.
 None of the three pace candidates met the winner gate; none changes the live
 race-pace model or reporting policy. The point comparison is a reporting
 comparison using the same complete-grid trials, not a reconstruction of the
@@ -134,6 +137,50 @@ the simulated pace by 20.8%. The paired interval includes zero, and the
 native score is only 1.1% below the best grid reference; substantial future
 reference-beating skill remains unproven. These measurements use fixed dry
 conditions and do not establish wet-weather forecast accuracy.
+
+## Post-qualifying input correction
+
+Two input problems weakened the observed qualifying and recent-form signals.
+Constructor points occupied roughly one unit in the team blend while timing
+residuals occupied hundredths, so the advertised timing weights had little
+effect. Also, the provider's 2025 and 2026 race rows retained fastest-lap times
+while omitting average speed; those usable observations silently contributed
+no race-form signal.
+
+After a sufficiently complete GP qualifying observation, the builder places
+each timing bucket on a common field scale with maximum absolute value 0.5,
+then applies the existing 0.5/0.3/0.2 weights and constructor anchor. Recent
+race form uses inverse lap seconds when the entire event lacks positive speed
+observations. An event with supplied speeds keeps that unit for every driver;
+the builder never mixes inverse seconds with km/h. Pre-qualifying input
+behavior is retained.
+
+The [sealed paired receipt](../evidence/post-qualifying-input-correction.json)
+contains 16 complete 2026 contexts and 24 complete 2025 sensitivity contexts,
+each with 100 trials and the same grid and seeds before and after correction.
+Its literal model defaults and input differences retain both sets of models.
+Recompute the counts and references offline with
+`python examples/verify_post_qualifying_input_correction.py`.
+
+| Development check | Previous model | Corrected model | Strongest grid reference |
+| --- | ---: | ---: | ---: |
+| 2026, 16 events | 0.48489 | 0.42728 | 0.49050 |
+| 2025, 24 sensitivity events | 0.64232 | 0.58372 | 0.51894 |
+| Combined 40 events | 0.57935 | 0.52114 | 0.50757 |
+
+The combined loss is 10.0% lower than the previous model. The paired gain is
+0.05821 with a 95% bootstrap interval of 0.00680 to 0.11582, and stays positive
+at 0.02230 after removing the three largest gains. This supports improving
+the existing input model; it does not establish the full reference-beating
+forecast goal. The combined corrected model still trails the strongest grid
+reference, and the 2026 reference comparison remains uncertain.
+
+The 2025 checks use current simulator rules and fixed dry weather. They test
+the direction of the input correction across a second season, rather than
+reconstructing the old rules or authenticating historical forecasts. Fastest
+laps still reflect tyre choices, traffic and race programs. This correction
+does not import historical driver or team seeds into current-season runtime,
+and it does not establish wet-weather or future winner accuracy.
 
 Three further controlled changes failed the full winner gate: a 2023-fitted
 passing correction (0.52283), persistent uncertainty around unchanged native
