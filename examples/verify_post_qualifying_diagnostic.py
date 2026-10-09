@@ -3,6 +3,7 @@
 import hashlib
 import json
 import math
+from copy import deepcopy
 from pathlib import Path
 
 from f1sim.analysis.race_probability_scores import (
@@ -10,7 +11,7 @@ from f1sim.analysis.race_probability_scores import (
     score_winner_probabilities,
     summarize_winner_counts,
 )
-from f1sim.analysis.teammate_forecast import score_teammate_forecast
+from f1sim.analysis.teammate_forecast import build_teammate_allocation, score_teammate_forecast
 from f1sim.models import Car, Driver, Track, Weather
 from f1sim.simulation.execution import validate_pit_lane_starters, validate_starting_grid
 
@@ -30,6 +31,39 @@ def same(actual, saved):
         raise ValueError("Saved diagnostic loss differs from reconstructed probabilities")
 
 
+def expanded_events(evidence):
+    """Expand stored literal defaults and shared history; never use live seeds."""
+    events = deepcopy(evidence["events"])
+    version = evidence.get("format_version", 1)
+    if version == 1:
+        return events
+    if version != 2:
+        raise ValueError("Unsupported diagnostic evidence format")
+    defaults, history = evidence["model_defaults"], evidence["point_history"]
+    if evidence["allocation_definition"] != {
+        "policy": "teammate_race_points_v1", "prior_points_per_driver": 25.0,
+        "minimum_entries_per_driver": 2,
+    }:
+        raise ValueError("Compact evidence requires the original fixed allocation definition")
+    for event in events:
+        event["drivers"] = [{**defaults["drivers"], **d} for d in event["drivers"]]
+        event["cars"] = {key: {**defaults["cars"], **car} for key, car in event["cars"].items()}
+        event["weather"] = {**defaults["weather"], **event["weather"]}
+        indexes = event["point_history_indices"]
+        if any(type(i) is not int or not 0 <= i < len(history) for i in indexes):
+            raise ValueError("Compact point history has an invalid reference")
+        allocation = build_teammate_allocation(
+            {d["id"]: d["team_id"] for d in event["drivers"]},
+            [history[i] for i in indexes], cutoff_round=event["round"] - 1,
+        )
+        digest = hashlib.sha256(json.dumps(allocation, sort_keys=True,
+                                          separators=(",", ":")).encode()).hexdigest()
+        if digest != event["allocation_sha256"]:
+            raise ValueError("Expanded allocation differs from the original frozen allocation")
+        event["allocation"] = allocation
+    return events
+
+
 def verify(path, coverage_path):
     evidence, coverage = sealed(path), sealed(coverage_path)
     if (evidence["grid_coverage_sha256"] != coverage["content_sha256"]
@@ -39,7 +73,7 @@ def verify(path, coverage_path):
             or evidence["reporting_policy_changed"] is not False):
         raise ValueError("Post-qualifying diagnostic scope differs from its source evidence")
     contexts = {e["round"]: e for e in coverage["events"]}
-    events = evidence["events"]
+    events = expanded_events(evidence)
     if [e["round"] for e in events] != list(range(1, 17)):
         raise ValueError("Diagnostic must cover all 16 current-season races")
     native, point, references = [], [], {f"grid_{scale}": [] for scale in (6, 12, 18)}

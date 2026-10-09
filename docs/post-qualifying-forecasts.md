@@ -92,6 +92,14 @@ uses complete 22-driver fields, observed GP qualifying, published grids,
 separate pit starters, fixed dry conditions and 100 chronological trials per
 event. Reproduce its scores with `python examples/verify_post_qualifying_diagnostic.py`.
 
+Diagnostic format 2 stores identical literal model fields once and references
+a shared earlier-point history. The verifier expands those fields and checks
+each reconstructed allocation against its original digest. Derived score
+diagnostics are recomputed rather than duplicated. The format records the
+previous content seal; this deliberate compaction changes the development
+evidence seal, while retaining every input, trial count and published loss.
+Prospectively recorded forecast files remain unchanged.
+
 | Forecast or candidate | Mean winner Brier, lower is better |
 | --- | ---: |
 | Native model with the published grid | 0.49351 |
