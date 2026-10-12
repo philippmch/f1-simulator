@@ -129,6 +129,32 @@ def test_explicit_pit_instructions_are_resolved_without_reapplying_grid_penaltie
     assert set(result["starting_grid"]) == {d.id for d in inputs()[0]}
 
 
+@pytest.mark.parametrize("pit_row_first", [False, True])
+def test_numeric_pit_row_can_share_the_last_ordinary_grid_number(monkeypatch, pit_row_first):
+    adapter = loader(monkeypatch, lambda _: "")
+    tail = [(3, "A2", "a"), (3, "B1", "b")] if pit_row_first else [
+        (3, "B1", "b"), (3, "A2", "a"),
+    ]
+    rows = [(1, "B2", "b"), (2, "A1", "a"), *tail]
+    html = "<h1>2026 STARTING GRID</h1><table>" + "".join(
+        f"<tr><td>{slot}</td><td>1</td><td>{code}</td><td>{team}</td></tr>"
+        for slot, code, team in rows
+    ) + "</table><p>Note - A2 required to start from the pit lane.</p>"
+    context = parse_starting_grid(html, year=2026, loader=adapter, drivers=inputs()[0],
+                                 include_pit_lane=True)
+    assert context == {"starting_grid": ["B2", "A1", "B1", "A2"],
+                       "pit_lane_starters": ["A2"]}
+
+
+def test_duplicate_ordinary_slots_remain_invalid_with_a_pit_starter(monkeypatch):
+    adapter = loader(monkeypatch, lambda _: "")
+    html = grid_html().replace("<td>3</td>", "<td>2</td>")
+    html += "<p>Note - A2 required to start from the pit lane.</p>"
+    with pytest.raises(CurrentSeasonDataError, match="Conflicting"):
+        parse_starting_grid(html, year=2026, loader=adapter, drivers=inputs()[0],
+                            include_pit_lane=True)
+
+
 @pytest.mark.parametrize("note", [
     "Unknown required to start from the pit lane.",
     "A2 received a grid penalty. Unknown required to start from pit lane.",

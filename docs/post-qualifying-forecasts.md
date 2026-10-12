@@ -13,15 +13,17 @@ redistribute the resulting team wins afterward. Existing saved forecasts
 continue to score the policy and probabilities stored when they were created.
 
 ```powershell
-python examples/record_race_forecast.py --stage post_qualifying --race 17 --scenario dry --trials 400 --seed 1701007 --parallel --workers 8 --output output/forecasts/2026-round-17-after-qualifying.json
-python examples/score_recorded_forecast.py output/forecasts/2026-round-17-after-qualifying.json
+python examples/record_race_forecast.py --stage post_qualifying --race 18 --scenario dry --trials 400 --seed 1801012 --parallel --workers 8 --output output/forecasts/2026-round-18-after-qualifying.json
+python examples/score_recorded_forecast.py output/forecasts/2026-round-18-after-qualifying.json
 ```
 
-The current calendar gives Singapore GP qualifying as 10 October 2026 at
-13:00 UTC and the race as 11 October at 12:00 UTC. Recording becomes eligible
-at 14:00 UTC on 10 October, subject to a complete published grid being
-available. These are fetched calendar times, not a guarantee that a session
-ends on schedule. No forecast for that window has been recorded yet.
+The [calendar checked on 12 October](https://api.jolpi.ca/ergast/f1/2026/18.json)
+gives United States GP qualifying as 24 October 2026 at 21:00 UTC and the race
+as 25 October at 20:00 UTC. Recording becomes eligible at 22:00 UTC on 24 October,
+subject to a complete published grid being available. Recording checks fresh
+calendar and grid data; these fetched times do not guarantee when a session
+ends. No post-qualifying forecast has been recorded for this window. The
+example is a conditional dry forecast, not an automatic weather forecast.
 
 ## Recorded inputs and scoring
 
@@ -59,6 +61,9 @@ identified pit-lane instructions. A pit starter remains a separate input at
 the ordered tail, rather than an ordinary numbered grid starter. Incomplete
 fields, conflicting identities, unknown teams and unresolved instructions
 fail validation. Script payloads cannot add instructions to the visible grid.
+An explicitly identified pit starter may share a displayed numeric position
+with the last ordinary starter. That number orders the pit queue; it does not
+occupy an ordinary slot. Duplicate ordinary slots still fail validation.
 
 Both race engines use a fixed **five-second delayed release** for pit starters.
 The chronological engine keeps them off track until release and preserves
@@ -92,7 +97,44 @@ Better qualifying or conditional lap-time estimates alone do not satisfy the
 winner-forecast gate. Failed candidates remain in the research evidence and
 are not deployed as accuracy improvements.
 
-## Current diagnostic
+## Current accuracy checkpoint
+
+The [12 October checkpoint](../evidence/post-qualifying-accuracy-checkpoint-2026-10-12.json)
+retains 40 complete matched contexts, with 400 trials for each model and event.
+The native model uses the actual production inputs from `cba6aa4`, including
+the missing-qualifying fallback. Recompute the input digests, winner losses,
+position, podium and non-finish metrics offline with
+`python examples/verify_post_qualifying_accuracy_checkpoint.py`.
+
+| Model or reference, 40 events | Mean winner Brier, lower is better |
+| --- | ---: |
+| Current native model | 0.52074 |
+| Fixed grid scale 6 | 0.69293 |
+| Fixed grid scale 12 | 0.55782 |
+| Fixed grid scale 18 | 0.50757 |
+| Remove constructor points from post-qualifying car pace | 0.46501 |
+| Generic native-confidence correction, fitted on 2023–24 | 0.52072 |
+| That confidence correction with season-progress weighting | 0.51852 |
+
+The current model still trails the strongest reference by 2.6%. Its top choice
+won 24 of 40 races, compared with 27 for pole position. In the 16 current-season
+development events, its Brier is 0.44898 versus 0.49050 for the strongest
+reference; this smaller sample does not establish future skill.
+
+Removing the points prior reduces winner Brier by 10.7% against the current
+model, but is only 8.4% below the best reference. Its reference-gain interval
+is -0.02547 to 0.10445, and finishing-position MAE worsens from 3.29966 to
+3.34940. The position-gain interval is -0.10080 to -0.00111. The two confidence
+corrections also fail the full winner gate. None of these candidates is
+deployed. Podium and non-finish checks remain in the checkpoint; non-finish
+truth includes non-starts and disqualifications as well as retirements.
+
+These remain fixed-dry development comparisons, with current simulator rules
+also used on 2025. More trials reduce sampling noise; they do not turn a replay
+into a forecast made before a race. Existing recorded forecast files remain
+unchanged, and prospective post-qualifying skill is still unproven.
+
+## Earlier 100-trial diagnostic
 
 The [sealed 16-event diagnostic](../evidence/post-qualifying-winner-diagnostic-2026.json)
 uses complete 22-driver fields, observed GP qualifying, published grids,
@@ -162,18 +204,23 @@ Its literal model defaults and input differences retain both sets of models.
 Recompute the counts and references offline with
 `python examples/verify_post_qualifying_input_correction.py`.
 
-| Development check | Previous model | Corrected model | Strongest grid reference |
+| Development check | Previous model | Correction prototype | Strongest grid reference |
 | --- | ---: | ---: | ---: |
 | 2026, 16 events | 0.48489 | 0.42728 | 0.49050 |
 | 2025, 24 sensitivity events | 0.64232 | 0.58372 | 0.51894 |
 | Combined 40 events | 0.57935 | 0.52114 | 0.50757 |
 
-The combined loss is 10.0% lower than the previous model. The paired gain is
+The combined prototype loss is 10.0% lower than the previous model. The paired gain is
 0.05821 with a 95% bootstrap interval of 0.00680 to 0.11582, and stays positive
 at 0.02230 after removing the three largest gains. This supports improving
 the existing input model; it does not establish the full reference-beating
 forecast goal. The combined corrected model still trails the strongest grid
 reference, and the 2026 reference comparison remains uncertain.
+
+The historical prototype restored race form on 2025 round 6 despite all
+qualifying times being unavailable. Production retains its previous fallback
+there. The original receipt and scores are preserved; the newer 400-trial
+checkpoint above selects the actual production inputs for all 40 contexts.
 
 The 2025 checks use current simulator rules and fixed dry weather. They test
 the direction of the input correction across a second season, rather than

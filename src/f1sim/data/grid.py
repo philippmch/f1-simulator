@@ -113,10 +113,12 @@ def parse_starting_grid(text, *, year, loader, drivers, include_pit_lane=False):
         elif not cells[0].isdecimal() or not 1 <= int(cells[0]) <= len(drivers):
             raise CurrentSeasonDataError("Official starting grid has an unsupported starting slot")
         slot = None if pit_slot else int(cells[0])
-        if (slot in slots or driver in identities
+        if ((driver not in pit_lane and slot in slots) or driver in identities
                 or loader._team_id(cells[3]) != teams[driver]):
             raise CurrentSeasonDataError("Conflicting official starting grid driver or team")
-        if slot is not None:
+        # A numeric pit row can share the last ordinary grid number. Its
+        # published number orders the pit queue, without occupying that slot.
+        if slot is not None and driver not in pit_lane:
             slots[slot] = driver
         if driver in pit_lane:
             pit_rows.append((slot, driver))
