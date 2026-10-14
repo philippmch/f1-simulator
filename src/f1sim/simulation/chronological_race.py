@@ -185,13 +185,14 @@ class ChronologicalRace:
         for driver in drivers:
             driver.reset_race_state()
         lookup = {driver.id: driver for driver in drivers}
+        strategy_cars = self.simulator._strategy_car_views(drivers, cars, starting_grid)
         self.states = {}
         for driver_id in starting_grid:
             driver = lookup.get(driver_id)
             if driver is None or driver.team_id not in cars:
                 continue
             car = cars[driver.team_id]
-            style = self.simulator._infer_team_strategy(car, track)
+            style = self.simulator._infer_team_strategy(strategy_cars[driver.team_id], track)
             pit_plan = normalized_pit_plans.get(driver_id)
             inventory = selected_set = None
             if driver_id in inventories:

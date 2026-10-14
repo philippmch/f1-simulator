@@ -97,6 +97,56 @@ Better qualifying or conditional lap-time estimates alone do not satisfy the
 winner-forecast gate. Failed candidates remain in the research evidence and
 are not deployed as accuracy improvements.
 
+Pace-component comparisons must also report differences between contenders,
+selected as the first four entrants in the confirmed grid before inspecting
+race outcomes. Report their pairwise pace error and missing-label coverage
+alongside whole-field error. Centering a faster group against the rest of the
+field can improve its aggregate score while worsening the gaps that determine
+which contender wins. Incomplete contender observations cannot establish a
+passing component check. These lap-derived labels remain diagnostic proxies:
+fuel, tyre temperature, conservation and deployment are not observed intrinsic
+car or driver speed.
+
+The offline component checker accepts a JSON object with `starting_grid`,
+`baseline_pace_percent`, `candidate_pace_percent` and `observed_pace_percent`.
+The three pace maps use driver IDs and percentage points, with higher values
+meaning faster pace. Omit unavailable measurements. It reports missing
+contender pairs and withholds the complete-front improvement when support is
+incomplete. Run it with:
+
+```powershell
+python examples/evaluate_race_pace_components.py output/pace-components.json --output output/pace-component-diagnostic.json
+```
+
+## Cause audit on 14 October
+
+A previous-race team-error correction improved broad pace-component scores but
+failed the complete matched 40-event, 32-trial winner screen: Brier **0.68472**
+against native **0.50366** and strongest grid reference **0.50757**. The paired
+gain against native was -0.18105, with a 95% interval of -0.28731 to -0.08125.
+The correction is rejected and does not change live forecasts.
+
+The failure was already visible in older component validation. In 2023,
+whole-field pace error fell from 0.4020 to 0.3674 percentage points, while error
+in the gaps between the grid's first four drivers rose from 0.4004 to 0.4685.
+The 2024 front-pair error also worsened slightly despite better field-relative
+pace. Those metrics compare saved fitted green-lap labels, rather than directly
+measured intrinsic speed. A numerically full-rank tyre-age fit does not resolve
+strategy confounding. For example, the prior Dutch GP label used to enlarge
+Norris's wrong Monza pace advantage had no eligible direct same-compound
+Norris/Verstappen pairs. Direct comparable Monza laps favoured Verstappen.
+
+A separate strategy consistency fix anchors inferred car pace to the fastest
+package actually entered in the grid. It preserves the existing 0.18 rating
+gap used to select aggressive strategy on difficult passing circuits. A common
+rating shift, compensated in the race clock to leave physical laps unchanged,
+therefore cannot change the inferred strategy. Running and pit physics retain
+the original cars. Both race engines use this inference, including pit-lane
+starters; absent teams do not set its reference. Complete native fields whose
+fastest package is already rated 1 retain their original inference inputs.
+This fixes a reproducible consistency defect; it does not establish a winner
+accuracy gain or explain the main contender errors above.
+
 ## Current accuracy checkpoint
 
 The [12 October checkpoint](../evidence/post-qualifying-accuracy-checkpoint-2026-10-12.json)

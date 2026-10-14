@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from enum import Enum
-from math import isfinite
+from math import isclose, isfinite, ulp
 from numbers import Real
 
 import numpy as np
@@ -512,6 +512,7 @@ class RaceSimulator(InventoryStrategyMixin):
 
         # Initialize driver states based on starting grid
         driver_map = {d.id: d for d in drivers}
+        strategy_cars = self._strategy_car_views(drivers, cars, starting_grid)
         states: list[DriverRaceState] = []
 
         for pos, driver_id in enumerate(starting_grid, 1):
@@ -523,7 +524,7 @@ class RaceSimulator(InventoryStrategyMixin):
             if car is None:
                 continue
 
-            strategy = self._infer_team_strategy(car, track)
+            strategy = self._infer_team_strategy(strategy_cars[driver.team_id], track)
             pit_plan = normalized_pit_plans.get(driver_id)
 
             # Starting tyres are a strategy decision, not a hidden grid-
@@ -1096,18 +1097,46 @@ class RaceSimulator(InventoryStrategyMixin):
 
         return results
 
+    @staticmethod
+    def _strategy_car_views(
+        drivers: list[Driver], cars: dict[str, Car], starting_grid: list[str],
+    ) -> dict[str, Car]:
+        """Anchor strategy pace to the fastest package actually entering this race.
+
+        Only the strategy view changes; running and pit physics keep the caller's
+        actual cars. A complete native field already has its best package at 1,
+        so its existing inference inputs, hook calls and threshold are preserved.
+        Partial grids use their own fastest entered car rather than absent teams.
+        Inference overrides receive the same car subclass and fields, with only
+        base_pace anchored to the entered field; the two-argument hook is unchanged.
+        """
+        lookup = {driver.id: driver for driver in drivers}
+        entered = {lookup[code].team_id for code in starting_grid if code in lookup}
+        active = {team: car for team, car in cars.items() if team in entered}
+        if not active:
+            return {}
+        fastest = max(car.base_pace for car in active.values())
+        if fastest == 1.0:
+            return active
+        return {
+            team: car.model_copy(update={"base_pace": 1.0 - (fastest - car.base_pace)})
+            for team, car in active.items()
+        }
+
     def _infer_team_strategy(
         self,
         car: Car,
         track: Track,
     ) -> TeamStrategyArchetype:
-        """Infer default team strategy archetype from car/track profile."""
+        """Infer a style from the strategy car view and the track profile."""
         # Fragile or high-deg packages trend conservative.
         if car.reliability < 0.9 or car.tire_degradation_factor > 1.08:
             return TeamStrategyArchetype.CONSERVATIVE
 
         # Fast cars at difficult overtaking tracks tend to undercut aggressively.
-        if car.base_pace > 0.82 and track.overtake_difficulty > 0.55:
+        if (car.base_pace > 0.82
+                and not isclose(car.base_pace, 0.82, rel_tol=0., abs_tol=8 * ulp(0.82))
+                and track.overtake_difficulty > 0.55):
             return TeamStrategyArchetype.AGGRESSIVE
 
         return TeamStrategyArchetype.BALANCED

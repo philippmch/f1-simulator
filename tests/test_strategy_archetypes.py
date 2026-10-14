@@ -1,7 +1,10 @@
 import numpy as np
+import pytest
 
 from f1sim.models import Car, Driver, Track, Weather, WeatherCondition
 from f1sim.models.tire import TIRE_COMPOUNDS, TireCompound
+from f1sim.simulation.chronological_race import ChronologicalRace
+from f1sim.simulation.lap import LapSimulator
 from f1sim.simulation.race import DriverRaceState, RaceSimulator, TeamStrategyArchetype
 
 
@@ -33,6 +36,148 @@ def test_infer_strategy_aggressive_for_fast_car_on_hard_track() -> None:
 
     strategy = sim._infer_team_strategy(car, _track())
     assert strategy == TeamStrategyArchetype.AGGRESSIVE
+
+
+def _field():
+    drivers = [Driver(id="A", name="A", team_id="a"),
+               Driver(id="B", name="B", team_id="b")]
+    cars = {"a": Car(team_id="a", team_name="A", base_pace=1., reliability=.95),
+            "b": Car(team_id="b", team_name="B", base_pace=.84, reliability=.95)}
+    return drivers, cars, ["A", "B"]
+
+
+def test_strategy_views_preserve_native_max_one_inputs_and_hook() -> None:
+    drivers, cars, grid = _field()
+    sim = RaceSimulator()
+    views = sim._strategy_car_views(drivers, cars, grid)
+    assert all(views[team] is cars[team] for team in cars)
+    assert [sim._infer_team_strategy(views[team], _track()) for team in cars] == [
+        sim._infer_team_strategy(cars[team], _track()) for team in cars]
+
+
+def test_strategy_views_ignore_absent_extreme_car_and_use_partial_grid() -> None:
+    drivers, cars, grid = _field()
+    cars = {team: car.model_copy(update={"base_pace": car.base_pace - .3})
+            for team, car in cars.items()}
+    cars["absent"] = Car(team_id="absent", team_name="Absent", base_pace=1.)
+    views = RaceSimulator._strategy_car_views(drivers, cars, grid)
+    assert set(views) == {"a", "b"}
+    assert views["a"].base_pace == 1.
+    assert views["b"].base_pace == pytest.approx(.84)
+    partial = RaceSimulator._strategy_car_views(drivers, cars, ["B"])
+    assert set(partial) == {"b"} and partial["b"].base_pace == 1.
+
+
+def test_strategy_views_ignore_unknown_grid_entries_and_empty_field() -> None:
+    drivers, cars, _ = _field()
+    assert RaceSimulator._strategy_car_views(drivers, cars, ["UNKNOWN"]) == {}
+    assert RaceSimulator._strategy_car_views(drivers, {}, ["A", "B"]) == {}
+    assert RaceSimulator._strategy_car_views(drivers, cars, []) == {}
+
+
+def test_strategy_view_preserves_car_subclass_behavior_and_original() -> None:
+    class CustomCar(Car):
+        strategy_note: str = "custom"
+
+        def strategy_signature(self):
+            return self.strategy_note, self.reliability
+
+    drivers, cars, grid = _field()
+    original = CustomCar(team_id="a", team_name="A", base_pace=.7, reliability=.86)
+    cars["a"] = original
+    cars["b"] = cars["b"].model_copy(update={"base_pace": .5})
+    view = RaceSimulator._strategy_car_views(drivers, cars, grid)["a"]
+    assert type(view) is CustomCar and view.strategy_note == "custom"
+    assert view.strategy_signature() == original.strategy_signature() == ("custom", .86)
+    assert view.base_pace == 1. and original.base_pace == .7
+    assert view is not original
+    assert RaceSimulator()._infer_team_strategy(view, _track()) == (
+        TeamStrategyArchetype.CONSERVATIVE)
+
+
+@pytest.mark.parametrize("pace,expected", [
+    (.82, TeamStrategyArchetype.BALANCED),
+    (.82 - 1e-8, TeamStrategyArchetype.BALANCED),
+    (.82 + 1e-8, TeamStrategyArchetype.AGGRESSIVE),
+])
+def test_relative_strategy_boundary_survives_gauge_roundoff(pace, expected) -> None:
+    drivers, cars, grid = _field()
+    cars["b"] = cars["b"].model_copy(update={"base_pace": pace})
+    shifted = {team: car.model_copy(update={"base_pace": car.base_pace - .3})
+               for team, car in cars.items()}
+    sim = RaceSimulator()
+    for packages in (cars, shifted):
+        views = sim._strategy_car_views(drivers, packages, grid)
+        assert sim._infer_team_strategy(views["b"], _track()) == expected
+
+
+@pytest.mark.parametrize("field", [{"reliability": .86}, {"tire_degradation_factor": 1.1}])
+def test_relative_strategy_keeps_conservative_priority(field) -> None:
+    drivers, cars, grid = _field()
+    cars["a"] = cars["a"].model_copy(update={"base_pace": .7, **field})
+    cars["b"] = cars["b"].model_copy(update={"base_pace": .5})
+    views = RaceSimulator._strategy_car_views(drivers, cars, grid)
+    assert RaceSimulator()._infer_team_strategy(views["a"], _track()) == (
+        TeamStrategyArchetype.CONSERVATIVE)
+
+
+@pytest.mark.parametrize("engine", ["standard", "chronological"])
+def test_both_engines_infer_same_strategy_for_gauge_equivalent_physics(monkeypatch, engine):
+    drivers, cars, grid = _field()
+    track = _track().model_copy(update={"total_laps": 3, "safety_car_probability": 0.})
+    shift = -.3
+    shifted = {team: car.model_copy(update={"base_pace": car.base_pace + shift})
+               for team, car in cars.items()}
+    shifted_track = track.model_copy(update={"dry_race_pace_adjustment": .03 * shift})
+    physical = LapSimulator()
+    for driver in drivers:
+        original = physical.calculate_lap_time(
+            driver, cars[driver.team_id], track, TIRE_COMPOUNDS[TireCompound.MEDIUM],
+            Weather(), 1, 3, sample_variation=False)
+        changed = physical.calculate_lap_time(
+            driver, shifted[driver.team_id], shifted_track, TIRE_COMPOUNDS[TireCompound.MEDIUM],
+            Weather(), 1, 3, sample_variation=False)
+        assert original == pytest.approx(changed, abs=1e-12)
+
+    choices, outcomes = [], []
+    for packages, venue in ((cars, track), (shifted, shifted_track)):
+        sim = RaceSimulator(rng=np.random.default_rng(19), control_schedule=[])
+        actual_infer = sim._infer_team_strategy
+        observed = []
+
+        # The existing two-argument inference hook remains replaceable.
+        def infer(car, track):
+            selected = actual_infer(car, track)
+            observed.append((car.team_id, selected))
+            return selected
+
+        monkeypatch.setattr(sim, "_infer_team_strategy", infer)
+
+        def opening(style, track, weather, driver, car):
+            assert car is packages[driver.team_id]
+            return TireCompound.MEDIUM
+
+        monkeypatch.setattr(sim, "_choose_starting_compound", opening)
+        monkeypatch.setattr(sim.event_manager, "_check_mechanical_failure", lambda *a: None)
+        monkeypatch.setattr(sim.event_manager, "_check_random_incident", lambda *a, **k: None)
+        if engine == "standard":
+            results = sim.simulate_race(drivers, packages, venue, Weather(), grid,
+                                       pit_lane_starters=["B"])
+        else:
+            race = ChronologicalRace(sim)
+            results = race.run(drivers, packages, venue, Weather(), grid,
+                               pit_lane_starters=["B"])
+            assert all(race.states[code].car is packages[driver.team_id]
+                       for code, driver in zip(grid, drivers))
+        choices.append(observed)
+        outcomes.append([(r.driver_id, r.position, r.status, r.pit_stops, r.strategy)
+                         for r in results])
+    assert choices[0] == choices[1] == [
+        ("a", TeamStrategyArchetype.AGGRESSIVE),
+        ("b", TeamStrategyArchetype.AGGRESSIVE)]
+    assert outcomes[0] == outcomes[1]
+    assert cars["a"].base_pace == 1. and cars["b"].base_pace == .84
+    assert shifted["a"].base_pace == .7 and shifted["b"].base_pace == .54
 
 
 def test_plan_pit_laps_by_strategy_archetype() -> None:
