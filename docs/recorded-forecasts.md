@@ -96,9 +96,8 @@ These were separate live collections. Inspection confirmed identical driver,
 car, venue and weather inputs aside from the clock coefficient, and identical
 qualifying forecasts. Runtime/source provenance differs. Both files retain
 their original local-clock disclaimer. The dated GitHub publication of the
-containing commit is separate evidence of pre-event availability. Scores remain
-unavailable until the event has a classified result; no future accuracy is
-claimed today. Run the scoring command against each original path afterwards.
+containing commit is separate evidence of pre-event availability. Fresh result
+collection on 14 October now scores both original files without rerunning them.
 
 The [teammate-point forecast](../forecasts/2026-round-17-dry-teammate-points.json)
 adds the schema-2 estimate, again with 100 trials and seed 42. It completed at
@@ -109,4 +108,42 @@ inputs, qualifying forecast and native winner counts exactly, aside from the
 runtime/source fingerprint. The new estimate and frozen point history are
 separate. The first two records retain their original bytes and seals. The
 new record also retains its local-clock disclaimer; dated publication is
-separate evidence. It remains unscored until the race has an observed result.
+separate evidence. Its original policy is now scored alongside the native counts.
+
+## Singapore scores collected on 14 October
+
+The observed winner and qualifying pole were Verstappen. Fresh result and
+qualifying feeds cover all 22 recorded drivers. The original files, byte hashes
+and content seals remain unchanged.
+
+| Saved pre-qualifying forecast | Probability of Verstappen winning | Winner Brier |
+| --- | ---: | ---: |
+| Previous clock | 30.00% | 0.59260 |
+| Corrected clock | 30.00% | 0.59120 |
+| Recorded teammate-point estimate | 32.46% | 0.54275 |
+
+The frozen constructor-points and prior-win references score 0.93882 and 1.18750.
+These comparisons concern one conditional-dry event and the references actually
+stored beforehand. They do not establish calibration, sustained improvement,
+or success against the after-qualifying grid reference. The teammate estimate
+changes the reporting allocation; its underlying native score remains 0.59120.
+
+Public GitHub files at their original commits match all three sealed files and
+byte hashes. The dated push runs for the [first two records](https://github.com/philippmch/f1-simulator/actions/runs/37349048919)
+and the [teammate record](https://github.com/philippmch/f1-simulator/actions/runs/37681803575)
+were created on 5 and 7 October, before qualifying on 10 October. The original
+local-clock disclaimers remain in place; these external receipts provide the
+separate publication evidence.
+
+The [sealed score checkpoint](../evidence/recorded-forecast-scores-2026-10-14.json)
+retains the collected outcomes, original policies and publication receipts.
+Recompute its scores offline with:
+
+```powershell
+python examples/verify_recorded_forecast_scores.py
+```
+
+This verifier checks saved counts, policies, fields, scores, digests and receipt
+consistency. Reauthenticating the result feed or GitHub receipts requires a fresh
+online lookup. It does not turn the pre-qualifying records into after-qualifying
+forecasts or replace their original bytes.

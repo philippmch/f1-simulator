@@ -1,0 +1,1684 @@
+{
+  "format_version": 1,
+  "scope": "One Singapore 2026 event; three immutable pre-qualifying conditional-dry forecasts. Excluded from after-qualifying grid-reference accuracy evidence.",
+  "scored_at": [
+    "2026-10-14T12:11:02.412255Z",
+    "2026-10-14T12:11:12.922929Z",
+    "2026-10-14T12:11:15.697325Z"
+  ],
+  "publication_verified_at": "2026-10-14T12:20:58.306357+00:00",
+  "observed_event": {
+    "year": 2026,
+    "round": 17,
+    "race": "Singapore Grand Prix",
+    "date": "2026-10-11",
+    "circuit_id": "marina_bay"
+  },
+  "observed_results": [
+    {
+      "round": 17,
+      "Driver": {
+        "code": "VER",
+        "driverId": "max_verstappen"
+      },
+      "position": "1",
+      "status": "Finished",
+      "laps": "62"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "LEC",
+        "driverId": "leclerc"
+      },
+      "position": "2",
+      "status": "Finished",
+      "laps": "62"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "ANT",
+        "driverId": "antonelli"
+      },
+      "position": "3",
+      "status": "Finished",
+      "laps": "62"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "NOR",
+        "driverId": "norris"
+      },
+      "position": "4",
+      "status": "Finished",
+      "laps": "62"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "PIA",
+        "driverId": "piastri"
+      },
+      "position": "5",
+      "status": "Finished",
+      "laps": "62"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "HAM",
+        "driverId": "hamilton"
+      },
+      "position": "6",
+      "status": "Finished",
+      "laps": "62"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "LAW",
+        "driverId": "lawson"
+      },
+      "position": "7",
+      "status": "Finished",
+      "laps": "62"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "HUL",
+        "driverId": "hulkenberg"
+      },
+      "position": "8",
+      "status": "Finished",
+      "laps": "62"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "RUS",
+        "driverId": "russell"
+      },
+      "position": "9",
+      "status": "Finished",
+      "laps": "62"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "HAD",
+        "driverId": "hadjar"
+      },
+      "position": "10",
+      "status": "Finished",
+      "laps": "62"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "GAS",
+        "driverId": "gasly"
+      },
+      "position": "11",
+      "status": "Lapped",
+      "laps": "61"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "BEA",
+        "driverId": "bearman"
+      },
+      "position": "12",
+      "status": "Lapped",
+      "laps": "61"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "OCO",
+        "driverId": "ocon"
+      },
+      "position": "13",
+      "status": "Lapped",
+      "laps": "61"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "SAI",
+        "driverId": "sainz"
+      },
+      "position": "14",
+      "status": "Lapped",
+      "laps": "61"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "LIN",
+        "driverId": "arvid_lindblad"
+      },
+      "position": "15",
+      "status": "Lapped",
+      "laps": "61"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "ALO",
+        "driverId": "alonso"
+      },
+      "position": "16",
+      "status": "Lapped",
+      "laps": "61"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "PER",
+        "driverId": "perez"
+      },
+      "position": "17",
+      "status": "Lapped",
+      "laps": "60"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "ALB",
+        "driverId": "albon"
+      },
+      "position": "18",
+      "status": "Retired",
+      "laps": "59"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "BOT",
+        "driverId": "bottas"
+      },
+      "position": "19",
+      "status": "Lapped",
+      "laps": "59"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "STR",
+        "driverId": "stroll"
+      },
+      "position": "20",
+      "status": "Retired",
+      "laps": "36"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "COL",
+        "driverId": "colapinto"
+      },
+      "position": "21",
+      "status": "Retired",
+      "laps": "29"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "BOR",
+        "driverId": "bortoleto"
+      },
+      "position": "22",
+      "status": "Retired",
+      "laps": "7"
+    }
+  ],
+  "observed_qualifying": [
+    {
+      "round": 17,
+      "Driver": {
+        "code": "VER",
+        "driverId": "max_verstappen"
+      },
+      "position": "1"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "LEC",
+        "driverId": "leclerc"
+      },
+      "position": "2"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "HAM",
+        "driverId": "hamilton"
+      },
+      "position": "3"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "ANT",
+        "driverId": "antonelli"
+      },
+      "position": "4"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "NOR",
+        "driverId": "norris"
+      },
+      "position": "5"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "RUS",
+        "driverId": "russell"
+      },
+      "position": "6"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "PIA",
+        "driverId": "piastri"
+      },
+      "position": "7"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "GAS",
+        "driverId": "gasly"
+      },
+      "position": "8"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "LAW",
+        "driverId": "lawson"
+      },
+      "position": "9"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "LIN",
+        "driverId": "arvid_lindblad"
+      },
+      "position": "10"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "HUL",
+        "driverId": "hulkenberg"
+      },
+      "position": "11"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "BEA",
+        "driverId": "bearman"
+      },
+      "position": "12"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "OCO",
+        "driverId": "ocon"
+      },
+      "position": "13"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "SAI",
+        "driverId": "sainz"
+      },
+      "position": "14"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "BOR",
+        "driverId": "bortoleto"
+      },
+      "position": "15"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "COL",
+        "driverId": "colapinto"
+      },
+      "position": "16"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "ALO",
+        "driverId": "alonso"
+      },
+      "position": "17"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "ALB",
+        "driverId": "albon"
+      },
+      "position": "18"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "STR",
+        "driverId": "stroll"
+      },
+      "position": "19"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "PER",
+        "driverId": "perez"
+      },
+      "position": "20"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "BOT",
+        "driverId": "bottas"
+      },
+      "position": "21"
+    },
+    {
+      "round": 17,
+      "Driver": {
+        "code": "HAD",
+        "driverId": "hadjar"
+      },
+      "position": "22"
+    }
+  ],
+  "result_evidence": {
+    "url": "https://api.jolpi.ca/ergast/f1/2026/17/results.json?limit=100",
+    "fetched_at": "2026-10-14T12:20:58.306357+00:00",
+    "response_sha256": "9f23b984ce414d455eff5c2c7d9be094198a0f62df89c26524f37edcdd35bc8f",
+    "fresh_fetch": true,
+    "cache": "disabled",
+    "coverage": 22
+  },
+  "qualifying_evidence": {
+    "url": "https://api.jolpi.ca/ergast/f1/2026/17/qualifying.json?limit=100",
+    "fetched_at": "2026-10-14T12:20:58.306357+00:00",
+    "response_sha256": "ebf8ff50c80fdcb1cf9bd7ccaa68aa690d5b48e3a5990db8cb1cd7db9852709c",
+    "fresh_fetch": true,
+    "cache": "disabled",
+    "coverage": 22
+  },
+  "observed_winner": "VER",
+  "forecast_stage": "pre_qualifying",
+  "grid_reference_comparison": "Unavailable: these forecasts did not freeze the subsequently observed grid",
+  "records": [
+    {
+      "path": "forecasts/2026-round-17-dry.json",
+      "local_byte_sha256_at_scoring": "890a0527bb58b8ec43ac8e1e470e10ea12aee3cd9e91f39103b822b8725890a5",
+      "published_byte_sha256": "890a0527bb58b8ec43ac8e1e470e10ea12aee3cd9e91f39103b822b8725890a5",
+      "canonical_content_sha256": "a8e53346895db8d90d943de6069dcfbd00004da73f54aedecc4fd7455c1ed8db",
+      "publication_receipt": {
+        "commit": "ab89ea2d4b027a41a3f245e2f36aac96d9f41f6a",
+        "blob_sha": "3ae31545be63d5a238e23cc7448ed1ddc6b8a33d",
+        "contents_api_url": "https://api.github.com/repos/philippmch/f1-simulator/contents/forecasts/2026-round-17-dry.json?ref=ab89ea2d4b027a41a3f245e2f36aac96d9f41f6a",
+        "receipt_api_url": "https://api.github.com/repos/philippmch/f1-simulator/actions/runs/37349048919",
+        "receipt_url": "https://github.com/philippmch/f1-simulator/actions/runs/37349048919",
+        "created_at": "2026-10-05T17:31:21Z",
+        "verification": "Public file at exact commit matches the sealed local JSON; dated push CI references that commit before qualifying",
+        "receipt_head_sha": "ab89ea2d4b027a41a3f245e2f36aac96d9f41f6a",
+        "receipt_event": "push"
+      },
+      "score_report": {
+        "status": "scored",
+        "year": 2026,
+        "round": 17,
+        "forecast_sha256": "a8e53346895db8d90d943de6069dcfbd00004da73f54aedecc4fd7455c1ed8db",
+        "recorded_at": "2026-10-05T16:59:58.574312+00:00",
+        "timing_evidence": "local_clock; independent publication not verified",
+        "observed_winner": "VER",
+        "winner_score": {
+          "brier_score": 0.5925999999999999,
+          "uniform_baseline_brier_score": 0.9545454545454547,
+          "delta_from_uniform_baseline": -0.3619454545454548,
+          "mc_adjustment": {
+            "method": "finite_ensemble_multiclass_brier_v1",
+            "trials": 100,
+            "scope": "monte_carlo_sampling_with_fixed_observed_outcome",
+            "trial_assumption": "independent_identically_distributed_winner_categories",
+            "status": "available",
+            "reason": null,
+            "estimated_empirical_score_bias": 0.008155555555555555,
+            "adjusted_brier_score": 0.5844444444444444,
+            "adjusted_delta_from_uniform_baseline": -0.37010101010101026,
+            "mc_standard_error": 0.078756748987697,
+            "mc_standard_error_method": "multinomial_plugin_u_statistic_v1",
+            "mc_standard_error_reason": null,
+            "observed_categories": 10
+          }
+        },
+        "observed_pole": "VER",
+        "pole_score": {
+          "brier_score": 0.48660000000000003,
+          "uniform_baseline_brier_score": 0.9545454545454547,
+          "delta_from_uniform_baseline": -0.46794545454545466,
+          "mc_adjustment": {
+            "method": "finite_ensemble_multiclass_brier_v1",
+            "trials": 100,
+            "scope": "monte_carlo_sampling_with_fixed_observed_outcome",
+            "trial_assumption": "independent_identically_distributed_winner_categories",
+            "status": "available",
+            "reason": null,
+            "estimated_empirical_score_bias": 0.005791919191919192,
+            "adjusted_brier_score": 0.4808080808080808,
+            "adjusted_delta_from_uniform_baseline": -0.4737373737373739,
+            "mc_standard_error": 0.0943388890964887,
+            "mc_standard_error_method": "multinomial_plugin_u_statistic_v1",
+            "mc_standard_error_reason": null,
+            "observed_categories": 4
+          }
+        },
+        "qualifying_position_mae": 2.8000000000000003,
+        "qualifying_scored_drivers": 22,
+        "qualifying_observed_drivers": 22,
+        "forecast_drivers": 22,
+        "qualifying_position_scope": "recorded roster; known outside entrants removed",
+        "baselines": {
+          "constructor_points_share": {
+            "policy": "constructor_points_share_v1",
+            "cutoff_round": 16,
+            "status": "available",
+            "reason": null,
+            "probabilities": {
+              "ALB": 0.0033407572383073497,
+              "ALO": 0.0019487750556792874,
+              "ANT": 0.15478841870824053,
+              "BEA": 0.007516703786191537,
+              "BOR": 0.004732739420935412,
+              "BOT": 0.0,
+              "COL": 0.01893095768374165,
+              "GAS": 0.01893095768374165,
+              "HAD": 0.08296213808463251,
+              "HAM": 0.11275055679287305,
+              "HUL": 0.004732739420935412,
+              "LAW": 0.02505567928730512,
+              "LEC": 0.11275055679287305,
+              "LIN": 0.02505567928730512,
+              "NOR": 0.08797327394209355,
+              "OCO": 0.007516703786191537,
+              "PER": 0.0,
+              "PIA": 0.08797327394209355,
+              "RUS": 0.15478841870824053,
+              "SAI": 0.0033407572383073497,
+              "STR": 0.0019487750556792874,
+              "VER": 0.08296213808463251
+            },
+            "no_classified_winner_probability": 0.0,
+            "evidence": {
+              "entrant_teams": {
+                "ALB": "williams",
+                "ALO": "aston_martin",
+                "ANT": "mercedes",
+                "BEA": "haas",
+                "BOR": "audi",
+                "BOT": "cadillac",
+                "COL": "alpine",
+                "GAS": "alpine",
+                "HAD": "red_bull",
+                "HAM": "ferrari",
+                "HUL": "audi",
+                "LAW": "rb",
+                "LEC": "ferrari",
+                "LIN": "rb",
+                "NOR": "mclaren",
+                "OCO": "haas",
+                "PER": "cadillac",
+                "PIA": "mclaren",
+                "RUS": "mercedes",
+                "SAI": "williams",
+                "STR": "aston_martin",
+                "VER": "red_bull"
+              },
+              "constructor_points": {
+                "alpine": 68.0,
+                "aston_martin": 7.0,
+                "audi": 17.0,
+                "cadillac": 0.0,
+                "ferrari": 405.0,
+                "haas": 27.0,
+                "mclaren": 316.0,
+                "mercedes": 556.0,
+                "rb": 90.0,
+                "red_bull": 298.0,
+                "williams": 12.0
+              },
+              "prior_outcomes": [
+                {
+                  "round": 1,
+                  "status": "observed",
+                  "winner_id": "RUS"
+                },
+                {
+                  "round": 2,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 3,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 4,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 5,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 6,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 7,
+                  "status": "observed",
+                  "winner_id": "HAM"
+                },
+                {
+                  "round": 8,
+                  "status": "observed",
+                  "winner_id": "RUS"
+                },
+                {
+                  "round": 9,
+                  "status": "observed",
+                  "winner_id": "LEC"
+                },
+                {
+                  "round": 10,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 11,
+                  "status": "observed",
+                  "winner_id": "NOR"
+                },
+                {
+                  "round": 12,
+                  "status": "observed",
+                  "winner_id": "NOR"
+                },
+                {
+                  "round": 13,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 14,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 15,
+                  "status": "observed",
+                  "winner_id": "RUS"
+                },
+                {
+                  "round": 16,
+                  "status": "observed",
+                  "winner_id": "VER"
+                }
+              ]
+            },
+            "score": {
+              "brier_score": 0.9388240881741658,
+              "uniform_baseline_brier_score": 0.9545454545454547,
+              "delta_from_uniform_baseline": -0.015721366371288847
+            }
+          },
+          "prior_race_wins_share": {
+            "policy": "prior_race_wins_share_v1",
+            "cutoff_round": 16,
+            "status": "available",
+            "reason": null,
+            "probabilities": {
+              "ALB": 0.0,
+              "ALO": 0.0,
+              "ANT": 0.5,
+              "BEA": 0.0,
+              "BOR": 0.0,
+              "BOT": 0.0,
+              "COL": 0.0,
+              "GAS": 0.0,
+              "HAD": 0.0,
+              "HAM": 0.0625,
+              "HUL": 0.0,
+              "LAW": 0.0,
+              "LEC": 0.0625,
+              "LIN": 0.0,
+              "NOR": 0.125,
+              "OCO": 0.0,
+              "PER": 0.0,
+              "PIA": 0.0,
+              "RUS": 0.1875,
+              "SAI": 0.0,
+              "STR": 0.0,
+              "VER": 0.0625
+            },
+            "no_classified_winner_probability": 0.0,
+            "evidence": {
+              "entrant_teams": {
+                "ALB": "williams",
+                "ALO": "aston_martin",
+                "ANT": "mercedes",
+                "BEA": "haas",
+                "BOR": "audi",
+                "BOT": "cadillac",
+                "COL": "alpine",
+                "GAS": "alpine",
+                "HAD": "red_bull",
+                "HAM": "ferrari",
+                "HUL": "audi",
+                "LAW": "rb",
+                "LEC": "ferrari",
+                "LIN": "rb",
+                "NOR": "mclaren",
+                "OCO": "haas",
+                "PER": "cadillac",
+                "PIA": "mclaren",
+                "RUS": "mercedes",
+                "SAI": "williams",
+                "STR": "aston_martin",
+                "VER": "red_bull"
+              },
+              "constructor_points": {
+                "alpine": 68.0,
+                "aston_martin": 7.0,
+                "audi": 17.0,
+                "cadillac": 0.0,
+                "ferrari": 405.0,
+                "haas": 27.0,
+                "mclaren": 316.0,
+                "mercedes": 556.0,
+                "rb": 90.0,
+                "red_bull": 298.0,
+                "williams": 12.0
+              },
+              "prior_outcomes": [
+                {
+                  "round": 1,
+                  "status": "observed",
+                  "winner_id": "RUS"
+                },
+                {
+                  "round": 2,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 3,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 4,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 5,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 6,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 7,
+                  "status": "observed",
+                  "winner_id": "HAM"
+                },
+                {
+                  "round": 8,
+                  "status": "observed",
+                  "winner_id": "RUS"
+                },
+                {
+                  "round": 9,
+                  "status": "observed",
+                  "winner_id": "LEC"
+                },
+                {
+                  "round": 10,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 11,
+                  "status": "observed",
+                  "winner_id": "NOR"
+                },
+                {
+                  "round": 12,
+                  "status": "observed",
+                  "winner_id": "NOR"
+                },
+                {
+                  "round": 13,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 14,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 15,
+                  "status": "observed",
+                  "winner_id": "RUS"
+                },
+                {
+                  "round": 16,
+                  "status": "observed",
+                  "winner_id": "VER"
+                }
+              ]
+            },
+            "score": {
+              "brier_score": 1.1875,
+              "uniform_baseline_brier_score": 0.9545454545454547,
+              "delta_from_uniform_baseline": 0.2329545454545453
+            }
+          }
+        },
+        "observations_provenance": {
+          "source": "jolpica+formula1.com",
+          "season": 2026,
+          "fetched_at": "2026-10-14T12:11:02.412255Z",
+          "cache": "disabled",
+          "fresh_fetch": true,
+          "urls": [
+            "https://api.jolpi.ca/ergast/f1/2026/results.json?limit=100&offset=0",
+            "https://api.jolpi.ca/ergast/f1/2026/results.json?limit=100&offset=100",
+            "https://api.jolpi.ca/ergast/f1/2026/results.json?limit=100&offset=200",
+            "https://api.jolpi.ca/ergast/f1/2026/results.json?limit=100&offset=300",
+            "https://api.jolpi.ca/ergast/f1/2026/qualifying.json?limit=100&offset=0",
+            "https://api.jolpi.ca/ergast/f1/2026/qualifying.json?limit=100&offset=100",
+            "https://api.jolpi.ca/ergast/f1/2026/qualifying.json?limit=100&offset=200",
+            "https://api.jolpi.ca/ergast/f1/2026/qualifying.json?limit=100&offset=300",
+            "https://api.jolpi.ca/ergast/f1/2026/races/?limit=100&offset=0"
+          ],
+          "completed_rounds": [],
+          "qualifying_rounds": []
+        }
+      }
+    },
+    {
+      "path": "forecasts/2026-round-17-dry-clock.json",
+      "local_byte_sha256_at_scoring": "334747f6c5dd354604b1a8b9d1a9ef4478a5ad75eb2ccb0faa3e4f6c09f4e6c8",
+      "published_byte_sha256": "334747f6c5dd354604b1a8b9d1a9ef4478a5ad75eb2ccb0faa3e4f6c09f4e6c8",
+      "canonical_content_sha256": "121d4255f2e2fa93ab95057b193326c8fb5f880b65920d52023c0b1f4252e48d",
+      "publication_receipt": {
+        "commit": "ab89ea2d4b027a41a3f245e2f36aac96d9f41f6a",
+        "blob_sha": "a8582d26afa17d17693d1bb695691e30cbc26625",
+        "contents_api_url": "https://api.github.com/repos/philippmch/f1-simulator/contents/forecasts/2026-round-17-dry-clock.json?ref=ab89ea2d4b027a41a3f245e2f36aac96d9f41f6a",
+        "receipt_api_url": "https://api.github.com/repos/philippmch/f1-simulator/actions/runs/37349048919",
+        "receipt_url": "https://github.com/philippmch/f1-simulator/actions/runs/37349048919",
+        "created_at": "2026-10-05T17:31:21Z",
+        "verification": "Public file at exact commit matches the sealed local JSON; dated push CI references that commit before qualifying",
+        "receipt_head_sha": "ab89ea2d4b027a41a3f245e2f36aac96d9f41f6a",
+        "receipt_event": "push"
+      },
+      "score_report": {
+        "status": "scored",
+        "year": 2026,
+        "round": 17,
+        "forecast_sha256": "121d4255f2e2fa93ab95057b193326c8fb5f880b65920d52023c0b1f4252e48d",
+        "recorded_at": "2026-10-05T17:18:31.117146+00:00",
+        "timing_evidence": "local_clock; independent publication not verified",
+        "observed_winner": "VER",
+        "winner_score": {
+          "brier_score": 0.5912,
+          "uniform_baseline_brier_score": 0.9545454545454547,
+          "delta_from_uniform_baseline": -0.36334545454545475,
+          "mc_adjustment": {
+            "method": "finite_ensemble_multiclass_brier_v1",
+            "trials": 100,
+            "scope": "monte_carlo_sampling_with_fixed_observed_outcome",
+            "trial_assumption": "independent_identically_distributed_winner_categories",
+            "status": "available",
+            "reason": null,
+            "estimated_empirical_score_bias": 0.00816969696969697,
+            "adjusted_brier_score": 0.583030303030303,
+            "adjusted_delta_from_uniform_baseline": -0.3715151515151517,
+            "mc_standard_error": 0.07836117405960684,
+            "mc_standard_error_method": "multinomial_plugin_u_statistic_v1",
+            "mc_standard_error_reason": null,
+            "observed_categories": 9
+          }
+        },
+        "observed_pole": "VER",
+        "pole_score": {
+          "brier_score": 0.48660000000000003,
+          "uniform_baseline_brier_score": 0.9545454545454547,
+          "delta_from_uniform_baseline": -0.46794545454545466,
+          "mc_adjustment": {
+            "method": "finite_ensemble_multiclass_brier_v1",
+            "trials": 100,
+            "scope": "monte_carlo_sampling_with_fixed_observed_outcome",
+            "trial_assumption": "independent_identically_distributed_winner_categories",
+            "status": "available",
+            "reason": null,
+            "estimated_empirical_score_bias": 0.005791919191919192,
+            "adjusted_brier_score": 0.4808080808080808,
+            "adjusted_delta_from_uniform_baseline": -0.4737373737373739,
+            "mc_standard_error": 0.0943388890964887,
+            "mc_standard_error_method": "multinomial_plugin_u_statistic_v1",
+            "mc_standard_error_reason": null,
+            "observed_categories": 4
+          }
+        },
+        "qualifying_position_mae": 2.8000000000000003,
+        "qualifying_scored_drivers": 22,
+        "qualifying_observed_drivers": 22,
+        "forecast_drivers": 22,
+        "qualifying_position_scope": "recorded roster; known outside entrants removed",
+        "baselines": {
+          "constructor_points_share": {
+            "policy": "constructor_points_share_v1",
+            "cutoff_round": 16,
+            "status": "available",
+            "reason": null,
+            "probabilities": {
+              "ALB": 0.0033407572383073497,
+              "ALO": 0.0019487750556792874,
+              "ANT": 0.15478841870824053,
+              "BEA": 0.007516703786191537,
+              "BOR": 0.004732739420935412,
+              "BOT": 0.0,
+              "COL": 0.01893095768374165,
+              "GAS": 0.01893095768374165,
+              "HAD": 0.08296213808463251,
+              "HAM": 0.11275055679287305,
+              "HUL": 0.004732739420935412,
+              "LAW": 0.02505567928730512,
+              "LEC": 0.11275055679287305,
+              "LIN": 0.02505567928730512,
+              "NOR": 0.08797327394209355,
+              "OCO": 0.007516703786191537,
+              "PER": 0.0,
+              "PIA": 0.08797327394209355,
+              "RUS": 0.15478841870824053,
+              "SAI": 0.0033407572383073497,
+              "STR": 0.0019487750556792874,
+              "VER": 0.08296213808463251
+            },
+            "no_classified_winner_probability": 0.0,
+            "evidence": {
+              "entrant_teams": {
+                "ALB": "williams",
+                "ALO": "aston_martin",
+                "ANT": "mercedes",
+                "BEA": "haas",
+                "BOR": "audi",
+                "BOT": "cadillac",
+                "COL": "alpine",
+                "GAS": "alpine",
+                "HAD": "red_bull",
+                "HAM": "ferrari",
+                "HUL": "audi",
+                "LAW": "rb",
+                "LEC": "ferrari",
+                "LIN": "rb",
+                "NOR": "mclaren",
+                "OCO": "haas",
+                "PER": "cadillac",
+                "PIA": "mclaren",
+                "RUS": "mercedes",
+                "SAI": "williams",
+                "STR": "aston_martin",
+                "VER": "red_bull"
+              },
+              "constructor_points": {
+                "alpine": 68.0,
+                "aston_martin": 7.0,
+                "audi": 17.0,
+                "cadillac": 0.0,
+                "ferrari": 405.0,
+                "haas": 27.0,
+                "mclaren": 316.0,
+                "mercedes": 556.0,
+                "rb": 90.0,
+                "red_bull": 298.0,
+                "williams": 12.0
+              },
+              "prior_outcomes": [
+                {
+                  "round": 1,
+                  "status": "observed",
+                  "winner_id": "RUS"
+                },
+                {
+                  "round": 2,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 3,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 4,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 5,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 6,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 7,
+                  "status": "observed",
+                  "winner_id": "HAM"
+                },
+                {
+                  "round": 8,
+                  "status": "observed",
+                  "winner_id": "RUS"
+                },
+                {
+                  "round": 9,
+                  "status": "observed",
+                  "winner_id": "LEC"
+                },
+                {
+                  "round": 10,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 11,
+                  "status": "observed",
+                  "winner_id": "NOR"
+                },
+                {
+                  "round": 12,
+                  "status": "observed",
+                  "winner_id": "NOR"
+                },
+                {
+                  "round": 13,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 14,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 15,
+                  "status": "observed",
+                  "winner_id": "RUS"
+                },
+                {
+                  "round": 16,
+                  "status": "observed",
+                  "winner_id": "VER"
+                }
+              ]
+            },
+            "score": {
+              "brier_score": 0.9388240881741658,
+              "uniform_baseline_brier_score": 0.9545454545454547,
+              "delta_from_uniform_baseline": -0.015721366371288847
+            }
+          },
+          "prior_race_wins_share": {
+            "policy": "prior_race_wins_share_v1",
+            "cutoff_round": 16,
+            "status": "available",
+            "reason": null,
+            "probabilities": {
+              "ALB": 0.0,
+              "ALO": 0.0,
+              "ANT": 0.5,
+              "BEA": 0.0,
+              "BOR": 0.0,
+              "BOT": 0.0,
+              "COL": 0.0,
+              "GAS": 0.0,
+              "HAD": 0.0,
+              "HAM": 0.0625,
+              "HUL": 0.0,
+              "LAW": 0.0,
+              "LEC": 0.0625,
+              "LIN": 0.0,
+              "NOR": 0.125,
+              "OCO": 0.0,
+              "PER": 0.0,
+              "PIA": 0.0,
+              "RUS": 0.1875,
+              "SAI": 0.0,
+              "STR": 0.0,
+              "VER": 0.0625
+            },
+            "no_classified_winner_probability": 0.0,
+            "evidence": {
+              "entrant_teams": {
+                "ALB": "williams",
+                "ALO": "aston_martin",
+                "ANT": "mercedes",
+                "BEA": "haas",
+                "BOR": "audi",
+                "BOT": "cadillac",
+                "COL": "alpine",
+                "GAS": "alpine",
+                "HAD": "red_bull",
+                "HAM": "ferrari",
+                "HUL": "audi",
+                "LAW": "rb",
+                "LEC": "ferrari",
+                "LIN": "rb",
+                "NOR": "mclaren",
+                "OCO": "haas",
+                "PER": "cadillac",
+                "PIA": "mclaren",
+                "RUS": "mercedes",
+                "SAI": "williams",
+                "STR": "aston_martin",
+                "VER": "red_bull"
+              },
+              "constructor_points": {
+                "alpine": 68.0,
+                "aston_martin": 7.0,
+                "audi": 17.0,
+                "cadillac": 0.0,
+                "ferrari": 405.0,
+                "haas": 27.0,
+                "mclaren": 316.0,
+                "mercedes": 556.0,
+                "rb": 90.0,
+                "red_bull": 298.0,
+                "williams": 12.0
+              },
+              "prior_outcomes": [
+                {
+                  "round": 1,
+                  "status": "observed",
+                  "winner_id": "RUS"
+                },
+                {
+                  "round": 2,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 3,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 4,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 5,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 6,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 7,
+                  "status": "observed",
+                  "winner_id": "HAM"
+                },
+                {
+                  "round": 8,
+                  "status": "observed",
+                  "winner_id": "RUS"
+                },
+                {
+                  "round": 9,
+                  "status": "observed",
+                  "winner_id": "LEC"
+                },
+                {
+                  "round": 10,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 11,
+                  "status": "observed",
+                  "winner_id": "NOR"
+                },
+                {
+                  "round": 12,
+                  "status": "observed",
+                  "winner_id": "NOR"
+                },
+                {
+                  "round": 13,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 14,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 15,
+                  "status": "observed",
+                  "winner_id": "RUS"
+                },
+                {
+                  "round": 16,
+                  "status": "observed",
+                  "winner_id": "VER"
+                }
+              ]
+            },
+            "score": {
+              "brier_score": 1.1875,
+              "uniform_baseline_brier_score": 0.9545454545454547,
+              "delta_from_uniform_baseline": 0.2329545454545453
+            }
+          }
+        },
+        "observations_provenance": {
+          "source": "jolpica+formula1.com",
+          "season": 2026,
+          "fetched_at": "2026-10-14T12:11:12.922929Z",
+          "cache": "disabled",
+          "fresh_fetch": true,
+          "urls": [
+            "https://api.jolpi.ca/ergast/f1/2026/results.json?limit=100&offset=0",
+            "https://api.jolpi.ca/ergast/f1/2026/results.json?limit=100&offset=100",
+            "https://api.jolpi.ca/ergast/f1/2026/results.json?limit=100&offset=200",
+            "https://api.jolpi.ca/ergast/f1/2026/results.json?limit=100&offset=300",
+            "https://api.jolpi.ca/ergast/f1/2026/qualifying.json?limit=100&offset=0",
+            "https://api.jolpi.ca/ergast/f1/2026/qualifying.json?limit=100&offset=100",
+            "https://api.jolpi.ca/ergast/f1/2026/qualifying.json?limit=100&offset=200",
+            "https://api.jolpi.ca/ergast/f1/2026/qualifying.json?limit=100&offset=300",
+            "https://api.jolpi.ca/ergast/f1/2026/races/?limit=100&offset=0"
+          ],
+          "completed_rounds": [],
+          "qualifying_rounds": []
+        }
+      }
+    },
+    {
+      "path": "forecasts/2026-round-17-dry-teammate-points.json",
+      "local_byte_sha256_at_scoring": "a7b06a4081099827720dd6cf57218ccf79271e2c81211731f01501ccc7385be7",
+      "published_byte_sha256": "a7b06a4081099827720dd6cf57218ccf79271e2c81211731f01501ccc7385be7",
+      "canonical_content_sha256": "7253d10f73dcbf70c7645b8571fa2f66aafa6cb225e71736e5e21d97146d3439",
+      "publication_receipt": {
+        "commit": "42599bba262d352b89cff0458f4224ddd084a3d7",
+        "blob_sha": "37cfdbc9959cf0bd39e4b4929944d719326fe610",
+        "contents_api_url": "https://api.github.com/repos/philippmch/f1-simulator/contents/forecasts/2026-round-17-dry-teammate-points.json?ref=42599bba262d352b89cff0458f4224ddd084a3d7",
+        "receipt_api_url": "https://api.github.com/repos/philippmch/f1-simulator/actions/runs/37681803575",
+        "receipt_url": "https://github.com/philippmch/f1-simulator/actions/runs/37681803575",
+        "created_at": "2026-10-07T20:24:51Z",
+        "verification": "Public file at exact commit matches the sealed local JSON; dated push CI references that commit before qualifying",
+        "receipt_head_sha": "42599bba262d352b89cff0458f4224ddd084a3d7",
+        "receipt_event": "push"
+      },
+      "score_report": {
+        "status": "scored",
+        "year": 2026,
+        "round": 17,
+        "forecast_sha256": "7253d10f73dcbf70c7645b8571fa2f66aafa6cb225e71736e5e21d97146d3439",
+        "recorded_at": "2026-10-07T20:19:10.871688+00:00",
+        "timing_evidence": "local_clock; independent publication not verified",
+        "observed_winner": "VER",
+        "winner_score": {
+          "brier_score": 0.5427525017101849,
+          "uniform_baseline_brier_score": 0.9545454545454547,
+          "delta_from_uniform_baseline": -0.41179295283526984,
+          "mc_adjustment": {
+            "method": "finite_ensemble_linear_allocation_brier_v1",
+            "trials": 100,
+            "scope": "monte_carlo_sampling_with_frozen_point_history_and_outcome",
+            "trial_assumption": "independent_identically_distributed_native_winner_categories",
+            "status": "available",
+            "reason": null,
+            "estimated_empirical_score_bias": 0.003313542969378809,
+            "adjusted_brier_score": 0.539438958740806,
+            "adjusted_delta_from_uniform_baseline": -0.41510649580464865,
+            "mc_standard_error": 0.04517020974457889,
+            "mc_standard_error_method": "multinomial_plugin_linear_allocation_u_statistic_v1",
+            "mc_standard_error_reason": null,
+            "observed_categories": 9
+          }
+        },
+        "observed_pole": "VER",
+        "pole_score": {
+          "brier_score": 0.48660000000000003,
+          "uniform_baseline_brier_score": 0.9545454545454547,
+          "delta_from_uniform_baseline": -0.46794545454545466,
+          "mc_adjustment": {
+            "method": "finite_ensemble_multiclass_brier_v1",
+            "trials": 100,
+            "scope": "monte_carlo_sampling_with_fixed_observed_outcome",
+            "trial_assumption": "independent_identically_distributed_winner_categories",
+            "status": "available",
+            "reason": null,
+            "estimated_empirical_score_bias": 0.005791919191919192,
+            "adjusted_brier_score": 0.4808080808080808,
+            "adjusted_delta_from_uniform_baseline": -0.4737373737373739,
+            "mc_standard_error": 0.0943388890964887,
+            "mc_standard_error_method": "multinomial_plugin_u_statistic_v1",
+            "mc_standard_error_reason": null,
+            "observed_categories": 4
+          }
+        },
+        "native_winner_score": {
+          "brier_score": 0.5912,
+          "uniform_baseline_brier_score": 0.9545454545454547,
+          "delta_from_uniform_baseline": -0.36334545454545475,
+          "mc_adjustment": {
+            "method": "finite_ensemble_multiclass_brier_v1",
+            "trials": 100,
+            "scope": "monte_carlo_sampling_with_fixed_observed_outcome",
+            "trial_assumption": "independent_identically_distributed_winner_categories",
+            "status": "available",
+            "reason": null,
+            "estimated_empirical_score_bias": 0.00816969696969697,
+            "adjusted_brier_score": 0.583030303030303,
+            "adjusted_delta_from_uniform_baseline": -0.3715151515151517,
+            "mc_standard_error": 0.07836117405960684,
+            "mc_standard_error_method": "multinomial_plugin_u_statistic_v1",
+            "mc_standard_error_reason": null,
+            "observed_categories": 9
+          }
+        },
+        "winner_policy": "teammate_race_points_v1",
+        "qualifying_position_mae": 2.8000000000000003,
+        "qualifying_scored_drivers": 22,
+        "qualifying_observed_drivers": 22,
+        "forecast_drivers": 22,
+        "qualifying_position_scope": "recorded roster; known outside entrants removed",
+        "baselines": {
+          "constructor_points_share": {
+            "policy": "constructor_points_share_v1",
+            "cutoff_round": 16,
+            "status": "available",
+            "reason": null,
+            "probabilities": {
+              "ALB": 0.0033407572383073497,
+              "ALO": 0.0019487750556792874,
+              "ANT": 0.15478841870824053,
+              "BEA": 0.007516703786191537,
+              "BOR": 0.004732739420935412,
+              "BOT": 0.0,
+              "COL": 0.01893095768374165,
+              "GAS": 0.01893095768374165,
+              "HAD": 0.08296213808463251,
+              "HAM": 0.11275055679287305,
+              "HUL": 0.004732739420935412,
+              "LAW": 0.02505567928730512,
+              "LEC": 0.11275055679287305,
+              "LIN": 0.02505567928730512,
+              "NOR": 0.08797327394209355,
+              "OCO": 0.007516703786191537,
+              "PER": 0.0,
+              "PIA": 0.08797327394209355,
+              "RUS": 0.15478841870824053,
+              "SAI": 0.0033407572383073497,
+              "STR": 0.0019487750556792874,
+              "VER": 0.08296213808463251
+            },
+            "no_classified_winner_probability": 0.0,
+            "evidence": {
+              "entrant_teams": {
+                "ALB": "williams",
+                "ALO": "aston_martin",
+                "ANT": "mercedes",
+                "BEA": "haas",
+                "BOR": "audi",
+                "BOT": "cadillac",
+                "COL": "alpine",
+                "GAS": "alpine",
+                "HAD": "red_bull",
+                "HAM": "ferrari",
+                "HUL": "audi",
+                "LAW": "rb",
+                "LEC": "ferrari",
+                "LIN": "rb",
+                "NOR": "mclaren",
+                "OCO": "haas",
+                "PER": "cadillac",
+                "PIA": "mclaren",
+                "RUS": "mercedes",
+                "SAI": "williams",
+                "STR": "aston_martin",
+                "VER": "red_bull"
+              },
+              "constructor_points": {
+                "alpine": 68.0,
+                "aston_martin": 7.0,
+                "audi": 17.0,
+                "cadillac": 0.0,
+                "ferrari": 405.0,
+                "haas": 27.0,
+                "mclaren": 316.0,
+                "mercedes": 556.0,
+                "rb": 90.0,
+                "red_bull": 298.0,
+                "williams": 12.0
+              },
+              "prior_outcomes": [
+                {
+                  "round": 1,
+                  "status": "observed",
+                  "winner_id": "RUS"
+                },
+                {
+                  "round": 2,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 3,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 4,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 5,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 6,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 7,
+                  "status": "observed",
+                  "winner_id": "HAM"
+                },
+                {
+                  "round": 8,
+                  "status": "observed",
+                  "winner_id": "RUS"
+                },
+                {
+                  "round": 9,
+                  "status": "observed",
+                  "winner_id": "LEC"
+                },
+                {
+                  "round": 10,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 11,
+                  "status": "observed",
+                  "winner_id": "NOR"
+                },
+                {
+                  "round": 12,
+                  "status": "observed",
+                  "winner_id": "NOR"
+                },
+                {
+                  "round": 13,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 14,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 15,
+                  "status": "observed",
+                  "winner_id": "RUS"
+                },
+                {
+                  "round": 16,
+                  "status": "observed",
+                  "winner_id": "VER"
+                }
+              ]
+            },
+            "score": {
+              "brier_score": 0.9388240881741658,
+              "uniform_baseline_brier_score": 0.9545454545454547,
+              "delta_from_uniform_baseline": -0.015721366371288847
+            }
+          },
+          "prior_race_wins_share": {
+            "policy": "prior_race_wins_share_v1",
+            "cutoff_round": 16,
+            "status": "available",
+            "reason": null,
+            "probabilities": {
+              "ALB": 0.0,
+              "ALO": 0.0,
+              "ANT": 0.5,
+              "BEA": 0.0,
+              "BOR": 0.0,
+              "BOT": 0.0,
+              "COL": 0.0,
+              "GAS": 0.0,
+              "HAD": 0.0,
+              "HAM": 0.0625,
+              "HUL": 0.0,
+              "LAW": 0.0,
+              "LEC": 0.0625,
+              "LIN": 0.0,
+              "NOR": 0.125,
+              "OCO": 0.0,
+              "PER": 0.0,
+              "PIA": 0.0,
+              "RUS": 0.1875,
+              "SAI": 0.0,
+              "STR": 0.0,
+              "VER": 0.0625
+            },
+            "no_classified_winner_probability": 0.0,
+            "evidence": {
+              "entrant_teams": {
+                "ALB": "williams",
+                "ALO": "aston_martin",
+                "ANT": "mercedes",
+                "BEA": "haas",
+                "BOR": "audi",
+                "BOT": "cadillac",
+                "COL": "alpine",
+                "GAS": "alpine",
+                "HAD": "red_bull",
+                "HAM": "ferrari",
+                "HUL": "audi",
+                "LAW": "rb",
+                "LEC": "ferrari",
+                "LIN": "rb",
+                "NOR": "mclaren",
+                "OCO": "haas",
+                "PER": "cadillac",
+                "PIA": "mclaren",
+                "RUS": "mercedes",
+                "SAI": "williams",
+                "STR": "aston_martin",
+                "VER": "red_bull"
+              },
+              "constructor_points": {
+                "alpine": 68.0,
+                "aston_martin": 7.0,
+                "audi": 17.0,
+                "cadillac": 0.0,
+                "ferrari": 405.0,
+                "haas": 27.0,
+                "mclaren": 316.0,
+                "mercedes": 556.0,
+                "rb": 90.0,
+                "red_bull": 298.0,
+                "williams": 12.0
+              },
+              "prior_outcomes": [
+                {
+                  "round": 1,
+                  "status": "observed",
+                  "winner_id": "RUS"
+                },
+                {
+                  "round": 2,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 3,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 4,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 5,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 6,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 7,
+                  "status": "observed",
+                  "winner_id": "HAM"
+                },
+                {
+                  "round": 8,
+                  "status": "observed",
+                  "winner_id": "RUS"
+                },
+                {
+                  "round": 9,
+                  "status": "observed",
+                  "winner_id": "LEC"
+                },
+                {
+                  "round": 10,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 11,
+                  "status": "observed",
+                  "winner_id": "NOR"
+                },
+                {
+                  "round": 12,
+                  "status": "observed",
+                  "winner_id": "NOR"
+                },
+                {
+                  "round": 13,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 14,
+                  "status": "observed",
+                  "winner_id": "ANT"
+                },
+                {
+                  "round": 15,
+                  "status": "observed",
+                  "winner_id": "RUS"
+                },
+                {
+                  "round": 16,
+                  "status": "observed",
+                  "winner_id": "VER"
+                }
+              ]
+            },
+            "score": {
+              "brier_score": 1.1875,
+              "uniform_baseline_brier_score": 0.9545454545454547,
+              "delta_from_uniform_baseline": 0.2329545454545453
+            }
+          }
+        },
+        "observations_provenance": {
+          "source": "jolpica+formula1.com",
+          "season": 2026,
+          "fetched_at": "2026-10-14T12:11:15.697325Z",
+          "cache": "disabled",
+          "fresh_fetch": true,
+          "urls": [
+            "https://api.jolpi.ca/ergast/f1/2026/results.json?limit=100&offset=0",
+            "https://api.jolpi.ca/ergast/f1/2026/results.json?limit=100&offset=100",
+            "https://api.jolpi.ca/ergast/f1/2026/results.json?limit=100&offset=200",
+            "https://api.jolpi.ca/ergast/f1/2026/results.json?limit=100&offset=300",
+            "https://api.jolpi.ca/ergast/f1/2026/qualifying.json?limit=100&offset=0",
+            "https://api.jolpi.ca/ergast/f1/2026/qualifying.json?limit=100&offset=100",
+            "https://api.jolpi.ca/ergast/f1/2026/qualifying.json?limit=100&offset=200",
+            "https://api.jolpi.ca/ergast/f1/2026/qualifying.json?limit=100&offset=300",
+            "https://api.jolpi.ca/ergast/f1/2026/races/?limit=100&offset=0"
+          ],
+          "completed_rounds": [],
+          "qualifying_rounds": []
+        }
+      }
+    }
+  ],
+  "content_sha256": "10a0d5fc73149a365ab25720638ac2770cc76641f5cf0de4bfbb73cdc1806f58"
+}

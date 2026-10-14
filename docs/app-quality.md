@@ -31,9 +31,14 @@ observed compounds and ages and does not establish better winner forecasts.
 weather, frozen inputs, counts, probabilities, historical references and source
 provenance before qualifying. It refuses to overwrite a file and never reruns
 the model when scoring. Two 100-trial fixed-dry Singapore forecasts preserve
-the previous and corrected clock before the upcoming event. Their local clocks
-alone cannot prove timing; dated publication is separate evidence. The result
-is currently unscored because the event has not happened.
+the previous and corrected clock before that event. Fresh results collected on
+14 October score winner Brier at 0.59260 and 0.59120. The separately recorded
+teammate estimate scores 0.54275. Public GitHub file hashes and dated push runs
+verify publication before qualifying; the original files remain unchanged.
+This is one pre-qualifying conditional-dry event, and supplies no evidence for
+the requested after-qualifying grid-reference improvement. The
+[score checkpoint and offline verifier](recorded-forecasts.md#singapore-scores-collected-on-14-october)
+retain that distinction.
 
 Native clocked rain planning now merges histories after the compound-use rule
 is satisfied and scans safe forced stints when ordinary stops run out. Critical
