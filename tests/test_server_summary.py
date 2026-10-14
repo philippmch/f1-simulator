@@ -185,7 +185,8 @@ def test_dashboard_html_contains_controls() -> None:
     assert "downloadScenarioJsonBtn" in html
     assert "downloadResultJson" in html
     assert "exportScenarioMatrixCsv" in html
-    assert "qualifyingModeSelect" in html
+    assert 'value="official">Official race grid' in html
+    assert 'value="simulated">Simulate qualifying, then race' in html
     assert "presetDryBtn" in html
     assert "presetMixedBtn" in html
     assert "presetChaosBtn" in html

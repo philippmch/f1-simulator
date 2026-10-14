@@ -97,6 +97,40 @@ Better qualifying or conditional lap-time estimates alone do not satisfy the
 winner-forecast gate. Failed candidates remain in the research evidence and
 are not deployed as accuracy improvements.
 
+The [14 October qualifying-first checkpoint](../evidence/qualifying-primary-checkpoint-2026-10-14.json)
+preserves a fixed 70% current qualifying / 30% recent team fastest-lap candidate.
+Its 40-event, 32-trial screen scores winner Brier 0.48491 against matched native
+0.50366 and grid18 0.50757. The gain interval crosses zero, removing the three
+largest gains reverses improvement, and the 2026 cohort regresses. Correct top
+choice remains 26/40 versus 27/40 for grid first. These are development
+diagnostics; the production pace model remains unchanged.
+
+The smaller nominal form weight does not guarantee a smaller effect: its
+weighted term outweighs qualifying in 89 of 234 supported front-driver pairs,
+and reverses qualifying order in 39 non-tied pairs. Race fastest laps still
+contain tyre, fuel and effort differences; this audit does not identify which
+of those caused a particular misleading value. Qualifying weather and tyre
+evidence were also uncertified in these 40 inputs.
+
+A separate source audit found two incorrect historical planned distances:
+2025 Jeddah used 57 rather than 50 laps, and Imola used 57 rather than 63.
+The [official pre-race media kit](https://www.fia.com/sites/default/files/pdf_saudi_media_kit-2025-english.pdf)
+lists those distances on PDF pages 67 and 69. Bahrain, Jeddah and Imola used
+generic venue assumptions because they are absent from the current-season
+profile catalogue. The original scores remain sealed conditional experiments;
+they must not be described as an authenticated historical replay. Correcting
+the distance creates a new context and requires new matched results. All 16
+current-season contexts have explicit profiles and correct planned distances.
+
+Recompute the compact checkpoint offline without fetching data or simulating:
+
+```powershell
+python examples/verify_qualifying_primary_checkpoint.py
+```
+
+It checks counts, retained trial winners, scores, seals and the rejection
+decision. It cannot reauthenticate omitted full race arrays or external sources.
+
 Pace-component comparisons must also report differences between contenders,
 selected as the first four entrants in the confirmed grid before inspecting
 race outcomes. Report their pairwise pace error and missing-label coverage

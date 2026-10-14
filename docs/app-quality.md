@@ -1,10 +1,24 @@
-# App quality checkpoint — 5 October 2026
+# App quality checkpoint — 14 October 2026
 
 Continued development makes sense as a simulation and strategy experiment tool.
 The current checks support rule consistency, reproducibility and a working user
 workflow. Qualifying, dry race timing and weather-planning changes produce
 measurable component gains. Winner improvements from this latest round of
 experiments failed their acceptance gates; prospective accuracy remains unproven.
+
+The 14 October qualifying-first screen used fixed 70% current qualifying timing
+and 30% recent team fastest-lap form. Across the same 40 development contexts,
+winner Brier fell from 0.50366 to 0.48491, versus 0.50757 for the strongest grid
+reference. That 4.5% reference gain is not robust: removing the three largest
+improvements reverses it, and 2026 worsens. The candidate is not deployed.
+Fastest-lap form can outweigh small qualifying gaps despite its nominally
+smaller weight. The audit also found incorrect historical distances at Jeddah
+and Imola; those original conditional results do not represent authenticated
+historical races. Current-season circuit distances pass the separate audit.
+
+Race setup now exposes an explicit official grid or simulated qualifying choice.
+Official mode rejects unavailable grids and conflicting custom qualifying
+weather; simulated mode races each trial from its own qualifying result.
 
 ## Completed improvements
 
