@@ -9,11 +9,12 @@ async function checkBasicSetup(page) {
     seed: document.getElementById('seedInput').value,
     scenarios: getSelectedScenarioNames(),
     compare: document.getElementById('compareAutomaticInput').checked,
+    grid: document.getElementById('raceGridModeSelect').value,
   }));
   try {
     assert.equal(await page.locator('#advancedSettings').getAttribute('open'), null);
     assert(await page.locator('#seedInput').isHidden());
-    for (const id of ['trackSelect', 'weatherSelect', 'simCount', 'btnRun']) {
+    for (const id of ['trackSelect', 'weatherSelect', 'raceGridModeSelect', 'simCount', 'btnRun']) {
       assert(await page.locator('#' + id).isVisible(), `${id} is part of basic setup`);
     }
     const before = await page.evaluate(() => buildRunPayload());
@@ -37,6 +38,32 @@ async function checkBasicSetup(page) {
     await page.locator('#advancedSettings > summary').focus();
     await page.keyboard.press('Enter');
     assert(await page.locator('#seedInput').isVisible(), 'Keyboard opens the experimental controls');
+    await page.getByLabel('Race grid', {exact: true}).selectOption('simulated');
+    assert((await page.locator('#raceGridHelp').innerText()).includes('Each race trial'));
+    await page.getByLabel('Q1 condition', {exact: true}).selectOption('heavy_rain');
+    await page.getByLabel('Q1 rain intensity (0–1)', {exact: true}).fill('0.6');
+    const simulated = await page.evaluate(() => buildRunPayload());
+    assert.equal(simulated.race_grid_mode, 'simulated');
+    assert.equal(simulated.qualifying_weather.Q1.rain_intensity, 0.6);
+    await page.getByLabel('Race grid', {exact: true}).selectOption('official');
+    assert(await page.getByLabel('Q1 condition', {exact: true}).isDisabled());
+    assert.equal(await page.evaluate(() => buildRunPayload()), null,
+      'Choosing the official grid must reject existing hypothetical qualifying weather');
+    assert.equal(await page.getByLabel('Race grid', {exact: true}).inputValue(), 'official',
+      'Validation must preserve the selected grid source');
+    await page.getByRole('button', {name: 'Clear custom qualifying weather', exact: true}).click();
+    const official = await page.evaluate(() => buildRunPayload());
+    assert.equal(official.race_grid_mode, 'official');
+    assert.equal(Object.hasOwn(official, 'qualifying_weather'), false);
+    await page.evaluate(() => {
+      document.getElementById('raceGridModeSelect').value = 'simulated';
+      loadUiPrefs();
+      updateRaceGridControls();
+    });
+    assert.equal(await page.getByLabel('Race grid', {exact: true}).inputValue(), 'official',
+      'Saved preferences must restore the official source rather than silently falling back');
+    await page.getByLabel('Race grid', {exact: true}).selectOption(original.grid);
+    assert(await page.getByLabel('Q1 condition', {exact: true}).isEnabled());
     await page.locator('#compareAutomaticInput').check();
     assert((await page.locator('#runBudgetSummary').innerText()).includes('40 simulated races'));
     await page.locator('#compareAutomaticInput').uncheck();
@@ -68,6 +95,9 @@ async function checkBasicSetup(page) {
       document.getElementById('simCount').value = original.count;
       document.getElementById('seedInput').value = original.seed;
       document.getElementById('compareAutomaticInput').checked = original.compare;
+      document.getElementById('raceGridModeSelect').value = original.grid;
+      clearQualifyingWeather();
+      saveUiPrefs();
       setScenarioSelection(original.scenarios, {persist: false});
       document.getElementById('advancedSettings').open = true;
       setStatusMessage('');

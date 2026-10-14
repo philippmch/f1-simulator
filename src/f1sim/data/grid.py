@@ -1,11 +1,11 @@
 """Fresh published race grids, available only after Grand Prix qualifying."""
 
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from f1sim.data.current import CurrentSeasonDataError, _normalise_text
 from f1sim.data.practice import _official_event_base, _ResultsTable, _timestamp
-from f1sim.simulation.execution import validate_starting_grid
+from f1sim.simulation.execution import validate_pit_lane_starters, validate_starting_grid
 
 
 class _GridTable(_ResultsTable):
@@ -157,3 +157,80 @@ def fetch_current_starting_grid(loader, year, event, drivers, *, now):
     return {**grid, "source_url": url, "fetched_at": now.isoformat(),
             "qualifying_started_at": qualifying.isoformat(),
             "year": year, "round": int(event["round"])}
+
+
+def require_official_race_grid(loader, year, race, drivers):
+    """Fetch and verify an official grid, failing before trials if unavailable.
+
+    Unlike automatic selection, an explicit official-grid request never falls
+    back to simulated qualifying. The evidence must belong to this lookup,
+    this event and the complete modeled roster. Completed current-season races
+    remain available for scenario simulation; prospective forecast recording
+    enforces its separate before-race deadline.
+    """
+    started = datetime.now(timezone.utc)
+    grid_method = getattr(loader, "get_starting_grid", None)
+    if not callable(grid_method):
+        raise ValueError("Official race grid is unavailable from this data provider")
+    try:
+        grid = validate_starting_grid(
+            grid_method(year, race, drivers), (driver.id for driver in drivers),
+        )
+        provenance_method = getattr(loader, "get_provenance", None)
+        provenance = provenance_method() if callable(provenance_method) else None
+        evidence = provenance.get("race_grid") if isinstance(provenance, dict) else None
+        if grid is None:
+            reason = (evidence.get("reason", "published_grid_unavailable")
+                      if isinstance(evidence, dict) else "published_grid_unavailable")
+            raise ValueError(f"Official race grid is unavailable ({reason})")
+        target_round = loader.resolve_race_identifier(year, race)
+        event = next(event for event in loader.list_available_events(year)
+                     if event["round"] == target_round)
+        qualifying = _timestamp(event.get("sessions", {}).get("Qualifying"))
+        checked_grid, checked_pits = _verify_published_grid_lookup(
+            evidence, [driver.id for driver in drivers], year=year,
+            target_round=target_round, qualifying=qualifying,
+            started=started, now=datetime.now(timezone.utc),
+        )
+        if checked_grid != grid:
+            raise ValueError("Official race grid evidence does not match the returned grid")
+        pit_method = getattr(loader, "get_pit_lane_starters", None)
+        pits = validate_pit_lane_starters(
+            pit_method() if callable(pit_method) else None, grid,
+        )
+        if pits != checked_pits:
+            raise ValueError("Official race grid pit-lane evidence does not match")
+        return grid, pits
+    except (CurrentSeasonDataError, KeyError, TypeError, StopIteration, ValueError) as error:
+        raise ValueError(f"Official race grid cannot be used: {error}") from error
+
+
+def _verify_published_grid_lookup(
+    evidence, entrant_ids, *, year, target_round, qualifying, started, now,
+):
+    """Check source identity and freshness without imposing a forecast deadline."""
+    if (not isinstance(evidence, dict) or evidence.get("mode") != "published"
+            or type(evidence.get("year")) is not int or evidence["year"] != year
+            or type(evidence.get("round")) is not int or evidence["round"] != target_round
+            or not isinstance(evidence.get("source_url"), str)
+            or not re.fullmatch(rf"https://www\.formula1\.com/en/results/{year}/races/"
+                                r"\d+/[a-z0-9-]+/starting-grid", evidence["source_url"])):
+        raise ValueError("Official race grid requires published evidence for this event")
+    grid = validate_starting_grid(evidence.get("starting_grid"), entrant_ids)
+    if grid is None:
+        raise ValueError("Official race grid evidence requires the complete modeled field")
+    pits = validate_pit_lane_starters(evidence.get("pit_lane_starters"), grid)
+    instants = []
+    for name in ("fetched_at", "qualifying_started_at"):
+        value = evidence.get(name)
+        if not isinstance(value, str):
+            raise ValueError(f"Official race grid requires {name} with a timezone")
+        instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if instant.tzinfo is None:
+            raise ValueError(f"Official race grid requires {name} with a timezone")
+        instants.append(instant.astimezone(timezone.utc))
+    fetched, observed_qualifying = instants
+    if (qualifying is None or qualifying.year != year or observed_qualifying != qualifying
+            or fetched < qualifying + timedelta(hours=1) or not started <= fetched <= now):
+        raise ValueError("Official race grid must be fetched freshly after GP qualifying")
+    return grid, pits

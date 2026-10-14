@@ -41,6 +41,7 @@ from f1sim.analysis.strategy_selection import (
 )
 from f1sim.analysis.winner_policy import simulation_winner_allocation
 from f1sim.data import CurrentSeasonDataError, CurrentSeasonDataLoader
+from f1sim.data.grid import require_official_race_grid
 from f1sim.models import Weather, WeatherCondition
 from f1sim.output.comparison import (
     render_comparison_report,
@@ -192,12 +193,19 @@ def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
     """Validate resource bounds and return all scenarios before live I/O."""
 
     validate_weather_mode(request.weather_mode)
-    if request.race_grid_mode not in ("auto", "simulated"):
-        raise ValueError("race_grid_mode must be auto or simulated")
+    if request.race_grid_mode not in ("auto", "simulated", "official"):
+        raise ValueError("race_grid_mode must be auto, simulated or official")
     validate_starting_grid(request.starting_grid)
     validate_pit_lane_starters(request.pit_lane_starters, request.starting_grid)
     if request.starting_grid is not None and request.race_grid_mode == "simulated":
         raise ValueError("starting_grid conflicts with simulated race_grid_mode")
+    if request.race_grid_mode == "official":
+        if request.starting_grid is not None or request.pit_lane_starters is not None:
+            raise ValueError("Official race_grid_mode requires a fresh published grid; "
+                             "supplied starting_grid or pit_lane_starters conflicts")
+        if request.qualifying_weather:
+            raise ValueError("Custom qualifying_weather conflicts with official race_grid_mode; "
+                             "choose simulated qualifying to change qualifying weather")
     validate_control_schedule(request.control_schedule)
     validate_weather_schedule(request.weather_schedule)
     validate_qualifying_weather(request.qualifying_weather)
@@ -868,7 +876,10 @@ def run_dashboard_simulation(
     drivers = loader.create_drivers_from_stats(driver_stats)
     grid = validate_starting_grid(request.starting_grid, (d.id for d in drivers))
     grid_method = getattr(loader, "get_starting_grid", None)
-    if (grid is None and request.race_grid_mode == "auto"
+    if request.race_grid_mode == "official":
+        grid, pits = require_official_race_grid(loader, request.year, request.race, drivers)
+        request = replace(request, pit_lane_starters=pits)
+    elif (grid is None and request.race_grid_mode == "auto"
             and not request.qualifying_weather and callable(grid_method)):
         grid = grid_method(request.year, request.race, drivers)
         if grid is not None:

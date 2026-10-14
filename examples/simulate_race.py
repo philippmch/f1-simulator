@@ -32,6 +32,7 @@ from f1sim.analysis import (
 )
 from f1sim.analysis.winner_policy import simulation_winner_allocation
 from f1sim.data import CurrentSeasonDataLoader
+from f1sim.data.grid import require_official_race_grid
 from f1sim.models import Weather, WeatherCondition
 from f1sim.output import ConsoleOutput, Exporter
 from f1sim.simulation.control_schedule import parse_control_schedule_spec, validate_control_schedule
@@ -264,9 +265,10 @@ def main() -> int:
              "Disabled by default; opening and qualifying tyres are ready. Not calibrated.",
     )
     parser.add_argument(
-        "--race-grid", choices=("auto", "simulated"), default="auto",
+        "--race-grid", choices=("auto", "official", "simulated"), default="auto",
         help="Use a fresh complete published race grid after qualifying (default auto), "
-             "or keep simulated qualifying. Custom qualifying weather keeps the simulated grid.",
+             "require it without fallback (official), or race from simulated qualifying "
+             "(simulated). Custom qualifying weather is incompatible with official.",
     )
     parser.add_argument(
         "--qualifying-weather", type=_qualifying_weather,
@@ -287,6 +289,9 @@ def main() -> int:
              "Future announcements are unknown to strategy; red flags retain priority.",
     )
     args = parser.parse_args()
+    if args.race_grid == "official" and args.qualifying_weather:
+        parser.error("Custom qualifying weather conflicts with --race-grid official; "
+                     "choose --race-grid simulated to change qualifying weather")
     from f1sim.simulation.tire_inventory import validate_tire_inventory
     try:
         weather_schedule = validate_weather_schedule(args.rainfall_step)
@@ -353,12 +358,22 @@ def main() -> int:
     # Create models from fresh current-season data.
     print("\nCreating simulation models...")
     drivers = loader.create_drivers_from_stats(driver_stats)
-    grid_method = getattr(loader, "get_starting_grid", None)
-    starting_grid = (grid_method(current_season, args.race, drivers)
-                     if args.race_grid == "auto" and not args.qualifying_weather
-                     and callable(grid_method) else None)
-    pit_method = getattr(loader, "get_pit_lane_starters", None)
-    pit_lane_starters = (pit_method() if starting_grid is not None and callable(pit_method) else [])
+    if args.race_grid == "official":
+        try:
+            starting_grid, pit_lane_starters = require_official_race_grid(
+                loader, current_season, args.race, drivers,
+            )
+        except ValueError as error:
+            print(f"Error selecting race grid: {error}")
+            return 1
+    else:
+        grid_method = getattr(loader, "get_starting_grid", None)
+        starting_grid = (grid_method(current_season, args.race, drivers)
+                         if args.race_grid == "auto" and not args.qualifying_weather
+                         and callable(grid_method) else None)
+        pit_method = getattr(loader, "get_pit_lane_starters", None)
+        pit_lane_starters = (pit_method() if starting_grid is not None and callable(pit_method)
+                             else [])
     print("Race grid: " + ("published starting order" if starting_grid is not None
                            else "simulated qualifying"))
     try:

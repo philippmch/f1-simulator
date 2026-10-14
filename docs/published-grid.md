@@ -11,22 +11,32 @@ that race-winner predictions meet the model's acceptance bar.
 
 ## Controls and evidence
 
-The dashboard's Race grid control defaults to Published when available. The
-CLI defaults to `--race-grid auto`; `--race-grid simulated` retains the
-previous behavior. The API accepts `race_grid_mode: "auto"` or `"simulated"`
+The dashboard's Race grid control appears in the basic race setup. It defaults
+to Published when available. Choose Official race grid to require the fresh
+published starting order, including penalties and identified pit-lane starts.
+An unavailable or incomplete grid stops this explicit mode; it never silently
+switches to simulated qualifying. Choose Simulate qualifying, then race to
+start each race trial from that trial's simulated qualifying order.
+
+The CLI defaults to `--race-grid auto`; `--race-grid official` requires the
+published order, and `--race-grid simulated` retains the previous behavior.
+The API accepts `race_grid_mode: "auto"`, `"official"` or `"simulated"`
 and an optional complete `starting_grid` list of modeled driver IDs. A supplied
 grid conflicts with the explicitly simulated mode. Custom qualifying weather
 disables automatic published-grid lookup so that the hypothetical qualifying
 conditions still determine the race grid; an explicitly supplied API grid
-continues to take precedence.
+continues to take precedence in automatic mode. Official mode rejects a
+supplied grid and custom qualifying weather. In the dashboard, switching to
+Official preserves existing weather choices and shows a clear action to remove
+them before running. The selected grid mode is restored between visits.
 
 The loader uses fresh GETs within its existing budget. Session completion
 requires a known Grand Prix qualifying timestamp plus one hour. Sprint
 qualifying does not authorize a Sunday grid. The current-year results index
 must identify the event, and every driver code, constructor and starting slot
 must resolve exactly once. Fetch provenance includes the URL, timestamp, order
-and whether lookup succeeded. An unavailable or incomplete grid retains the
-simulated grid and records a fallback reason. There is no persisted grid cache
+and whether lookup succeeded. In automatic mode, an unavailable or incomplete
+grid retains the simulated grid and records a fallback reason. There is no persisted grid cache
 or older-season live fallback.
 
 Pit-lane rows and identified pit-lane-start notes now produce separate

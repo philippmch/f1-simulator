@@ -302,6 +302,24 @@ const { checkBasicSetup } = require('./browser_basic_setup.cjs');
     assert(await page.locator('#btnRun').isEnabled(), 'Live calendar must be available');
     assert(await page.locator('#btnTyreSetup').isEnabled(), 'Tyre setup editor must be available');
     await checkBasicSetup(page);
+    if (offline) {
+      const originalGridMode = await page.getByLabel('Race grid', {exact: true}).inputValue();
+      const unavailableGrid = route => route.fulfill({status: 400,
+        json: {detail: 'Official race grid is unavailable: qualifying has not completed.'}});
+      await page.route('**/api/run', unavailableGrid);
+      await page.getByLabel('Race grid', {exact: true}).selectOption('official');
+      const officialRequest = page.waitForRequest(request =>
+        new URL(request.url()).pathname === '/api/run');
+      await page.locator('#btnRun').click();
+      assert.equal((await officialRequest).postDataJSON().race_grid_mode, 'official');
+      await page.waitForFunction(() => !runInProgress);
+      assert((await page.locator('#appStatus').innerText()).includes('Official race grid is unavailable'));
+      assert.equal(await page.getByLabel('Race grid', {exact: true}).inputValue(), 'official',
+        'An unavailable official grid must keep the user selection rather than falling back');
+      await page.unroute('**/api/run', unavailableGrid);
+      await page.getByLabel('Race grid', {exact: true}).selectOption(originalGridMode);
+      await page.evaluate(() => setStatusMessage(''));
+    }
     await checkControlNavigation(page);
     await checkPitWindows(page);
     if (offline) await checkControlSchedules(page);
@@ -1498,6 +1516,29 @@ const { checkBasicSetup } = require('./browser_basic_setup.cjs');
       renderRace();
     });
     await page.locator('#tab-qualifying').click();
+    assert((await page.locator('#qualiContent').innerText()).includes('Each race trial uses its own qualifying result'));
+    await page.evaluate(() => {
+      window.savedGridSnapshot = getScenarioEntry().data.simulation_inputs.starting_grid;
+      window.savedPitGridSnapshot = getScenarioEntry().data.simulation_inputs.pit_lane_starters;
+      window.savedGridProvenance = simResults.provenance.race_grid;
+      const scenario = getScenarioEntry().data;
+      scenario.simulation_inputs.starting_grid = ['S01', 'S00'];
+      scenario.simulation_inputs.pit_lane_starters = ['S00'];
+      simResults.provenance.race_grid = {mode: 'published'};
+      renderQualifying();
+    });
+    assert((await page.locator('#qualiContent').innerText()).includes('Simulated qualifying diagnostics'));
+    assert.equal(await page.locator('#qualifyingRaceGrid summary').innerText(), 'Official race starting order');
+    assert.deepEqual(await page.locator('#qualifyingRaceGrid li').allTextContents(), ['S01', 'S00 · pit-lane start']);
+    await page.evaluate(() => {
+      getScenarioEntry().data.simulation_inputs.starting_grid = savedGridSnapshot;
+      getScenarioEntry().data.simulation_inputs.pit_lane_starters = savedPitGridSnapshot;
+      simResults.provenance.race_grid = savedGridProvenance;
+      delete window.savedGridSnapshot;
+      delete window.savedPitGridSnapshot;
+      delete window.savedGridProvenance;
+      renderQualifying();
+    });
     await page.evaluate(() => {
       window.savedQualifyingSample = getScenarioEntry().data.sample_qualifying;
       getScenarioEntry().data.sample_qualifying = [...savedQualifyingSample, {

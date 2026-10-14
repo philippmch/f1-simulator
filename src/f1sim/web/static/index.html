@@ -88,6 +88,7 @@ body::before {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 1.2rem;
   padding: 1rem 2.5rem;
 }
 
@@ -148,6 +149,9 @@ body::before {
   display: flex;
   align-items: center;
   gap: 1.2rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .control-group {
@@ -2009,6 +2013,14 @@ input:focus-visible {
           </select>
         </div>
         <div class="control-group">
+          <label class="control-label" for="raceGridModeSelect">Race grid</label>
+          <select id="raceGridModeSelect" aria-describedby="raceGridHelp" onchange="updateRaceGridControls()">
+            <option value="auto" selected>Published when available</option>
+            <option value="official">Official race grid</option>
+            <option value="simulated">Simulate qualifying, then race</option>
+          </select>
+        </div>
+        <div class="control-group">
           <label class="control-label" for="simCount">Simulations</label>
           <input type="number" id="simCount" value="100" min="10" max="1000" step="10">
         </div>
@@ -2016,6 +2028,7 @@ input:focus-visible {
         <span class="data-source-badge loading" id="dataSourceBadge" role="status" aria-live="polite" title="Where driver/car ratings come from">Checking backend...</span>
       </div>
     </div>
+    <div class="run-budget" id="raceGridHelp">Use the published starting order, including grid penalties, when available; otherwise simulate qualifying for each race trial.</div>
     <div class="run-budget" id="runBudgetSummary" aria-live="polite"></div>
     <details class="advanced-settings" id="advancedSettings">
       <summary>More race settings<span class="settings-hint" id="advancedSettingsHint">Tyres, pit plans and weather experiments</span></summary>
@@ -2030,19 +2043,6 @@ input:focus-visible {
       <div class="control-group">
         <label class="control-label" for="seedInput">Seed</label>
         <input type="number" id="seedInput" value="42" min="0" max="4294967295" step="1">
-      </div>
-      <div class="control-group">
-        <label class="control-label" for="qualifyingModeSelect">Qualifying</label>
-        <select id="qualifyingModeSelect" disabled title="Qualifying is simulated from the fresh current-season ratings">
-          <option value="simulated" selected>Simulated</option>
-        </select>
-      </div>
-      <div class="control-group">
-        <label class="control-label" for="raceGridModeSelect">Race grid</label>
-        <select id="raceGridModeSelect" title="After qualifying, use the latest complete published race order. Custom qualifying weather keeps the simulated grid.">
-          <option value="auto" selected>Published when available</option>
-          <option value="simulated">Simulated qualifying</option>
-        </select>
       </div>
       <div class="control-group">
         <label class="control-label" for="raceEngineSelect">Race model</label>
@@ -2078,7 +2078,8 @@ input:focus-visible {
       </div>
       <div class="control-group control-group-scenarios" role="group" aria-labelledby="qualifyingWeatherLabel">
         <span class="control-label" id="qualifyingWeatherLabel">Qualifying session weather (optional)</span>
-        <p class="pit-plan-help" id="qualifyingWeatherHelp">Weather stays fixed within each session. Unchanged sessions use each race scenario weather; explicit sessions apply across the whole scenario set.</p>
+        <p class="pit-plan-help" id="qualifyingWeatherHelp">For simulated qualifying, weather stays fixed within each session. Unchanged sessions use each race scenario weather; explicit sessions apply across the whole scenario set. Official race grids cannot be combined with custom qualifying weather.</p>
+        <button class="scenario-preset" id="clearQualifyingWeatherBtn" type="button" hidden onclick="clearQualifyingWeather()">Clear custom qualifying weather</button>
         <div class="control-group">
           <label class="control-label" for="qualifyingQ1Condition">Q1 condition</label>
           <select id="qualifyingQ1Condition" aria-describedby="qualifyingWeatherHelp" onchange="updateQualifyingWeatherControls('Q1')">
@@ -2615,6 +2616,7 @@ function updateRunBudget() {
     || ['Q1', 'Q2', 'Q3'].some(session =>
       document.getElementById(`qualifying${session}Condition`).value !== 'inherit')
     || document.getElementById('seedInput').value !== '42'
+    || document.getElementById('raceGridModeSelect').value !== 'auto'
     || document.getElementById('raceEngineSelect').value !== 'chronological'
     || document.getElementById('weatherModeSelect').value !== 'evolving'
     || document.getElementById('rngPolicySelect').value !== 'isolated_weather_v1'
@@ -3184,6 +3186,7 @@ function saveUiPrefs() {
     focusScenario: weatherSelectEl.value,
     scenarioSet: getScenarioSetValue(),
     weatherMode: document.getElementById('weatherModeSelect').value,
+    raceGridMode: document.getElementById('raceGridModeSelect').value,
     compareAutomatic: Boolean(compareAutomaticInput?.checked),
   };
   const scheduleText = document.getElementById('weatherScheduleInput').value.trim();
@@ -3198,6 +3201,9 @@ function loadUiPrefs() {
   if (!raw) return;
   try {
     const prefs = JSON.parse(raw);
+    if (['auto', 'official', 'simulated'].includes(prefs.raceGridMode)) {
+      document.getElementById('raceGridModeSelect').value = prefs.raceGridMode;
+    }
     if (['evolving', 'fixed_rainfall'].includes(prefs.weatherMode)) {
       document.getElementById('weatherModeSelect').value = prefs.weatherMode;
     }
@@ -4697,12 +4703,41 @@ function initTyreEditor() {
   });
 }
 
+function updateRaceGridControls() {
+  const mode = document.getElementById('raceGridModeSelect').value;
+  document.getElementById('raceGridHelp').textContent = {
+    auto: 'Use the published starting order, including grid penalties, when available; otherwise simulate qualifying for each race trial. Custom qualifying weather uses a simulated grid.',
+    official: 'Use the published race starting order, including grid penalties and identified pit-lane starts. If a complete grid is unavailable, the run stops. Custom qualifying weather must be cleared.',
+    simulated: 'Each race trial starts from its own simulated qualifying order. Qualifying session weather can be configured in More race settings.',
+  }[mode];
+  const official = mode === 'official';
+  document.getElementById('clearQualifyingWeatherBtn').hidden = !official
+    || !['Q1', 'Q2', 'Q3'].some(phase => document.getElementById(`qualifying${phase}Condition`).value !== 'inherit');
+  for (const phase of ['Q1', 'Q2', 'Q3']) {
+    document.getElementById(`qualifying${phase}Condition`).disabled = official;
+    for (const field of ['Rain', 'Wetness']) {
+      document.getElementById(`qualifying${phase}${field}`).disabled = official
+        || document.getElementById(`qualifying${phase}Condition`).value === 'inherit';
+    }
+  }
+}
+
+function clearQualifyingWeather() {
+  for (const phase of ['Q1', 'Q2', 'Q3']) {
+    document.getElementById(`qualifying${phase}Condition`).value = 'inherit';
+    updateQualifyingWeatherControls(phase);
+  }
+  updateRaceGridControls();
+  updateRunBudget();
+}
+
 function updateQualifyingWeatherControls(phase) {
   const condition = document.getElementById(`qualifying${phase}Condition`).value;
   const preset = {dry: [0, 0], cloudy: [0, 0], light_rain: [0.3, 0.3], heavy_rain: [0.8, 0.8]}[condition];
   ['Rain', 'Wetness'].forEach((field, index) => {
     const input = document.getElementById(`qualifying${phase}${field}`);
-    input.disabled = condition === 'inherit';
+    input.disabled = condition === 'inherit'
+      || document.getElementById('raceGridModeSelect').value === 'official';
     if (preset) input.value = preset[index];
   });
 }
@@ -4848,6 +4883,12 @@ function buildRunPayload() {
   if (!qualifyingWeatherSetup.ok) {
     setStatusMessage(qualifyingWeatherSetup.message, 'error');
     focusRunInput(qualifyingWeatherSetup.input);
+    return null;
+  }
+  if (document.getElementById('raceGridModeSelect').value === 'official'
+      && Object.keys(qualifyingWeatherSetup.profile).length) {
+    setStatusMessage('Official race grid cannot use custom qualifying weather. Choose "Simulate qualifying, then race", or clear the custom qualifying weather in More race settings.', 'error');
+    focusRunInput(document.getElementById('raceGridModeSelect'));
     return null;
   }
   const warmupSetup = parseTireWarmupInput();
@@ -5680,7 +5721,7 @@ function renderRace() {
 
   const pills = [
     simResults.provenance?.source || 'Fresh current-season data',
-    scenario.simulation_inputs?.starting_grid ? 'Supplied race grid' : 'Simulated qualifying',
+    scenario.simulation_inputs?.starting_grid ? 'Published or supplied race grid' : 'Simulated qualifying grid',
     (scenario.race_engine || simResults.request?.race_engine) === 'chronological'
       ? 'Lap-aware model' : 'Standard race model',
     Number.isInteger(scenario.sample_index) ? `Representative run ${scenario.sample_index + 1}` : '',
@@ -5780,6 +5821,16 @@ function renderRace() {
   container.innerHTML = html;
 }
 
+function renderRaceGridSnapshot(scenario) {
+  const grid = scenario.simulation_inputs?.starting_grid;
+  if (!Array.isArray(grid) || !grid.length) return '';
+  const pitLane = new Set(scenario.simulation_inputs?.pit_lane_starters || []);
+  const published = simResults?.provenance?.race_grid?.mode === 'published';
+  const label = published ? 'Official race starting order' : 'Supplied race starting order';
+  return `<details class="probability-details" id="qualifyingRaceGrid" open><summary>${label}</summary><ol>${grid.map(id =>
+    `<li>${escapeHtml(id)}${pitLane.has(id) ? ' · pit-lane start' : ''}</li>`).join('')}</ol></details>`;
+}
+
 function renderQualifying() {
   const container = document.getElementById('qualiContent');
   const empty = document.getElementById('emptyQuali');
@@ -5798,15 +5849,20 @@ function renderQualifying() {
   container.style.display = 'block';
 
   if (!qualifying.length) {
-    container.innerHTML = '<div class="inline-note">The backend did not return qualifying or grid data for this run.</div>';
+    container.innerHTML = renderRaceGridSnapshot(scenario)
+      + '<div class="inline-note">The backend did not return simulated qualifying data for this run.</div>';
     return;
   }
 
   let html = `
     <div class="race-header">
       <div>
-        <div class="race-title">${escapeHtml(simResults.track)} &mdash; Qualifying</div>
-        <div class="race-meta">Fresh current-season ratings with a newly simulated qualifying session</div>
+        <div class="race-title">${escapeHtml(simResults.track)} &mdash; Simulated qualifying</div>
+        <div class="race-meta">${scenario.simulation_inputs?.starting_grid
+          ? 'Simulated qualifying diagnostics. The race uses the published or supplied starting grid below.'
+          : 'The sample race starts from this simulated qualifying order. Each race trial uses its own qualifying result.'}</div>
+        ${scenario.race_grid_context ? `<div class="race-meta">${escapeHtml(scenario.race_grid_context)}</div>` : ''}
+        ${renderRaceGridSnapshot(scenario)}
       </div>
     </div>
     <div class="results-table" tabindex="0" role="region" aria-label="Qualifying classification">
@@ -7301,6 +7357,7 @@ function renderScenarioLab() {
 (async function init() {
   populateYearSelect();
   loadUiPrefs();
+  updateRaceGridControls();
   updateControlScheduleControls();
   initTyreEditor();
   initPitPlanSelection();
@@ -7318,6 +7375,7 @@ function renderScenarioLab() {
   document.querySelector('.header').addEventListener('change', updateRunBudget);
 
   document.getElementById('weatherModeSelect').addEventListener('change', saveUiPrefs);
+  document.getElementById('raceGridModeSelect').addEventListener('change', saveUiPrefs);
   document.getElementById('weatherScheduleInput').addEventListener('change', saveUiPrefs);
   document.getElementById('controlSourceSelect').addEventListener('change', saveUiPrefs);
   document.getElementById('controlScheduleInput').addEventListener('change', saveUiPrefs);
