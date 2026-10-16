@@ -35,6 +35,7 @@ Thumbs.db
 *.json
 # Fixed fitted coefficients are model parameters, not persisted live feeds.
 !src/f1sim/analysis/parameters/*.json
+!src/f1sim/data/learned_afterqual_2026_16.json
 
 # Jupyter
 .ipynb_checkpoints/
