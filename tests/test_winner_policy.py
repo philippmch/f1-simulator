@@ -1,7 +1,7 @@
 """The practice-era reporting choice must respect information and replay boundaries."""
 
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -155,8 +155,9 @@ def test_verified_published_grid_keeps_native_driver_chances(
 
 @pytest.mark.parametrize("context", [
     "wrong_grid", "partial_field", "wrong_round", "wrong_year", "unpublished",
-    "before_qualifying", "future_fetch", "race_started", "no_race_time",
-    "wrong_qualifying", "different_driver_model", "invalid_pit_queue",
+    "before_qualifying", "future_fetch", "no_race_time", "wrong_race_year",
+    "race_before_qualifying", "wrong_qualifying", "different_driver_model",
+    "invalid_pit_queue", "wrong_source", "untimed_fetch", "single_entrant",
 ])
 def test_unverified_grid_context_retains_existing_policy(
     published_grid_context, monkeypatch, context,
@@ -176,14 +177,25 @@ def test_unverified_grid_context_retains_existing_policy(
         loader._race_grid["fetched_at"] = (
             "2026-03-28T13:00:00Z" if context == "before_qualifying" else "2026-03-28T17:00:00Z"
         )
-    elif context == "race_started":
-        event.update(date="2026-03-28", time="16:00:00Z")
     elif context == "no_race_time":
         del event["time"]
+    elif context == "wrong_race_year":
+        event["date"] = "2025-03-29"
+    elif context == "race_before_qualifying":
+        event.update(date="2026-03-28", time="14:30:00Z")
     elif context == "wrong_qualifying":
         loader._race_grid["qualifying_started_at"] = "2026-03-28T13:00:00Z"
     elif context == "different_driver_model":
         drivers[0].skill_rating -= .01
+    elif context == "wrong_source":
+        loader._race_grid["source_url"] = "https://example.com/starting-grid"
+    elif context == "untimed_fetch":
+        loader._race_grid["fetched_at"] = "2026-03-28T16:00:00"
+    elif context == "single_entrant":
+        drivers = drivers[:1]
+        grid = grid[:1]
+        loader._race_grid.update(starting_grid=grid, pit_lane_starters=[])
+        loader._driver_stats = {d.id: loader._driver_stats[d.id] for d in drivers}
     else:
         loader._race_grid["pit_lane_starters"] = [grid[0]]
     sentinel = object()
@@ -191,3 +203,62 @@ def test_unverified_grid_context_retains_existing_policy(
     assert simulation_winner_allocation(
         loader, 2026, 2, drivers, weather, starting_grid=grid,
     ) is sentinel
+
+
+@pytest.mark.parametrize("elapsed,fresh_lookup", [(0, False), (2, False), (2, True)])
+def test_official_grid_native_results_do_not_change_at_race_deadline(
+    published_grid_context, monkeypatch, elapsed, fresh_lookup,
+):
+    from f1sim.analysis.grid_winner_reference import build_grid_winner_references
+    from f1sim.analysis.montecarlo import MonteCarloRunner
+    from f1sim.analysis.teammate_forecast import build_teammate_allocation
+
+    loader, drivers, event, weather = published_grid_context
+    event["round"] = loader._race_grid["round"] = 3
+    grid = [d.id for d in drivers]
+    deadline = datetime(2026, 3, 29, 14, tzinfo=timezone.utc)
+    legacy = build_teammate_allocation(
+        {d.id: d.team_id for d in drivers},
+        [{"round": number, "driver_id": d.id, "team_id": d.team_id,
+          "points": 25 if d.id.endswith("2") else 0}
+         for number in (1, 2) for d in drivers], cutoff_round=2,
+    )
+    monkeypatch.setattr(loader, "get_winner_allocation", lambda *a: legacy)
+
+    def run():
+        allocation = simulation_winner_allocation(
+            loader, 2026, 3, drivers, weather, starting_grid=grid,
+        )
+        return MonteCarloRunner(
+            deepcopy(drivers), loader.create_cars_from_stats(loader._driver_stats),
+            Track(id="test", name="Test", country="Test", total_laps=8, base_lap_time=90),
+            deepcopy(weather), seed=42, starting_grid=grid,
+            pit_lane_starters=loader.get_pit_lane_starters(), winner_allocation=allocation,
+        ).run(4, parallel=False)
+
+    provenance = loader.get_provenance()
+    before = run()
+    assert before.winner_allocation is None
+    assert loader.get_provenance() == provenance
+    redistributed = deepcopy(before)
+    redistributed.winner_allocation = legacy
+    assert redistributed.get_win_probabilities() != before.get_win_probabilities()
+    after = deadline + timedelta(days=elapsed)
+    monkeypatch.setattr("f1sim.data.current._utc_now", lambda: after)
+    if fresh_lookup:
+        loader._race_grid["fetched_at"] = after.isoformat()
+    expected_provenance = loader.get_provenance()
+    completed = run()
+    assert completed.winner_allocation is None
+    assert completed.get_winner_forecast() is None
+    assert completed.get_win_probabilities() == before.get_win_probabilities()
+    assert completed.race_results == before.race_results
+    assert completed.input_snapshot == before.input_snapshot
+    assert loader.get_provenance() == expected_provenance
+    # Scenario reporting is independent of the stricter prospective record contract.
+    with pytest.raises(ValueError, match="before the race"):
+        build_grid_winner_references(
+            grid, loader._race_grid, year=2026, target_round=3,
+            recorded_at=after.isoformat(), qualifying_starts_at="2026-03-28T14:00:00Z",
+            race_starts_at=deadline.isoformat(),
+        )

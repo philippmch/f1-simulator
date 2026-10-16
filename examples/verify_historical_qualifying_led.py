@@ -259,6 +259,44 @@ def gates(summary):
     }
 
 
+def winner_pick_audit(events):
+    """Report top choices separately from probability scores after validation.
+
+    Ties receive fractional credit; an unclassified outcome remains a possible
+    top category. This audit never changes the original sealed promotion gate.
+    """
+    result = {}
+    for label, rows in (
+        ("all", events),
+        ("2025", [r for r in events if r["year"] == 2025]),
+        ("2026", [r for r in events if r["year"] == 2026]),
+    ):
+        summary = {"events": len(rows), "grid_correct": 0, "models": {}}
+        summary["grid_correct"] = sum(r["starting_grid"][0] == r["observed_winner"] for r in rows)
+        for model in ("native", "qualifying_led"):
+            correct, tied = 0.0, 0
+            disagreements = []
+            for row in rows:
+                counts = {**row[model]["wins"], None: row[model]["no_classified_winner_count"]}
+                highest = max(counts.values())
+                picks = [driver for driver, count in counts.items() if count == highest]
+                credit = float(row["observed_winner"] in picks) / len(picks)
+                correct += credit
+                tied += len(picks) > 1
+                if picks != [row["starting_grid"][0]]:
+                    disagreements.append({
+                        "year": row["year"], "round": row["round"], "picks": picks,
+                        "observed_winner": row["observed_winner"], "correct_credit": credit,
+                        "grid_correct": row["starting_grid"][0] == row["observed_winner"],
+                    })
+            summary["models"][model] = {
+                "correct_credit": correct, "tied_events": tied,
+                "disagreements_with_grid": disagreements,
+            }
+        result[label] = summary
+    return result
+
+
 def assess(evidence):
     seal(evidence)
     require(
@@ -359,6 +397,7 @@ def assess(evidence):
         "events": 40,
         "trials_per_model_event": 400,
         "summaries": summary,
+        "winner_pick_audit": winner_pick_audit(evidence["events"]),
         "robust_gate_checks": actual_gates,
         "robust_gate_passed": False,
         "original_decision": original["decision"],

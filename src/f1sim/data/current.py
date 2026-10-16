@@ -914,6 +914,8 @@ class CurrentSeasonDataLoader:
         self._season_qualifying_attempted = False
         self._season_results_error: Exception | None = None
         self._season_qualifying_error: Exception | None = None
+        self._qualifying_timing_attempts: dict[int, dict[str, Any]] = {}
+        self._qualifying_timing_rows: dict[int, tuple[str, list[dict[str, Any]]]] = {}
         self._driver_stats: dict[str, DriverStats] = {}
         self._track_stats: dict[str, TrackStats] = {}
         self._fetched_at: str | None = None
@@ -1287,6 +1289,8 @@ class CurrentSeasonDataLoader:
         self._season_qualifying_attempted = False
         self._season_results_error = None
         self._season_qualifying_error = None
+        self._qualifying_timing_attempts.clear()
+        self._qualifying_timing_rows.clear()
         self._driver_stats.clear()
         self._track_stats.clear()
         self._fetched_at = None
@@ -1322,6 +1326,9 @@ class CurrentSeasonDataLoader:
                if self._race_grid is not None else {}),
             **({"postqual_pace_policy": self._postqual_pace_policy}
                if self._postqual_pace_policy is not None else {}),
+            **({"qualifying_timing_supplements": copy.deepcopy(
+                list(self._qualifying_timing_attempts.values()),
+            )} if self._qualifying_timing_attempts else {}),
             **({"http_retries": copy.deepcopy(self._http_retries)} if self._http_retries else {}),
         }
 
@@ -2312,6 +2319,125 @@ class CurrentSeasonDataLoader:
         return min(values) if values else None
 
     @classmethod
+    def _parse_official_qualifying_times(cls, text, *, year, event, rows):
+        """Supplement stage times only; keep the provider's entrant identities and positions."""
+        from f1sim.data.practice import _ResultsTable
+
+        table = _ResultsTable()
+        table.feed(text)
+        event_name = re.split(r"\s+grand\s+prix\b", str(event.get("race", "")), flags=re.I)[0]
+        if not event_name or not any(
+            str(year) in heading and "QUALIFYING" in heading.upper()
+            and "SPRINT" not in heading.upper()
+            and _normalise_text(event_name) in _normalise_text(heading)
+            for heading in table.headings
+        ):
+            raise CurrentSeasonDataError("Official qualifying event or session differs")
+        header = ["pos", "no", "driver", "team", "q1", "q2", "q3", "laps"]
+        if not any([c.lower().rstrip(".") for c in cells] == header for cells, _ in table.rows):
+            raise CurrentSeasonDataError("Official qualifying page lacks explicit Q1/Q2/Q3 columns")
+        expected = {}
+        for index, row in enumerate(rows):
+            code = str(_first(cls._extract_driver(row), "code", "Code", "abbreviation", default=""))
+            code = code.strip().upper()
+            if not code or code in expected:
+                raise CurrentSeasonDataError("Qualifying entrants have ambiguous driver codes")
+            expected[code] = index
+        output, seen = copy.deepcopy(rows), set()
+        for cells, _ in table.rows:
+            if len(cells) != 8 or not cells[0].isdecimal():
+                continue
+            code = cells[2].split()[-1].upper() if cells[2].split() else ""
+            if code not in expected or code in seen:
+                raise CurrentSeasonDataError("Official qualifying driver identity differs")
+            index = expected[code]
+            row = rows[index]
+            if cls._row_position(row) != int(cells[0]):
+                raise CurrentSeasonDataError("Official qualifying position conflicts with provider")
+            number = _as_int(row.get("number"))
+            if number is not None and _as_int(cells[1]) != number:
+                raise CurrentSeasonDataError("Official qualifying car number conflicts")
+            team = cls._row_team_id(row)
+            if team != cls._team_id(cells[3]):
+                constructor = _first(row, "Constructor", "constructor", default={})
+                label = _normalise_text(_first(constructor, "name", default=""))
+                # An explicit readable name may carry an extra title sponsor,
+                # e.g. Sauber / Kick Sauber. Never infer a different constructor.
+                if len(label) < 4 or not re.search(
+                    rf"(?<!\w){re.escape(label)}(?!\w)", _normalise_text(cells[3]),
+                ):
+                    raise CurrentSeasonDataError("Official qualifying constructor conflicts")
+            for stage, value in zip(("Q1", "Q2", "Q3"), cells[4:7], strict=True):
+                if not value or value.strip().upper() in {"-", "—", "DNF", "DNS", "DQ", "DNQ"}:
+                    continue
+                seconds = _parse_time_seconds(value)
+                if seconds is None or not math.isfinite(seconds) or not 30 <= seconds <= 240:
+                    raise CurrentSeasonDataError("Invalid official qualifying stage time")
+                output[index][stage] = value
+            seen.add(code)
+        timed = sum(cls._row_qualifying_time({
+            key: value for key, value in row.items() if str(key).lower() in {"q1", "q2", "q3"}
+        }) is not None for row in output)
+        if seen != set(expected) or not cls._near_complete(timed, len(rows)):
+            raise CurrentSeasonDataError("Official qualifying timings are incomplete")
+        return output
+
+    def _supplement_target_qualifying_times(self, year, event, rows):
+        """Try one official source for a completed target GP with no usable stage times."""
+        from datetime import timedelta
+
+        from f1sim.data.practice import _official_event_base, _timestamp
+
+        if not rows or any(self._row_qualifying_time({
+            key: value for key, value in row.items() if str(key).lower() in {"q1", "q2", "q3"}
+        }) is not None for row in rows):
+            return rows
+        self._assert_current_year(year)
+        qualifying = _timestamp(event.get("sessions", {}).get("Qualifying"))
+        if (qualifying is None or qualifying.year != year
+                or qualifying + timedelta(hours=1) > _utc_now()):
+            return rows
+        number = int(event["round"])
+        signature = self._page_signature(rows)
+        if number in self._qualifying_timing_attempts:
+            cached = self._qualifying_timing_rows.get(number)
+            if cached and cached[0] == signature:
+                # Pagination signatures ignore row order; the caller's order
+                # still determines deterministic model/RNG assignment.
+                def code(row):
+                    return str(_first(self._extract_driver(row), "code", "Code",
+                                      "abbreviation", default="")).strip().upper()
+
+                by_code = {code(row): row for row in cached[1]}
+                return [copy.deepcopy(by_code[code(row)]) for row in rows]
+            return rows
+        evidence = {"year": year, "round": number, "status": "unavailable",
+                    "reason": "official_qualifying_unavailable",
+                    "qualifying_started_at": qualifying.isoformat(),
+                    "attempted_at": _iso_now(),
+                    "original_stage_timed_rows": 0, "entrant_rows": len(rows)}
+        self._qualifying_timing_attempts[number] = evidence
+        url = f"https://www.formula1.com/en/results/{year}/races"
+        try:
+            base = _official_event_base(self._fetch_text(url), year, event)
+            url = f"{base}/qualifying"
+            evidence["source_url"] = url
+            text = self._fetch_text(url)
+            evidence["fetched_at"] = self._fetched_at
+            output = self._parse_official_qualifying_times(
+                text, year=year, event=event, rows=rows,
+            )
+        except Exception as error:
+            self._mark_failed_url(url)
+            evidence["reason"] = str(error)
+            return rows
+        self._qualifying_timing_rows[number] = (signature, copy.deepcopy(output))
+        evidence.update(status="available", reason=None, fetched_at=self._fetched_at,
+                        supplemented_stages={stage: sum(bool(r.get(stage)) for r in output)
+                                             for stage in ("Q1", "Q2", "Q3")})
+        return output
+
+    @classmethod
     def _classified(cls, row: Mapping[str, Any]) -> bool:
         status = (
             re.sub(r"\s+", " ", str(_first(row, "status", "Status", default=""))).strip().lower()
@@ -2663,6 +2789,9 @@ class CurrentSeasonDataLoader:
         target_qualifying_rows = [
             row for row in all_qualifying_rows if _as_int(row.get("round")) == target_round
         ]
+        target_qualifying_rows = self._supplement_target_qualifying_times(
+            year, target_event, target_qualifying_rows,
+        )
         stats = self._build_driver_stats(
             year=year, target_event=target_event, roster=roster,
             driver_standings=driver_standings, constructor_standings=constructor_standings,
@@ -2693,6 +2822,8 @@ class CurrentSeasonDataLoader:
         The older point allocation was measured with the earlier qualifying
         model. Current practice now supplies driver separation in the native
         forecasts; pooling those chances back to points loses that information.
+        Published-grid scenarios retain native chances after the race starts;
+        prospective recording enforces its own separate before-race deadline.
         Unknown cutoffs and other forecast contexts retain the earlier policy.
         """
         from f1sim.analysis.practice_qualifying import PRACTICE_QUALIFYING_POLICY
@@ -2700,25 +2831,29 @@ class CurrentSeasonDataLoader:
 
         self._assert_current_year(year)
         if starting_grid is not None:
-            from f1sim.analysis.grid_winner_reference import build_grid_winner_references
+            from datetime import timedelta
+
+            from f1sim.data.grid import _verify_published_grid_lookup
 
             event = self._event_for_race(year, target_race)
             qualifying = _timestamp(event.get("sessions", {}).get("Qualifying"))
             race_start = _timestamp({"date": event.get("date"), "time": event.get("time")})
-            if qualifying is None or race_start is None:
+            if (qualifying is None or race_start is None or race_start.year != year
+                    or qualifying + timedelta(hours=1) > race_start or len(drivers) < 2):
                 return False
             try:
-                references = build_grid_winner_references(
-                    [driver.id for driver in drivers], self._race_grid, year=year,
-                    target_round=int(event["round"]), recorded_at=_utc_now().isoformat(),
-                    qualifying_starts_at=qualifying.isoformat(),
-                    race_starts_at=race_start.isoformat(),
+                # The lookup is already loaded. Verify its source and event,
+                # without treating this scenario as a prospective forecast.
+                grid, _ = _verify_published_grid_lookup(
+                    self._race_grid, [driver.id for driver in drivers], year=year,
+                    target_round=int(event["round"]), qualifying=qualifying,
+                    started=qualifying, now=_utc_now(),
                 )
             except (ValueError, TypeError):
                 return False
             stats = self._driver_stats
             return (
-                references["evidence"]["starting_grid"] == starting_grid
+                grid == starting_grid
                 and isinstance(stats, dict) and set(stats) == {d.id for d in drivers}
                 and all(stats[d.id].team_id == d.team_id
                         and stats[d.id].driver_skill_rating == d.skill_rating

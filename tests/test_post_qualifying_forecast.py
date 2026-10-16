@@ -161,6 +161,21 @@ def test_finishing_after_race_start_does_not_produce_a_valid_record():
                              now=lambda: next(times), stage="post_qualifying")
 
 
+@pytest.mark.parametrize("days_after_race", [0, 2])
+def test_post_qualifying_record_cannot_start_at_or_after_race_deadline(
+    monkeypatch, days_after_race,
+):
+    loader = PostQualifyingLoader()
+    deadline = loader.instant + timedelta(days=1)
+    monkeypatch.setattr(loader, "get_weighted_driver_stats",
+                        lambda *a, **k: pytest.fail("Expired forecast loaded model inputs"))
+    with pytest.raises(ValueError, match="before the race"):
+        record_race_forecast(
+            loader, loader.instant.year, 3, trials=1, stage="post_qualifying",
+            now=lambda: deadline + timedelta(days=days_after_race),
+        )
+
+
 @pytest.mark.parametrize("change", ["probability", "grid", "pit", "kind", "target_result",
                                    "cutoff", "old_fetch", "qualifying_round", "schema",
                                    "race_date", "race_time", "diagnostic_scope"])

@@ -63,6 +63,29 @@ def test_complete_scores_and_tradeoffs_reproduce_without_network_or_simulation(
     assert result["robust_gate_checks"]["positive_paired_winner_gain_over_reference"] is False
     assert result["original_decision"] == "rejected_for_deployment"
     assert result["prospective_skill_established"] is False
+    picks = result["winner_pick_audit"]["all"]
+    assert picks["grid_correct"] == 27
+    assert picks["models"]["native"]["correct_credit"] == 24
+    assert picks["models"]["qualifying_led"]["correct_credit"] == 25
+    disagreements = picks["models"]["qualifying_led"]["disagreements_with_grid"]
+    assert len(disagreements) == 5
+    assert not any(row["correct_credit"] for row in disagreements)
+    assert {(row["year"], row["round"]) for row in disagreements if row["grid_correct"]} == {
+        (2025, 10), (2025, 24),
+    }
+
+
+def test_pick_audit_does_not_select_a_convenient_driver_from_ties(evidence):
+    event = deepcopy(evidence["events"][0])
+    winner = event["observed_winner"]
+    other = next(driver for driver in event["starting_grid"] if driver != winner)
+    event["native"]["wins"] = {winner: 200, other: 200}
+    event["qualifying_led"]["wins"] = {winner: 200, other: 0}
+    event["qualifying_led"]["no_classified_winner_count"] = 200
+    summary = verifier.winner_pick_audit([event])["all"]
+    for model in ("native", "qualifying_led"):
+        assert summary["models"][model]["correct_credit"] == .5
+        assert summary["models"][model]["tied_events"] == 1
 
 
 @pytest.mark.parametrize(

@@ -39,6 +39,20 @@ Live official-grid runs require a complete published grid. The forecast
 recorder also requires the actual post-qualifying, pre-race window. Historical
 development uses the separate offline tool below and does not wait for a race.
 
+If the provider returns a target GP classification with every Q1/Q2/Q3 time
+missing, the loader now tries the official qualifying table once after the
+session. It supplements times only after matching the event, full field,
+drivers, teams, car numbers and qualifying positions. Ordinary eliminated
+drivers with missing Q2/Q3 times do not trigger this lookup. Accepted and failed
+lookups appear in data provenance. This repairs a real missing-data case in
+2025 Miami; source completeness alone does not prove a forecast improvement.
+
+Verified official-grid scenarios also retain native simulation probabilities
+after the race starts. Previously the reporting policy silently switched to a
+teammate-points allocation at that deadline, even when the simulated race
+results and inputs were identical. Recording a prospective forecast still
+requires the pre-race window.
+
 ## Measured historical change
 
 The [sealed sensitivity](../evidence/historical-qualifying-led-2026-10-16.json)
@@ -48,6 +62,7 @@ with 400 trials for each policy and event. Lower scores are better.
 | Metric, all 40 events | Season-points model | Qualifying-led | Grid scale 18 |
 | --- | ---: | ---: | ---: |
 | Winner Brier | 0.52074 | 0.46501 | 0.50757 |
+| Correct favourite / 40 | 24 | 25 | 27 |
 | Finishing-position MAE | 3.29966 | 3.34940 | — |
 | Podium Brier | 0.06057 | 0.06131 | — |
 | Non-finish Brier | 0.14293 | 0.14317 | — |
@@ -58,6 +73,13 @@ strongest fixed grid reference** on these events. The policy also improves
 winner Brier in each year: 0.56859 → 0.50074 in 2025 and 0.44898 → 0.41142 in
 2026. Finishing-position MAE worsens by 0.04974 places across all events.
 Non-finish truth includes non-starts and disqualifications.
+
+**Winner picks still lose to the grid: 25/40 versus 27/40.** All five
+qualifying-led choices that differ from the first grid starter are wrong on
+this cohort. Canada and Abu Dhabi 2025 are the two races where the grid is
+correct and the model is wrong. Better probability scores do not establish
+better winner selection. The offline verifier reports both measures and the
+individual disagreements; the original evidence and rejection remain intact.
 
 Concrete changes in those same 400-trial comparisons illustrate the mechanism:
 
@@ -82,7 +104,7 @@ leaves a positive 0.01346 gain. The original broad promotion gate remains
 no gain, and the other outcome metrics do not all improve. Its original
 rejection and source identities remain in the evidence. The selectable policy
 implements the requested qualifying-first behavior and a measured historical
-winner improvement; it does not certify robust or prospective superiority.
+probability-score improvement; it does not certify robust or prospective superiority.
 
 These are already-inspected, fixed-dry development races using current simulator
 rules on 2025 as well as 2026. The original contexts also used incorrect planned
