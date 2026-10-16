@@ -2028,6 +2028,13 @@ input:focus-visible {
           </select>
         </div>
         <div class="control-group">
+          <label class="control-label" for="forecastPolicySelect">Forecast</label>
+          <select id="forecastPolicySelect" aria-describedby="forecastPolicyHelp" onchange="updateForecastControls()">
+            <option value="native" selected>Native simulation</option>
+            <option value="learned_afterqual_v1">Confirmed-grid forecast (experimental)</option>
+          </select>
+        </div>
+        <div class="control-group">
           <label class="control-label" for="simCount">Simulations</label>
           <input type="number" id="simCount" value="100" min="10" max="1000" step="10">
         </div>
@@ -2038,6 +2045,7 @@ input:focus-visible {
     <div class="run-budget" id="raceGridHelp">Use the published starting order, including grid penalties, when available; otherwise simulate qualifying for each race trial.</div>
     <div class="run-budget" id="raceGridPaceHelp">This choice sets the race starting order. Both modes use the same driver and car pace ratings, which can include published qualifying data when available.</div>
     <div class="run-budget" id="postqualPaceHelp">Qualifying-led uses current qualifying and recent form for car pace once results are available. Without usable qualifying, both choices retain the season prior.</div>
+    <div class="run-budget" id="forecastPolicyHelp">The experimental forecast uses the confirmed grid, qualifying and earlier form. Available after GP qualifying and before the race, for the stock fixed-dry setup with at least 400 simulations.</div>
     <div class="run-budget" id="runBudgetSummary" aria-live="polite"></div>
     <details class="advanced-settings" id="advancedSettings">
       <summary>More race settings<span class="settings-hint" id="advancedSettingsHint">Tyres, pit plans and weather experiments</span></summary>
@@ -4748,6 +4756,21 @@ function updateRaceGridControls() {
   }
 }
 
+function updateForecastControls() {
+  if (document.getElementById('forecastPolicySelect').value === 'learned_afterqual_v1') {
+    document.getElementById('raceGridModeSelect').value = 'official';
+    document.getElementById('postqualPacePolicySelect').value = 'qualifying_led';
+    document.getElementById('raceEngineSelect').value = 'chronological';
+    document.getElementById('rngPolicySelect').value = 'isolated_weather_v1';
+    document.getElementById('weatherModeSelect').value = 'fixed_rainfall';
+    document.getElementById('simCount').value = Math.max(400, Number(document.getElementById('simCount').value) || 400);
+    weatherSelectEl.value = 'DRY';
+    setScenarioSelection(['dry'], {persist: false, syncFocus: true});
+  }
+  updateRaceGridControls();
+  updateRunBudget();
+}
+
 function clearQualifyingWeather() {
   for (const phase of ['Q1', 'Q2', 'Q3']) {
     document.getElementById(`qualifying${phase}Condition`).value = 'inherit';
@@ -4986,6 +5009,9 @@ function buildRunPayload() {
   if (Object.keys(raceTireRulesSetup.rules).length) payload.race_tire_rules = raceTireRulesSetup.rules;
   if (pitPlanSetup.pitPlans !== null) payload.pit_plans = pitPlanSetup.pitPlans;
   if (pitSelectionSetup.selection) payload.pit_plan_selection = pitSelectionSetup.selection;
+  if (document.getElementById('forecastPolicySelect').value !== 'native') {
+    payload.forecast_policy = document.getElementById('forecastPolicySelect').value;
+  }
   return payload;
 }
 
@@ -5753,6 +5779,30 @@ function renderRaceScoring(scenario) {
   return `<div class="inline-note race-scoring-note" role="note">${escapeHtml(description)}${coverage ? `<div>${escapeHtml(coverage)}</div>` : ''}</div>`;
 }
 
+function renderLearnedForecast(scenario) {
+  const estimate = scenario.forecast_estimate;
+  if (!estimate) return '';
+  const gridRank = new Map((scenario.simulation_inputs?.starting_grid || []).map((id, index) => [id, index]));
+  const rows = Object.entries(estimate.win_probabilities || {})
+    .sort((a, b) => b[1] - a[1] || (gridRank.get(a[0]) ?? 999) - (gridRank.get(b[0]) ?? 999)
+      || a[0].localeCompare(b[0]));
+  const primary = estimate.primary_winner === '__NO_CLASSIFIED_WINNER__'
+    ? 'No classified winner' : estimate.primary_winner;
+  return `<section class="stat-card learned-forecast" aria-label="Experimental confirmed-grid forecast">
+    <div class="stat-card-title">Experimental confirmed-grid forecast</div>
+    ${primary ? `<p>Winner pick: <strong>${escapeHtml(primary)}</strong></p>` : ''}
+    <p class="inline-note">Fixed dry race with the confirmed grid. Qualifying and earlier form adjust the forecast. These four estimates use the same weighted race outcomes; tables and charts below show the raw simulation.</p>
+    <div class="stats-table-wrap" tabindex="0" role="region" aria-label="Confirmed-grid forecast estimates"><table class="metrics-table"><thead><tr><th scope="col">Driver</th><th scope="col">Win</th><th scope="col">Podium</th><th scope="col">Mean position</th><th scope="col">Nonfinish</th></tr></thead>
+    <tbody>${rows.map(([id, probability]) => `<tr><th scope="row">${escapeHtml(id)}</th>
+      <td>${formatPercent(probability * 100)}</td>
+      <td>${formatPercent(toNumber(estimate.podium_probabilities?.[id]) * 100)}</td>
+      <td>${toNumber(estimate.expected_positions?.[id]).toFixed(2)}</td>
+      <td>${formatPercent(toNumber(estimate.nonfinish_probabilities?.[id]) * 100)}</td></tr>`).join('')}</tbody></table></div>
+    ${estimate.no_classified_winner_probability > 0 ? `<p class="inline-note">No classified winner: ${formatPercent(estimate.no_classified_winner_probability * 100)}</p>` : ''}
+    <p class="inline-note">Raw simulation counts and their sampling ranges remain separate. Historical development results do not guarantee future accuracy.</p>
+  </section>`;
+}
+
 function renderRace() {
   const container = document.getElementById('raceContent');
   const empty = document.getElementById('emptyRace');
@@ -5828,6 +5878,7 @@ function renderRace() {
         ${escapeHtml(WEATHER_LABELS[weather.condition] || titleFromKey(weather.condition || 'dry'))}
       </div>
     </div>
+    ${renderLearnedForecast(scenario)}
     ${timeLimited ? '<div class="inline-note time-limit-note" role="note">Race shortened by the two-hour limit. Points reflect completed distance and green running.</div>' : ''}
     ${abandonment ? `<div class="inline-note abandonment-note" role="note">${escapeHtml(abandonment.description)}</div>` : ''}
     ${renderRaceScoring(scenario)}
@@ -6323,10 +6374,11 @@ function renderStats() {
       </div>
     </div>
 
+    ${renderLearnedForecast(scenario)}
     <div class="summary-strip">
       <div class="summary-card">
         <div class="summary-value" style="color:${getTeamStyle(topWinner.team_key).color}">${escapeHtml(topWinner.id)}</div>
-        <div class="summary-label">Most Likely Winner</div>
+        <div class="summary-label">${scenario.forecast_estimate ? 'Simulation Favourite' : 'Most Likely Winner'}</div>
       </div>
       <div class="summary-card">
         <div class="summary-value">${formatPercent(winEstimate(topWinner))}</div>
@@ -6364,7 +6416,7 @@ function renderStats() {
         ${renderOvertakingStatistics(scenario.overtaking_statistics)}
       </div>
       <div class="stat-card">
-        <div class="stat-card-title">Win Probability</div>
+        <div class="stat-card-title">${scenario.forecast_estimate ? 'Raw simulated win rate' : 'Win Probability'}</div>
         ${renderBarRows(
           drivers.slice(0, 10),
           driver => driver.id,
@@ -7291,6 +7343,8 @@ function renderScenarioLab() {
   scenarioContentEl.style.display = 'block';
 
   scenarioContentEl.innerHTML = `
+    ${Object.values(simResults.scenarios || {}).some(scenario => scenario.forecast_estimate)
+      ? '<p class="inline-note">Scenario Lab shows raw simulation results. The learned forecast is shown in Race and Statistics. Choose Native simulation to compare custom weather or strategy scenarios.</p>' : ''}
     <section class="pit-selection-result" id="pitPlanSelectionResults" hidden aria-labelledby="pitPlanSelectionHeading"></section>
     <div class="comparison-toolbar">
       <div class="control-group control-group-scenarios wide">

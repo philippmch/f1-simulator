@@ -307,6 +307,11 @@ class SimulationResults:
     control_schedule_histories: list[list[dict] | None] | None = None
     race_points_contexts: list[dict | None] | None = None
     winner_allocation: dict | None = None
+    forecast_estimate: dict | None = None
+
+    def get_forecast_estimate(self) -> dict | None:
+        """Return a separate learned forecast without changing sampled statistics."""
+        return deepcopy(self.forecast_estimate)
 
     def get_winner_forecast(self) -> dict | None:
         """Reported win estimates; native counts remain in driver_stats."""

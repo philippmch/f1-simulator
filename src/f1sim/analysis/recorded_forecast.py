@@ -10,6 +10,16 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from f1sim.analysis.confirmed_forecast import (
+    LEARNED_FORECAST,
+    apply_confirmed_forecast,
+    bind_confirmed_forecast_inputs,
+    native_forecast_input_digest,
+    prepare_confirmed_forecast,
+    validate_confirmed_forecast_options,
+    validate_confirmed_forecast_weather,
+    validate_forecast_policy,
+)
 from f1sim.analysis.forecast_errors import compare_winner_errors
 from f1sim.analysis.grid_winner_reference import (
     build_grid_winner_references,
@@ -22,7 +32,11 @@ from f1sim.analysis.practice_winner_reference import (
     score_saved_practice_reference,
 )
 from f1sim.analysis.race_probability_evaluation import _observed_winner, _target_rows
-from f1sim.analysis.race_probability_scores import score_winner_counts, summarize_winner_trials
+from f1sim.analysis.race_probability_scores import (
+    score_winner_counts,
+    score_winner_probabilities,
+    summarize_winner_trials,
+)
 from f1sim.analysis.replay import _load_saved_runner
 from f1sim.analysis.teammate_forecast import score_teammate_forecast, teammate_winner_forecast
 from f1sim.analysis.winner_baselines import build_winner_baselines, score_saved_winner_baselines
@@ -98,7 +112,7 @@ def _qualifying_summary(trials, driver_ids):
 def record_race_forecast(loader, year, target_race, *, trials=100, seed=42, weather=None,
                          parallel=False, max_workers=None, progress_callback=None,
                          cancel_requested=None, now=None, stage="pre_qualifying",
-                         postqual_pace_policy="qualifying_led"):
+                         postqual_pace_policy="qualifying_led", forecast_policy="native"):
     """Record a future race before qualifying or with the published GP starting grid.
 
     The local timestamp and content seal detect accidental alteration. They do
@@ -113,6 +127,15 @@ def record_race_forecast(loader, year, target_race, *, trials=100, seed=42, weat
     if postqual_pace_policy not in ("qualifying_led", "season_points"):
         raise ValueError("postqual_pace_policy must be qualifying_led or season_points")
     post_qualifying = stage == "post_qualifying"
+    validate_forecast_policy(forecast_policy)
+    if forecast_policy == LEARNED_FORECAST:
+        if not post_qualifying:
+            raise ValueError("The learned forecast requires the post_qualifying stage")
+        validate_confirmed_forecast_options(
+            forecast_policy, simulations=trials, race_grid_mode="official",
+            postqual_pace_policy=postqual_pace_policy, race_engine="chronological",
+            rng_policy="isolated_weather_v1", weather_mode="fixed_rainfall", scenarios=["dry"],
+        )
     if type(trials) is not int or not 1 <= trials <= 10_000:
         raise ValueError("trials must be an integer from 1 to 10000")
     if cancel_requested is not None and not callable(cancel_requested):
@@ -182,6 +205,13 @@ def record_race_forecast(loader, year, target_race, *, trials=100, seed=42, weat
     assumed = (Weather() if weather is None else weather).model_copy(
         deep=True, update={"change_probability": 0.0},
     )
+    prepared_forecast = None
+    if forecast_policy == LEARNED_FORECAST:
+        validate_confirmed_forecast_weather(assumed)
+        prepared_forecast = prepare_confirmed_forecast(
+            loader, year, target, drivers, starting_grid, pit_lane_starters,
+            as_of=_clock_time(clock),
+        )
     raise_if_cancelled(cancel_requested)
     allocation = None if post_qualifying else simulation_winner_allocation(
         loader, year, target, drivers, assumed, starting_grid=starting_grid,
@@ -196,10 +226,14 @@ def record_race_forecast(loader, year, target_race, *, trials=100, seed=42, weat
         **({"pit_lane_starters": pit_lane_starters} if pit_lane_starters else {}),
         **({"race_tire_rules": tire_rules} if tire_rules else {}),
     )
+    if prepared_forecast is not None:
+        bind_confirmed_forecast_inputs(prepared_forecast, runner, trials)
     simulation = runner.run(
         trials, parallel=parallel, max_workers=max_workers, progress_callback=progress_callback,
         cancel_requested=cancel_requested,
     )
+    if prepared_forecast is not None:
+        apply_confirmed_forecast(simulation, prepared_forecast)
     raise_if_cancelled(cancel_requested)
     recorded = _clock_time(clock)
     if recorded >= deadline:
@@ -244,6 +278,9 @@ def record_race_forecast(loader, year, target_race, *, trials=100, seed=42, weat
             recorded_at=recorded.isoformat(), qualifying_starts_at=qualifying_start.isoformat(),
             race_starts_at=deadline.isoformat(),
         )
+        if prepared_forecast is not None:
+            body.update(schema_version=5, forecast_policy=forecast_policy,
+                        forecast_estimate=simulation.get_forecast_estimate())
     return {**body, "content_sha256": _digest(body)}
 
 
@@ -272,11 +309,11 @@ def _validate_recorded_forecast(record):
     body = {key: value for key, value in record.items() if key != "content_sha256"}
     if record.get("content_sha256") != _digest(body):
         raise ValueError("Recorded forecast content seal does not match")
-    post_qualifying = record.get("schema_version") == 4
+    post_qualifying = record.get("schema_version") in (4, 5)
     expected_kind = ("post_qualifying_race_forecast" if post_qualifying
                      else "pre_qualifying_race_forecast")
     if (type(record.get("schema_version")) is not int
-            or record["schema_version"] not in (1, 2, 3, 4)
+            or record["schema_version"] not in (1, 2, 3, 4, 5)
             or record.get("kind") != expected_kind):
         raise ValueError("Unsupported recorded forecast format")
     if ("postqual_pace_policy" in record
@@ -402,7 +439,78 @@ def _validate_recorded_forecast(record):
             raise ValueError("Winner allocation must match the saved simulation constructors")
     elif "winner_estimate" in record:
         raise ValueError("Schema 1 forecasts cannot contain a calibrated winner estimate")
+    if record["schema_version"] == 5:
+        _validate_learned_record(record, ids, trials, started, recorded)
+    elif "forecast_estimate" in record or "forecast_policy" in record:
+        raise ValueError("A learned confirmed-grid forecast requires schema 5")
     return score
+
+
+def _validate_learned_record(record, ids, trials, started, recorded):
+    from f1sim.analysis.learned_afterqual import canonical_digest
+    from f1sim.analysis.learned_forecast import validate_saved_learned_forecast
+    from f1sim.data.confirmed_grid_forecast import validate_confirmed_grid_feature_snapshot
+
+    estimate = record.get("forecast_estimate")
+    if record.get("forecast_policy") != LEARNED_FORECAST or "winner_estimate" in record:
+        raise ValueError("Schema 5 requires the separate learned forecast policy")
+    validate_saved_learned_forecast(estimate)
+    features = estimate["feature_snapshot"]
+    validate_confirmed_grid_feature_snapshot(features)
+    cutoff = _timestamp(features["as_of"])
+    if not started <= cutoff <= recorded:
+        raise ValueError("Feature acquisition must occur during the recorded forecast")
+    eligibility = estimate["eligibility"]
+    if (eligibility.get("policy") != LEARNED_FORECAST
+            or eligibility.get("scope") != "stock_confirmed_grid_fixed_dry"
+            or eligibility.get("as_of") != features["as_of"]
+            or eligibility.get("feature_sha256") != canonical_digest(features)
+            or eligibility.get("artifact_sha256") != estimate["artifact"]["content_sha256"]
+            or eligibility.get("training_boundary") != estimate["artifact"]["training_boundary"]
+            or eligibility.get("minimum_trials") != 400):
+        raise ValueError("Learned forecast eligibility must match its frozen inputs and model")
+    if (_timestamp(estimate["artifact"]["created_at"]) > cutoff
+            or features["year"] != record["year"]
+            or features["round"] != record["event"]["round"]
+            or set(features["codes"]) != set(ids)):
+        raise ValueError("The frozen learned model and features must match this event")
+    inputs = record["simulation_inputs"]
+    context = features["context"]
+    if (any(context["event"].get(key) != record["event"].get(key)
+            for key in ("round", "circuit_id", "date", "time"))
+            or _timestamp(context["qualifying_starts_at"])
+            != _timestamp(record["qualifying_starts_at"])
+            or _timestamp(context["race_starts_at"]) != _timestamp(record["race_starts_at"])
+            or context["modeled_seats"]
+            != {row["id"]: row["team_id"] for row in inputs.get("drivers", [])}
+            or context["source_provenance"].get("race_grid")
+            != record.get("provenance", {}).get("race_grid")):
+        raise ValueError("Learned feature evidence must match the recorded event and entrants")
+    if eligibility.get("native_input_sha256") != native_forecast_input_digest(
+        inputs, race_engine=record["metadata"]["race_engine"],
+        seed=record["metadata"]["seed"], trials=trials,
+    ):
+        raise ValueError("Learned forecast native inputs must match the prepared stock models")
+    mapping = dict(zip(features["ids"], features["codes"], strict=True))
+    if inputs.get("starting_grid") != [mapping[driver] for driver in features["grid_ids"]]:
+        raise ValueError("Learned forecast features must match the saved official grid")
+    validate_confirmed_forecast_options(
+        LEARNED_FORECAST, simulations=trials, race_grid_mode="official",
+        postqual_pace_policy=record.get("postqual_pace_policy"),
+        race_engine=record["metadata"].get("race_engine"),
+        rng_policy=inputs.get("rng_policy"), weather_mode="fixed_rainfall", scenarios=["dry"],
+        **{name: inputs.get(name) for name in (
+            "starting_tires", "starting_tire_ages", "tire_inventory", "pit_plans",
+            "tire_warmup", "qualifying_weather", "weather_schedule", "control_schedule",
+        )},
+    )
+    validate_confirmed_forecast_weather(inputs["weather"])
+    counts = estimate["native_winner_counts"]
+    winner = record["winner_forecast"]
+    if ({driver: counts.get(driver) for driver in ids}
+            != {driver: row["wins"] for driver, row in winner["drivers"].items()}
+            or counts.get("__NO_CLASSIFIED_WINNER__") != winner["no_classified_winner"]["count"]):
+        raise ValueError("Learned forecast joint proof must match the raw winner counts")
 
 
 def load_recorded_forecast(path):
@@ -443,7 +551,13 @@ def score_recorded_forecast(record, loader, results, qualifying):
         score = score_teammate_forecast(
             winner, record["winner_estimate"]["allocation"], observed["winner_id"],
         )
-    post_qualifying = record["schema_version"] == 4
+    if "forecast_estimate" in record:
+        estimate = record["forecast_estimate"]
+        score = score_winner_probabilities(
+            estimate["win_probabilities"], estimate["no_classified_winner_probability"],
+            observed["winner_id"],
+        )
+    post_qualifying = record["schema_version"] in (4, 5)
     # Target qualifying is an observed input after qualifying, never a scored
     # forecast of that same session. Preserve legacy pre-qualifying scoring.
     q_rows = [] if post_qualifying else _target_rows(loader, qualifying, target)
@@ -491,6 +605,9 @@ def score_recorded_forecast(record, loader, results, qualifying):
         probabilities = {key: row["probability"] for key, row in modeled["drivers"].items()}
         no_winner_probability = (modeled["no_classified_winner_probability"]
             if "winner_estimate" in record else modeled["no_classified_winner"]["probability"])
+        if "forecast_estimate" in record:
+            probabilities = record["forecast_estimate"]["win_probabilities"]
+            no_winner_probability = record["forecast_estimate"]["no_classified_winner_probability"]
         practice_comparison = {"grid_references": reference,
             "winner_error_comparisons": {
                 name: compare_winner_errors(
@@ -506,6 +623,8 @@ def score_recorded_forecast(record, loader, results, qualifying):
         **({"native_winner_score": native_score,
             "winner_policy": record["winner_estimate"]["policy"]}
            if "winner_estimate" in record else {}),
+        **({"native_winner_score": native_score, "winner_policy": LEARNED_FORECAST}
+           if "forecast_estimate" in record else {}),
         **practice_comparison,
         "qualifying_position_mae": sum(errors) / len(errors) if errors else None,
         "qualifying_scored_drivers": len(errors),

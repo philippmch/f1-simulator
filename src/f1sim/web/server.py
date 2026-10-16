@@ -26,6 +26,13 @@ from pydantic import (
 
 from f1sim.analysis import MonteCarloRunner, parse_scenario_labels, scenario_weather_from_label
 from f1sim.analysis.cancellation import SimulationCancelled
+from f1sim.analysis.confirmed_forecast import (
+    LEARNED_FORECAST,
+    apply_confirmed_forecast,
+    bind_confirmed_forecast_inputs,
+    prepare_confirmed_forecast,
+    validate_confirmed_forecast_options,
+)
 from f1sim.analysis.paired_comparison import paired_comparison_statistics
 from f1sim.analysis.rival_strategy_selection import (
     evaluate_prepared_rival_pit_plan_selection,
@@ -180,6 +187,7 @@ class DashboardRunRequest:
     weather_schedule: Any = None
     control_schedule: Any = None
     race_tire_rules: Any = None
+    forecast_policy: StrictStr = "native"
 
 
 def _pit_plan_selection_request(
@@ -288,7 +296,20 @@ def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
     if not isinstance(request.scenarios, str) or len(request.scenarios) > 100:
         raise ValueError("scenarios must be a comma-separated string of at most 100 characters")
 
-    return parse_scenario_labels(request.scenarios)
+    labels = parse_scenario_labels(request.scenarios)
+    validate_confirmed_forecast_options(
+        request.forecast_policy, simulations=request.simulations,
+        race_grid_mode=request.race_grid_mode, postqual_pace_policy=request.postqual_pace_policy,
+        race_engine=request.race_engine, rng_policy=request.rng_policy,
+        weather_mode=request.weather_mode, scenarios=labels,
+        **{name: getattr(request, name) for name in (
+            "starting_grid", "pit_lane_starters", "starting_tires", "starting_tire_ages",
+            "tire_inventory", "pit_plans", "tire_warmup", "qualifying_weather",
+            "weather_schedule", "control_schedule", "race_tire_rules", "compare_automatic",
+            "pit_plan_selection",
+        )},
+    )
+    return labels
 
 
 def _safe_call(results: Any, method_name: str, *args: Any, default: Any = None) -> Any:
@@ -582,6 +603,9 @@ def _summarize_scenario_results(
             "seed": results.seed,
             "top3_win_probabilities": top_3,
             "win_probabilities": list(win_probs.items()),
+            **({"forecast_estimate": estimate} if (estimate := _safe_call(
+                results, "get_forecast_estimate", default=None,
+            )) is not None else {}),
             **({"winner_forecast": forecast} if (forecast := _safe_call(
                 results, "get_winner_forecast", default=None,
             )) is not None else {}),
@@ -813,6 +837,8 @@ def _dashboard_request_metadata(
         "qualifying_mode": "simulated",
         "race_grid_mode": request.race_grid_mode,
         "postqual_pace_policy": request.postqual_pace_policy,
+        **({"forecast_policy": request.forecast_policy}
+           if request.forecast_policy != "native" else {}),
         **({"race_tire_rules": rules}
            if (rules := validate_race_tire_rules(request.race_tire_rules)) else {}),
         **({"starting_grid": request.starting_grid.copy()}
@@ -935,6 +961,12 @@ def run_dashboard_simulation(
         air_temperature=25.0,
         change_probability=track.weather_variability,
     )
+    prepared_forecast = None
+    if request.forecast_policy == LEARNED_FORECAST:
+        prepared_forecast = prepare_confirmed_forecast(
+            loader, request.year, round_number, drivers, grid,
+            request.pit_lane_starters or [],
+        )
 
     scenario_results: dict[str, Any] = {}
     scenario_meta: dict[str, dict[str, float]] = {}
@@ -1048,9 +1080,13 @@ def run_dashboard_simulation(
             qualifying_weather=request.qualifying_weather,
             weather_schedule=request.weather_schedule, starting_grid=request.starting_grid,
         )
+        if prepared_forecast is not None:
+            bind_confirmed_forecast_inputs(prepared_forecast, runner, request.simulations)
         result = runner.run(**run_kwargs)
         if winner_allocation is not None:
             result.winner_allocation = deepcopy(winner_allocation)
+        if prepared_forecast is not None:
+            apply_confirmed_forecast(result, prepared_forecast)
         runtime = max(time.perf_counter() - t0, 1e-9)
         scenario_results[scenario.name] = result
         scenario_meta[scenario.name] = {

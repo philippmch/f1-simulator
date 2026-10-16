@@ -508,6 +508,8 @@ class Exporter:
                 "max_workers": results.max_workers,
             },
             "win_probabilities": results.get_win_probabilities(),
+            **({"forecast_estimate": estimate}
+               if (estimate := results.get_forecast_estimate()) is not None else {}),
             **({"winner_forecast": forecast}
                if (forecast := results.get_winner_forecast()) is not None else {}),
             "probability_intervals": results.get_probability_intervals(),
@@ -603,6 +605,8 @@ class Exporter:
                 "parallel": results.parallel,
                 "max_workers": results.max_workers,
                 "win_probabilities": results.get_win_probabilities(),
+                **({"forecast_estimate": estimate}
+                   if (estimate := results.get_forecast_estimate()) is not None else {}),
                 **({"winner_forecast": forecast}
                    if (forecast := results.get_winner_forecast()) is not None else {}),
                 "probability_intervals": results.get_probability_intervals(),
@@ -825,6 +829,41 @@ class Exporter:
                 '<th scope="col">Simulated wins</th></tr></thead>'
                 f'<tbody>{forecast_rows}</tbody></table></div></div>'
             )
+        learned = results.get_forecast_estimate()
+        if learned is not None:
+            primary = ("No classified winner" if learned.get("primary_winner")
+                       == "__NO_CLASSIFIED_WINNER__" else learned.get("primary_winner"))
+            primary_html = (f'<p>Winner pick: <strong>{escape(str(primary))}</strong></p>'
+                            if primary else '')
+            grid_rank = {driver: index for index, driver in enumerate(
+                (results.input_snapshot or {}).get("starting_grid", []),
+            )}
+            learned_rows = "".join(
+                f'<tr><th scope="row">{escape(str(driver))}</th><td>{probability:.1%}</td>'
+                f'<td>{learned["podium_probabilities"][driver]:.1%}</td>'
+                f'<td>{learned["expected_positions"][driver]:.2f}</td>'
+                f'<td>{learned["nonfinish_probabilities"][driver]:.1%}</td></tr>'
+                for driver, probability in sorted(
+                    learned["win_probabilities"].items(),
+                    key=lambda item: (-item[1], grid_rank.get(item[0], 999), item[0]),
+                )
+            )
+            forecast_html += (
+                '<div class="card" id="learned-forecast">'
+                '<h2>Experimental confirmed-grid forecast</h2>'
+                f'{primary_html}'
+                '<p>Stock fixed-dry race. Qualifying and earlier form adjust complete race-path '
+                'weights. All four estimates below use those same weights. Other charts and '
+                'counts report the raw simulation.</p><div class="table-wrap"><table><thead>'
+                '<tr><th scope="col">Driver</th><th scope="col">Win</th>'
+                '<th scope="col">Podium</th><th scope="col">Mean position</th>'
+                '<th scope="col">Nonfinish</th></tr></thead>'
+                f'<tbody>{learned_rows}</tbody></table></div>'
+                + (f'<p>No classified winner: '
+                   f'{learned["no_classified_winner_probability"]:.1%}</p>'
+                   if learned["no_classified_winner_probability"] > 0 else '')
+                + '</div>'
+            )
 
         html = f"""<!doctype html>
 <html lang=\"en\">
@@ -976,6 +1015,9 @@ class Exporter:
             "statistics_json": self.export_statistics_json(
                 results, f"{filename_prefix}statistics.json"
             ),
+            **({"forecast_csv": self.export_forecast_csv(
+                results, f"{filename_prefix}forecast.csv",
+            )} if results.get_forecast_estimate() is not None else {}),
             "report_html": self.export_report_html(results, f"{filename_prefix}report.html"),
         }
 
@@ -983,3 +1025,31 @@ class Exporter:
         files["runs_index_html"] = self.export_run_index_html()
 
         return files
+
+    def export_forecast_csv(self, results: SimulationResults,
+                            filename: str = "forecast.csv") -> Path:
+        """Export weighted estimates separately from integer simulation counts."""
+        estimate = results.get_forecast_estimate()
+        if estimate is None:
+            raise ValueError("This run has no learned forecast estimate")
+        path = self.output_dir / filename
+        grid_rank = {driver: index for index, driver in enumerate(
+            (results.input_snapshot or {}).get("starting_grid", []),
+        )}
+        with path.open("w", newline="", encoding="utf-8") as destination:
+            writer = csv.writer(destination)
+            writer.writerow(["driver_id", "win_probability", "podium_probability",
+                             "expected_position", "nonfinish_probability", "native_wins"])
+            for driver, probability in sorted(
+                estimate["win_probabilities"].items(),
+                key=lambda item: (-item[1], grid_rank.get(item[0], 999), item[0]),
+            ):
+                writer.writerow([driver, probability, estimate["podium_probabilities"][driver],
+                                 estimate["expected_positions"][driver],
+                                 estimate["nonfinish_probabilities"][driver],
+                                 estimate["native_winner_counts"][driver]])
+            if estimate["no_classified_winner_probability"] > 0:
+                writer.writerow(["__NO_CLASSIFIED_WINNER__",
+                                 estimate["no_classified_winner_probability"], "", "", "",
+                                 estimate["native_winner_counts"]["__NO_CLASSIFIED_WINNER__"]])
+        return path

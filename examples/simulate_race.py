@@ -30,6 +30,13 @@ from f1sim.analysis import (
     parse_scenario_labels,
     scenario_weather_from_label,
 )
+from f1sim.analysis.confirmed_forecast import (
+    LEARNED_FORECAST,
+    apply_confirmed_forecast,
+    bind_confirmed_forecast_inputs,
+    prepare_confirmed_forecast,
+    validate_confirmed_forecast_options,
+)
 from f1sim.analysis.winner_policy import simulation_winner_allocation
 from f1sim.data import CurrentSeasonDataLoader
 from f1sim.data.grid import require_official_race_grid
@@ -292,6 +299,11 @@ def main() -> int:
              'Omitted sessions use each race scenario weather.',
     )
     parser.add_argument(
+        "--forecast-policy", choices=("native", "learned_afterqual_v1"), default="native",
+        help="Experimental learned confirmed-grid forecast; requires --race-grid official, "
+             "--weather-mode fixed_rainfall, dry only and at least 400 simulations.",
+    )
+    parser.add_argument(
         "--rainfall-step", action="append", type=_rainfall_step,
         help="Known shared leading-lap atmosphere: LAP=RAIN[:CONDITION], repeat in lap order. "
              "Lap 2 onwards; surface wetness keeps evolving. Overrides atmospheric randomness.",
@@ -323,6 +335,19 @@ def main() -> int:
               f"{weather_schedule}")
     try:
         scenario_labels = parse_scenario_labels(args.scenarios) if args.scenarios else ["dry"]
+        validate_confirmed_forecast_options(
+            args.forecast_policy, simulations=args.simulations, race_grid_mode=args.race_grid,
+            postqual_pace_policy=args.postqual_pace_policy, race_engine=args.race_engine,
+            rng_policy="isolated_weather_v1", weather_mode=args.weather_mode,
+            scenarios=scenario_labels, starting_tires=compounds, starting_tire_ages=ages,
+            tire_inventory=args.tire_inventory, pit_plans=args.pit_plans,
+            tire_warmup=args.tire_warmup, qualifying_weather=args.qualifying_weather,
+            weather_schedule=weather_schedule, control_schedule=control_schedule,
+            race_tire_rules={key: value for key, value in {
+                "max_set_laps": args.max_tyre_set_laps,
+                "minimum_sets": args.minimum_tyre_sets,
+            }.items() if value is not None},
+        )
     except ValueError as exc:
         parser.error(str(exc))
 
@@ -447,6 +472,15 @@ def main() -> int:
         air_temperature=25.0,
         change_probability=track.weather_variability,
     )
+    prepared_forecast = None
+    if args.forecast_policy == LEARNED_FORECAST:
+        try:
+            prepared_forecast = prepare_confirmed_forecast(
+                loader, current_season, args.race, drivers, starting_grid, pit_lane_starters,
+            )
+        except (ValueError, OSError) as error:
+            print(f"Forecast unavailable: {error}")
+            return 1
 
     print(f"\nDrivers: {len(drivers)}")
     print(f"Teams: {len(cars)}")
@@ -500,16 +534,42 @@ def main() -> int:
             **({"race_tire_rules": race_tire_rules} if race_tire_rules else {}),
         )
 
+        if prepared_forecast is not None:
+            bind_confirmed_forecast_inputs(prepared_forecast, runner, args.simulations)
         scenario_result = runner.run(
             num_simulations=args.simulations,
             parallel=args.parallel,
             max_workers=args.max_workers,
         )
+        if prepared_forecast is not None:
+            try:
+                apply_confirmed_forecast(scenario_result, prepared_forecast)
+            except ValueError as error:
+                print(f"Forecast unavailable: {error}")
+                return 1
         scenario_results[scenario.name] = scenario_result
 
     # Display results
     if len(scenario_results) == 1:
         results = next(iter(scenario_results.values()))
+        if (estimate := results.get_forecast_estimate()) is not None:
+            print("\nEXPERIMENTAL CONFIRMED-GRID FORECAST (fixed dry)")
+            primary = estimate.get("primary_winner", "unavailable")
+            print("Winner pick: " + ("No classified winner" if primary
+                                    == "__NO_CLASSIFIED_WINNER__" else primary))
+            print("Driver    Win       Podium    Mean position    Nonfinish")
+            grid_rank = {driver: index for index, driver in enumerate(
+                (results.input_snapshot or {}).get("starting_grid", []),
+            )}
+            for driver, probability in sorted(
+                estimate["win_probabilities"].items(),
+                key=lambda item: (-item[1], grid_rank.get(item[0], 999), item[0]),
+            ):
+                print(f"{driver:<8} {probability:>7.1%}   "
+                      f"{estimate['podium_probabilities'][driver]:>7.1%}   "
+                      f"{estimate['expected_positions'][driver]:>10.2f}      "
+                      f"{estimate['nonfinish_probabilities'][driver]:>7.1%}")
+            print("\nRAW SIMULATION STATISTICS")
         ConsoleOutput.print_monte_carlo_summary(results, top_n=args.top_n)
         ConsoleOutput.print_event_calibration(
             results,

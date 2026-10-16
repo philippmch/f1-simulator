@@ -5,7 +5,7 @@ using the published race starting grid. Sprint qualifying does not open this
 window. The race grid incorporates the publisher's grid penalties; the model
 does not apply the penalties again from the notes.
 
-New post-qualifying records report the simulation's driver win frequencies
+Default post-qualifying records report the simulation's driver win frequencies
 directly. Live dashboard and CLI runs also do this when their supplied grid
 matches verified published evidence after qualifying and before the race.
 The default `qualifying_led` pace policy removes the constructor-points pace
@@ -13,6 +13,8 @@ anchor when current qualifying and usable timing are available; recent form
 remains secondary. `--postqual-pace-policy season_points` retains the previous
 calculation. Neither choice redistributes the resulting team wins afterward.
 See [policy controls, historical scores and limitations](qualifying-led-pace.md).
+The opt-in [experimental learned forecast](learned-afterqual-forecast.md) retains
+those native counts and records a separate coherent weighted estimate in schema 5.
 Existing saved forecasts
 continue to score the policy and probabilities stored when they were created.
 

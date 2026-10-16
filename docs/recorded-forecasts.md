@@ -4,6 +4,9 @@ For the primary after-qualifying workflow, use `--stage post_qualifying`.
 It requires the published Grand Prix grid and freezes grid references before
 the race. See [post-qualifying forecasts](post-qualifying-forecasts.md) for the
 input boundary, pit-lane approximation and evaluation standard.
+The optional `--forecast-policy learned_afterqual_v1` records the separate
+[experimental confirmed-grid estimate](learned-afterqual-forecast.md) in schema 5;
+it requires the stock fixed-dry post-qualifying setup and at least 400 trials.
 
 The default `--stage pre_qualifying` retains the earlier workflow below.
 

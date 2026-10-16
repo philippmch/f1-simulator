@@ -14,6 +14,7 @@ const { checkScoringEvidence } = require('./browser_scoring_evidence.cjs');
 const { checkAbandonment } = require('./browser_abandonment.cjs');
 const { checkWetResumption } = require('./browser_wet_resumption.cjs');
 const { checkBasicSetup } = require('./browser_basic_setup.cjs');
+const { checkLearnedForecast } = require('./browser_learned_forecast.cjs');
 
 (async () => {
   const offline = process.env.F1SIM_OFFLINE === '1';
@@ -302,6 +303,7 @@ const { checkBasicSetup } = require('./browser_basic_setup.cjs');
     assert(await page.locator('#btnRun').isEnabled(), 'Live calendar must be available');
     assert(await page.locator('#btnTyreSetup').isEnabled(), 'Tyre setup editor must be available');
     await checkBasicSetup(page);
+    await checkLearnedForecast(page);
     if (offline) {
       const originalGridMode = await page.getByLabel('Race grid', {exact: true}).inputValue();
       const unavailableGrid = route => route.fulfill({status: 400,
