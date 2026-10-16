@@ -70,6 +70,7 @@ from f1sim.simulation.tire_inventory import (
     has_tire_usage_limits,
     validate_tire_inventory,
 )
+from f1sim.simulation.tire_rules import RACE_TIRE_RULES_POLICY, validate_race_tire_rules
 from f1sim.simulation.validation import validate_unique_ids
 from f1sim.simulation.warmup import validate_tire_warmup
 from f1sim.simulation.weather_schedule import validate_weather_schedule
@@ -1182,6 +1183,8 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     weather_schedule = None
     control_schedule = None
     supplied_grid = None
+    pit_lane_starters = None
+    race_tire_rules = {}
     rng_policy = "shared_v1"
     if len(args) == 5:
         drivers_data, cars_data, track_data, weather_data, seed = args
@@ -1222,6 +1225,15 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
                 "Simulation worker inputs must contain 5 through 13 items, "
                 "or 14 with a nonempty weather_schedule"
             )
+    elif len(args) == 18:
+        (drivers_data, cars_data, track_data, weather_data, seed,
+         race_engine, starting_tires, rng_policy, starting_tire_ages,
+         tire_inventory, pit_plans, tire_warmup, qualifying_weather,
+         weather_schedule, control_schedule, supplied_grid, pit_lane_starters,
+         race_tire_rules) = args
+        race_tire_rules = validate_race_tire_rules(race_tire_rules)
+        if not race_tire_rules:
+            raise ValueError("Eighteen-item worker inputs require race_tire_rules")
     elif len(args) in (16, 17):
         pit_lane_starters = args[-1] if len(args) == 17 else []
         values = args[:-1] if len(args) == 17 else args
@@ -1245,7 +1257,7 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
         raise ValueError(
             "Simulation worker inputs must contain 5 through 13 items, "
             "14 with a nonempty weather_schedule, 15 with control_schedule, "
-            "16 with starting_grid, or 17 with pit_lane_starters"
+            "16 with starting_grid, 17 with pit_lane_starters, or 18 with race_tire_rules"
         )
     qualifying_weather = validate_qualifying_weather(qualifying_weather)
     tire_warmup = validate_tire_warmup(tire_warmup)
@@ -1256,7 +1268,7 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
     drivers = [Driver.model_validate(d) for d in drivers_data]
     supplied_grid = validate_starting_grid(supplied_grid, (driver.id for driver in drivers))
     pit_lane_starters = validate_pit_lane_starters(
-        pit_lane_starters if len(args) == 17 else None, supplied_grid,
+        pit_lane_starters, supplied_grid,
     )
     opening_compounds = {
         key: TireCompound(value) for key, value in
@@ -1308,6 +1320,8 @@ def _run_single_simulation(args: tuple) -> tuple[list[RaceResult], list[Qualifyi
         race_kwargs["tire_warmup"] = tire_warmup
     if control_schedule is not None:
         race_kwargs["control_schedule"] = control_schedule
+    if race_tire_rules:
+        race_kwargs["race_tire_rules"] = race_tire_rules
     race_sim = RaceSimulator(**race_kwargs)
     simulate = (
         ChronologicalRace(race_sim).run
@@ -1393,6 +1407,7 @@ class MonteCarloRunner:
         winner_allocation: dict | None = None,
         starting_grid: list[str] | None = None,
         pit_lane_starters: list[str] | None = None,
+        race_tire_rules: dict[str, int] | None = None,
     ):
         """Initialize Monte Carlo runner.
 
@@ -1420,6 +1435,8 @@ class MonteCarloRunner:
                 Qualifying lap results are still simulated when a race grid is supplied.
             pit_lane_starters: Published pit queue at the tail of the supplied grid;
                 a fixed five-second delayed release is a whole-lap model assumption.
+            race_tire_rules: Optional maximum completed race laps per physical set and
+                minimum distinct sets used. Explicit inventory allowances still apply.
         """
         self.control_schedule = validate_control_schedule(
             control_schedule, total_laps=getattr(track, "total_laps", None),
@@ -1435,6 +1452,7 @@ class MonteCarloRunner:
             starting_grid, (driver.id for driver in drivers),
         )
         self.pit_lane_starters = validate_pit_lane_starters(pit_lane_starters, self.starting_grid)
+        self.race_tire_rules = validate_race_tire_rules(race_tire_rules)
         validate_unique_ids((driver.id for driver in drivers), "drivers")
         from f1sim.analysis.teammate_forecast import validate_teammate_allocation
 
@@ -1521,6 +1539,7 @@ class MonteCarloRunner:
         qualifying_weather = validate_qualifying_weather(self.qualifying_weather)
         starting_grid = validate_starting_grid(self.starting_grid, (d.id for d in self.drivers))
         pit_lane_starters = validate_pit_lane_starters(self.pit_lane_starters, starting_grid)
+        race_tire_rules = validate_race_tire_rules(self.race_tire_rules)
         tire_warmup = validate_tire_warmup(self.tire_warmup)
         rng_policy = validate_rng_policy(self.rng_policy)
         starting_tires = validate_starting_tires(
@@ -1544,7 +1563,8 @@ class MonteCarloRunner:
         track_data = self.track.model_dump()
         weather_data = self.weather.model_dump()
         input_snapshot = {
-            "schema_version": (15 if pit_lane_starters else 14 if starting_grid is not None else
+            "schema_version": (16 if race_tire_rules else
+                               15 if pit_lane_starters else 14 if starting_grid is not None else
                                control_schedule_schema_version(control_schedule)
                                if control_schedule is not None
                                else 10 if has_pit_plan_windows(pit_plans)
@@ -1563,6 +1583,9 @@ class MonteCarloRunner:
 
         if starting_grid is not None:
             input_snapshot["starting_grid"] = starting_grid.copy()
+        if race_tire_rules:
+            input_snapshot["race_tire_rules"] = race_tire_rules.copy()
+            input_snapshot["race_tire_rules_policy"] = RACE_TIRE_RULES_POLICY
         if pit_lane_starters:
             input_snapshot["pit_lane_starters"] = pit_lane_starters.copy()
             input_snapshot["pit_lane_start_policy"] = PIT_LANE_START_POLICY
@@ -1607,6 +1630,16 @@ class MonteCarloRunner:
              )
             for seed in seeds
         ]
+        if race_tire_rules:
+            args_list = [
+                (drivers_data, cars_data, track_data, weather_data, seed,
+                 self.race_engine, starting_tires, rng_policy, ages, deepcopy(inventory),
+                 deepcopy(pit_plans), tire_warmup.copy(), deepcopy(qualifying_weather),
+                 deepcopy(weather_schedule), deepcopy(control_schedule),
+                 None if starting_grid is None else starting_grid.copy(),
+                 pit_lane_starters.copy(), race_tire_rules.copy())
+                for seed in seeds
+            ]
 
         all_race_results: list[list[RaceResult]] = []
         all_quali_results: list[list[QualifyingResult]] = []

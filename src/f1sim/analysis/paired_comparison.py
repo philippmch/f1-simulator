@@ -26,6 +26,7 @@ from f1sim.simulation.qualifying_weather import (
 from f1sim.simulation.race_points import POINTS_SYSTEM, points_for_result
 from f1sim.simulation.randomness import RNG_POLICIES
 from f1sim.simulation.tire_inventory import validate_tire_inventory, validate_tire_usage_snapshot
+from f1sim.simulation.tire_rules import validate_race_tire_rules_snapshot
 from f1sim.simulation.warmup import validate_tire_warmup
 from f1sim.simulation.weather_schedule import validate_weather_schedule
 
@@ -39,7 +40,7 @@ def _snapshot(result):
     if not isinstance(snapshot, dict):
         return None
     version = snapshot.get("schema_version")
-    if not _integer(version, 1) or version not in range(1, 16):
+    if not _integer(version, 1) or version not in range(1, 17):
         return None
     policy = snapshot.get("rng_policy", "shared_v1" if version == 1 else None)
     if policy not in RNG_POLICIES:
@@ -68,12 +69,13 @@ def _snapshot(result):
             if not isinstance(snapshot.get(key), dict) or not snapshot[key]:
                 return None
             validate_saved_model(model, snapshot[key])
+        race_tire_rules = validate_race_tire_rules_snapshot(snapshot)
         control_schedule = validate_control_schedule(
             snapshot.get("control_schedule"), total_laps=snapshot["track"]["total_laps"],
         )
         validate_control_schedule_snapshot(snapshot, control_schedule)
         weather_schedule = []
-        if (version == 8 or version in (9, 10, 11, 12, 13, 14, 15)
+        if (version == 8 or version in (9, 10, 11, 12, 13, 14, 15, 16)
                 and "weather_schedule" in snapshot):
             weather_schedule = validate_weather_schedule(
                 snapshot.get("weather_schedule"), total_laps=snapshot["track"]["total_laps"],
@@ -83,7 +85,7 @@ def _snapshot(result):
         elif "weather_schedule" in snapshot:
             return None
         qualifying_weather = {}
-        if version in (7, 8, 9, 10, 11, 12, 13, 14, 15) and "qualifying_weather" in snapshot:
+        if version in (7, 8, 9, 10, 11, 12, 13, 14, 15, 16) and "qualifying_weather" in snapshot:
             qualifying_weather = validate_qualifying_weather(snapshot.get("qualifying_weather"))
             if not qualifying_weather:
                 return None
@@ -93,7 +95,7 @@ def _snapshot(result):
             return None
         effective_weather = effective_qualifying_weather(snapshot["weather"], qualifying_weather)
         tire_warmup = {}
-        if version == 6 or (version in (7, 8, 9, 10, 11, 12, 13, 14, 15) and (
+        if version == 6 or (version in (7, 8, 9, 10, 11, 12, 13, 14, 15, 16) and (
             "tire_warmup" in snapshot or "tire_warmup_policy" in snapshot
         )):
             if snapshot.get("tire_warmup_policy") != "post_fit_first_lap_v1":
@@ -156,6 +158,7 @@ def _snapshot(result):
                "tire_warmup": tire_warmup, "qualifying_weather": effective_weather,
                "weather_schedule": weather_schedule,
                "control_schedule": control_schedule,
+               "race_tire_rules": race_tire_rules,
                **({"starting_grid": starting_grid} if starting_grid is not None else {}),
                **({"pit_lane_starters": pit_lane_starters,
                    "pit_lane_start_policy": snapshot["pit_lane_start_policy"]}

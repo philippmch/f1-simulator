@@ -172,6 +172,44 @@ def test_actual_one_trial_pair_rebuilds_and_races_offline(monkeypatch, tmp_path)
     ) == result["content_sha256"]
 
 
+def test_event_rules_are_forwarded_before_labels_are_opened(monkeypatch, tmp_path):
+    output = tmp_path / "rules.json"
+    calls = []
+
+    def tracked_forecast(event, policy, trials, workers, *, event_tire_rules=False):
+        assert event_tire_rules is True
+        calls.append(policy)
+        return fake_forecast(event, policy, trials, workers)
+
+    original_read = Path.read_text
+
+    def tracked_read(path, *args, **kwargs):
+        if path == RUNNER.labels_verifier.EVIDENCE:
+            partial = json.loads(output.with_name(output.name + ".partial").read_bytes())
+            assert partial["event_tire_rules"] == "sourced_pre_qualifying_registry_v1"
+            assert set(partial["events"][0]["forecasts"]) == {"season_points", "qualifying_led"}
+            assert not partial["scoring_performed"]
+            calls.append("labels")
+        return original_read(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", tracked_read)
+    monkeypatch.setattr(RUNNER.inputs_verifier, "verify_data", lambda _: None)
+    monkeypatch.setattr(RUNNER, "forecast", tracked_forecast)
+    RUNNER.main(["--year", "2025", "--round", "8", "--trials", "1",
+                 "--event-tyre-rules", "--output", str(output)])
+    assert calls == ["season_points", "qualifying_led", "labels"]
+
+
+def test_rules_cannot_silently_expand_to_an_event_without_a_calendar_cutoff(monkeypatch):
+    event = next(e for e in RUNNER.inputs_verifier.read()["events"] if e["year"] == 2026)
+    monkeypatch.setattr(RUNNER, "get_event_tire_rules", lambda *a, **kw: (
+        {"minimum_sets": 3}, {"minimum_sets": {"source_url": "new source"}},
+    ))
+    monkeypatch.setattr(RUNNER, "MonteCarloRunner", forbidden)
+    with pytest.raises(ValueError, match="verified qualifying cutoff"):
+        RUNNER.forecast(event, "qualifying_led", 1, 1, event_tire_rules=True)
+
+
 def test_zero_observed_winner_probability_is_explicit_infinite_loss():
     value = {"trials": 1, "wins": {"A": 1, "B": 0}, "no_classified_winner_count": 0,
              "marginals": {d: {"position_sum": p, "podium_count": 1, "nonfinish_count": 0}

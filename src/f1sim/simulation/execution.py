@@ -27,14 +27,14 @@ def validate_starting_grid(value, driver_ids=None):
 
 def validate_starting_grid_snapshot(snapshot, driver_ids):
     version = snapshot.get("schema_version")
-    if version in (14, 15):
+    if version in (14, 15) or version == 16 and "starting_grid" in snapshot:
         if "starting_grid" not in snapshot or snapshot["starting_grid"] is None:
             raise ValueError(f"Schema {version} requires an explicit starting_grid")
         grid = validate_starting_grid(snapshot["starting_grid"], driver_ids)
         validate_pit_lane_start_snapshot(snapshot, grid)
         return grid
     if "starting_grid" in snapshot:
-        raise ValueError("Explicit starting_grid requires schema 14 or 15")
+        raise ValueError("Explicit starting_grid requires schema 14, 15 or 16")
     validate_pit_lane_start_snapshot(snapshot, None)
     return None
 
@@ -56,13 +56,18 @@ def validate_pit_lane_starters(value, starting_grid):
 
 
 def validate_pit_lane_start_snapshot(snapshot, starting_grid):
-    if snapshot.get("schema_version") == 15:
+    version = snapshot.get("schema_version")
+    if version == 15 or version == 16 and any(
+        key in snapshot for key in ("pit_lane_starters", "pit_lane_start_policy")
+    ):
         starters = validate_pit_lane_starters(snapshot.get("pit_lane_starters"), starting_grid)
         if not starters or snapshot.get("pit_lane_start_policy") != PIT_LANE_START_POLICY:
-            raise ValueError("Schema 15 requires pit_lane_starters and a supported start policy")
+            raise ValueError(
+                f"Schema {version} requires pit_lane_starters and a supported start policy",
+            )
         return starters
     if "pit_lane_starters" in snapshot or "pit_lane_start_policy" in snapshot:
-        raise ValueError("Pit-lane starting inputs require schema 15")
+        raise ValueError("Pit-lane starting inputs require schema 15 or 16")
     return []
 
 

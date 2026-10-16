@@ -927,6 +927,7 @@ class CurrentSeasonDataLoader:
         self._qualifying_forecast: dict[str, Any] | None = None
         self._race_grid: dict[str, Any] | None = None
         self._postqual_pace_policy: str | None = None
+        self._race_tire_rule_evidence: dict[str, Any] | None = None
 
     # ------------------------------------------------------------------
     # HTTP and season validation
@@ -1301,6 +1302,7 @@ class CurrentSeasonDataLoader:
         self._qualifying_forecast = None
         self._race_grid = None
         self._postqual_pace_policy = None
+        self._race_tire_rule_evidence = None
         self._http_retries.clear()
         self._last_request_monotonic = 0.0
         self._fetch_budget_started = time.monotonic()
@@ -1326,6 +1328,8 @@ class CurrentSeasonDataLoader:
                if self._race_grid is not None else {}),
             **({"postqual_pace_policy": self._postqual_pace_policy}
                if self._postqual_pace_policy is not None else {}),
+            **({"race_tire_rules": copy.deepcopy(self._race_tire_rule_evidence)}
+               if self._race_tire_rule_evidence is not None else {}),
             **({"qualifying_timing_supplements": copy.deepcopy(
                 list(self._qualifying_timing_attempts.values()),
             )} if self._qualifying_timing_attempts else {}),
@@ -1334,6 +1338,25 @@ class CurrentSeasonDataLoader:
 
     def get_provenance(self) -> dict[str, Any]:
         return copy.deepcopy(self.provenance)
+
+    def get_race_tire_rules(self, year, race, *, cutoff=None) -> dict[str, int]:
+        """Return sourced event constraints published by the requested cutoff.
+
+        This registry lookup uses the loaded calendar, without fetching tyre
+        inventory or inferring it from race results. Unknown events keep the
+        ordinary simulation rules.
+        """
+        from f1sim.data.event_tire_rules import get_event_tire_rules
+
+        event = self._event_for_race(year, race)
+        rules, sources = get_event_tire_rules(
+            year, event, cutoff=_utc_now() if cutoff is None else cutoff,
+        )
+        self._race_tire_rule_evidence = (
+            {"year": year, "round": event["round"], "rules": rules.copy(), "sources": sources}
+            if rules else None
+        )
+        return rules.copy()
 
     def get_starting_grid(self, year, race, drivers) -> list[str] | None:
         """Prefer a fresh complete published GP grid after qualifying.

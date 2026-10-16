@@ -61,6 +61,7 @@ from f1sim.simulation.pit_plans import (
 from f1sim.simulation.pit_strategy import expected_stationary_time, plan_dry_stop
 from f1sim.simulation.race_points import RacePointsContext, points_for_classification
 from f1sim.simulation.race_timing import RaceFinishClock, forecast_final_lap
+from f1sim.simulation.race_tire_policy import RaceTireRuleMixin
 from f1sim.simulation.rain_strategy import RainStopDecision, plan_rain_stop, plan_rain_transition
 from f1sim.simulation.randomness import DriverRngFactory, MechanicalRngFactory
 from f1sim.simulation.strategy_control_clock import StandardControlContext, StrategyControlContext
@@ -78,6 +79,7 @@ from f1sim.simulation.strategy_traffic import (
 from f1sim.simulation.strategy_weather_clock import StrategyWeatherClock
 from f1sim.simulation.surface_projection import normalize_weather_intervals, projected_surfaces
 from f1sim.simulation.tire_inventory import TireInventory, validate_tire_inventory
+from f1sim.simulation.tire_rules import RaceTireUsage, validate_race_tire_rules
 from f1sim.simulation.validation import validate_unique_ids
 from f1sim.simulation.warmup import tire_warmup_seconds, validate_tire_warmup
 from f1sim.simulation.weather_schedule import (
@@ -171,6 +173,7 @@ class DriverRaceState:
     strategy_leading_finish_context: LeadingFinishContext | None = None
     strategy_safety_car_snapshot: StrategySafetyCarSnapshot | None = None
     strategy_control_context: StrategyControlContext | None = None
+    race_tire_usage: RaceTireUsage | None = None
 
     def __post_init__(self) -> None:
         """Seed tyre history from the driver's actual starting set."""
@@ -220,6 +223,7 @@ class RaceResult:
     race_points_context: RacePointsContext | None = None
     race_abandonment: RaceAbandonment | None = None
     abandonment_tire_rule: AbandonmentTireRule | None = None
+    race_tire_usage: dict | None = None
 
 
 def get_race_suspension_seconds(results: Iterable[RaceResult]) -> float | None:
@@ -282,7 +286,7 @@ class RaceState:
     fastest_lap_driver: str | None = None
 
 
-class RaceSimulator(InventoryStrategyMixin):
+class RaceSimulator(RaceTireRuleMixin, InventoryStrategyMixin):
     """Simulates a full F1 race."""
 
     # A deployment is a meaningful burst rather than a free per-lap bonus.
@@ -304,6 +308,7 @@ class RaceSimulator(InventoryStrategyMixin):
         red_flag_pause_seconds: float = 600.0,
         tire_warmup: dict[str, float] | None = None,
         control_schedule=None,
+        race_tire_rules=None,
     ):
         """Initialize race simulator.
 
@@ -326,6 +331,7 @@ class RaceSimulator(InventoryStrategyMixin):
         self.weather_rng = weather_rng if weather_rng is not None else self.rng
         self.red_flag_pause_seconds = float(red_flag_pause_seconds)
         self.tire_warmup = validate_tire_warmup(tire_warmup)
+        self.race_tire_rules = validate_race_tire_rules(race_tire_rules)
         self.suspensions: list[tuple[float, float, tuple[str, ...]]] = []
         self.weather_history: list[dict] = []
         self.race_points_context: RacePointsContext | None = None
@@ -572,6 +578,7 @@ class RaceSimulator(InventoryStrategyMixin):
             initialize_pit_plan_state(states[-1], pit_plan)
             if inventory is not None:
                 self._initialize_inventory(states[-1], inventory, selected_set)
+            self._initialize_race_tire_usage(states[-1])
 
         # An empty or unusable grid has no racing laps or race-control events.
         if not states:
@@ -732,6 +739,8 @@ class RaceSimulator(InventoryStrategyMixin):
                         )
                     )
 
+                if state.race_tire_usage is not None:
+                    state.race_tire_usage.begin_running()
                 lap_time = self.lap_simulator.calculate_lap_time(
                     driver=state.driver,
                     car=state.car,
@@ -906,6 +915,8 @@ class RaceSimulator(InventoryStrategyMixin):
             for state in states:
                 if state.status == DriverStatus.RACING:
                     state.laps_completed += 1
+                    if state.race_tire_usage is not None:
+                        state.race_tire_usage.complete_lap()
                     state.last_crossing_position = state.position
 
             # Overtake Mode is unavailable while neutralized, but the store
@@ -982,7 +993,7 @@ class RaceSimulator(InventoryStrategyMixin):
                         } for state in states},
                     )
                     self.event_manager.end_red_flag(resume=False)
-                    return results
+                    return self._attach_race_tire_usage(results, states)
 
                 # End red control before choosing the restart set. The restart
                 # lap consumes exactly one evolved weather snapshot; no
@@ -1170,6 +1181,8 @@ class RaceSimulator(InventoryStrategyMixin):
                 self.strategy_tuning, self.strategy_profiles,
                 **({"tire_warmup": self.tire_warmup} if self.tire_warmup else {}),
                 **self._forecast_options(),
+                **({"race_tire_rules": self.race_tire_rules}
+                   if self.race_tire_rules else {}),
                 **({"pit_plan": pit_plan} if pit_plan is not None else {}),
             )
             return min(costs, key=lambda candidate: candidate[1])[0]
@@ -1186,6 +1199,8 @@ class RaceSimulator(InventoryStrategyMixin):
                     self.strategy_tuning, self.strategy_profiles,
                     **({"tire_warmup": self.tire_warmup} if self.tire_warmup else {}),
                     **self._forecast_options(),
+                    **({"race_tire_rules": self.race_tire_rules}
+                       if self.race_tire_rules else {}),
                     **({"pit_plan": pit_plan} if pit_plan is not None else {}),
                 )
                 if costs:
@@ -1228,6 +1243,8 @@ class RaceSimulator(InventoryStrategyMixin):
                 self.strategy_tuning, self.strategy_profiles,
                 **({"tire_warmup": self.tire_warmup} if self.tire_warmup else {}),
                 **self._forecast_options(),
+                **({"race_tire_rules": self.race_tire_rules}
+                   if self.race_tire_rules else {}),
                 **({"pit_plan": pit_plan} if pit_plan is not None else {}),
             )
             best = min(score for _, score in scores)
@@ -1357,6 +1374,9 @@ class RaceSimulator(InventoryStrategyMixin):
         if (state.tire_inventory is not None
                 and state.tire_inventory.current_set_id in state.tire_inventory.unavailable_ids):
             return "forced_repair"
+        race_rule = self._race_tire_rule_reason(state, track, lap)
+        if race_rule is not None:
+            return race_rule
         if (state.tire_inventory is not None
                 and state.tire_inventory.current_remaining_laps(state.tire_laps) == 0):
             return "tyre_usage_limit"
@@ -1586,6 +1606,9 @@ class RaceSimulator(InventoryStrategyMixin):
         if (context is None or state.force_pit_next_lap or control.red_flag_active
                 or weather.tire_mismatch(state.current_tire.compound) == "critical"
                 or not self._stay_satisfies_tire_rule(state)):
+            return False
+        if not self._race_tire_retention_legal(
+                state, (physical_total_laps or track.total_laps)-lap+1):
             return False
         if (state.tire_inventory is not None
                 and state.tire_inventory.current_set_id in state.tire_inventory.unavailable_ids):
@@ -2188,6 +2211,10 @@ class RaceSimulator(InventoryStrategyMixin):
                 traffic_snapshot, weather_intervals, weather_clock,
                 current_overtake_mode_active=mode_active,
             )
+        race_rule = self._race_tire_rule_reason(state, track, lap)
+        if race_rule is not None and not self.event_manager.red_flag_active:
+            self._capture_pit_decision_context(state, lap, race_rule)
+            return True
         if self.event_manager.is_wet_tire_required():
             # Unlimited pools were fitted fresh at the suspension. Puncture
             # stops bypass elective policy and still receive full wets.
@@ -2304,6 +2331,9 @@ class RaceSimulator(InventoryStrategyMixin):
         dry_rule_required = not self._stay_satisfies_tire_rule(state)
         if dry_rule_required:
             max_stops = max(max_stops, state.pit_stops + 1)
+        if state.race_tire_usage is not None:
+            max_stops = max(max_stops, state.pit_stops + self._race_tire_required_stops(
+                state, track.total_laps-lap+1))
         if state.pit_stops >= max_stops:
             return False
 
@@ -2350,7 +2380,8 @@ class RaceSimulator(InventoryStrategyMixin):
             decision = plan_dry_stop(
                 state.driver, state.car, track, state.current_tire, state.tire_laps,
                 track.total_laps - lap + 1,
-                min(3, max(0, max_stops - state.pit_stops)),
+                (max(0, max_stops-state.pit_stops) if state.race_tire_usage is not None
+                 else min(3, max(0, max_stops-state.pit_stops))),
                 self._used_slick_compounds(state), self._has_used_wet_compound(state),
                 self._pit_lane_factor(), additional_current_stop_cost + traffic_cost,
                 current_lap_time_modifier=self.event_manager.get_lap_time_modifier(),
@@ -2358,7 +2389,11 @@ class RaceSimulator(InventoryStrategyMixin):
                 physical_total_laps=physical_total_laps,
                 active_aero_enabled=self.event_manager.is_active_aero_allowed(),
                 **traffic_options,
-                current_set_used=state.tire_laps > state.prior_tire_laps,
+                current_set_used=(state.race_tire_usage.current_set_id
+                                  in state.race_tire_usage.used_set_ids
+                                  if state.race_tire_usage is not None else
+                                  state.tire_laps > state.prior_tire_laps),
+                **self._race_tire_dry_forecast_options(state),
                 **self._safety_car_forecast_options(state),
                 **self._dry_control_forecast_options(state),
                 **({"tire_warmup": self.tire_warmup,
@@ -2624,7 +2659,7 @@ class RaceSimulator(InventoryStrategyMixin):
         ) >= 2
 
     @staticmethod
-    def _fit_tire(state: DriverRaceState, compound: TireCompound) -> None:
+    def _fit_tire(state: DriverRaceState, compound: TireCompound, *, set_id=None) -> None:
         """Replace an unrun fitting instead of recording a fictitious stint."""
         if (state.tire_laps == state.prior_tire_laps and state.tire_compound_history
                 and state.tire_compound_history[-1] == state.current_tire.compound.value):
@@ -2635,6 +2670,8 @@ class RaceSimulator(InventoryStrategyMixin):
         state.tire_laps = 0
         state.prior_tire_laps = 0
         state.driver.current_tire_laps = 0
+        if state.race_tire_usage is not None:
+            state.race_tire_usage.fit(set_id)
         state.fit_lap_pending = True
 
     def _consume_tire_warmup(self, state: DriverRaceState) -> float:
@@ -2901,6 +2938,9 @@ class RaceSimulator(InventoryStrategyMixin):
         wet_exemption = self._has_used_wet_compound(state)
         candidates = [TireCompound.SOFT, TireCompound.MEDIUM, TireCompound.HARD]
         future_budget = min(3, max(0, self._dry_stop_budget(state, track) - state.pit_stops - 1))
+        if state.race_tire_usage is not None:
+            future_budget = max(future_budget, self._race_tire_required_stops(
+                state, track.total_laps-current_lap+1, replacement=True))
         gaps = normalize_current_traffic_gaps(current_traffic_gaps)
 
         def remaining_rank(compound: TireCompound) -> tuple[int, float]:
@@ -2908,6 +2948,8 @@ class RaceSimulator(InventoryStrategyMixin):
                 state.driver, state.car, track, TIRE_COMPOUNDS[compound], 0,
                 track.total_laps - current_lap + 1, future_budget,
                 used | {compound}, wet_exemption,
+                **self._race_tire_dry_forecast_options(state, replacement=True),
+                **({"current_set_used": False} if state.race_tire_usage is not None else {}),
                 current_lap_time_modifier=self.event_manager.get_lap_time_modifier(),
                 physical_total_laps=physical_total_laps,
                 active_aero_enabled=self.event_manager.is_active_aero_allowed(),
@@ -2974,6 +3016,7 @@ class RaceSimulator(InventoryStrategyMixin):
                     "neutralization_window", "planned_window", "forced_repair", "tyre_usage_limit",
                     "user_plan",
                     "mandatory_wet_tires",
+                    "race_tire_set_limit", "race_tire_minimum_sets",
                 }:
                     decision_reason = candidate_reason
                     if isinstance(decision_context.get("forecast_compound"), str):
@@ -3712,7 +3755,8 @@ class RaceSimulator(InventoryStrategyMixin):
         return choose_custom_pit_replacement(
             state.driver, state.car, track, weather, state.current_tire,
             state.tire_laps, lap, [] if state.pit_plan is None else state.pit_plan,
-            pit_plan_index=state.pit_plan_index, inventory=state.tire_inventory,
+            pit_plan_index=state.pit_plan_index,
+            inventory=self._race_tire_planning_inventory(state),
             **({"resolve_current_request": bool(
                 state.pit_plan_reason or state.pit_plan_override_reason,
             )} if state.pit_plan is not None and state.pit_plan_index < len(state.pit_plan)
@@ -3863,6 +3907,9 @@ class RaceSimulator(InventoryStrategyMixin):
             else self._ordinary_stop_budget(state, track)
         )
         remaining_stops = min(3, max(0, budget_limit - state.pit_stops))
+        if state.race_tire_usage is not None:
+            remaining_stops = max(remaining_stops, self._race_tire_required_stops(
+                state, remaining_laps, replacement=True))
 
         def finish_cost(compound: TireCompound) -> float:
             prospective_used = used | {compound}
@@ -3875,6 +3922,8 @@ class RaceSimulator(InventoryStrategyMixin):
             return plan_dry_stop(
                 state.driver, state.car, track, TIRE_COMPOUNDS[compound], 0,
                 remaining_laps, budget, prospective_used, wet_exemption,
+                **self._race_tire_dry_forecast_options(state, replacement=True),
+                **({"current_set_used": False} if state.race_tire_usage is not None else {}),
                 pit_lane_factor=self._pit_lane_factor(),
                 current_lap_time_modifier=self.event_manager.get_lap_time_modifier(),
                 active_aero_enabled=self.event_manager.is_active_aero_allowed(),

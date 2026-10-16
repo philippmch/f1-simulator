@@ -2,6 +2,7 @@
 
 import csv
 import json
+from copy import deepcopy
 from datetime import UTC, datetime
 from html import escape
 from pathlib import Path
@@ -181,6 +182,10 @@ class Exporter:
             or getattr(row, 'tire_inventory', None) is not None
             for race in results.race_results for row in race
         ) else [])
+        usage_fields = (["race_tire_usage"] if any(
+            getattr(row, "race_tire_usage", None) is not None
+            for race in results.race_results for row in race
+        ) else [])
         snapshot_plans = (results.input_snapshot or {}).get("pit_plans")
         plan_field = ["pit_plan_history"] if (
             isinstance(snapshot_plans, dict) and snapshot_plans
@@ -212,7 +217,7 @@ class Exporter:
                 "laps_completed", "classified",
                 "pit_laps", "race_time_limited", "points_awarded",
                 "overtake_attempts", "overtake_successes", "overtake_contacts",
-                *inventory_fields, *plan_field,
+                *inventory_fields, *usage_fields, *plan_field,
                 *scoring_fields,
                 *abandonment_fields,
             ])
@@ -247,6 +252,9 @@ class Exporter:
                         *(json.dumps(getattr(result, key))
                           if getattr(result, key, None) is not None else ""
                           for key in inventory_fields),
+                        *(json.dumps(getattr(result, key))
+                          if getattr(result, key, None) is not None else ""
+                          for key in usage_fields),
                         *(json.dumps(getattr(result, "pit_plan_history"))
                           if plan_field and getattr(result, "pit_plan_history", None) is not None
                           else "" for _ in plan_field),
@@ -483,6 +491,12 @@ class Exporter:
             "race_scoring_statistics": results.get_race_scoring_statistics(),
             "pit_stop_details": self._pit_stop_details(results),
             "tire_set_ledgers": self._tire_set_ledgers(results),
+            **({"race_tire_usage": [
+                {"simulation": index, "driver_id": row.driver_id,
+                 "usage": deepcopy(row.race_tire_usage)}
+                for index, race in enumerate(results.race_results, 1) for row in race
+                if getattr(row, "race_tire_usage", None) is not None
+            ]} if (results.input_snapshot or {}).get("race_tire_rules") else {}),
             "pit_plan_histories": self._pit_plan_histories(results),
             "pit_plan_statistics": results.get_pit_plan_statistics(),
             "metadata": {
@@ -713,6 +727,19 @@ class Exporter:
 
         warmup_text = escape(warmup_context(results.input_snapshot))
         warmup_html = f"<p>{warmup_text}</p>" if warmup_text else ""
+        tire_rules = (results.input_snapshot or {}).get("race_tire_rules", {})
+        tire_rule_parts = []
+        if "max_set_laps" in tire_rules:
+            tire_rule_parts.append(
+                f"at most {tire_rules['max_set_laps']} completed race laps per physical set")
+        if "minimum_sets" in tire_rules:
+            tire_rule_parts.append(
+                f"at least {tire_rules['minimum_sets']} distinct sets actually run")
+        tire_rules_html = (
+            "<p>Race tyre constraints: " + escape("; ".join(tire_rule_parts))
+            + ". Prior weekend use and started but incomplete laps are not reconstructed. "
+            "Explicit set allowances apply independently; otherwise the set pool is unlimited.</p>"
+        ) if tire_rule_parts else ""
         qualifying_text = escape(qualifying_weather_context(results.input_snapshot))
         qualifying_html = f"<p>{qualifying_text}</p>" if qualifying_text else ""
         grid_text = escape(race_grid_context(results.input_snapshot))
@@ -833,6 +860,7 @@ class Exporter:
     · Starting tyres: {starting_text}
     · Custom pit plans: {pit_plan_text}
     {warmup_html}
+    {tire_rules_html}
     {qualifying_html}
     {schedule_html}
     {control_html}

@@ -222,6 +222,7 @@ class ChronologicalRace:
                 self.simulator._initialize_inventory(
                     self.states[driver_id], inventory, selected_set,
                 )
+            self.simulator._initialize_race_tire_usage(self.states[driver_id])
         self.timeline = RaceFinishTimeline(track.total_laps, self.states)
         self.order = [identity for identity in self.states if identity not in pit_lane_starters]
         self.pending = {}
@@ -917,6 +918,9 @@ class ChronologicalRace:
         control = self.simulator.event_manager
         if state.force_pit_next_lap:
             return "forced stop"
+        if not self.simulator._race_tire_retention_legal(
+                state, self.track.total_laps-state.laps_completed):
+            return "race tyre constraints unresolved"
         if control.red_flag_active:
             return "race suspended"
         intervals = self._neutralized_finish_intervals()
@@ -1600,6 +1604,8 @@ class ChronologicalRace:
                                    state, self.track, gap, pending.mode_allowed,
                                ))
         state.overtake_mode_active_lap = pending.mode_active
+        if state.race_tire_usage is not None:
+            state.race_tire_usage.begin_running()
         free_running = self.simulator.lap_simulator.calculate_lap_time(
             state.driver, state.car, self.track, pending.tire, pending.weather,
             pending.lap, self.track.total_laps, gap_to_car_ahead=gap,
@@ -1750,6 +1756,8 @@ class ChronologicalRace:
         state.total_time = now
         state.last_lap_time = now - pending.start
         state.tire_laps = pending.tire_age + 1
+        if state.race_tire_usage is not None:
+            state.race_tire_usage.complete_lap()
         state.driver.current_tire_laps = state.tire_laps
         self.running_paces[driver_id] = pending.running
         self.fastest[driver_id] = min(
@@ -1863,7 +1871,8 @@ class ChronologicalRace:
 
     def _results(self):
         if getattr(self, "abandoned_results", None) is not None:
-            return self.abandoned_results
+            return self.simulator._attach_race_tire_usage(
+                self.abandoned_results, self.states.values())
         winner = self.states.get(self.timeline.winner_id)
         winner_laps = winner.laps_completed if winner else 0
         self.simulator.race_points_context = RacePointsContext(

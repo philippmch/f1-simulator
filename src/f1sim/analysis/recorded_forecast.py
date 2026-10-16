@@ -186,11 +186,15 @@ def record_race_forecast(loader, year, target_race, *, trials=100, seed=42, weat
     allocation = None if post_qualifying else simulation_winner_allocation(
         loader, year, target, drivers, assumed, starting_grid=starting_grid,
     )
+    tire_rule_loader = getattr(loader, "get_race_tire_rules", None)
+    tire_rules = (tire_rule_loader(year, target, cutoff=started)
+                  if callable(tire_rule_loader) else {})
     runner = MonteCarloRunner(
         drivers, cars, track, assumed, seed=seed,
         **({"winner_allocation": allocation} if allocation is not None else {}),
         **({"starting_grid": starting_grid} if starting_grid is not None else {}),
         **({"pit_lane_starters": pit_lane_starters} if pit_lane_starters else {}),
+        **({"race_tire_rules": tire_rules} if tire_rules else {}),
     )
     simulation = runner.run(
         trials, parallel=parallel, max_workers=max_workers, progress_callback=progress_callback,

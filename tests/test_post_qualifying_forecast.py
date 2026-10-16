@@ -105,6 +105,33 @@ def test_new_post_qualifying_records_do_not_redistribute_grid_chances_to_points(
     assert saved["simulation_inputs"].get("winner_allocation") is None
 
 
+def test_record_freezes_event_tyre_rules_at_recording_start_and_scores_without_refetch(
+    monkeypatch, tmp_path,
+):
+    loader = PostQualifyingLoader()
+    calls = []
+    rules = {"max_set_laps": 2, "minimum_sets": 3}
+
+    def known_rules(year, target, *, cutoff):
+        calls.append((year, target, cutoff))
+        return rules
+
+    monkeypatch.setattr(loader, "get_race_tire_rules", known_rules)
+    saved = record(loader)
+    assert calls == [(loader.instant.year, 3, loader.instant)]
+    assert saved["simulation_inputs"]["schema_version"] == 16
+    assert saved["simulation_inputs"]["race_tire_rules"] == rules
+    rules["minimum_sets"] = 99
+    path = save_recorded_forecast(tmp_path / "tyre-rules.json", saved)
+    assert load_recorded_forecast(path) == saved
+    monkeypatch.setattr(loader, "get_race_tire_rules", lambda *a, **kw: pytest.fail("No refetch"))
+    observed = [result(identity, i) for i, identity in enumerate(("AA", "BB"), 1)]
+    for row in observed:
+        row["round"] = 3
+    assert score_recorded_forecast(saved, loader, observed, [])['status'] == "scored"
+    assert saved["simulation_inputs"]["race_tire_rules"]["minimum_sets"] == 3
+
+
 def test_saved_post_qualifying_point_policy_still_scores_without_refitting(monkeypatch):
     from f1sim.analysis.teammate_forecast import teammate_winner_forecast
 

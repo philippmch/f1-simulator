@@ -38,6 +38,7 @@ from f1sim.simulation.qualifying_weather import (
     validate_qualifying_weather,
 )
 from f1sim.simulation.randomness import validate_rng_policy
+from f1sim.simulation.tire_rules import RACE_TIRE_RULES_POLICY, validate_race_tire_rules
 from f1sim.simulation.weather_schedule import validate_weather_schedule
 
 RIVAL_SELECTION_METHODS = ("weighted_mean", "minimax_regret")
@@ -359,8 +360,10 @@ def prepare_rival_pit_plan_selection(
     validation_simulations: int = 100,
     rng_policy: str | None = None,
     cancel_requested: Callable[[], bool] | None = None,
+    race_tire_rules: dict | None = None,
 ) -> dict[str, Any]:
     """Freeze all rival assumptions and phase runners before spending trials."""
+    rules = validate_race_tire_rules(race_tire_rules)
     selection_method = validate_rival_selection_method(selection_method)
     source_count = _positive_int(source_simulations, "source_simulations")
     training_count = _positive_int(training_simulations, "training_simulations")
@@ -375,6 +378,9 @@ def prepare_rival_pit_plan_selection(
     scenario_names, supplied_weights, scenario_data = _validate_rival_scenarios(
         rival_scenarios,
     )
+    if rules:
+        runner = _runner_variant(runner, race_tire_rules=rules)
+    rules = validate_race_tire_rules(getattr(runner, "race_tire_rules", None))
     normalized_weights = scenario_data["weights"]
     scenario_plans = scenario_data["plans"]
     weather_overrides = scenario_data["weather"]
@@ -512,6 +518,7 @@ def prepare_rival_pit_plan_selection(
         "plans_by_rival_scenario": plans_by_rival_scenario,
         "training_runners": training_runners,
         "validation_candidates": validation_candidates,
+        **({"race_tire_rules": rules} if rules else {}),
     }
 
 
@@ -839,6 +846,9 @@ def evaluate_prepared_rival_pit_plan_selection(
             "announcement only at its crossing; future deployments are not known to forecasts. "
             "Red flags can suppress requests, and a race can finish before later requests.",
         )
+    if prepared.get("race_tire_rules"):
+        selection["race_tire_rules"] = deepcopy(prepared["race_tire_rules"])
+        selection["race_tire_rules_policy"] = RACE_TIRE_RULES_POLICY
     return {
         "selection": selection,
         "training_results": training_results,
@@ -862,8 +872,10 @@ def evaluate_saved_rival_pit_plan_selection(
     parallel: bool = False,
     max_workers: int | None = None,
     rng_policy: str | None = None,
+    race_tire_rules: dict | None = None,
 ) -> dict[str, Any]:
     """Load saved inputs, prepare every assumption, and evaluate the frozen set."""
+    rules = validate_race_tire_rules(race_tire_rules)
     selection_method = validate_rival_selection_method(selection_method)
     validate_pit_plan_selection_request(
         plans, reference_label, driver_id=driver_id, constructor_id=constructor_id,
@@ -885,6 +897,7 @@ def evaluate_saved_rival_pit_plan_selection(
         objective=objective,
         rng_policy=rng_policy,
         selection_method=selection_method,
+        **({"race_tire_rules": rules} if rules else {}),
     )
     return evaluate_prepared_rival_pit_plan_selection(
         prepared, parallel=parallel, max_workers=max_workers,

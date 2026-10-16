@@ -2139,6 +2139,15 @@ input:focus-visible {
           title="All race sets including the opening set. @age adds prior wear; optional /remaining limits completed race laps, including SC/VSC laps. Refitting preserves that allowance. Separate drivers with semicolons. Qualifying is separate. Blank or unlisted drivers use unlimited sets.">
       </div>
       <div class="control-group">
+        <label class="control-label" for="maxSetLapsInput">Max tyre set race laps (optional)</label>
+        <input type="number" id="maxSetLapsInput" min="1" step="1" placeholder="No added cap"
+          aria-describedby="raceTireRulesHelp">
+        <label class="control-label" for="minimumSetsInput">Minimum distinct tyre sets (optional)</label>
+        <input type="number" id="minimumSetsInput" min="1" step="1" placeholder="No added minimum"
+          aria-describedby="raceTireRulesHelp">
+        <p class="pit-plan-help" id="raceTireRulesHelp">Positive whole numbers; blank adds no constraint. A cap counts completed race laps, including SC/VSC. Fresh, unlimited sets are assumed unless you supply a race tyre inventory; its remaining allowances may be stricter. The minimum counts distinct sets actually run, including free red-flag replacements. Known event rules still apply and these inputs can only tighten them.</p>
+      </div>
+      <div class="control-group">
         <label class="control-label" for="tireWarmupInput">Post-fit cost sensitivity (optional)</label>
         <input type="text" id="tireWarmupInput" maxlength="256" spellcheck="false"
           placeholder="Off · soft=0.5,medium=1" aria-describedby="tireWarmupHelp">
@@ -2619,7 +2628,7 @@ function updateRunBudget() {
       + (compare ? ' · includes the automatic strategy reference' : '')
       + (selection ? '. Plan selection adds training and validation races.' : '');
   }
-  const custom = ['startingTiresInput', 'tireInventoryInput', 'pitPlansInput',
+  const custom = ['startingTiresInput', 'tireInventoryInput', 'maxSetLapsInput', 'minimumSetsInput', 'pitPlansInput',
     'tireWarmupInput', 'weatherScheduleInput'].some(id => document.getElementById(id).value.trim())
     || document.getElementById('controlSourceSelect').value !== 'automatic'
     || ['Q1', 'Q2', 'Q3'].some(session =>
@@ -4825,6 +4834,19 @@ function parseControlScheduleInputs(input = document.getElementById('controlSche
   return {ok: true, schedule};
 }
 
+function parseRaceTireRulesInputs() {
+  const rules = {};
+  for (const [id, key] of [['maxSetLapsInput', 'max_set_laps'], ['minimumSetsInput', 'minimum_sets']]) {
+    const input = document.getElementById(id);
+    const raw = input.value.trim();
+    if (!input.checkValidity() || (raw && (!Number.isSafeInteger(Number(raw)) || Number(raw) <= 0))) {
+      return {ok: false, input, message: 'Race tyre rules must be positive whole numbers, or blank for no added constraint.'};
+    }
+    if (raw && !(key === 'minimum_sets' && Number(raw) === 1)) rules[key] = Number(raw);
+  }
+  return {ok: true, rules};
+}
+
 function buildRunPayload() {
   const selectedRace = document.getElementById('trackSelect').value;
   const simulationsInput = document.getElementById('simCount');
@@ -4881,6 +4903,12 @@ function buildRunPayload() {
   if (!tyreSetup.ok) {
     setStatusMessage(tyreSetup.message, 'error');
     focusRunInput(tyreSetup.input);
+    return null;
+  }
+  const raceTireRulesSetup = parseRaceTireRulesInputs();
+  if (!raceTireRulesSetup.ok) {
+    setStatusMessage(raceTireRulesSetup.message, 'error');
+    focusRunInput(raceTireRulesSetup.input);
     return null;
   }
   const weatherScheduleSetup = parseWeatherScheduleInputs();
@@ -4955,6 +4983,7 @@ function buildRunPayload() {
   if (controlScheduleSetup.schedule !== null) payload.control_schedule = controlScheduleSetup.schedule;
   if (Object.keys(qualifyingWeatherSetup.profile).length) payload.qualifying_weather = qualifyingWeatherSetup.profile;
   if (Object.keys(warmupSetup.profile).length) payload.tire_warmup = warmupSetup.profile;
+  if (Object.keys(raceTireRulesSetup.rules).length) payload.race_tire_rules = raceTireRulesSetup.rules;
   if (pitPlanSetup.pitPlans !== null) payload.pit_plans = pitPlanSetup.pitPlans;
   if (pitSelectionSetup.selection) payload.pit_plan_selection = pitSelectionSetup.selection;
   return payload;
@@ -5190,7 +5219,7 @@ function renderInventorySnapshot(scenario) {
   if (saved && Object.hasOwn(saved, 'tire_inventory')) inventory = saved.tire_inventory;
   else if (request && Object.hasOwn(request, 'tire_inventory')) inventory = request.tire_inventory;
   else if (Number.isInteger(saved?.schema_version) && saved.schema_version >= 1
-      && saved.schema_version <= 14 && saved.schema_version !== 4) inventory = null;
+      && saved.schema_version <= 16 && saved.schema_version !== 4) inventory = null;
   else return '<div class="race-meta">Race tyre stock: input not recorded</div>';
   if (inventory === null || (inventory && typeof inventory === 'object'
       && !Array.isArray(inventory) && !Object.keys(inventory).length)) {
@@ -5212,6 +5241,25 @@ function renderInventorySnapshot(scenario) {
     return `${escapeHtml(id)}: ${sets.length} ${sets.length === 1 ? 'set' : 'sets'} — ${tyres.join(', ')}`;
   });
   return `<div class="race-meta">Race tyre stock: ${descriptions.join('; ')}. Unlisted drivers use unlimited sets.</div>`;
+}
+
+function renderRaceTireRulesSnapshot(scenario) {
+  const saved = scenario?.simulation_inputs;
+  const request = simResults?.request;
+  const rules = saved && Object.hasOwn(saved, 'race_tire_rules') ? saved.race_tire_rules
+    : request && Object.hasOwn(request, 'race_tire_rules') ? request.race_tire_rules
+    : simResults?.provenance?.race_tire_rules?.rules;
+  if (rules === undefined || rules === null) return '';
+  if (typeof rules !== 'object' || Array.isArray(rules)
+      || Object.entries(rules).some(([key, value]) => !['max_set_laps', 'minimum_sets'].includes(key)
+        || !Number.isSafeInteger(value) || value <= 0)) {
+    return '<div class="race-meta">Applied race tyre rules: invalid saved rules.</div>';
+  }
+  const descriptions = [];
+  if (rules.max_set_laps) descriptions.push(`at most ${rules.max_set_laps} completed race laps per set`);
+  if (rules.minimum_sets > 1) descriptions.push(`at least ${rules.minimum_sets} distinct sets run`);
+  if (!descriptions.length) return '';
+  return `<details class="probability-details race-tire-rules"><summary>Applied race tyre rules: ${descriptions.join('; ')}</summary><p class="inline-note">These are the saved run's effective constraints, including known event rules. A set cap counts completed race laps, including SC/VSC, and does not reconstruct prior weekend usage or incomplete laps. Fresh, unlimited sets are assumed unless an explicit inventory supplies stricter allowances. Distinct sets count only once actually run, including free red-flag replacements.</p></details>`;
 }
 
 function renderPitPlanSnapshot(scenario) {
@@ -5762,6 +5810,7 @@ function renderRace() {
           return `${id}=${compound}${age ? `@${age}` : ''}`;
         }).join(', ') || 'Automatic')}</div>
         ${renderInventorySnapshot(scenario)}
+        ${renderRaceTireRulesSnapshot(scenario)}
         ${renderPitPlanSnapshot(scenario)}
         <div class="race-meta">${savedWeatherBehavior(scenario)}</div>
         ${renderRngPolicySnapshot(scenario)}

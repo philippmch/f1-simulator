@@ -123,7 +123,7 @@ def validate_tire_usage_snapshot(snapshot, inventory):
     """An older replay must never silently reinterpret a new usage constraint."""
     limited = has_tire_usage_limits(inventory)
     version = snapshot.get("schema_version")
-    if version == 9 or (version in (10, 11, 12, 13, 14, 15)
+    if version == 9 or (version in (10, 11, 12, 13, 14, 15, 16)
                         and (limited or "tire_usage_policy" in snapshot)):
         if not limited or snapshot.get("tire_usage_policy") != TIRE_USAGE_POLICY:
             raise ValueError(
@@ -166,6 +166,8 @@ class TireInventory:
             _remaining_laps(item.remaining_laps)
         self.current_set_id = None
         self.unavailable_ids = set()
+        self.race_tire_usage = None
+        self.require_unused_race_set = False
 
     @classmethod
     def from_sets(cls, canonical_records):
@@ -177,7 +179,11 @@ class TireInventory:
     def replacements(self):
         return tuple(item for identifier, item in self.sets.items()
                      if identifier != self.current_set_id
-                     and identifier not in self.unavailable_ids and item.remaining_laps != 0)
+                     and identifier not in self.unavailable_ids and item.remaining_laps != 0
+                     and (self.race_tire_usage is None or (
+                         self.race_tire_usage.can_fit(identifier)
+                         and (not self.require_unused_race_set
+                              or identifier not in self.race_tire_usage.used_set_ids))))
 
     def current_remaining_laps(self, current_age=None):
         """Remaining allowance after completed use of the currently fitted set."""
@@ -185,9 +191,11 @@ class TireInventory:
         if self.current_set_id is None:
             return None
         item = self.sets[self.current_set_id]
-        if item.remaining_laps is None:
-            return None
-        return item.remaining_laps - (0 if current_age is None else current_age - item.age)
+        declared = (None if item.remaining_laps is None else
+                    item.remaining_laps - (0 if current_age is None else current_age - item.age))
+        cap = None if self.race_tire_usage is None else self.race_tire_usage.remaining_laps()
+        budgets = [value for value in (declared, cap) if value is not None]
+        return min(budgets) if budgets else None
 
     @staticmethod
     def _used(item, age):
@@ -213,6 +221,8 @@ class TireInventory:
             raise ValueError("Unknown tire_inventory set ID")
         if set_id in self.unavailable_ids:
             raise ValueError("Cannot fit an unavailable tire_inventory set")
+        if self.race_tire_usage is not None and not self.race_tire_usage.can_fit(set_id):
+            raise ValueError("Cannot fit a race-cap-exhausted tire_inventory set")
         self._check_current_age(current_age)
         available = (self.current_remaining_laps(current_age) if set_id == self.current_set_id
                      else self.sets[set_id].remaining_laps)
@@ -241,8 +251,10 @@ class TireInventory:
                  "current": identifier == self.current_set_id,
                  "unavailable": identifier in self.unavailable_ids,
                  "available": identifier != self.current_set_id
-                 and identifier not in self.unavailable_ids and item.remaining_laps != 0,
-                 **({"remaining_laps": self.current_remaining_laps(current_age)
+                 and identifier not in self.unavailable_ids and item.remaining_laps != 0
+                 and (self.race_tire_usage is None or self.race_tire_usage.can_fit(identifier)),
+                 **({"remaining_laps": item.remaining_laps - (
+                     0 if current_age is None else current_age-item.age)
                      if identifier == self.current_set_id else item.remaining_laps}
                     if item.remaining_laps is not None else {})}
                 for identifier, item in self.sets.items()]

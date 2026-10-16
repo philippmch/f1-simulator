@@ -71,6 +71,7 @@ from f1sim.simulation.race_points import (
 )
 from f1sim.simulation.randomness import DEFAULT_RNG_POLICY, validate_rng_policy
 from f1sim.simulation.tire_inventory import validate_tire_inventory
+from f1sim.simulation.tire_rules import merge_race_tire_rules, validate_race_tire_rules
 from f1sim.simulation.warmup import validate_tire_warmup
 from f1sim.simulation.weather_schedule import validate_weather_schedule
 from f1sim.web.capacity import RunCapacity
@@ -178,6 +179,7 @@ class DashboardRunRequest:
     qualifying_weather: Any = None
     weather_schedule: Any = None
     control_schedule: Any = None
+    race_tire_rules: Any = None
 
 
 def _pit_plan_selection_request(
@@ -215,6 +217,7 @@ def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
     validate_race_engine(request.race_engine)
     validate_rng_policy(request.rng_policy)
     validate_tire_warmup(request.tire_warmup)
+    validate_race_tire_rules(request.race_tire_rules)
     validate_starting_tires(request.starting_tires)
     validate_starting_tire_ages(request.starting_tire_ages, request.starting_tires)
     validate_tire_inventory(request.tire_inventory, request.starting_tires,
@@ -370,6 +373,8 @@ def _serialize_race_result(result: Any) -> dict[str, Any]:
             [dict(record) for record in result.pit_plan_history]
             if getattr(result, "pit_plan_history", None) is not None else None
         ),
+        **({"race_tire_usage": deepcopy(result.race_tire_usage)}
+           if getattr(result, "race_tire_usage", None) is not None else {}),
     }
 
 
@@ -773,6 +778,8 @@ def _dashboard_runner(
         kwargs["pit_lane_starters"] = validate_pit_lane_starters(
             request.pit_lane_starters, request.starting_grid,
         )
+    if race_tire_rules := validate_race_tire_rules(request.race_tire_rules):
+        kwargs["race_tire_rules"] = race_tire_rules
     return MonteCarloRunner(**kwargs)
 
 
@@ -806,6 +813,8 @@ def _dashboard_request_metadata(
         "qualifying_mode": "simulated",
         "race_grid_mode": request.race_grid_mode,
         "postqual_pace_policy": request.postqual_pace_policy,
+        **({"race_tire_rules": rules}
+           if (rules := validate_race_tire_rules(request.race_tire_rules)) else {}),
         **({"starting_grid": request.starting_grid.copy()}
            if request.starting_grid is not None else {}),
         **({"pit_lane_starters": request.pit_lane_starters.copy()}
@@ -876,6 +885,11 @@ def run_dashboard_simulation(
     # from authoritative rows before track fastest-lap calibration runs.
     _check_dashboard_cancellation(cancel_requested)
     track_stats = loader.get_track_stats(request.year, request.race)
+    rules_method = getattr(loader, "get_race_tire_rules", None)
+    sourced_rules = (rules_method(request.year, request.race) if callable(rules_method) else {})
+    request = replace(request, race_tire_rules=merge_race_tire_rules(
+        sourced_rules, request.race_tire_rules,
+    ))
 
     _check_dashboard_cancellation(cancel_requested)
     drivers = loader.create_drivers_from_stats(driver_stats)

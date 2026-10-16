@@ -153,6 +153,138 @@ def _floor_plan(driver, car, track, tire, age, lap, budget, mask,
     return DryPitDecision(pit, wait, selected)
 
 
+@native_forecast_cache(maxsize=32)
+def _constrained_fresh_tables(models, fresh, physical, scale, warmup_profile,
+                              maximum_set_laps, maximum_stops, maximum_needed_sets):
+    """Fresh-set dry suffixes with a physical lifetime and required new-set count."""
+    driver = restore_model(Driver, models[0])
+    car = restore_model(Car, models[1])
+    track = restore_model(Track, models[2])
+    end = track.total_laps
+    warmup = dict(warmup_profile)
+    prefixes = {}
+    for lap in range(1, end + 1):
+        for c, tire_json in enumerate(fresh):
+            cancellation_checkpoint()
+            prefixes[lap, c] = np.cumsum(_full_row(
+                driver, car, track, restore_model(Tire, tire_json), 0, lap, physical, scale,
+                first_fit_cost=warmup.get(SLICKS[c].value, 0.0),
+            ))
+    costs = np.full((maximum_stops + 1, 8, maximum_needed_sets + 1, end + 2), inf)
+    green = track.pit_lane_delta + expected_stationary_time(car)
+    for budget in range(1, maximum_stops + 1):
+        for lap in range(end, 0, -1):
+            available = end - lap + 1
+            longest = min(available, maximum_set_laps or available)
+            for mask in range(8):
+                for needed in range(maximum_needed_sets + 1):
+                    cancellation_checkpoint()
+                    if needed > budget or needed > available:
+                        continue
+                    for c in range(3):
+                        next_mask = mask | (1 << c)
+                        prefix = prefixes[lap, c]
+                        best = (float(prefix[available - 1])
+                                if longest == available and next_mask.bit_count() >= 2
+                                and needed <= 1 else inf)
+                        if budget > 1:
+                            for length in range(1, min(longest, available - 1) + 1):
+                                best = min(best, float(prefix[length - 1]) + costs[
+                                    budget - 1, next_mask, max(0, needed - 1), lap + length,
+                                ])
+                        costs[budget, mask, needed, lap] = min(
+                            costs[budget, mask, needed, lap], green + best,
+                        )
+    costs.flags.writeable = False
+    for prefix in prefixes.values():
+        prefix.flags.writeable = False
+    return costs, prefixes
+
+
+def _constrained_dry_plan(driver, car, track, tire, age, lap, budget, mask,
+                          physical, scale, aero, modifier, lane, queue, gaps,
+                          warmup_profile, current_fit_pending, safety_car,
+                          maximum_set_laps, current_remaining_set_laps,
+                          minimum_new_sets, current_set_used):
+    """Price legal fresh dry plans; only the current observed control is retained.
+
+    Later laps use the ordinary green suffix. The finite-inventory and controlled
+    future-field solvers remain separate; no claim of global strategy optimality
+    follows from this bounded projection.
+    """
+    projection = driver.model_copy(deep=True)
+    package = car.model_copy(deep=True)
+    if shared_forecast_available():
+        projection.reset_race_state()
+        projection.id = projection.name = projection.team_id = "projection"
+        package.team_id = package.team_name = "projection"
+    models = forecast_json(projection), forecast_json(package), forecast_json(track)
+    fresh = tuple(forecast_json(TIRE_COMPOUNDS[c]) for c in SLICKS)
+    warmup = dict(warmup_profile)
+    remaining = track.total_laps - lap + 1
+    budget = min(budget, remaining)
+    needed_now = minimum_new_sets + int(not current_set_used)
+    maximum_needed = min(max(minimum_new_sets, needed_now), budget, remaining)
+    costs, prefixes = _constrained_fresh_tables(
+        models, fresh, physical, scale, warmup_profile, maximum_set_laps,
+        budget, maximum_needed,
+    )
+    current_fee = warmup.get(tire.compound.value, 0.0) if current_fit_pending else 0.0
+    row = _full_row(projection, car, track, tire, age, lap, physical, scale,
+                    first_fit_cost=current_fee)
+    old = np.cumsum(row)
+
+    def first(set_tire, set_age, gap, *, fitted=False, stopped=False):
+        value = _full_row(projection, car, track, set_tire, set_age,
+                          lap, physical, scale, aero, gap)[0]
+        value = current_running_time(value, modifier, safety_car, stopped=stopped)
+        fee = warmup.get(set_tire.compound.value, 0.0) if fitted else 0.0
+        return current_fitted_time(value, fee, safety_car, stopped=stopped)
+
+    wait_mask = mask | (1 << SLICKS.index(tire.compound)) if tire.compound in SLICKS else mask
+    current_limit = (current_remaining_set_laps if current_remaining_set_laps is not None
+                     else maximum_set_laps)
+    longest = min(remaining, current_limit if current_limit is not None else remaining)
+    wait = (float(old[-1]) if longest == remaining and wait_mask.bit_count() >= 2
+            and minimum_new_sets == 0 else inf)
+    if budget and minimum_new_sets <= maximum_needed:
+        for length in range(1, min(longest, remaining - 1) + 1):
+            wait = min(wait, float(old[length - 1]) + costs[
+                budget, wait_mask, minimum_new_sets, lap + length,
+            ])
+    wait += first(tire, age, gaps[0] if gaps else None,
+                  fitted=current_fit_pending) - row[0]
+    # Retaining an unrun current set would earn one distinct-set credit. Paying
+    # now discards that prospective credit, while the new purchase earns its own.
+    pit, selected = inf, None
+    fallback = []
+    if budget:
+        for c, compound in enumerate(SLICKS):
+            cancellation_checkpoint()
+            next_mask = mask | (1 << c)
+            prefix = prefixes[lap, c]
+            longest = min(remaining, maximum_set_laps or remaining)
+            best = (float(prefix[-1]) if longest == remaining and next_mask.bit_count() >= 2
+                    and needed_now <= 1 else inf)
+            if budget > 1 and max(0, needed_now - 1) <= maximum_needed:
+                for length in range(1, min(longest, remaining - 1) + 1):
+                    best = min(best, float(prefix[length - 1]) + costs[
+                        budget - 1, next_mask, max(0, needed_now - 1), lap + length,
+                    ])
+            actual_first = first(TIRE_COMPOUNDS[compound], 0, gaps[1] if gaps else None,
+                                 fitted=True, stopped=True)
+            fallback.append((actual_first, compound))
+            candidate = (best + actual_first - prefix[0] + track.pit_lane_delta * lane
+                         + expected_stationary_time(car) + queue)
+            if candidate < pit:
+                pit, selected = candidate, compound
+    if selected is None and fallback:
+        # Hard execution guards may still need a safe immediate fit when the
+        # bounded elective-stop horizon has no complete feasible schedule.
+        selected = min(fallback, key=lambda item: item[0])[1]
+    return DryPitDecision(pit, wait, selected)
+
+
 def expected_stationary_time(car: Car) -> float:
     """Exact mean of execution's clipped normal plus 5% uniform slow stop."""
     return _expected_service(car.pit_stop_avg, car.pit_stop_std)
@@ -277,6 +409,9 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
                   current_fit_pending: bool = False,
                   safety_car=None,
                   control_context=None,
+                  maximum_set_laps: int | None = None,
+                  current_remaining_set_laps: int | None = None,
+                  minimum_new_sets: int = 0,
                   ) -> DryPitDecision:
     """Compare legal dry plans, optionally through an observed control prefix.
 
@@ -286,6 +421,13 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
     """
     if current_set_used is not None and not isinstance(current_set_used, bool):
         raise ValueError("current_set_used must be boolean or None")
+    for name, value, minimum in (("maximum_set_laps", maximum_set_laps, 1),
+                                 ("current_remaining_set_laps", current_remaining_set_laps, 0),
+                                 ("minimum_new_sets", minimum_new_sets, 0)):
+        if value is None and name != "minimum_new_sets":
+            continue
+        if type(value) is not int or value < minimum:
+            raise ValueError(f"{name} must be an integer of at least {minimum}")
     if not isinstance(current_fit_pending, bool):
         raise ValueError("current_fit_pending must be boolean")
     tire_warmup = validate_tire_warmup(tire_warmup)
@@ -294,7 +436,9 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
     gaps = normalize_current_traffic_gaps(current_traffic_gaps)
     if safety_car is not None:
         gaps = safety_car.traffic_gaps
-    if remaining_laps < 1 or remaining_stops < 0 or remaining_stops > 3:
+    restricted = (maximum_set_laps is not None or current_remaining_set_laps is not None
+                  or minimum_new_sets > 0)
+    if remaining_laps < 1 or remaining_stops < 0 or (not restricted and remaining_stops > 3):
         raise ValueError("Positive remaining laps and zero to three stops are required")
     physical = track.total_laps if physical_total_laps is None else physical_total_laps
     lap = track.total_laps - remaining_laps + 1
@@ -303,6 +447,14 @@ def plan_dry_stop(driver: Driver, car: Car, track: Track, current_tire: Tire,
     mask = 7 if wet_exemption else sum(1 << i for i, c in enumerate(SLICKS)
                                      if c in used_compounds
                                      or (used_current and c == current_tire.compound))
+    if restricted:
+        return _constrained_dry_plan(
+            driver, car, track, current_tire, tire_age, lap, remaining_stops, mask,
+            physical, tire_pace_multiplier, active_aero_enabled, current_lap_time_modifier,
+            pit_lane_factor, additional_current_stop_cost, gaps,
+            warmup_profile, current_fit_pending, safety_car, maximum_set_laps,
+            current_remaining_set_laps, minimum_new_sets, used_current,
+        )
     if control_context is not None:
         from f1sim.simulation.controlled_dry_strategy import plan_controlled_dry_stop
 
@@ -394,5 +546,6 @@ register_forecast_values(globals(), ("SLICKS",))
 register_forecast_helpers(globals(), ("current_running_time", "current_fitted_time"))
 register_forecast_helpers(globals(), (
     "_floor_plan", "_ScaledDryWeather", "DryPitDecision", "plan_dry_stop",
+    "_constrained_dry_plan", "_constrained_fresh_tables",
 ))
 register_forecast_helpers(vars(DryPitDecision), ("should_pit",))

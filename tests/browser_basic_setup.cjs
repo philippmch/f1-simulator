@@ -1,6 +1,7 @@
 // Common setup remains usable before expanding experimental controls.
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const { checkRaceTireRules } = require('./browser_race_tire_rules.cjs');
 
 async function checkBasicSetup(page) {
   const viewport = page.viewportSize();
@@ -43,6 +44,7 @@ async function checkBasicSetup(page) {
     await page.locator('#advancedSettings > summary').focus();
     await page.keyboard.press('Enter');
     assert(await page.locator('#seedInput').isVisible(), 'Keyboard opens the experimental controls');
+    await checkRaceTireRules(page);
     await page.getByLabel('Race grid', {exact: true}).selectOption('simulated');
     assert((await page.locator('#raceGridHelp').innerText()).includes('Each race trial'));
     await page.getByLabel('Q1 condition', {exact: true}).selectOption('heavy_rain');

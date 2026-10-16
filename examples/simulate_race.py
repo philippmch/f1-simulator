@@ -44,6 +44,7 @@ from f1sim.simulation.execution import (
     validate_starting_tires,
 )
 from f1sim.simulation.qualifying_weather import validate_qualifying_weather
+from f1sim.simulation.tire_rules import merge_race_tire_rules
 from f1sim.simulation.weather_schedule import validate_weather_schedule
 
 MAX_SIMULATIONS = 1000
@@ -254,6 +255,14 @@ def main() -> int:
               "Optional /remaining caps race laps per physical set. Unlisted drivers unlimited."),
     )
     parser.add_argument(
+        "--max-tyre-set-laps", "--max-tire-set-laps", type=_positive_int,
+        help="Additional maximum completed race laps per physical set; prior wear is separate.",
+    )
+    parser.add_argument(
+        "--minimum-tyre-sets", "--minimum-tire-sets", type=_positive_int,
+        help="Additional minimum distinct sets actually run, including free red-flag changes.",
+    )
+    parser.add_argument(
         "--pit-plans", type=_pit_plans,
         help=("Optional custom stops using own-lap shorthand, e.g. "
               "VER=18:medium,36:hard;NOR=none. A safety-car window uses "
@@ -407,6 +416,16 @@ def main() -> int:
            for stats in driver_stats.values()):
         print("Mechanical reliability uses a model prior; retirement causes are not identified.")
     track = loader.create_track_from_stats(track_stats)
+    rule_method = getattr(loader, "get_race_tire_rules", None)
+    sourced_rules = (rule_method(current_season, args.race) if callable(rule_method) else {})
+    manual_rules = {}
+    if args.max_tyre_set_laps is not None:
+        manual_rules["max_set_laps"] = args.max_tyre_set_laps
+    if args.minimum_tyre_sets is not None:
+        manual_rules["minimum_sets"] = args.minimum_tyre_sets
+    race_tire_rules = merge_race_tire_rules(sourced_rules, manual_rules)
+    if race_tire_rules:
+        print(f"Race tyre constraints: {race_tire_rules}")
     try:
         weather_schedule = validate_weather_schedule(weather_schedule, total_laps=track.total_laps)
         control_schedule = validate_control_schedule(control_schedule, total_laps=track.total_laps)
@@ -478,6 +497,7 @@ def main() -> int:
             **({"winner_allocation": winner_allocation} if winner_allocation is not None else {}),
             **({"starting_grid": starting_grid} if starting_grid is not None else {}),
             **({"pit_lane_starters": pit_lane_starters} if pit_lane_starters else {}),
+            **({"race_tire_rules": race_tire_rules} if race_tire_rules else {}),
         )
 
         scenario_result = runner.run(

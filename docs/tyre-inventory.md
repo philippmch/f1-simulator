@@ -90,6 +90,68 @@ relax lifetime constraints optimistically, but executable paths cannot exceed
 them. A retained-distance finish veto is bypassed when its assumption of no
 further compulsory service cannot safely cover a usage-limited set.
 
+## Race-wide tyre rules
+
+In **More race settings**, **Max tyre set race laps** and **Minimum distinct tyre
+sets** add optional race-wide constraints. Use positive whole numbers; blank
+adds no manual constraint. A minimum of one is the ordinary default and is
+omitted from the request. The HTTP equivalent is
+`race_tire_rules={"max_set_laps": 25, "minimum_sets": 3}`.
+
+The cap counts completed own race laps, including SC/VSC running. It assumes
+fresh, unlimited sets unless an explicit inventory is supplied. A physical
+set's `remaining_laps` can be stricter, and removing or refitting a set does
+not reset its race-wide usage. Prior weekend use and started but incomplete
+laps are not reconstructed. The minimum counts distinct physical sets only
+once actually run, including a free red-flag replacement; fitting an unused
+set without running it earns no credit.
+
+Sourced rules apply only to their recorded season and event: the 2025 Monaco
+three-set requirement and the 2025 Qatar 25-lap upper bound. Monaco's 2025
+experiment does not carry into 2026. Manual inputs can tighten a sourced rule
+but cannot weaken it. The saved result's **Applied race tyre rules** disclosure
+shows the effective constraints for that run, independently of later edits
+to the controls. These constraints are a simulation of race usage rather
+than a complete check of weekend regulatory compliance.
+
+The sources are [FIA Article 30.5(m), issue 4, page 38](https://www.fia.com/system/files/documents/fia_2025_formula_1_sporting_regulations_-_issue_4_-_2025-02-26.pdf)
+and [Pirelli's Qatar notice of 17 November 2025](https://press.pirelli.com/a-maximum-of-25-laps-per-tyre-set-in-qatar/).
+Rule provenance includes a conservative publication cutoff. The offline
+historical runner applies these exceptions with `--event-tyre-rules`, leaving
+the original archived experiment unchanged; it uses the start of the verified
+qualifying day as the rule cutoff. This does not reconstruct original feed
+versions or all historical sporting rules.
+
+The CLI accepts `--max-tyre-set-laps 25` and `--minimum-tyre-sets 3`.
+Enabled rules use saved-input schema 16 and
+`race_tire_rules_policy="completed_race_laps_and_used_sets_v1"`. Replay, process
+workers and strategy comparisons retain the same constraints. Each result's
+`race_tire_usage` records physical identities, completed race use and any
+unmet requirement. A shortened race can finish with an unmet minimum; the
+ledger reports that fact without inventing set use or sporting penalties.
+
+Automatic opening-tyre comparisons retain these rules in their isolated race
+projections and cache identities. Fresh-set dry planning includes the cap and
+required new sets in its future stop costs. It uses the observed current race
+control and ordinary green running thereafter. Finite-stock and changing-weather
+planning can enforce the constraints at execution without finding the globally cheapest compliant
+strategy. Legal simulated usage does not establish forecast accuracy.
+
+The [historical correctness check](../evidence/historical-event-tyre-rules-2026-10-16.json)
+ran 32 matched trials per variant at Monaco and Qatar, saving all four forecasts
+before opening scoring labels. With the rules enabled, all 592 Monaco finishers
+used at least three sets and all 596 Qatar finishers respected the race-lap cap.
+The baselines had 409/588 Monaco finishers below the minimum and 496/531 supported
+Qatar finishers above the cap; another 75 Qatar baseline rows have unsupported
+suspension/refit boundaries.
+
+This is a measurable correction to simulated usage, **not a winner-prediction
+gain**: both variants picked one of two winners, and mean winner Brier worsened
+from 0.76465 to 0.81934. These selected, fixed-dry 2025 cases still use 2026
+physics. They do not replace the 40-event, 400-trial assessment or establish
+broad forecasting superiority. The compact evidence includes commands to
+regenerate each forecast; the full joint archive remains local.
+
 ## Race behavior and planning
 
 Both race engines retain physical IDs and wear. Removing an undamaged set

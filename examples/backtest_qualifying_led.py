@@ -18,6 +18,7 @@ import numpy as np
 from f1sim.analysis.montecarlo import MonteCarloRunner
 from f1sim.analysis.provenance import simulation_runtime
 from f1sim.data.current import CurrentSeasonDataLoader
+from f1sim.data.event_tire_rules import get_event_tire_rules
 from f1sim.models import Track, Weather
 from f1sim.simulation.race import result_is_classified
 
@@ -27,6 +28,15 @@ try:
 except ImportError:  # Direct CLI execution puts examples/ on the module search path.
     import verify_historical_qualifying_led as labels_verifier
     import verify_postqual_pace_inputs as inputs_verifier
+
+
+# The compact input fixture has no calendar dates. Use a conservative start of
+# qualifying day for these two sourced exceptions, rather than today's clock.
+# These calendar pages verify the dates, not original publication receipts.
+_TIRE_RULE_CUTOFFS = {
+    (2025, 8): ("2025-05-24T00:00:00Z", "https://www.formula1.com/en/racing/2025/monaco"),
+    (2025, 23): ("2025-11-29T00:00:00Z", "https://www.formula1.com/en/racing/2025/qatar"),
+}
 
 
 def no_network(*args, **kwargs):
@@ -40,7 +50,10 @@ def offline_audit(event, _args):
 
 def serial(value):
     if is_dataclass(value):
-        return serial(asdict(value))
+        fields = asdict(value)
+        if fields.get("race_tire_usage") is None:
+            fields.pop("race_tire_usage", None)
+        return serial(fields)
     if isinstance(value, Enum):
         return serial(value.value)
     if isinstance(value, dict):
@@ -72,7 +85,7 @@ def checkpoint(path, value):
     os.replace(temporary, path)
 
 
-def forecast(event, policy, trials, workers):
+def forecast(event, policy, trials, workers, *, event_tire_rules=False):
     loader = CurrentSeasonDataLoader(http_getter=no_network)
     stats = loader._build_driver_stats(
         **deepcopy(event["builder_args"]), postqual_pace_policy=policy,
@@ -86,13 +99,27 @@ def forecast(event, policy, trials, workers):
     for identity, car in cars.items():
         car.team_name = event["policies"][policy]["cars"][identity]["team_name"]
     context = deepcopy(event["race_context"])
+    rules, rule_sources = {}, {}
+    if event_tire_rules:
+        cutoff = _TIRE_RULE_CUTOFFS.get((event["year"], event["round"]))
+        rules, rule_sources = get_event_tire_rules(
+            event["year"], event["builder_args"]["target_event"],
+            cutoff=cutoff[0] if cutoff else None,
+        )
+        if rules and cutoff is None:
+            raise ValueError("Historical event tyre rules require a verified qualifying cutoff")
+        for source in rule_sources.values():
+            source.update({"historical_cutoff": cutoff[0], "schedule_source_url": cutoff[1],
+                           "cutoff_basis": "start of qualifying day, UTC; conservative"})
     supplied = {"drivers": [d.model_dump() for d in drivers],
-                "cars": {k: c.model_dump() for k, c in cars.items()}, **context}
+                "cars": {k: c.model_dump() for k, c in cars.items()}, **context,
+                **({"race_tire_rules": rules} if rules else {})}
     runner = MonteCarloRunner(
         drivers, cars, Track.model_validate(context["track"]),
         Weather.model_validate(context["weather"]), seed=context["seed"],
         race_engine="chronological", rng_policy="isolated_weather_v1",
         starting_grid=context["starting_grid"], pit_lane_starters=context["pit_lane_starters"],
+        **({"race_tire_rules": rules} if rules else {}),
     )
     result = runner.run(trials, parallel=workers > 1 and trials > 1, max_workers=workers)
     if result.num_simulations != trials or result.winner_allocation is not None:
@@ -121,7 +148,8 @@ def forecast(event, policy, trials, workers):
                    "joint_qualifying_results": result.qualifying_results,
                    "race_scoring_contexts": result.get_race_scoring_contexts(),
                    "weather_histories": result.weather_histories,
-                   "control_schedule_histories": result.control_schedule_histories})
+                   "control_schedule_histories": result.control_schedule_histories,
+                   **({"race_tire_rules_provenance": rule_sources} if rules else {})})
 
 
 def score(forecast_value, observed):
@@ -154,6 +182,10 @@ def main(argv=None):
     parser.add_argument("--round", type=int)
     parser.add_argument("--trials", type=int, default=400)
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument(
+        "--event-tyre-rules", action="store_true",
+        help="Apply sourced pre-qualifying 2025 Monaco/Qatar rules; preserve original archives.",
+    )
     parser.add_argument("--policy", choices=("both", "season_points", "qualifying_led"),
                         default="both")
     parser.add_argument("--output", type=Path)
@@ -196,6 +228,8 @@ def main(argv=None):
                         "authentic_historical_availability": False,
                         "historical_distance_faults": ["2025R5 Jeddah57vs50", "2025R7 Imola57vs63"],
                         "prospective_skill_established": False}, "events": []}
+    if args.event_tyre_rules:
+        saved["event_tire_rules"] = "sourced_pre_qualifying_registry_v1"
     args.output.parent.mkdir(parents=True, exist_ok=True)
     write_new(partial, sealed(saved))
     for event in events:
@@ -203,7 +237,10 @@ def main(argv=None):
                   "starting_grid": event["race_context"]["starting_grid"].copy(), "forecasts": {}}
         saved["events"].append(record)
         for policy in policies:
-            record["forecasts"][policy] = forecast(event, policy, args.trials, args.workers)
+            record["forecasts"][policy] = forecast(
+                event, policy, args.trials, args.workers,
+                **({"event_tire_rules": True} if args.event_tyre_rules else {}),
+            )
             checkpoint(partial, saved)
             print(json.dumps({"year": event["year"], "round": event["round"],
                               "policy": policy, "trials_saved": args.trials}), flush=True)

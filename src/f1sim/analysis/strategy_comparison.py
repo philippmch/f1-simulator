@@ -10,6 +10,7 @@ from f1sim.analysis.replay import _load_saved_runner
 from f1sim.models.tire import TireCompound
 from f1sim.simulation.execution import parse_starting_tire_spec
 from f1sim.simulation.randomness import validate_rng_policy
+from f1sim.simulation.tire_rules import merge_race_tire_rules
 
 
 def _validate_pit_plans(
@@ -63,6 +64,11 @@ def _runner_variant(runner: MonteCarloRunner, **overrides) -> MonteCarloRunner:
         values["starting_grid"] = runner.starting_grid.copy()
     if getattr(runner, "pit_lane_starters", None):
         values["pit_lane_starters"] = runner.pit_lane_starters.copy()
+    rules = merge_race_tire_rules(
+        getattr(runner, "race_tire_rules", None), overrides.pop("race_tire_rules", None),
+    )
+    if rules:
+        values["race_tire_rules"] = rules
     values.update(overrides)
     return MonteCarloRunner(
         [driver.model_copy(deep=True) for driver in runner.drivers],
@@ -128,6 +134,7 @@ def compare_saved_race_engines(
     if len(set(labels)) != len(labels):
         raise ValueError("engines must be distinct")
     runner, _ = _load_saved_runner(path, scenario)
+    rules = merge_race_tire_rules(getattr(runner, "race_tire_rules", None))
     results = {}
     for label in labels:
         variant = MonteCarloRunner(
@@ -151,6 +158,7 @@ def compare_saved_race_engines(
                if getattr(runner, "starting_grid", None) is not None else {}),
             **({"pit_lane_starters": runner.pit_lane_starters.copy()}
                if getattr(runner, "pit_lane_starters", None) else {}),
+            **({"race_tire_rules": rules.copy()} if rules else {}),
         )
         results[label] = variant.run(
             int(num_simulations), parallel=parallel,
@@ -199,6 +207,7 @@ def compare_saved_starting_tires(
     if len(set(labels)) != len(labels):
         raise ValueError("compounds must be distinct")
     runner, _ = _load_saved_runner(path, scenario)
+    rules = merge_race_tire_rules(getattr(runner, "race_tire_rules", None))
     target = next((driver for driver in runner.drivers if driver.id == driver_id), None)
     if target is None:
         raise ValueError(f"Unknown driver ID: {driver_id}")
@@ -238,6 +247,7 @@ def compare_saved_starting_tires(
                if getattr(runner, "starting_grid", None) is not None else {}),
             **({"pit_lane_starters": runner.pit_lane_starters.copy()}
                if getattr(runner, "pit_lane_starters", None) else {}),
+            **({"race_tire_rules": rules.copy()} if rules else {}),
         )
         variant_runners[label] = variant
 

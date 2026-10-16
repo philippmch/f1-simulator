@@ -45,6 +45,8 @@ class InventoryStrategyMixin:
                 self.strategy_profiles, records,
                 **({"tire_warmup": self.tire_warmup} if self.tire_warmup else {}),
                 **self._forecast_options(),
+                **({"race_tire_rules": self.race_tire_rules}
+                   if self.race_tire_rules else {}),
                 **({"pit_plan": pit_plan} if pit_plan is not None else {}),
             )
             selected = inventory.sets[min(scores, key=lambda item: item[1])[0]]
@@ -81,7 +83,8 @@ class InventoryStrategyMixin:
             return  # Retaining a physical set is not a new stint or fresh tyres.
         fitted = inventory.fit(set_id, current_age=state.tire_laps)
         self._finish_inventory_stint(state)
-        self._fit_tire(state, fitted.compound)
+        self._fit_tire(state, fitted.compound,
+                       **({"set_id": fitted.id} if state.race_tire_usage is not None else {}))
         state.tire_laps = state.prior_tire_laps = fitted.age
         state.driver.current_tire_laps = fitted.age
         state.tire_set_history.append(dict(
@@ -94,8 +97,11 @@ class InventoryStrategyMixin:
 
     @staticmethod
     def _inventory_result_fields(state):
+        from f1sim.simulation.race_tire_policy import RaceTireRuleMixin
+
+        usage = RaceTireRuleMixin._race_tire_usage_fields(state)
         if state.tire_inventory is None:
-            return {}
+            return usage
         history = deepcopy(state.tire_set_history)
         if history:
             history[-1]["age_at_end"] = state.tire_laps
@@ -104,7 +110,7 @@ class InventoryStrategyMixin:
                 history[-1]["remaining_laps_at_end"] = (
                     history[-1]["remaining_laps_at_fit"] - history[-1]["laps_used"])
         return dict(tire_set_history=history,
-                    tire_inventory=state.tire_inventory.snapshot(state.tire_laps))
+                    tire_inventory=state.tire_inventory.snapshot(state.tire_laps), **usage)
 
     @staticmethod
     def _damage_inventory_tire(state):
@@ -166,7 +172,7 @@ class InventoryStrategyMixin:
         if not free_fit:
             options.update(self._weather_control_forecast_options(state))
         return plan_inventory_strategy(
-            state.driver, state.car, track, weather, state.tire_inventory, lap,
+            state.driver, state.car, track, weather, self._race_tire_planning_inventory(state), lap,
             tire_age=state.tire_laps, remaining_stops=max(0, maximum - state.pit_stops),
             remaining_dry_stops=max(0, dry_limit - state.pit_stops),
             remaining_damp_stops=max(0, damp_limit - state.pit_stops),
@@ -200,7 +206,15 @@ class InventoryStrategyMixin:
             weather_clock=weather_clock, current_traffic_gaps=current_traffic_gaps,
             additional_current_stop_cost=additional_current_stop_cost,
         )
-        if choice.set_id is not None:
+        if state.race_tire_usage is None and choice.set_id is not None:
+            return choice.set_id
+        eligible = {item.id for item in state.tire_inventory.replacements()}
+        usage = state.race_tire_usage
+        current_usable = (usage is None or (usage.can_fit(usage.current_set_id)
+                         and not state.tire_inventory.require_unused_race_set))
+        if free_fit and current_usable:
+            eligible.add(state.tire_inventory.current_set_id)
+        if choice.set_id is not None and choice.set_id in eligible:
             return choice.set_id
         car = state.car.model_copy(deep=True)
         track = track.model_copy(deep=True)
@@ -208,7 +222,7 @@ class InventoryStrategyMixin:
         inventory = state.tire_inventory
         candidates = list(inventory.replacements())
         if (free_fit and inventory.current_set_id not in inventory.unavailable_ids
-                and inventory.current_remaining_laps(state.tire_laps) != 0):
+                and inventory.current_remaining_laps(state.tire_laps) != 0 and current_usable):
             candidates.insert(0, inventory.sets[inventory.current_set_id])
         required_wet = self.event_manager.is_wet_tire_required()
         candidates = [item for item in candidates if (
@@ -277,8 +291,10 @@ class InventoryStrategyMixin:
         if self._should_switch_conservative_to_balanced(state, lap, track, gap):
             state.strategy_archetype = TeamStrategyArchetype.BALANCED
         inventory = state.tire_inventory
+        race_rule = self._race_tire_rule_reason(state, track, lap)
         required_wet = self.event_manager.is_wet_tire_required()
-        compulsory = (inventory.current_set_id in inventory.unavailable_ids
+        compulsory = (race_rule is not None
+                      or inventory.current_set_id in inventory.unavailable_ids
                       or inventory.current_remaining_laps(state.tire_laps) == 0
                       or (state.current_tire.compound.value != "wet" if required_wet else
                           weather.tire_mismatch(state.current_tire.compound) == "critical")
@@ -330,6 +346,8 @@ class InventoryStrategyMixin:
                 reason = "critical_weather"
             elif unavailable:
                 reason = "forced_repair"
+            elif race_rule is not None:
+                reason = race_rule
             elif inventory.current_remaining_laps(state.tire_laps) == 0:
                 reason = "tyre_usage_limit"
             elif compound_requirement:
@@ -348,6 +366,7 @@ class InventoryStrategyMixin:
                                weather_clock: StrategyWeatherClock | None = None):
         """Select an actual available set before reserving or sampling service."""
         inventory = state.tire_inventory
+        self._race_tire_rule_reason(state, track, lap)
         proposal = state.inventory_pit_proposal
         required_wet = self.event_manager.is_wet_tire_required()
         available = {item.id: item for item in inventory.replacements()
@@ -368,7 +387,8 @@ class InventoryStrategyMixin:
                 current_traffic_gaps=current_traffic_gaps,
                 additional_current_stop_cost=additional_current_stop_cost,
             )
-        if selected is None or required_wet and selected not in available:
+        if (selected is None or (required_wet or state.race_tire_usage is not None)
+                and selected not in available):
             self._retire_without_inventory_tire(state, required_wet_tires=required_wet)
             return False
         state.inventory_pit_proposal = (lap, selected)
@@ -379,6 +399,7 @@ class InventoryStrategyMixin:
                               weather_clock: StrategyWeatherClock | None = None):
         state.pit_decision_context = None
         lap = current_lap + 1
+        self._race_tire_rule_reason(state, track, lap)
         decision = self._plan_inventory(
             state, track, weather, lap, free_fit=True,
             physical_total_laps=physical_total_laps, weather_intervals=weather_intervals,
@@ -388,6 +409,18 @@ class InventoryStrategyMixin:
             state, track, weather, lap, free_fit=True, physical_total_laps=physical_total_laps,
             weather_clock=weather_clock, weather_intervals=weather_intervals,
         )
+        if state.race_tire_usage is not None:
+            valid = {item.id for item in state.tire_inventory.replacements()}
+            inventory = state.tire_inventory
+            if (inventory.current_set_id not in inventory.unavailable_ids
+                    and inventory.current_remaining_laps(state.tire_laps) != 0
+                    and not inventory.require_unused_race_set):
+                valid.add(inventory.current_set_id)
+            if selected not in valid:
+                selected = self._inventory_immediate_set(
+                    state, track, weather, lap, free_fit=True,
+                    physical_total_laps=physical_total_laps, weather_clock=weather_clock,
+                    weather_intervals=weather_intervals)
         if selected is None:
             self._retire_without_inventory_tire(
                 state, required_wet_tires=self.event_manager.is_wet_tire_required())

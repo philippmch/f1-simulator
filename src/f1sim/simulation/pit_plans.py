@@ -270,7 +270,7 @@ def validate_pit_plan_snapshot(snapshot, plans):
     """Never reinterpret a conditional plan as a fixed stop in an older saved schema."""
     windowed = has_pit_plan_windows(plans)
     version = snapshot.get("schema_version")
-    if (version == 10 or version in (11, 12, 13, 14, 15)
+    if (version == 10 or version in (11, 12, 13, 14, 15, 16)
             and (windowed or "pit_plan_policy" in snapshot)):
         if not windowed or snapshot.get("pit_plan_policy") != PIT_PLAN_WINDOW_POLICY:
             raise ValueError(

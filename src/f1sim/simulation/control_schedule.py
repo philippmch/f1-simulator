@@ -114,7 +114,7 @@ def red_flag_action_description(action):
 def validate_control_schedule_snapshot(snapshot, schedule):
     """Reject old inputs that would silently drop the experiment's control source."""
     version = snapshot.get("schema_version")
-    if version in (14, 15):
+    if version in (14, 15, 16):
         if any(key in snapshot for key in ("control_schedule", "control_schedule_policy")):
             if (schedule is None or "control_schedule" not in snapshot
                     or snapshot.get("control_schedule_policy")

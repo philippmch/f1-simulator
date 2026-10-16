@@ -25,6 +25,7 @@ from f1sim.analysis.strategy_comparison import (
 )
 from f1sim.simulation.race import result_is_classified
 from f1sim.simulation.randomness import validate_rng_policy
+from f1sim.simulation.tire_rules import RACE_TIRE_RULES_POLICY, validate_race_tire_rules
 
 _MAX_SEED = 2**32 - 1
 SELECTION_OBJECTIVES = ("points", "win", "podium")
@@ -234,6 +235,10 @@ def _phase_points(
             or raw_inputs.get("starting_tire_ages", {}) != expected_runner.starting_tire_ages
         ):
             raise ValueError(f"{label!r} used different opening tyre inputs")
+        if validate_race_tire_rules(raw_inputs.get("race_tire_rules")) != validate_race_tire_rules(
+            getattr(expected_runner, "race_tire_rules", None),
+        ):
+            raise ValueError(f"{label!r} used different race_tire_rules")
         normalized_inputs[label] = snapshot
     baseline = normalized_inputs[reference_label]
     if any(snapshot != baseline for snapshot in normalized_inputs.values()):
@@ -334,6 +339,7 @@ def evaluate_saved_pit_plan_selection(
     parallel: bool = False,
     max_workers: int | None = None,
     rng_policy: str | None = None,
+    race_tire_rules: dict | None = None,
 ) -> dict[str, Any]:
     """Choose a pit plan on complete training outcomes and validate it on later seeds.
 
@@ -341,6 +347,7 @@ def evaluate_saved_pit_plan_selection(
     training seed range; only the fixed reference and selected plan use the next,
     disjoint validation range. Every requested target outcome must be valid.
     """
+    rules = validate_race_tire_rules(race_tire_rules)
     if max_workers is not None:
         max_workers = _positive_int(max_workers, "max_workers")
     if rng_policy is not None:
@@ -355,6 +362,12 @@ def evaluate_saved_pit_plan_selection(
         path, plans, driver_id=driver_id, constructor_id=constructor_id,
         scenario=scenario, rng_policy=rng_policy,
     )
+    if rules:
+        runner = _runner_variant(runner, race_tire_rules=rules)
+        source_variants = {
+            label: _runner_variant(variant, race_tire_rules=rules)
+            for label, variant in source_variants.items()
+        }
     prepared = _prepare_selection_from_variants(
         runner, saved_count, plans, reference_label, source_variants,
         driver_id=driver_id, constructor_id=constructor_id,
@@ -378,8 +391,10 @@ def prepare_pit_plan_selection(
     objective: str = "points",
     training_simulations: int = 100,
     validation_simulations: int = 100,
+    race_tire_rules: dict | None = None,
 ) -> dict[str, Any]:
     """Validate and build all in-memory candidate and phase runners before trials."""
+    rules = validate_race_tire_rules(race_tire_rules)
     labels = validate_pit_plan_selection_request(
         plans, reference_label, driver_id=driver_id, constructor_id=constructor_id,
         training_simulations=training_simulations,
@@ -387,6 +402,8 @@ def prepare_pit_plan_selection(
         objective=objective,
     )
     source_count = _positive_int(source_simulations, "source_simulations")
+    if rules:
+        runner = _runner_variant(runner, race_tire_rules=rules)
     source_variants = _build_pit_plan_variant_runners(
         runner, plans, driver_id=driver_id, constructor_id=constructor_id,
     )
@@ -414,14 +431,17 @@ def evaluate_pit_plan_selection(
     parallel: bool = False,
     max_workers: int | None = None,
     cancel_requested: Callable[[], bool] | None = None,
+    race_tire_rules: dict | None = None,
 ) -> dict[str, Any]:
     """Select and validate candidates using a trusted in-memory runner."""
+    rules = validate_race_tire_rules(race_tire_rules)
     prepared = prepare_pit_plan_selection(
         runner, source_simulations, plans, reference_label,
         driver_id=driver_id, constructor_id=constructor_id,
         training_simulations=training_simulations,
         validation_simulations=validation_simulations,
         objective=objective,
+        **({"race_tire_rules": rules} if rules else {}),
     )
     return evaluate_prepared_pit_plan_selection(
         prepared, parallel=parallel, max_workers=max_workers,
@@ -469,6 +489,7 @@ def _prepare_selection_from_variants(
         label: deepcopy(getattr(source_variants[label], "pit_plans", None) or {})
         for label in labels
     }
+    rules = validate_race_tire_rules(getattr(runner, "race_tire_rules", None))
     return {
         "labels": labels,
         "reference_label": reference_label,
@@ -484,6 +505,7 @@ def _prepare_selection_from_variants(
         "validation_candidates": validation_candidates,
         "target_members": target_members,
         "plans": frozen_plans,
+        **({"race_tire_rules": rules} if rules else {}),
     }
 
 
@@ -652,6 +674,9 @@ def evaluate_prepared_pit_plan_selection(
             "Repeating the same request reuses the same validation seed range.",
         ],
     }
+    if prepared.get("race_tire_rules"):
+        selection["race_tire_rules"] = deepcopy(prepared["race_tire_rules"])
+        selection["race_tire_rules_policy"] = RACE_TIRE_RULES_POLICY
     return {
         "selection": selection,
         "training_results": training_results,
