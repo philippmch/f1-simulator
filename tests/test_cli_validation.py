@@ -16,6 +16,7 @@ CLI = PROJECT_ROOT / "examples" / "simulate_race.py"
     ("arguments", "message"),
     [
         (["--race-engine", "unknown"], "invalid choice"),
+        (["--postqual-pace-policy", "unknown"], "invalid choice"),
         (["--weather-mode", "unknown"], "invalid choice"),
         (["--race-grid", "official", "--qualifying-weather",
           '{"Q1":{"rain_intensity":0.2}}'], "conflicts with --race-grid official"),

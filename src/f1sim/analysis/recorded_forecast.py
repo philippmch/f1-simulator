@@ -97,7 +97,8 @@ def _qualifying_summary(trials, driver_ids):
 
 def record_race_forecast(loader, year, target_race, *, trials=100, seed=42, weather=None,
                          parallel=False, max_workers=None, progress_callback=None,
-                         cancel_requested=None, now=None, stage="pre_qualifying"):
+                         cancel_requested=None, now=None, stage="pre_qualifying",
+                         postqual_pace_policy="qualifying_led"):
     """Record a future race before qualifying or with the published GP starting grid.
 
     The local timestamp and content seal detect accidental alteration. They do
@@ -109,6 +110,8 @@ def record_race_forecast(loader, year, target_race, *, trials=100, seed=42, weat
     loader._assert_current_year(year)
     if stage not in ("pre_qualifying", "post_qualifying"):
         raise ValueError("Forecast stage must be pre_qualifying or post_qualifying")
+    if postqual_pace_policy not in ("qualifying_led", "season_points"):
+        raise ValueError("postqual_pace_policy must be qualifying_led or season_points")
     post_qualifying = stage == "post_qualifying"
     if type(trials) is not int or not 1 <= trials <= 10_000:
         raise ValueError("trials must be an integer from 1 to 10000")
@@ -136,7 +139,9 @@ def record_race_forecast(loader, year, target_race, *, trials=100, seed=42, weat
             or any((_integer(row.get("round")) or 0) >= target + int(post_qualifying)
                    for row in qualifying)):
         raise ValueError("Target or later performance exists; a pre-event forecast is unavailable")
-    stats = loader.get_weighted_driver_stats(year, target)
+    stats = (loader.get_weighted_driver_stats(
+        year, target, postqual_pace_policy=postqual_pace_policy,
+    ) if post_qualifying else loader.get_weighted_driver_stats(year, target))
     drivers = sorted(loader.create_drivers_from_stats(stats), key=lambda driver: driver.id)
     cars = loader.create_cars_from_stats(stats)
     track = loader.create_track_from_stats(loader._track_stats_from_event(year, event))
@@ -226,6 +231,7 @@ def record_race_forecast(loader, year, target_race, *, trials=100, seed=42, weat
     if post_qualifying:
         body["event"]["time"] = event["time"]
         body.update(schema_version=4, kind="post_qualifying_race_forecast",
+                    postqual_pace_policy=postqual_pace_policy,
                     race_starts_at=deadline.isoformat(), target_performance_used=True,
                     target_race_performance_used=False, qualifying_observation_round=target,
                     qualifying_forecast_scope="simulation_diagnostic_not_scored")
@@ -269,6 +275,9 @@ def _validate_recorded_forecast(record):
             or record["schema_version"] not in (1, 2, 3, 4)
             or record.get("kind") != expected_kind):
         raise ValueError("Unsupported recorded forecast format")
+    if ("postqual_pace_policy" in record
+            and record["postqual_pace_policy"] not in ("qualifying_led", "season_points")):
+        raise ValueError("Unsupported postqual_pace_policy")
     if type(record.get("year")) is not int or not 1 <= record["year"] <= 9999:
         raise ValueError("Recorded forecast needs a valid year")
     started, recorded, deadline = (_timestamp(record[key]) for key in (

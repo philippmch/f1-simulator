@@ -46,7 +46,8 @@ class ForecastLoader(CurrentSeasonDataLoader):
         # Legacy-record coverage remains separate from the new allocation tests.
         return None
 
-    def get_weighted_driver_stats(self, year, race):
+    def get_weighted_driver_stats(self, year, race, *, postqual_pace_policy="season_points"):
+        self.requested_pace_policy = postqual_pace_policy
         return {identity: DriverStats(driver_id=identity, driver_name=identity,
                                       team_id="a", team_name="A", constructor_points=10)
                 for identity in ("AA", "BB")}

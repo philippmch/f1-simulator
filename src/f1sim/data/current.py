@@ -60,6 +60,7 @@ RESULT_ROUND_COMPLETENESS = 0.8
 # Generic result statuses do not identify hardware failures. This is a model
 # prior, not an estimate fitted to the observed all-cause non-finish rate.
 NOMINAL_MECHANICAL_RELIABILITY = 0.95
+POSTQUAL_PACE_POLICIES = frozenset(("season_points", "qualifying_led"))
 
 
 class CurrentSeasonDataError(RuntimeError):
@@ -923,6 +924,7 @@ class CurrentSeasonDataLoader:
         self._last_qualifying_rounds: list[int] = []
         self._qualifying_forecast: dict[str, Any] | None = None
         self._race_grid: dict[str, Any] | None = None
+        self._postqual_pace_policy: str | None = None
 
     # ------------------------------------------------------------------
     # HTTP and season validation
@@ -1294,6 +1296,7 @@ class CurrentSeasonDataLoader:
         self._last_qualifying_rounds.clear()
         self._qualifying_forecast = None
         self._race_grid = None
+        self._postqual_pace_policy = None
         self._http_retries.clear()
         self._last_request_monotonic = 0.0
         self._fetch_budget_started = time.monotonic()
@@ -1317,6 +1320,8 @@ class CurrentSeasonDataLoader:
                if self._qualifying_forecast is not None else {}),
             **({"race_grid": copy.deepcopy(self._race_grid)}
                if self._race_grid is not None else {}),
+            **({"postqual_pace_policy": self._postqual_pace_policy}
+               if self._postqual_pace_policy is not None else {}),
             **({"http_retries": copy.deepcopy(self._http_retries)} if self._http_retries else {}),
         }
 
@@ -2623,6 +2628,7 @@ class CurrentSeasonDataLoader:
         track_weight: float = 0.5,
         form_weight: float = 0.3,
         quali_weight: float = 0.2,
+        postqual_pace_policy: str = "season_points",
     ) -> dict[str, DriverStats]:
         """Build current-season stats for every active official driver.
 
@@ -2635,8 +2641,14 @@ class CurrentSeasonDataLoader:
         applies only to target qualifying (when published), ``form_weight`` to
         recent race form, and ``quali_weight`` to recent qualifying.  Target
         race results are never used for driver pace.
+
+        ``qualifying_led`` removes the constructor-points pace anchor only
+        after near-complete current qualifying, for teams with a positively
+        weighted timing signal. Missing timing retains the season-points
+        fallback. Standings points and driver traits are retained.
         """
 
+        self._validate_postqual_pace_policy(postqual_pace_policy)
         self._assert_current_year(year)
         target_event = self._event_for_race(year, target_race)
         target_round = int(target_event["round"])
@@ -2657,6 +2669,7 @@ class CurrentSeasonDataLoader:
             race_rows=race_rows, quali_rows=quali_rows,
             target_qualifying_rows=target_qualifying_rows,
             track_weight=track_weight, form_weight=form_weight, quali_weight=quali_weight,
+            postqual_pace_policy=postqual_pace_policy,
         )
         from f1sim.analysis.qualifying_calibration import DEFAULT_CURRENT_QUALIFYING_CALIBRATION
 
@@ -2668,6 +2681,7 @@ class CurrentSeasonDataLoader:
         else:
             self._qualifying_forecast = None
         self._driver_stats = stats
+        self._postqual_pace_policy = postqual_pace_policy
         return copy.deepcopy(stats)
 
     def prefer_native_winner_forecast(
@@ -2834,11 +2848,18 @@ class CurrentSeasonDataLoader:
                             "practice_reason": str(error)}
         return output, evidence
 
+    @staticmethod
+    def _validate_postqual_pace_policy(policy: str) -> None:
+        if not isinstance(policy, str) or policy not in POSTQUAL_PACE_POLICIES:
+            raise ValueError("postqual_pace_policy must be season_points or qualifying_led")
+
     def _build_driver_stats(
         self, *, year, target_event, roster, driver_standings, constructor_standings,
         race_rows, quali_rows, target_qualifying_rows, track_weight, form_weight, quali_weight,
+        postqual_pace_policy="season_points",
     ) -> dict[str, DriverStats]:
         """Assemble fresh models from supplied evidence without fetching or caching."""
+        self._validate_postqual_pace_policy(postqual_pace_policy)
         target_round = int(target_event["round"])
         # Map each current roster seat to a stable provider-independent key.
         standings_map = self._standings_driver_map(driver_standings)
@@ -3040,7 +3061,15 @@ class CurrentSeasonDataLoader:
             # Keep each live signal in its own bucket.  The public weights
             # control both driver and team pace, and an unavailable or zeroed
             # bucket contributes nothing rather than an implicit zero score.
-            weighted_total = constructor_score - (0.5 if target_qualifying_rows else 0.0)
+            use_timing_anchor = (
+                postqual_pace_policy == "qualifying_led"
+                and bool(target_qualifying_rows)
+                and any(team_id in values and weight > 0.0 for values, weight in team_signals)
+            )
+            weighted_total = (
+                0.0 if use_timing_anchor
+                else constructor_score - (0.5 if target_qualifying_rows else 0.0)
+            )
             for values, weight in team_signals:
                 if team_id in values and weight > 0.0:
                     weighted_total += values[team_id] * weight

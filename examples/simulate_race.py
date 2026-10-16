@@ -271,6 +271,13 @@ def main() -> int:
              "(simulated). Custom qualifying weather is incompatible with official.",
     )
     parser.add_argument(
+        "--postqual-pace-policy", choices=("qualifying_led", "season_points"),
+        default="qualifying_led",
+        help="After observed qualifying, use qualifying and recent timing for car pace "
+             "(qualifying_led), or retain the earlier season-points anchor (season_points). "
+             "Before qualifying both retain the earlier model.",
+    )
+    parser.add_argument(
         "--qualifying-weather", type=_qualifying_weather,
         help='Optional JSON object with Q1/Q2/Q3 Weather fields; each session is fixed. '
              'Omitted sessions use each race scenario weather.',
@@ -337,8 +344,10 @@ def main() -> int:
             track_weight=0.5,
             form_weight=0.3,
             quali_weight=0.2,
+            postqual_pace_policy=args.postqual_pace_policy,
         )
         print(f"Loaded data for {len(driver_stats)} drivers")
+        print(f"Race pace policy: {args.postqual_pace_policy}")
     except Exception as e:
         print(f"Error loading driver data: {e}")
         return 1

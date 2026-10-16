@@ -10,14 +10,19 @@ async function checkBasicSetup(page) {
     scenarios: getSelectedScenarioNames(),
     compare: document.getElementById('compareAutomaticInput').checked,
     grid: document.getElementById('raceGridModeSelect').value,
+    pace: document.getElementById('postqualPacePolicySelect').value,
   }));
   try {
     assert.equal(await page.locator('#advancedSettings').getAttribute('open'), null);
     assert(await page.locator('#seedInput').isHidden());
-    for (const id of ['trackSelect', 'weatherSelect', 'raceGridModeSelect', 'simCount', 'btnRun']) {
+    for (const id of ['trackSelect', 'weatherSelect', 'raceGridModeSelect', 'postqualPacePolicySelect', 'simCount', 'btnRun']) {
       assert(await page.locator('#' + id).isVisible(), `${id} is part of basic setup`);
     }
     const before = await page.evaluate(() => buildRunPayload());
+    assert.equal(before.postqual_pace_policy, original.pace);
+    await page.getByLabel('Race pace', {exact: true}).selectOption('season_points');
+    assert.equal((await page.evaluate(() => buildRunPayload())).postqual_pace_policy, 'season_points');
+    await page.getByLabel('Race pace', {exact: true}).selectOption(original.pace);
     assert(before && before.race && before.simulations >= 10);
     const stock = await page.evaluate(() => {
       const node = document.createElement('div');
@@ -96,6 +101,7 @@ async function checkBasicSetup(page) {
       document.getElementById('seedInput').value = original.seed;
       document.getElementById('compareAutomaticInput').checked = original.compare;
       document.getElementById('raceGridModeSelect').value = original.grid;
+      document.getElementById('postqualPacePolicySelect').value = original.pace;
       clearQualifyingWeather();
       saveUiPrefs();
       setScenarioSelection(original.scenarios, {persist: false});

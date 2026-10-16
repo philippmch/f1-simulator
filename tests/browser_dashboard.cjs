@@ -371,6 +371,43 @@ const { checkBasicSetup } = require('./browser_basic_setup.cjs');
       await page.waitForFunction(() => document.getElementById('pitPlanSelectionTargetId')
         .querySelector('option[value="S00"]'));
       assert.equal(await page.locator('#pitPlanSelectionTargetId').inputValue(), 'S00');
+      const paceRosterRequests = [];
+      const recordPaceRosterRequest = request => {
+        const url = new URL(request.url());
+        if (url.pathname === '/api/ratings' && url.searchParams.get('race') === originalRace) {
+          paceRosterRequests.push(url.searchParams.get('postqual_pace_policy'));
+        }
+      };
+      page.on('request', recordPaceRosterRequest);
+      for (const policy of ['season_points', 'qualifying_led']) {
+        const policyRosterRequest = page.waitForRequest(request => {
+          const url = new URL(request.url());
+          return url.pathname === '/api/ratings' && url.searchParams.get('race') === originalRace
+            && url.searchParams.get('postqual_pace_policy') === policy;
+        }, {timeout: 10000});
+        await page.locator('#postqualPacePolicySelect').selectOption(policy);
+        await policyRosterRequest;
+        await page.waitForFunction(() => !pitSelectionRosterLoading && pitSelectionRoster
+          && pitSelectionRosterKey === currentPitSelectionRosterKey()
+          && document.getElementById('pitPlanSelectionStatus').textContent.includes('Loaded '));
+        assert(await page.locator('#pitPlanSelectionTargetId').isEnabled(),
+          'Changing the pace policy must leave a usable pit-selection roster');
+        assert.deepEqual(await page.locator('#pitPlanSelectionTargetId option').evaluateAll(options =>
+          options.map(option => option.value).filter(Boolean).sort()),
+        fixture.payload.ratings.drivers.map(driver => driver.id).sort());
+        await page.locator('#pitPlanSelectionTargetId').selectOption('S01');
+        assert.equal(await page.locator('#pitPlanSelectionTargetId').inputValue(), 'S01');
+        await page.locator('#pitPlanSelectionTargetId').selectOption('S00');
+        const count = paceRosterRequests.length;
+        assert.equal(await page.evaluate(() => loadPitSelectionRoster()), true);
+        await page.locator('#pitPlanSelectionEnabled').uncheck();
+        await page.locator('#pitPlanSelectionEnabled').check();
+        assert.equal(paceRosterRequests.length, count,
+          'A loaded race and pace-policy key must reuse its roster without redundant requests');
+      }
+      page.removeListener('request', recordPaceRosterRequest);
+      assert.deepEqual(paceRosterRequests, ['season_points', 'qualifying_led'],
+        'Each pace-policy change must fetch the matching roster exactly once');
       await page.locator('#pitPlanSelectionEnabled').uncheck();
     }
 

@@ -64,6 +64,8 @@ def test_post_qualifying_round_trip_scores_frozen_references_without_scoring_obs
     saved = record(loader)
     assert saved["schema_version"] == 4
     assert saved["kind"] == "post_qualifying_race_forecast"
+    assert saved["postqual_pace_policy"] == "qualifying_led"
+    assert loader.requested_pace_policy == "qualifying_led"
     assert saved["target_performance_used"] is True
     assert saved["target_race_performance_used"] is False
     assert saved["performance_rounds"] == [1, 2]

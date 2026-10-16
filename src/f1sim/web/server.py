@@ -160,6 +160,7 @@ class DashboardRunRequest:
     seed: StrictInt = 42
     qualifying_mode: str = "simulated"
     race_grid_mode: str = "auto"
+    postqual_pace_policy: str = "qualifying_led"
     starting_grid: list[StrictStr] | None = None
     pit_lane_starters: list[StrictStr] | None = None
     parallel: StrictBool = True
@@ -193,6 +194,8 @@ def _validate_dashboard_request(request: DashboardRunRequest) -> list[str]:
     """Validate resource bounds and return all scenarios before live I/O."""
 
     validate_weather_mode(request.weather_mode)
+    if request.postqual_pace_policy not in ("qualifying_led", "season_points"):
+        raise ValueError("postqual_pace_policy must be qualifying_led or season_points")
     if request.race_grid_mode not in ("auto", "simulated", "official"):
         raise ValueError("race_grid_mode must be auto, simulated or official")
     validate_starting_grid(request.starting_grid)
@@ -802,6 +805,7 @@ def _dashboard_request_metadata(
         "weather_mode": request.weather_mode,
         "qualifying_mode": "simulated",
         "race_grid_mode": request.race_grid_mode,
+        "postqual_pace_policy": request.postqual_pace_policy,
         **({"starting_grid": request.starting_grid.copy()}
            if request.starting_grid is not None else {}),
         **({"pit_lane_starters": request.pit_lane_starters.copy()}
@@ -866,6 +870,7 @@ def run_dashboard_simulation(
         track_weight=0.5,
         form_weight=0.3,
         quali_weight=0.2,
+        postqual_pace_policy=request.postqual_pace_policy,
     )
     # Loading the result feed first lets the calendar mark completed rounds
     # from authoritative rows before track fastest-lap calibration runs.
@@ -1534,6 +1539,7 @@ def build_fastapi_app() -> Any:
     @app.get("/api/ratings")
     def ratings(
         year: int | None = Query(default=None),
+        postqual_pace_policy: str = Query(default="qualifying_led"),
         race: str = Query(
             ...,
             min_length=1,
@@ -1544,6 +1550,8 @@ def build_fastapi_app() -> Any:
         """Return ratings derived only from fresh current-season data."""
         requested_year = _current_season() if year is None else year
         try:
+            if postqual_pace_policy not in ("qualifying_led", "season_points"):
+                raise ValueError("postqual_pace_policy must be qualifying_led or season_points")
             loader = _get_loader()
             round_number = loader.resolve_race_identifier(requested_year, race)
             events = loader.list_available_events(requested_year)
@@ -1558,6 +1566,7 @@ def build_fastapi_app() -> Any:
                 track_weight=0.5,
                 form_weight=0.3,
                 quali_weight=0.2,
+                postqual_pace_policy=postqual_pace_policy,
             )
 
             if not driver_stats:

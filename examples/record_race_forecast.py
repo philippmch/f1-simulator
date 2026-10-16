@@ -25,6 +25,8 @@ def main():
                         default="pre_qualifying",
                         help="Post-qualifying requires the confirmed GP grid before the race")
     parser.add_argument("--trials", type=int, default=100)
+    parser.add_argument("--postqual-pace-policy", choices=("qualifying_led", "season_points"),
+                        default="qualifying_led", help="Car pace policy after observed qualifying")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--parallel", action="store_true")
     parser.add_argument("--workers", type=int)
@@ -67,6 +69,7 @@ def main():
             progress_callback=progress,
             cancel_requested=cancelled.is_set,
             stage=args.stage,
+            postqual_pace_policy=args.postqual_pace_policy,
         )
         raise_if_cancelled(cancelled.is_set)
         path = save_recorded_forecast(args.output, record)

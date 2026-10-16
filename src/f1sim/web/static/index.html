@@ -2014,10 +2014,17 @@ input:focus-visible {
         </div>
         <div class="control-group">
           <label class="control-label" for="raceGridModeSelect">Race grid</label>
-          <select id="raceGridModeSelect" aria-describedby="raceGridHelp" onchange="updateRaceGridControls()">
+          <select id="raceGridModeSelect" aria-describedby="raceGridHelp raceGridPaceHelp" onchange="updateRaceGridControls()">
             <option value="auto" selected>Published when available</option>
             <option value="official">Official race grid</option>
             <option value="simulated">Simulate qualifying, then race</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label class="control-label" for="postqualPacePolicySelect">Race pace</label>
+          <select id="postqualPacePolicySelect" aria-describedby="postqualPaceHelp">
+            <option value="qualifying_led" selected>Qualifying-led</option>
+            <option value="season_points">Season points prior</option>
           </select>
         </div>
         <div class="control-group">
@@ -2029,6 +2036,8 @@ input:focus-visible {
       </div>
     </div>
     <div class="run-budget" id="raceGridHelp">Use the published starting order, including grid penalties, when available; otherwise simulate qualifying for each race trial.</div>
+    <div class="run-budget" id="raceGridPaceHelp">This choice sets the race starting order. Both modes use the same driver and car pace ratings, which can include published qualifying data when available.</div>
+    <div class="run-budget" id="postqualPaceHelp">Qualifying-led uses current qualifying and recent form for car pace once results are available. Without usable qualifying, both choices retain the season prior.</div>
     <div class="run-budget" id="runBudgetSummary" aria-live="polite"></div>
     <details class="advanced-settings" id="advancedSettings">
       <summary>More race settings<span class="settings-hint" id="advancedSettingsHint">Tyres, pit plans and weather experiments</span></summary>
@@ -2617,6 +2626,7 @@ function updateRunBudget() {
       document.getElementById(`qualifying${session}Condition`).value !== 'inherit')
     || document.getElementById('seedInput').value !== '42'
     || document.getElementById('raceGridModeSelect').value !== 'auto'
+    || document.getElementById('postqualPacePolicySelect').value !== 'qualifying_led'
     || document.getElementById('raceEngineSelect').value !== 'chronological'
     || document.getElementById('weatherModeSelect').value !== 'evolving'
     || document.getElementById('rngPolicySelect').value !== 'isolated_weather_v1'
@@ -3187,6 +3197,7 @@ function saveUiPrefs() {
     scenarioSet: getScenarioSetValue(),
     weatherMode: document.getElementById('weatherModeSelect').value,
     raceGridMode: document.getElementById('raceGridModeSelect').value,
+    postqualPacePolicy: document.getElementById('postqualPacePolicySelect').value,
     compareAutomatic: Boolean(compareAutomaticInput?.checked),
   };
   const scheduleText = document.getElementById('weatherScheduleInput').value.trim();
@@ -3203,6 +3214,9 @@ function loadUiPrefs() {
     const prefs = JSON.parse(raw);
     if (['auto', 'official', 'simulated'].includes(prefs.raceGridMode)) {
       document.getElementById('raceGridModeSelect').value = prefs.raceGridMode;
+    }
+    if (['qualifying_led', 'season_points'].includes(prefs.postqualPacePolicy)) {
+      document.getElementById('postqualPacePolicySelect').value = prefs.postqualPacePolicy;
     }
     if (['evolving', 'fixed_rainfall'].includes(prefs.weatherMode)) {
       document.getElementById('weatherModeSelect').value = prefs.weatherMode;
@@ -3441,7 +3455,7 @@ function parsePitPlanInput() {
 }
 
 function currentPitSelectionRosterKey() {
-  return `${document.getElementById('yearSelect').value}|${document.getElementById('trackSelect').value}`;
+  return `${document.getElementById('yearSelect').value}|${document.getElementById('trackSelect').value}|${document.getElementById('postqualPacePolicySelect').value}`;
 }
 
 function normalizePitSelectionRoster(data) {
@@ -3890,7 +3904,8 @@ function focusPitSelectionEditor() {
 async function loadPitSelectionRoster(force = false) {
   const year = document.getElementById('yearSelect').value;
   const race = document.getElementById('trackSelect').value;
-  const requestKey = `${year}|${race}`;
+  const pacePolicy = document.getElementById('postqualPacePolicySelect').value;
+  const requestKey = currentPitSelectionRosterKey();
   if (!backendConnected || !calendarReady || !year || !race) {
     const message = 'Connect to the backend and choose a race to load its roster.';
     invalidatePitSelectionRoster(message);
@@ -3909,7 +3924,7 @@ async function loadPitSelectionRoster(force = false) {
   updatePitSelectionStatus(`Loading current ${year} ${race} driver and constructor IDs…`);
   updatePitSelectionTargetOptions(false);
   try {
-    const query = new URLSearchParams({year, race});
+    const query = new URLSearchParams({year, race, postqual_pace_policy: pacePolicy});
     const response = await fetch(apiUrl(`/api/ratings?${query.toString()}`), {signal: controller.signal});
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
@@ -3979,6 +3994,8 @@ function initPitPlanSelection() {
   };
   document.getElementById('trackSelect')?.addEventListener('change', reloadRosterForContext);
   document.getElementById('yearSelect')?.addEventListener('change', reloadRosterForContext);
+  document.getElementById('postqualPacePolicySelect')?.addEventListener('change',
+    reloadRosterForContext);
   updatePitSelectionEstimate();
   updatePitSelectionControlAvailability();
 }
@@ -4923,6 +4940,7 @@ function buildRunPayload() {
     seed,
     qualifying_mode: 'simulated',
     race_grid_mode: document.getElementById('raceGridModeSelect').value,
+    postqual_pace_policy: document.getElementById('postqualPacePolicySelect').value,
     race_engine: document.getElementById('raceEngineSelect').value,
     rng_policy: rngPolicy,
     starting_tires: tyreSetup.startingTires,
@@ -5722,6 +5740,8 @@ function renderRace() {
   const pills = [
     simResults.provenance?.source || 'Fresh current-season data',
     scenario.simulation_inputs?.starting_grid ? 'Published or supplied race grid' : 'Simulated qualifying grid',
+    (simResults.request?.postqual_pace_policy || simResults.provenance?.postqual_pace_policy) === 'qualifying_led'
+      ? 'Qualifying-led pace' : 'Season points pace prior',
     (scenario.race_engine || simResults.request?.race_engine) === 'chronological'
       ? 'Lap-aware model' : 'Standard race model',
     Number.isInteger(scenario.sample_index) ? `Representative run ${scenario.sample_index + 1}` : '',
@@ -7376,6 +7396,7 @@ function renderScenarioLab() {
 
   document.getElementById('weatherModeSelect').addEventListener('change', saveUiPrefs);
   document.getElementById('raceGridModeSelect').addEventListener('change', saveUiPrefs);
+  document.getElementById('postqualPacePolicySelect').addEventListener('change', saveUiPrefs);
   document.getElementById('weatherScheduleInput').addEventListener('change', saveUiPrefs);
   document.getElementById('controlSourceSelect').addEventListener('change', saveUiPrefs);
   document.getElementById('controlScheduleInput').addEventListener('change', saveUiPrefs);
