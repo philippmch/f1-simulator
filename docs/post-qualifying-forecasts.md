@@ -8,8 +8,12 @@ does not apply the penalties again from the notes.
 New post-qualifying records report the simulation's driver win frequencies
 directly. Live dashboard and CLI runs also do this when their supplied grid
 matches verified published evidence after qualifying and before the race.
-Earlier points still inform the live driver and car inputs, but do not
-redistribute the resulting team wins afterward. Existing saved forecasts
+The default `qualifying_led` pace policy removes the constructor-points pace
+anchor when current qualifying and usable timing are available; recent form
+remains secondary. `--postqual-pace-policy season_points` retains the previous
+calculation. Neither choice redistributes the resulting team wins afterward.
+See [policy controls, historical scores and limitations](qualifying-led-pace.md).
+Existing saved forecasts
 continue to score the policy and probabilities stored when they were created.
 
 ```powershell
@@ -94,8 +98,9 @@ podiums and retirements. Future recorded forecasts must then demonstrate
 skill with probabilities and references published before their races.
 
 Better qualifying or conditional lap-time estimates alone do not satisfy the
-winner-forecast gate. Failed candidates remain in the research evidence and
-are not deployed as accuracy improvements.
+winner-forecast gate. Failed candidates remain in the research evidence. The
+selectable qualifying-led profile has a descriptive historical winner gain,
+with tradeoffs, and is not certified as passing this broad gate.
 
 The [14 October qualifying-first checkpoint](../evidence/qualifying-primary-checkpoint-2026-10-14.json)
 preserves a fixed 70% current qualifying / 30% recent team fastest-lap candidate.
@@ -103,7 +108,7 @@ Its 40-event, 32-trial screen scores winner Brier 0.48491 against matched native
 0.50366 and grid18 0.50757. The gain interval crosses zero, removing the three
 largest gains reverses improvement, and the 2026 cohort regresses. Correct top
 choice remains 26/40 versus 27/40 for grid first. These are development
-diagnostics; the production pace model remains unchanged.
+diagnostics; that 70/30 candidate is not deployed.
 
 The smaller nominal form weight does not guarantee a smaller effect: its
 weighted term outweighs qualifying in 89 of 234 supported front-driver pairs,
@@ -192,7 +197,7 @@ position, podium and non-finish metrics offline with
 
 | Model or reference, 40 events | Mean winner Brier, lower is better |
 | --- | ---: |
-| Current native model | 0.52074 |
+| Previous season-points native model | 0.52074 |
 | Fixed grid scale 6 | 0.69293 |
 | Fixed grid scale 12 | 0.55782 |
 | Fixed grid scale 18 | 0.50757 |
@@ -200,7 +205,7 @@ position, podium and non-finish metrics offline with
 | Generic native-confidence correction, fitted on 2023–24 | 0.52072 |
 | That confidence correction with season-progress weighting | 0.51852 |
 
-The current model still trails the strongest reference by 2.6%. Its top choice
+The season-points model trails the strongest reference by 2.6%. Its top choice
 won 24 of 40 races, compared with 27 for pole position. In the 16 current-season
 development events, its Brier is 0.44898 versus 0.49050 for the strongest
 reference; this smaller sample does not establish future skill.
@@ -209,8 +214,11 @@ Removing the points prior reduces winner Brier by 10.7% against the current
 model, but is only 8.4% below the best reference. Its reference-gain interval
 is -0.02547 to 0.10445, and finishing-position MAE worsens from 3.29966 to
 3.34940. The position-gain interval is -0.10080 to -0.00111. The two confidence
-corrections also fail the full winner gate. None of these candidates is
-deployed. Podium and non-finish checks remain in the checkpoint; non-finish
+corrections also fail the full winner gate. The qualifying-led profile now
+exposes the points-removal policy as the application default, with the original
+rejection and metric regressions preserved; see its
+[reproducible historical evidence](qualifying-led-pace.md). The confidence
+corrections remain undeployed. Podium and non-finish checks remain in the checkpoint; non-finish
 truth includes non-starts and disqualifications as well as retirements.
 
 These remain fixed-dry development comparisons, with current simulator rules

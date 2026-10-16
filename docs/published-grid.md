@@ -18,6 +18,18 @@ An unavailable or incomplete grid stops this explicit mode; it never silently
 switches to simulated qualifying. Choose Simulate qualifying, then race to
 start each race trial from that trial's simulated qualifying order.
 
+This control selects the race starting order. Both modes retain the same
+driver and car pace ratings, including published target qualifying data when
+available. Simulating qualifying does not remove those observations from the
+ratings or create a forecast made before qualifying. Optional Q1, Q2 and Q3
+weather settings appear under More race settings for simulated qualifying.
+
+The separate Race pace control defaults to Qualifying-led. It removes the
+cumulative constructor-points pace anchor when accepted current qualifying and
+usable timing are available, retaining recent form and the previous missing-data
+fallback. Season points prior retains the earlier calculation. Both grid modes
+can use either pace policy. See [historical results and tradeoffs](qualifying-led-pace.md).
+
 The CLI defaults to `--race-grid auto`; `--race-grid official` requires the
 published order, and `--race-grid simulated` retains the previous behavior.
 The API accepts `race_grid_mode: "auto"`, `"official"` or `"simulated"`
