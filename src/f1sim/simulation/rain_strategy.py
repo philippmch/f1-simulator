@@ -19,6 +19,7 @@ from f1sim.models._native import (
     forecast_dump,
     forecast_json,
     native_forecast_cache,
+    native_forecast_memo,
     native_physics,
     register_forecast_helpers,
     restore_model,
@@ -54,6 +55,7 @@ _green_lap_lock = RLock()
 # Exact future weather graphs and strategy costs contain immutable values only.
 _CLOCK_NODE_LIMIT = 65_536
 _REFIT_COST_LIMIT = 65_536
+_PREPARED_ROWS = object()
 
 
 class _ForecastCostCache:
@@ -951,26 +953,37 @@ def _clock_rain_transition(
 def _running_row(models, weather_json, tire_json, age, lap, physical, intervals=None,
                  observed_surface=False):
     """Green stint beginning here; no stop budget or current-control key."""
-    driver = restore_model(Driver, models[0])
-    car = restore_model(Car, models[1])
-    track = restore_model(Track, models[2])
-    surface = restore_model(Weather, weather_json)
-    tire = restore_model(Tire, tire_json)
-    simulator = LapSimulator(np.random.default_rng(0))
-    prepared = simulator.prepare_deterministic_lap_time(driver, car, track, physical)
+    memo = native_forecast_memo(_PREPARED_ROWS)
+    record = None if memo is None else memo.get('current')
+    start = lap - record[2] if record is not None else -1
+    reuse = (not observed_surface and record is not None
+             and models == record[0] and physical == record[1]
+             and 0 <= start < len(record[3])
+             and weather_json == record[3][start] and intervals == record[4][start])
     row = []
-    horizon = track.total_laps - lap + 1
-    if observed_surface:
-        projected = []
-        previous = 0
-        for interval in (range(horizon) if intervals is None else intervals):
-            for update in range(previous, interval):
-                surface = project_next_surface(
-                    surface, getattr(intervals, "context", None), update)
-            projected.append(surface)
-            previous = interval
+    if reuse:
+        tire = restore_model(Tire, tire_json)
+        projected, prepared = record[5][start:], record[6]
     else:
-        projected = projected_surfaces(surface, horizon, intervals)
+        driver = restore_model(Driver, models[0])
+        car = restore_model(Car, models[1])
+        track = restore_model(Track, models[2])
+        surface = restore_model(Weather, weather_json)
+        tire = restore_model(Tire, tire_json)
+        simulator = LapSimulator(np.random.default_rng(0))
+        prepared = simulator.prepare_deterministic_lap_time(driver, car, track, physical)
+        horizon = track.total_laps - lap + 1
+        if observed_surface:
+            projected = []
+            previous = 0
+            for interval in (range(horizon) if intervals is None else intervals):
+                for update in range(previous, interval):
+                    surface = project_next_surface(
+                        surface, getattr(intervals, "context", None), update)
+                projected.append(surface)
+                previous = interval
+        else:
+            projected = projected_surfaces(surface, horizon, intervals)
     for offset, surface in enumerate(projected):
         cancellation_checkpoint()
         if prepared is not None:
@@ -1241,6 +1254,17 @@ def _transition_plan(snapshots, tire_age, current_lap, budget, lane, queue,
     surfaces = [restore_model(Weather, value) for value in surface_json]
     cadence_suffixes = tuple(suffix_weather_intervals(intervals, offset, surface)
                              for offset, surface in enumerate(surfaces))
+    memo = native_forecast_memo(_PREPARED_ROWS)
+    if memo is not None:
+        # Nested forecasts replace this one record; no mutable models escape
+        # the outermost decision and the existing global row LRU is unchanged.
+        memo.clear()
+        simulator = LapSimulator(np.random.default_rng(0))
+        prepared = simulator.prepare_deterministic_lap_time(
+            restore_model(Driver, models[0]), car, track, physical)
+        if prepared is not None:
+            memo['current'] = (models, physical, current_lap, surface_json,
+                               cadence_suffixes, tuple(surfaces), prepared)
     service = expected_stationary_time(car)
     stop_cost = track.pit_lane_delta + service
     candidates = []
@@ -1566,6 +1590,7 @@ register_forecast_helpers(globals(), (
     "_shared_clock_node", "_shared_refit_cost", "_store_refit_cost",
     "_budget_clock_branches",
     "strategy_projection_models", "isolated_strategy_lap", "native_physics",
+    "native_forecast_memo",
     "plan_controlled_weather", "usable_weather_control",
 ))
 register_forecast_helpers(vars(StrategyWeatherClock), ("updates", "validate_horizon"))

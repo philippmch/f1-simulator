@@ -147,6 +147,14 @@ def shared_forecast_available():
     return state[0] if state is not None else native_physics()
 
 
+def native_forecast_memo(namespace):
+    """Return a private workspace lasting only this native forecast decision."""
+    state = _STATE.get()
+    if state is None or not state[0]:
+        return None
+    return state[2].setdefault(namespace, {})
+
+
 def _key(owner, values):
     return owner, json.dumps(values, sort_keys=True)
 
