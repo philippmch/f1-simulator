@@ -11,6 +11,8 @@ from f1sim.data.confirmed_grid_forecast import (
     build_feature_snapshot,
     validate_confirmed_grid_feature_snapshot,
 )
+from f1sim.data.current import CurrentSeasonDataLoader
+from f1sim.data.qualifying import QUALIFYING_CLASSIFICATION
 from f1sim.models import Driver
 
 INSTANT = datetime(2026, 10, 16, 12, tzinfo=timezone.utc)
@@ -141,6 +143,70 @@ class Loader:
 def build(loader, **kwargs):
     return build_confirmed_grid_features(loader, 2026, 4, loader.drivers,
         loader.grid, loader.pits, **({"as_of": INSTANT} | kwargs))
+
+
+def classified_loader():
+    loader = Loader()
+    rows = loader.qualifying[-4:]
+    rows[3]["position"] = "3"  # Ambiguous raw source, independent of the grid.
+    body = "<h1>2026 TEST GRAND PRIX - QUALIFYING</h1><table><tr>" + "".join(
+        f"<th>{key}</th>" for key in ("Pos.", "No.", "Driver", "Team", "Q1", "Q2", "Q3", "Laps")
+    ) + "</tr>"
+    for index, row in enumerate(rows):
+        body += "<tr>" + "".join(f"<td>{value}</td>" for value in (
+            "DQ" if index == 2 else str(index + 1 if index < 2 else 3), str(index + 1),
+            "Driver " + row["Driver"]["code"], row["Constructor"]["name"], row["Q1"], "", "", "5",
+        )) + "</tr>"
+    body += "</table>"
+    url = "https://www.formula1.com/en/results/2026/races/1234/test/qualifying"
+    corrected = CurrentSeasonDataLoader._parse_official_qualifying_classification(
+        body, year=2026, event=loader.event, rows=rows, source_url=url,
+    )
+    loader.qualifying[-4:] = corrected
+    source = corrected[0][QUALIFYING_CLASSIFICATION]["source"]
+    loader.provenance["qualifying_timing_supplements"] = [{
+        **source, "status": "available", "fetched_at": (INSTANT - timedelta(minutes=1)).isoformat(),
+    }]
+    return loader
+
+
+def test_primary_dq_classification_keeps_grid_pit_queue_and_replays_saved_evidence():
+    snapshot = build(classified_loader())
+    dq = snapshot["codes"].index("CC")
+    assert snapshot["grid_ids"] == list("badc")
+    assert snapshot["x"][dq][2] == 1
+    assert snapshot["x"][dq][1] == 0
+    assert snapshot["x"][dq][3:9] == [0.] * 6
+    source = snapshot["context"]["target_predictors"]["roster"][dq]
+    assert source["qualifying_position"] == 3 and source["q1"] == 92.
+    assert validate_confirmed_grid_feature_snapshot(snapshot) == snapshot
+
+
+@pytest.mark.parametrize("change", [
+    "receipt", "receipt_hash", "receipt_future", "partial", "status",
+])
+def test_primary_saved_qualifying_source_mutations_are_rejected(change):
+    snapshot = build(classified_loader())
+    context = snapshot["context"]
+    roster = context["target_predictors"]["roster"]
+    if change == "receipt":
+        context["source_provenance"].pop("qualifying_timing_supplements")
+    elif change == "receipt_hash":
+        receipt = context["source_provenance"]["qualifying_timing_supplements"][0]
+        receipt["content_sha256"] = "1" * 64
+    elif change == "receipt_future":
+        context["source_provenance"]["qualifying_timing_supplements"][0]["fetched_at"] = (
+            INSTANT + timedelta(seconds=1)).isoformat()
+    elif change == "partial":
+        roster[0].pop(QUALIFYING_CLASSIFICATION)
+    else:
+        roster[2][QUALIFYING_CLASSIFICATION]["status"] = "classified"
+        roster[2][QUALIFYING_CLASSIFICATION]["position"] = 3
+    context["target_predictors_sha256"] = canonical_digest(context["target_predictors"])
+    snapshot["content_sha256"] = canonical_digest({
+        key: value for key, value in snapshot.items() if key != "content_sha256"})
+    with pytest.raises(ValueError):
+        validate_confirmed_grid_feature_snapshot(snapshot)
 
 
 def test_live_snapshot_detached_ordered_sealed_and_keeps_whole_previous_field():

@@ -245,11 +245,12 @@ def build_current_qualifying_history(loader, events, results, qualifying, *, bef
             if name is None or name not in roster:
                 raise CurrentSeasonDataError("Earlier GP has ambiguous qualifying driver identity")
             q = q_by_driver.get(name, {})
-            time_value = _parse_time_seconds(q.get("Q1"))
+            time_value = loader._row_qualifying_stage(q, "Q1")
             if time_value is not None and not 30 <= time_value <= 240:
                 raise CurrentSeasonDataError("Earlier Q1 time is out of range")
             rows.append({"driver": name, "team": loader._row_team_id(result),
-                         "qualifying_position": loader._row_position(q), "q1": time_value,
+                         "qualifying_position": loader._row_qualifying_position(q),
+                         "q1": time_value,
                          "points": _as_float(result.get("points"))})
         output.append({"round": number, "circuit": event["circuit_id"], "rows": rows})
     return output

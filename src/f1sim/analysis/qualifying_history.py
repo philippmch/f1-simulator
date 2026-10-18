@@ -8,6 +8,7 @@ from statistics import median
 from typing import Any, Mapping, Sequence
 
 from f1sim.data.current import CurrentSeasonDataError, _parse_time_seconds
+from f1sim.data.qualifying import qualifying_stage
 
 HISTORY_WINDOW_EVENTS = 3
 
@@ -23,6 +24,7 @@ def _integer(value: Any) -> int | None:
 def _q1_time(row: Mapping[str, Any]) -> float | None:
     value = row.get("Q1")
     parsed = None if isinstance(value, bool) else _parse_time_seconds(value)
+    parsed = qualifying_stage(row, "Q1", parsed)
     return parsed if parsed is not None and math.isfinite(parsed) and parsed > 0 else None
 
 

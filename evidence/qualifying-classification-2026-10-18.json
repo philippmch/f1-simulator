@@ -1,0 +1,422 @@
+{
+  "kind": "qualifying_classification_source_repair_and_fixed_spec_assessment_v1",
+  "date": "2026-10-18",
+  "selection": "All older duplicate-positive-rank qualifying events in the sealed v2 archive, without outcome/model-error selection.",
+  "source_events": [
+    {
+      "changes": [
+        {
+          "before": {
+            "q1": 89.798,
+            "q2": null,
+            "q3": null,
+            "qualifying_position": 15
+          },
+          "driver": "bottas",
+          "effective": {
+            "q1": null,
+            "q2": null,
+            "q3": null,
+            "qualifying_position": null
+          },
+          "status": "disqualified"
+        }
+      ],
+      "entrants": 20,
+      "key": "2023-10",
+      "source_sha256": "5abab82fd89460675f703dd69d8cc332a391d6ef058c7fc4debc70fc87e88563",
+      "url": "https://www.formula1.com/en/results/2023/races/1214/great-britain/qualifying"
+    },
+    {
+      "changes": [
+        {
+          "before": {
+            "q1": 71.876,
+            "q2": 71.44,
+            "q3": null,
+            "qualifying_position": 14
+          },
+          "driver": "hulkenberg",
+          "effective": {
+            "q1": null,
+            "q2": null,
+            "q3": null,
+            "qualifying_position": null
+          },
+          "status": "disqualified"
+        },
+        {
+          "before": {
+            "q1": 71.832,
+            "q2": 71.725,
+            "q3": null,
+            "qualifying_position": 15
+          },
+          "driver": "kevin_magnussen",
+          "effective": {
+            "q1": null,
+            "q2": null,
+            "q3": null,
+            "qualifying_position": null
+          },
+          "status": "disqualified"
+        }
+      ],
+      "entrants": 20,
+      "key": "2024-08",
+      "source_sha256": "255a999e8fd6a0621334c38dfacaa1f86fef84f7bbfaa41ac2d054251be02b22",
+      "url": "https://www.formula1.com/en/results/2024/races/1236/monaco/qualifying"
+    },
+    {
+      "changes": [
+        {
+          "before": {
+            "q1": null,
+            "q2": 70.768,
+            "q3": 70.653,
+            "qualifying_position": 10
+          },
+          "driver": "albon",
+          "effective": {
+            "q1": null,
+            "q2": null,
+            "q3": null,
+            "qualifying_position": null
+          },
+          "status": "disqualified"
+        },
+        {
+          "before": {
+            "q1": null,
+            "q2": null,
+            "q3": null,
+            "qualifying_position": 20
+          },
+          "driver": "sargeant",
+          "effective": {
+            "q1": null,
+            "q2": null,
+            "q3": null,
+            "qualifying_position": null
+          },
+          "status": "did_not_start"
+        }
+      ],
+      "entrants": 20,
+      "key": "2024-15",
+      "source_sha256": "12c21d83a8f20b713e6a4b40011744829af923d8b5ad5cc742270885fbadc6ce",
+      "url": "https://www.formula1.com/en/results/2024/races/1243/netherlands/qualifying"
+    },
+    {
+      "changes": [
+        {
+          "before": {
+            "q1": null,
+            "q2": 103.179,
+            "q3": null,
+            "qualifying_position": 15
+          },
+          "driver": "gasly",
+          "effective": {
+            "q1": null,
+            "q2": null,
+            "q3": null,
+            "qualifying_position": null
+          },
+          "status": "disqualified"
+        }
+      ],
+      "entrants": 20,
+      "key": "2024-17",
+      "source_sha256": "c1bea178e7854fb331878a01ad72b04e79f4690c2602a6b8112f3da9e1f986db",
+      "url": "https://www.formula1.com/en/results/2024/races/1245/azerbaijan/qualifying"
+    }
+  ],
+  "source_replay_sha256": "c5f3747672479c66d69d04872f0eee71a2289253a5732c11df2fc5b382fd5c4a",
+  "eligible_events": 224,
+  "completed_events": 268,
+  "parent_data_recovers_exactly_without_metadata": true,
+  "original_feature_binary64_parity": {
+    "risk": {
+      "cells": 13656,
+      "max_abs_difference": 0.0,
+      "unequal_binary64_cells": 0,
+      "unequal_numeric_cells": 0
+    },
+    "tree_x": {
+      "cells": 72832,
+      "max_abs_difference": 0.0,
+      "unequal_binary64_cells": 0,
+      "unequal_numeric_cells": 0
+    },
+    "x": {
+      "cells": 68280,
+      "max_abs_difference": 0.0,
+      "unequal_binary64_cells": 0,
+      "unequal_numeric_cells": 0
+    }
+  },
+  "changed_eligible_event_keys": [
+    "2023-10",
+    "2023-11",
+    "2023-12",
+    "2024-08",
+    "2024-09",
+    "2024-10",
+    "2024-11",
+    "2024-15",
+    "2024-16",
+    "2024-17",
+    "2024-18",
+    "2024-19",
+    "2024-20"
+  ],
+  "changed_source_status_counts": {
+    "did_not_start": 1,
+    "disqualified": 5
+  },
+  "original105_training_features_exact": true,
+  "current40_target_features_exact": true,
+  "all224_risk_features_exact": true,
+  "refit_plan_sha256": "f88b2753a23809f450a65f17a48b38dca4e06ef9463072d5a1e7a28cf0ae343c",
+  "all63_forecasts_before_scoring_sha256": "35d2cfd12d0a0a48a807c569821eb9627af9fd25fca565162431c629db09b978",
+  "assessment_sha256": "45e3e447a2e928467f8c317c5faa117b7807fafa128062587af604136b0ca3e4",
+  "fixed_spec_refit_summaries": {
+    "2024": {
+      "baseline_relative_brier_gain": 0.0036985970623422248,
+      "baseline_relative_gain_bootstrap95": [
+        -0.0004526492168016026,
+        0.009971755560180852
+      ],
+      "baseline_relative_gain_remove3_largest": -0.0004113652638769144,
+      "correct_picks": {
+        "baseline": 12,
+        "candidate": 12,
+        "grid18": 11
+      },
+      "events": 23,
+      "gates": {
+        "brier_improves": true,
+        "logloss_not_worse": true,
+        "picks_not_worse": true
+      },
+      "scores": {
+        "baseline": {
+          "nonfinish_brier": 0.10350089117570033,
+          "podium_brier": 0.07002517656507494,
+          "position_mae": 2.986902485837,
+          "winner_brier": 0.7346098542370545,
+          "winner_log_loss": 1.9802228313178263,
+          "winner_top1_fractional": 0.5217391304347826
+        },
+        "candidate": {
+          "nonfinish_brier": 0.10350089117570033,
+          "podium_brier": 0.06907458386491869,
+          "position_mae": 2.9861717416393474,
+          "winner_brier": 0.7309112571747124,
+          "winner_log_loss": 1.971043203394827,
+          "winner_top1_fractional": 0.5217391304347826
+        },
+        "grid18": {
+          "nonfinish_brier": 0.11338672768878721,
+          "podium_brier": 0.07476323952934759,
+          "position_mae": 2.881867963791734,
+          "winner_brier": 0.7096005575609474,
+          "winner_log_loss": 1.9743675487428398,
+          "winner_top1_fractional": 0.4782608695652174
+        }
+      }
+    },
+    "2025": {
+      "baseline_relative_brier_gain": 9.123795417815873e-05,
+      "baseline_relative_gain_bootstrap95": [
+        -0.0017710272853756416,
+        0.0018834077518704723
+      ],
+      "baseline_relative_gain_remove3_largest": -0.0010677313476807231,
+      "correct_picks": {
+        "baseline": 16,
+        "candidate": 16,
+        "grid18": 16
+      },
+      "events": 24,
+      "gates": {
+        "brier_improves": true,
+        "logloss_not_worse": false,
+        "picks_not_worse": true
+      },
+      "scores": {
+        "baseline": {
+          "nonfinish_brier": 0.11093246620492152,
+          "podium_brier": 0.057583974960758864,
+          "position_mae": 3.3709598503457308,
+          "winner_brier": 0.5286631710550562,
+          "winner_log_loss": 1.015459244851722,
+          "winner_top1_fractional": 0.6666666666666666
+        },
+        "candidate": {
+          "nonfinish_brier": 0.11093246620492152,
+          "podium_brier": 0.057507476984780474,
+          "position_mae": 3.3710526562866083,
+          "winner_brier": 0.5285719331008781,
+          "winner_log_loss": 1.0157422348578296,
+          "winner_top1_fractional": 0.6666666666666666
+        },
+        "grid18": {
+          "nonfinish_brier": 0.12521929824561404,
+          "podium_brier": 0.0585923118995133,
+          "position_mae": 3.3293252858106612,
+          "winner_brier": 0.5189449849906209,
+          "winner_log_loss": 1.0024574765508756,
+          "winner_top1_fractional": 0.6666666666666666
+        }
+      }
+    },
+    "2026": {
+      "baseline_relative_brier_gain": -8.542950675499879e-05,
+      "baseline_relative_gain_bootstrap95": [
+        -0.00021590038926322792,
+        2.4289727318901497e-06
+      ],
+      "baseline_relative_gain_remove3_largest": -0.00011373408871399763,
+      "correct_picks": {
+        "baseline": 12,
+        "candidate": 12,
+        "grid18": 11
+      },
+      "events": 16,
+      "gates": {
+        "brier_improves": false,
+        "logloss_not_worse": false,
+        "picks_not_worse": true
+      },
+      "scores": {
+        "baseline": {
+          "nonfinish_brier": 0.16836550118220223,
+          "podium_brier": 0.06645681249360412,
+          "position_mae": 3.6442966877406064,
+          "winner_brier": 0.48291078904567525,
+          "winner_log_loss": 1.6506081165185817,
+          "winner_top1_fractional": 0.75
+        },
+        "candidate": {
+          "nonfinish_brier": 0.16836550118220223,
+          "podium_brier": 0.0664614299169983,
+          "position_mae": 3.6448364675210083,
+          "winner_brier": 0.48299621855243025,
+          "winner_log_loss": 1.6506513858564196,
+          "winner_top1_fractional": 0.75
+        },
+        "grid18": {
+          "nonfinish_brier": 0.21022727272727273,
+          "podium_brier": 0.07207872785742409,
+          "position_mae": 3.5136244064126982,
+          "winner_brier": 0.4904991207794771,
+          "winner_log_loss": 1.7308665515070478,
+          "winner_top1_fractional": 0.6875
+        }
+      }
+    },
+    "all63": {
+      "baseline_relative_brier_gain": 0.0013633424004137619,
+      "baseline_relative_gain_bootstrap95": [
+        -0.0003826786516737762,
+        0.003849802587317621
+      ],
+      "baseline_relative_gain_remove3_largest": -0.00012340777475570766,
+      "correct_picks": {
+        "baseline": 40,
+        "candidate": 40,
+        "grid18": 38
+      },
+      "events": 63,
+      "gates": {
+        "brier_improves": true,
+        "logloss_not_worse": true,
+        "picks_not_worse": true
+      },
+      "scores": {
+        "baseline": {
+          "nonfinish_brier": 0.12280551912499141,
+          "podium_brier": 0.06437941999924766,
+          "position_mae": 3.300167310895209,
+          "winner_brier": 0.5922304028175303,
+          "winner_log_loss": 1.5289821723975974,
+          "winner_top1_fractional": 0.6349206349206349
+        },
+        "candidate": {
+          "nonfinish_brier": 0.12280551912499141,
+          "podium_brier": 0.06400440881269576,
+          "position_mae": 3.300072972839995,
+          "winner_brier": 0.5908670604171167,
+          "winner_log_loss": 1.5257496744185972,
+          "winner_top1_fractional": 0.6349206349206349
+        },
+        "grid18": {
+          "nonfinish_brier": 0.14248879775195566,
+          "podium_brier": 0.06792110540447778,
+          "position_mae": 3.212773976655062,
+          "winner_brier": 0.5813250539071164,
+          "winner_log_loss": 1.5422745695622078,
+          "winner_top1_fractional": 0.6031746031746031
+        }
+      }
+    },
+    "current40": {
+      "baseline_relative_brier_gain": 2.0570969804895727e-05,
+      "baseline_relative_gain_bootstrap95": [
+        -0.0011133744542430359,
+        0.001081143364877934
+      ],
+      "baseline_relative_gain_remove3_largest": -0.0006429521732263559,
+      "correct_picks": {
+        "baseline": 28,
+        "candidate": 28,
+        "grid18": 27
+      },
+      "events": 40,
+      "gates": {
+        "brier_improves": true,
+        "logloss_not_worse": false,
+        "picks_not_worse": true
+      },
+      "scores": {
+        "baseline": {
+          "nonfinish_brier": 0.1339056801958338,
+          "podium_brier": 0.06113310997389697,
+          "position_mae": 3.4802945853036817,
+          "winner_brier": 0.5103622182513039,
+          "winner_log_loss": 1.2695187935184655,
+          "winner_top1_fractional": 0.7
+        },
+        "candidate": {
+          "nonfinish_brier": 0.1339056801958338,
+          "podium_brier": 0.06108905815766761,
+          "position_mae": 3.480566180780369,
+          "winner_brier": 0.510341647281499,
+          "winner_log_loss": 1.2697058952572653,
+          "winner_top1_fractional": 0.7
+        },
+        "grid18": {
+          "nonfinish_brier": 0.15922248803827752,
+          "podium_brier": 0.06398687828267761,
+          "position_mae": 3.4030449340514766,
+          "winner_brier": 0.5075666393061635,
+          "winner_log_loss": 1.2938211065333447,
+          "winner_top1_fractional": 0.675
+        }
+      }
+    }
+  },
+  "passes_accuracy_screen": false,
+  "serving_artifact_changed": false,
+  "limitations": [
+    "Historical records fetched after races support logical cutoff, not authenticated publication vintage.",
+    "Already examined development cohorts.",
+    "Raw analytic joint refit scores are not native-path-weighted shipped forecast scores.",
+    "A unique provider rank permutation does not certify absence of hidden disqualifications."
+  ],
+  "local_full_evidence": "output/qualifying-classification-history-2026-10-18/",
+  "independent_assessment_audit_sha256": "b2103e19067a1b6b3b9f5713af2e2b58a3df6c27715d7e48286dea92aeaae860",
+  "content_sha256": "1eb232b457df77857bed307cb3ec9ae22e3ade8f493426497a0ae1d736fa7bfd"
+}

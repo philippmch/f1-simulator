@@ -88,6 +88,13 @@ model inputs or rerun simulations. Seals verify content consistency, not
 independent publication. Replay of a single native race remains a native trial,
 not a reconstruction of an ensemble's weighted estimate.
 
+Optional [primary qualifying classification metadata](qualifying-classification.md)
+now separates disqualified or untimed entrants from valid timing evidence.
+Target and earlier form features use the same validity rules while saved source
+contexts retain the original provider fields. Legacy contexts reproduce their
+original features. This source repair leaves the frozen model artifact and the
+historical forecast evidence below unchanged.
+
 ## Historical development evidence
 
 The confirmation retains all 40 events from 2025-2026, with each historical

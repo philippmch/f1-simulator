@@ -35,6 +35,12 @@ from urllib.request import Request, urlopen
 from pydantic import BaseModel, Field
 
 from f1sim.analysis.race_clock import dry_race_pace_adjustment_for_event
+from f1sim.data.qualifying import (
+    classification,
+    complete_classification,
+    qualifying_rank,
+    qualifying_stage,
+)
 from f1sim.models import ActiveAeroZone, Car, Driver, Sector, Track
 
 JOLPICA_BASE_URL = "https://api.jolpi.ca/ergast/f1"
@@ -2334,12 +2340,57 @@ class CurrentSeasonDataLoader:
 
     @classmethod
     def _row_qualifying_time(cls, row: Mapping[str, Any]) -> float | None:
+        metadata = classification(row)
+        if metadata is not None:
+            values = [value for value in metadata["stage_times"].values() if value is not None]
+            return min(values) if values else None
         times = [
             _parse_time_seconds(_first(row, key))
             for key in ("Q1", "q1", "Q2", "q2", "Q3", "q3", "bestTime", "BestTime", "time", "Time")
         ]
         values = [value for value in times if value is not None and value > 0]
         return min(values) if values else None
+
+    @classmethod
+    def _row_qualifying_position(cls, row: Mapping[str, Any]) -> int | None:
+        return qualifying_rank(row, cls._row_position(row))
+
+    @staticmethod
+    def _row_qualifying_stage(row: Mapping[str, Any], stage: str) -> float | None:
+        raw = _first(row, stage)
+        if isinstance(raw, bool):
+            raw = None
+        return qualifying_stage(row, stage, _parse_time_seconds(raw))
+
+    def _recover_qualifying_history(self, year, rows, events):
+        """Recover only ambiguous supplied rounds, preserving row order and identities."""
+        output = copy.deepcopy(rows)
+        calendar = {int(event["round"]): event for event in events}
+        grouped = defaultdict(list)
+        for index, row in enumerate(rows):
+            grouped[_as_int(row.get("round"))].append(index)
+        for number, indices in grouped.items():
+            selected = [rows[index] for index in indices]
+            if complete_classification(selected):
+                continue
+            if number not in calendar:
+                raise CurrentSeasonDataError("Ambiguous earlier qualifying lacks a calendar event")
+            corrected = self._supplement_target_qualifying_times(year, calendar[number], selected)
+            for index, row in zip(indices, corrected, strict=True):
+                output[index] = row
+        return output
+
+    @classmethod
+    def _parse_official_qualifying_classification(cls, text, *, year, event, rows, source_url):
+        """Recover explicit status/rank/validity while preserving reported provider rows."""
+        from f1sim.data.qualifying import parse_official_classification
+
+        try:
+            return parse_official_classification(
+                text, loader=cls, year=year, event=event, rows=rows, source_url=source_url,
+            )
+        except ValueError as error:
+            raise CurrentSeasonDataError(str(error)) from error
 
     @classmethod
     def _parse_official_qualifying_times(cls, text, *, year, event, rows):
@@ -2406,14 +2457,20 @@ class CurrentSeasonDataLoader:
         return output
 
     def _supplement_target_qualifying_times(self, year, event, rows):
-        """Try one official source for a completed target GP with no usable stage times."""
+        """Try one official GP source for absent stage times or ambiguous ranks.
+
+        A unique provider permutation is not proof that every status was checked.
+        Unknown ambiguous classifications fail closed rather than becoming pace.
+        """
         from datetime import timedelta
 
         from f1sim.data.practice import _official_event_base, _timestamp
 
-        if not rows or any(self._row_qualifying_time({
+        ambiguous = bool(rows) and not complete_classification(rows)
+        if not rows or (not ambiguous and (any(classification(row) is not None for row in rows)
+                or any(self._row_qualifying_time({
             key: value for key, value in row.items() if str(key).lower() in {"q1", "q2", "q3"}
-        }) is not None for row in rows):
+        }) is not None for row in rows))):
             return rows
         self._assert_current_year(year)
         qualifying = _timestamp(event.get("sessions", {}).get("Qualifying"))
@@ -2433,12 +2490,19 @@ class CurrentSeasonDataLoader:
 
                 by_code = {code(row): row for row in cached[1]}
                 return [copy.deepcopy(by_code[code(row)]) for row in rows]
+            if ambiguous:
+                raise CurrentSeasonDataError(
+                    "Ambiguous qualifying classification lacks verified source",
+                )
             return rows
         evidence = {"year": year, "round": number, "status": "unavailable",
                     "reason": "official_qualifying_unavailable",
                     "qualifying_started_at": qualifying.isoformat(),
                     "attempted_at": _iso_now(),
-                    "original_stage_timed_rows": 0, "entrant_rows": len(rows)}
+                    "recovery": "classification" if ambiguous else "stage_times",
+                    "original_stage_timed_rows": sum(self._row_qualifying_time(row) is not None
+                                                     for row in rows),
+                    "entrant_rows": len(rows)}
         self._qualifying_timing_attempts[number] = evidence
         url = f"https://www.formula1.com/en/results/{year}/races"
         try:
@@ -2447,17 +2511,29 @@ class CurrentSeasonDataLoader:
             evidence["source_url"] = url
             text = self._fetch_text(url)
             evidence["fetched_at"] = self._fetched_at
-            output = self._parse_official_qualifying_times(
-                text, year=year, event=event, rows=rows,
-            )
+            if ambiguous:
+                output = self._parse_official_qualifying_classification(
+                    text, year=year, event=event, rows=rows, source_url=url,
+                )
+            else:
+                output = self._parse_official_qualifying_times(
+                    text, year=year, event=event, rows=rows,
+                )
         except Exception as error:
             self._mark_failed_url(url)
             evidence["reason"] = str(error)
+            if ambiguous:
+                raise CurrentSeasonDataError(
+                    "Ambiguous qualifying classification lacks verified source: " + str(error),
+                ) from error
             return rows
         self._qualifying_timing_rows[number] = (signature, copy.deepcopy(output))
         evidence.update(status="available", reason=None, fetched_at=self._fetched_at,
-                        supplemented_stages={stage: sum(bool(r.get(stage)) for r in output)
+                        supplemented_stages={stage: sum(self._row_qualifying_stage(r, stage)
+                                                        is not None for r in output)
                                              for stage in ("Q1", "Q2", "Q3")})
+        if ambiguous:
+            evidence["content_sha256"] = classification(output[0])["source"]["content_sha256"]
         return output
 
     @classmethod
@@ -2576,6 +2652,9 @@ class CurrentSeasonDataLoader:
         all_qualifying = [
             row for row in season_qualifying if _as_int(row.get("round")) in allowed_rounds
         ]
+        all_qualifying = self._recover_qualifying_history(
+            year, all_qualifying, self.get_event_schedule(year),
+        )
         self._last_completed_rounds = completed_rounds
         return driver_standings, constructor_standings, all_results, all_qualifying
 
@@ -2826,8 +2905,16 @@ class CurrentSeasonDataLoader:
         from f1sim.analysis.qualifying_calibration import DEFAULT_CURRENT_QUALIFYING_CALIBRATION
 
         if DEFAULT_CURRENT_QUALIFYING_CALIBRATION and quali_weight > 0:
+            calibration_results, calibration_qualifying = self._season_data(year)
+            calibration_events = self.get_event_schedule(year)
+            earlier_qualifying = [row for row in calibration_qualifying
+                                  if (_as_int(row.get("round")) or 0) < target_round]
+            earlier_qualifying = self._recover_qualifying_history(
+                year, earlier_qualifying, calibration_events,
+            )
             stats, self._qualifying_forecast = self._calibrate_qualifying_stats(
-                stats, year, target_event, *self._season_data(year), self.get_event_schedule(year),
+                stats, year, target_event, calibration_results, earlier_qualifying,
+                calibration_events,
                 fetch_practice=True,
             )
         else:
@@ -3136,9 +3223,8 @@ class CurrentSeasonDataLoader:
                     raw = _first(row, session)
                     if isinstance(raw, Mapping):
                         raw = _first(raw, "time")
-                    if isinstance(raw, bool):
-                        continue
-                    value = _parse_time_seconds(raw)
+                    value = None if isinstance(raw, bool) else _parse_time_seconds(raw)
+                    value = qualifying_stage(row, session, value)
                     if value is not None and math.isfinite(value) and value > 0:
                         sessions[session] = value
                 number = _as_int(row.get("round"), 0) or 0

@@ -1,10 +1,43 @@
-# App quality checkpoint — 14 October 2026
+# App quality checkpoint — 18 October 2026
 
-Continued development makes sense as a simulation and strategy experiment tool.
-The current checks support rule consistency, reproducibility and a working user
-workflow. Qualifying, dry race timing and weather-planning changes produce
-measurable component gains. Winner improvements from this latest round of
-experiments failed their acceptance gates; prospective accuracy remains unproven.
+The app is useful for conditional simulation and strategy experiments. Its
+experimental confirmed-grid forecast has a small historical advantage over
+the grid reference; reliable predictive superiority remains unproven. Native
+simulation remains the default.
+
+The [confirmed-grid forecast evidence](learned-afterqual-forecast.md) retains
+40 after-qualifying races from 2025–2026. On the cohort with five declared input
+repairs, the experimental forecast selects **28/40 winners (70%)**, compared
+with **27/40 (67.5%)** for the first driver on the official grid and
+**25/40 (62.5%)** for native simulation. Winner probability Brier loss is
+**0.44001**, versus **0.50757** for the fixed grid reference and **0.47572** for
+native simulation: 13.3% and 7.5% lower, respectively. Lower is better.
+
+That is one additional correct winner over the grid on an already examined
+sample. The native-relative uncertainty interval includes zero, and removing
+the three largest probability gains reverses that comparison. These are
+historical development results under a fixed dry assumption and current-era
+physics, not authenticated forecasts issued before those races or independent
+validation. The learned estimate reweights whole simulated outcomes; it does
+not repair the native car/driver pace decomposition or strategy decisions.
+
+Select **Confirmed-grid forecast (experimental)** for its supported official
+grid workflow. **Native simulation** retains official-grid races and simulated
+qualifying followed by a race, with custom weather and strategy controls. The
+[forecast guide](learned-afterqual-forecast.md) explains scope, saved evidence
+and offline verification.
+
+The 18 October [qualifying-source repair](qualifying-classification.md) separates
+disqualifications and valid lap evidence from qualifying rank and race grid. A
+four-source historical replay preserves all 224 eligible events and changes 13
+feature matrices. Retraining on those corrected inputs did not establish an
+additional winner-forecast gain, so the packaged model artifact is unchanged.
+
+The [native rain-strategy optimization](strategy-runtime.md) measured 17.35%
+faster total runtime in the frozen damp workload and 5.22% in changing rain,
+with dry runtime effectively unchanged. Complete outputs and cache statistics
+match across all nine paired workloads; separate complete state/RNG comparisons
+match for one seed in each scenario. This improves simulation speed.
 
 The 14 October qualifying-first screen used fixed 70% current qualifying timing
 and 30% recent team fastest-lap form. Across the same 40 development contexts,

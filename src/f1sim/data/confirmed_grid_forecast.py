@@ -14,6 +14,11 @@ from f1sim.analysis.learned_afterqual import (
 )
 from f1sim.data.current import CurrentSeasonDataLoader, _parse_time_seconds
 from f1sim.data.grid import _verify_published_grid_lookup
+from f1sim.data.qualifying import (
+    QUALIFYING_CLASSIFICATION,
+    complete_classification,
+    effective_qualifying,
+)
 from f1sim.simulation.execution import validate_pit_lane_starters, validate_starting_grid
 
 
@@ -82,6 +87,9 @@ def build_feature_snapshot(predictors, completed_history):
         raise ValueError("Provider identities and physical codes must be one-to-one")
     for row in roster:
         _identity(row.get("team"), "team")
+        effective = effective_qualifying(row, year=year, round_number=number)
+        if effective is not None:
+            row.update(effective)
         row["qualifying_position"] = _integer(
             row.get("qualifying_position"), "qualifying position", optional=True,
         )
@@ -134,6 +142,9 @@ def build_feature_snapshot(predictors, completed_history):
             _identity(row.get("driver"), "historical driver")
             _identity(row.get("team"), "historical constructor")
             row["position"] = _integer(row["position"], "historical position")
+            effective = effective_qualifying(row, year=key[0], round_number=key[1])
+            if effective is not None:
+                row["qualifying_position"] = effective["qualifying_position"]
             row["qualifying_position"] = _integer(
                 row.get("qualifying_position"), "historical qualifying", optional=True,
             )
@@ -267,6 +278,27 @@ def validate_confirmed_grid_feature_snapshot(snapshot):
         if (source.get("fetched_at")
                 and _instant(source["fetched_at"], "timing fetched_at") > cutoff):
             raise ValueError("Saved timing source was fetched after the cutoff")
+    receipts = provenance.get("qualifying_timing_supplements", [])
+    classified_fields = [(predictors["year"], predictors["round"], predictors["roster"])] + [
+        (row["year"], row["round"], row["rows"]) for row in history]
+    for source_year, source_round, field in classified_fields:
+        enriched = [row for row in field if QUALIFYING_CLASSIFICATION in row]
+        if not enriched:
+            continue
+        if not complete_classification(field):
+            raise ValueError("Saved primary qualifying requires the entire joined field")
+        for row in enriched:
+            effective_qualifying(row, year=source_year, round_number=source_round)
+            source = row[QUALIFYING_CLASSIFICATION]["source"]
+            if not any(receipt.get("status") == "available"
+                       and receipt.get("year") == source_year
+                       and receipt.get("round") == source_round
+                       and receipt.get("source_url") == source["source_url"]
+                       and receipt.get("content_sha256") == source["content_sha256"]
+                       and receipt.get("fetched_at")
+                       and _instant(receipt["fetched_at"], "classification fetched_at") <= cutoff
+                       for receipt in receipts):
+                raise ValueError("Saved qualifying classification lacks a matching source receipt")
     mapping = dict(zip(value["ids"], value["codes"], strict=True))
     coded_grid = [mapping[driver] for driver in value["grid_ids"]]
     grid, pits = _verify_published_grid_lookup(
@@ -279,7 +311,7 @@ def validate_confirmed_grid_feature_snapshot(snapshot):
     if grid != coded_grid or pits != expected_pits:
         raise ValueError("Saved published grid/pit evidence disagrees with feature sources")
     roster = predictors["roster"]
-    if sorted(row["qualifying_position"] for row in roster) != list(range(1, len(roster) + 1)):
+    if not complete_classification(roster):
         raise ValueError("Saved target qualifying must form a complete classification")
     seats = context.get("modeled_seats")
     if not isinstance(seats, dict) or set(seats) != set(value["codes"]):
@@ -324,6 +356,21 @@ def build_confirmed_grid_features(
     target_rows = loader._supplement_target_qualifying_times(year, event, target_rows)
     calendar = {_integer(row.get("round"), "calendar round"): row
                 for row in loader.get_event_schedule(year)}
+    # Complete every source read before freezing provenance and the default
+    # cutoff. Prior qualifying must obey the same explicit-status policy.
+    previous_rounds = {_integer(row.get("round"), "result round") for row in results
+                       if _integer(row.get("round"), "result round") < number}
+    for previous in sorted(previous_rounds):
+        indices = [i for i, row in enumerate(quali)
+                   if _integer(row.get("round"), "qualifying round") == previous]
+        earlier = [quali[i] for i in indices]
+        if earlier and not complete_classification(earlier):
+            scheduled = calendar.get(previous)
+            if scheduled is None or _instant(scheduled, "earlier GP race") >= qualifying:
+                raise ValueError("Earlier qualifying lacks an earlier dated GP calendar entry")
+            corrected = loader._supplement_target_qualifying_times(year, scheduled, earlier)
+            for index, row in zip(indices, corrected, strict=True):
+                quali[index] = row
     provenance = deepcopy(loader.get_provenance())
     cutoff = explicit_cutoff or datetime.now(timezone.utc)
     if not qualifying + timedelta(hours=1) <= cutoff < race or race.year != year:
@@ -360,13 +407,16 @@ def build_confirmed_grid_features(
             raise ValueError("Qualifying constructor disagrees with the current modeled seat")
         target_ids.add(provider)
         roster.append({"driver": provider, "code": code, "team": team,
-            "qualifying_position": _integer(row.get("position"), "qualifying position"),
+            "qualifying_position": (CurrentSeasonDataLoader._row_position(row)
+                if QUALIFYING_CLASSIFICATION in row else
+                _integer(row.get("position"), "qualifying position", optional=True)),
             **{stage.lower(): _parse_time_seconds(row.get(stage)) for stage in ("Q1", "Q2", "Q3")},
+            **({QUALIFYING_CLASSIFICATION: deepcopy(row[QUALIFYING_CLASSIFICATION])}
+               if QUALIFYING_CLASSIFICATION in row else {}),
             "grid_position": rank[code], "official_table_order_index": rank[code],
             "pit_lane_start": code in pits})
     if (len(roster) != len(drivers) or {row["code"] for row in roster} != set(ids)
-            or sorted(row["qualifying_position"] for row in roster)
-            != list(range(1, len(ids) + 1))):
+            or not complete_classification(roster)):
         raise ValueError("Target GP qualifying classification must cover the entire modeled field")
     by_round = defaultdict(list)
     for row in results:
@@ -378,12 +428,13 @@ def build_confirmed_grid_features(
                 or _instant(scheduled, "earlier GP race").year != year):
             raise ValueError("Every historical race needs an earlier dated GP calendar entry")
         qmap = {}
-        for row in quali:
-            if _integer(row.get("round"), "qualifying round") == previous:
-                provider, _, _ = _provider(row)
-                if provider in qmap:
-                    raise ValueError("Earlier qualifying contains duplicate provider identities")
-                qmap[provider] = row
+        previous_qualifying = [row for row in quali
+                              if _integer(row.get("round"), "qualifying round") == previous]
+        for row in previous_qualifying:
+            provider, _, _ = _provider(row)
+            if provider in qmap:
+                raise ValueError("Earlier qualifying contains duplicate provider identities")
+            qmap[provider] = row
         history_rows = []
         for row in rows:
             provider, _, team = _provider(row)
@@ -393,7 +444,14 @@ def build_confirmed_grid_features(
             history_rows.append({"driver": provider, "team": team,
                 "position": _integer(row.get("position"), "race position"),
                 "qualifying_position": None if qrow is None else
-                _integer(qrow.get("position"), "earlier qualifying position"),
+                (CurrentSeasonDataLoader._row_position(qrow)
+                 if QUALIFYING_CLASSIFICATION in qrow else
+                 _integer(qrow.get("position"), "earlier qualifying position", optional=True)),
+                **({QUALIFYING_CLASSIFICATION: deepcopy(qrow[QUALIFYING_CLASSIFICATION]),
+                    "code": _provider(qrow)[1],
+                    **{stage.lower(): _parse_time_seconds(qrow.get(stage))
+                       for stage in ("Q1", "Q2", "Q3")}}
+                   if qrow is not None and QUALIFYING_CLASSIFICATION in qrow else {}),
                 "status": row.get("status")})
         if set(qmap) - {row["driver"] for row in history_rows}:
             raise ValueError("Earlier race results omit a qualifying entrant")
